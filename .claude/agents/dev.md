@@ -18,7 +18,8 @@ go to a read-only subagent that returns the conclusion. When the hook tells you 
 
 Never: a public act (PR, release, upstream comment); a push to any ref but your dev ref; a forced push; Jagex;
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied
-action is reported in your hand-back, never worked around. A decision that is not yours: `hd ask <slug> "..."`,
+action is reported in your hand-back, never worked around. A harness dev ref stays local (hd reads it there): rebase
+it at will, never push it. A decision that is not yours: `hd ask <slug> "..."`,
 once, then hand back.
 
 Before the hand-back stop every process you started (`<repo>/tools/track.sh down <slug>`), record your result, then

@@ -922,6 +922,17 @@ class R3(Sandbox):
             hd.cmd_handover(["s1"])
         s.assertIn("does not exist", str(e.exception))
 
+    def test_harness_dev_ref_stays_local(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})  # no remote ref at all
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        s.assertEqual(hd.rec("h1", "handover")["head"], A)
+        s.assertEqual(hd.TRACK["harness"]["dev"], "harness/{slug}")                 # the local branch, so a rebase needs no force push
+        repo = Path(__file__).parent.parent
+        for doc in ("tools/track.md", ".claude/agents/dev.md"):
+            s.assertIn("never push it", (repo / doc).read_text().replace("\n", " "), doc)
+
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

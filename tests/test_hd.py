@@ -643,6 +643,9 @@ class R8(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["s2"])
         s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
+        s.change("h1", "harness"); s.change("s3", deps=["h1"]); s.agreed("s3")       # a harness dep is in another repo: not merged
+        F.f["refs"].update({"harness/h1": "h" * 40, "fork/dev/s3": C}); F.f["merges"][(B, C)] = ("ok", E)
+        s.assertEqual(s.ctx(F).T(hd.defs("changes")["s3"], C), ("ok", E))
 
     def test_conflict_lists_dev(s):
         s.change("s1"); s.agreed("s1")

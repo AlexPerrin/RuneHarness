@@ -67,6 +67,14 @@ class Facts:
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
+    def on_line(s, clone, tip, sha):
+        """sha is a commit of tip's own first-parent line (the base itself, not work merged into it); None unknown."""
+        def f():
+            r = s.sh(["git", "-C", clone, "rev-list", "--first-parent", tip])
+            return None if r is None or r[0] else set(r[1].split())
+        line = s._m(("line", clone, tip), f)
+        return None if line is None else sha in line
+
     def tree(s, clone, commit, drop=""):
         """The commit's tree sha; with drop, a key of its tree without that top-level entry (the harness repo's harness/)."""
         if not drop:
@@ -346,11 +354,22 @@ class Ctx:
         got = [s.F.contains(str(P(s.cfg["repos"][n]["path"])), s.cfg["repos"][n]["tools"], h) for n, h in t.items()]
         return None if None in got else all(got)
 
+    def own(s, ch, head):
+        """A6: head is the change's work: handed over, or off its base's own line (a fresh dev ref at a base commit is not)."""
+        ho = rec(ch["slug"], "handover")
+        if ch["kind"] == "release" or (ho and ho["head"] == head):
+            return True
+        base = s.base(ch)
+        on = s.F.on_line(s.clone(ch), base, head) if base else None
+        return None if on is None else not on
+
     def live(s, ch, head):
         """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch
         and every tools branch the change carries commits for."""
         if not head:
             return False
+        if not (o := s.own(ch, head)):
+            return o
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
@@ -363,7 +382,9 @@ class Ctx:
             r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
             return None if r is None else bool(r)
         if ch["track"] == "server" and ch["kind"] != "local":
-            return s.F.contains(s.clone(ch), s.base(ch), head) if head else False
+            if not head:
+                return False
+            return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
         return s.live(ch, head)
 
     def T(s, ch, head):
@@ -476,7 +497,7 @@ def nxt(ctx, ch):
     if done is None:
         return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
-    if done and (head != ctx.base(ch) or ch["kind"] == "release" or (ho and ho["head"] == head)):  # a bare dev ref at the base tip is not done
+    if done:
         return step("done", "done")
     con = contract(slug)
     if con is None:

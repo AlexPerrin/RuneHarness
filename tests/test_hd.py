@@ -12,7 +12,7 @@ TA, TB, TC = "ta" * 20, "tb" * 20, "tc" * 20
 
 class Fake(hd.Facts):
     """Facts from dicts: refs {ref: sha}, anc {(tip, sha)}, trees {commit: tree}, merges {(base, head): result},
-    blobs {(ref, path): sha}, rows {cmd: (rc, out)}, unknown {remote}. Records spawns and row runs."""
+    blobs {(ref, path): sha}, line {commits of the base's first-parent line}, rows {cmd: (rc, out)}, unknown {remote}. Records spawns and row runs."""
 
     def __init__(s, **f):
         super().__init__()
@@ -33,6 +33,7 @@ class Fake(hd.Facts):
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
+    def on_line(s, clone, tip, sha): return sha in s.f.get("line", ())
     def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
@@ -223,6 +224,17 @@ class R2(Sandbox):
         s.assertNotIn("s1 [server P2]: closed: answer-1: done upstream", hd.tick(s.ctx(F))["change"])  # shown once
         with s.assertRaises(SystemExit):
             hd.cmd_close(["s1", "again"])
+
+    def test_fresh_dev_ref_in_the_base_is_not_done(s):
+        s.change("h1", "harness"); s.change("c1", "client", deps=["h1"])
+        F = Fake(refs={"HEAD": B, "harness/h1": A, "origin/HEAD": B, "origin/client/c1": ""}, anc={(B, A)}, line={A, B}, trees={A: TA})
+        s.assertEqual(s.state(F, "h1")["state"], "contract: seed rows pending")    # cut at A, a base commit; the base moved on to B
+        s.assertEqual(s.state(F, "c1")["state"], "waiting on h1")
+        hd.write_contract(hd.cfg(), "h1", "harness", "derived")
+        (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        s.assertEqual(s.state(F, "h1")["state"], "done")                          # handed over: its own work
 
     def test_maintainer_inline_comment_files_a_change_once(s):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")

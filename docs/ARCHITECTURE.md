@@ -147,6 +147,7 @@ python3 hd.py                            # a pass, then the view
 python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
 fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
+each tools branch ignores __pycache__/; no compiled cache is committed
 ```
 
 | Requirement | Mechanism |

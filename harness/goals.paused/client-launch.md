@@ -2,6 +2,7 @@
 slug: client-launch
 track: client
 target: 100
+deps: [harness-device-network-block]
 ---
 ## Goal
 The path from launching the official OSRS Android app with the RuneLite plugins to being in gameplay on the test

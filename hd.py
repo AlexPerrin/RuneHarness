@@ -484,11 +484,8 @@ def digest(t):
     return hashlib.sha256(t.strip().encode()).hexdigest()[:16]
 
 
-def nxt(ctx, ch):
-    """The first unmet step of a change (docs/ARCHITECTURE.md, The loop); its state is a fact in words (R7)."""
-    slug, track = ch["slug"], ch["track"]
-    if ch.get("closed"):  # the user's word: no further step, never in T_int
-        return step(f"closed: {ch['closed']}", "done")
+def deps_held(ctx, ch):
+    """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it."""
     for d in ch["deps"]:
         dep = ctx.changes.get(d)
         if dep is None:
@@ -500,6 +497,17 @@ def nxt(ctx, ch):
             return step(f"dependency {d}: ref unknown", "unknown")
         if not ctx.live(dep, dh):
             return step(f"waiting on {d}", "wait")
+    return None
+
+
+def nxt(ctx, ch):
+    """The first unmet step of a change (docs/ARCHITECTURE.md, The loop); its state is a fact in words (R7)."""
+    slug, track = ch["slug"], ch["track"]
+    if ch.get("closed"):  # the user's word: no further step, never in T_int
+        return step(f"closed: {ch['closed']}", "done")
+    held = deps_held(ctx, ch)
+    if held:
+        return held
     head = ctx.head(ch)
     if head is None:
         return step("dev ref unknown", "unknown")
@@ -750,7 +758,10 @@ def measure(ctx, g, act):
     """R1: the goal's measure script runs when its target's tree differs from measure.json's (the client's target is master
     plus the live test-server tree, so a server change live there re-measures the client; the units passing() names join
     the key and go to the script as PASSES); below target with no open change serving the goal, the orchestrator plans."""
-    ch = {"slug": g["slug"], "track": g["track"], "kind": "goal", "deps": []}
+    ch = {"slug": g["slug"], "track": g["track"], "kind": "goal", "deps": g["deps"]}
+    held = deps_held(ctx, ch)  # a goal's deps hold its measure as they hold a change
+    if held:
+        return held["state"]
     target = ctx.base(ch)
     tree = ctx.F.tree(ctx.clone(ch), target) if target else None
     if not tree:

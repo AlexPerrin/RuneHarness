@@ -66,7 +66,7 @@ it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), 
 `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change
 is live once the live branch and every such branch hold their heads. A done or closed change leaves nothing behind: the pass
 removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`,
-`dev/<slug>`), then those branches, the dev ref last; a branch goes once the base, the repo's tools branch or the change's
+`dev/<slug>`; one whose status shows only untracked symlinks holds no edits and goes forced, one with edits stays), then those branches, the dev ref last; a branch goes once the base, the repo's tools branch or the change's
 head holds its tip, or the change is closed; `swept.json` keeps the head the dev ref held; remote branches are public and stay; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
 
 ## The loop

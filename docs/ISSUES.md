@@ -17,4 +17,4 @@ design or a rewrite too large for the run, and the measurements of v7 that were 
   files the test server needs beyond the fork's tree are not yet on `local/harness`.
 - **Unconfirmed v7 measurements** (the monitor): the 131-module recompile after adding a pack module; why every
   SubagentStop hook was cancelled; that the binary RSProx recordings hold clan packets; the fixed-mode login
-  coordinates as the cause of the 10-31 login stall; no Jagex contact from the desktop jav_config (RSProx logs only).
+  coordinates as the cause of the 10-31 login stall.

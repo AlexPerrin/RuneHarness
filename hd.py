@@ -67,9 +67,13 @@ class Facts:
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
-    def tree(s, clone, commit):
-        r = s.sh(["git", "-C", clone, "rev-parse", commit + "^{tree}"])
-        return r[1].strip() if r and r[0] == 0 else None
+    def tree(s, clone, commit, drop=""):
+        """The commit's tree sha; with drop, a key of its tree without that top-level entry (the harness repo's harness/)."""
+        if not drop:
+            r = s.sh(["git", "-C", clone, "rev-parse", commit + "^{tree}"])
+            return r[1].strip() if r and r[0] == 0 else None
+        r = s.sh(["git", "-C", clone, "ls-tree", commit])
+        return hashlib.sha1("".join(l + "\n" for l in r[1].splitlines() if l.split("\t", 1)[-1] != drop).encode()).hexdigest() if r and r[0] == 0 else None
 
     def merge(s, clone, base, head, msg):
         """R8: ('ok', commit) | ('conflict', detail) | None. The merged tree becomes a commit with fixed author and
@@ -376,8 +380,10 @@ class Ctx:
         return s._m(("T", ch["slug"], head), f)
 
     def tree(s, ch, commit):
-        """T's tree sha, which keys build and gate; a harness change's carried tools heads are part of the key."""
-        t, tools = s._m(("tree", commit), lambda: s.F.tree(s.clone(ch), commit)), s.tools(ch)
+        """T's tree sha, which keys build and gate; a harness change's key leaves out the definitions under harness/ (a
+        definition commit on the live branch re-gates nothing) and holds its carried tools heads."""
+        drop = "harness" if ch["track"] == "harness" else ""
+        t, tools = s._m(("tree", commit, drop), lambda: s.F.tree(s.clone(ch), commit, drop)), s.tools(ch)
         return None if t is None or tools is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools))
 
     def script(s, ch):

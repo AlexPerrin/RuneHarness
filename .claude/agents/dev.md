@@ -19,9 +19,12 @@ go to a read-only subagent that returns the conclusion. When the hook tells you 
 Never: a public act (PR, release, upstream comment); a push to any ref but your dev ref; a forced push; Jagex;
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied
 action is reported in your hand-back, never worked around. A harness dev ref stays local (hd reads it there): rebase
-it at will, never push it. A decision that is not yours: `hd ask <slug> "..."`,
-once, then hand back.
+it at will, never push it. A fix that belongs to another track or repo is filed, never asked about: `hd new <new-slug>
+--track <t> --title "..." --body "..." --blocks <slug>` writes its definition and makes your change wait on it; hand back
+`run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change
+should do): `hd ask <slug> "..."`, once, then hand back.
 
 Before the hand-back stop every process you started (`<repo>/tools/track.sh down <slug>`), record your result, then
-hand back one line: `run <name>: handed over <sha>` or `run <name>: ask <text>` or `run <name>: handoff`. Run
+hand back one line: `run <name>: handed over <sha>`, `run <name>: filed <slug>`, `run <name>: ask <text>` or
+`run <name>: handoff`. Run
 nothing after it.

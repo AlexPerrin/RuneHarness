@@ -536,6 +536,17 @@ class R5(Sandbox):
         F.f["procs"] = {(7, "1")}
         s.assertEqual(len([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")]), 1)   # listed again for a live console
 
+    def test_a_run_the_head_stops_ends_and_frees_its_slot(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        run = s.started(F, "s1")
+        hd.cmd_stop([run["name"]])
+        r = [x for x in hd.runs() if x["name"] == run["name"]][0]
+        s.assertEqual(r["reason"], "stopped by the head"); s.assertTrue(r["ended"])
+        s.assertNotIn(run["name"], " ".join(hd.tick(s.ctx(F))["run"]))
+        with s.assertRaises(SystemExit):
+            hd.cmd_stop([run["name"]])                                          # an ended run is not stopped twice
+
     def test_repair_logged_only_on_observed_effect_and_raised_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS, containers={"server-s1": "running"}, down_works=False)

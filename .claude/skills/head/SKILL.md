@@ -17,8 +17,10 @@ description: "Main as the chat head: woken by the harness, run hd, spawn each li
    `hd answer <slug> --waive <row> "<their words>"`; when their word closes the change as done,
    `hd close <slug> "<their words>"` and commit the definition.
 6. `alert`: tell the user in one line; only they can fix it.
-7. A hand-back arrives as one line; `hd` on the next wake shows what it recorded. Return to the user.
-8. The user's other messages are dispatched, not acted on here: an instruction about a change or a run goes to that
+7. To stop a run (the user's word, or an agent the user closed): `hd stop <run>`, then TaskStop its agent; TaskStop
+   alone leaves the run holding a slot.
+8. A hand-back arrives as one line; `hd` on the next wake shows what it recorded. Return to the user.
+9. The user's other messages are dispatched, not acted on here: an instruction about a change or a run goes to that
    run by SendMessage if it is alive, else to the orchestrator if one is alive; a planning request with none alive
    becomes a goal (`harness/goals/<slug>.md`, the user's words as its body, committed), for which the pass lists the
    orchestrator (main never spawns a run the pass did not list); a question about

@@ -26,7 +26,10 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
-    def rev(s, clone, ref): return None if ref.split("/")[0] in s.f.get("unknown", ()) else s.f.get("refs", {}).get(ref, "")
+    def rev(s, clone, ref):
+        if ref.split("/")[0] in s.f.get("unknown", ()): return None
+        if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
+        return s.f.get("refs", {}).get(ref, "")
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
@@ -794,6 +797,25 @@ class R3(Sandbox):
         s.change("s1")
         F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract
         s.assertEqual(s.state(F, "s1")["state"], "done")
+
+    def test_harness_change_carries_its_tools_commits(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork = str(s.root / "fork")
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["h1"])
+        s.assertIn("does not descend from local/harness", str(e.exception))      # it must land as a fast-forward
+        F.f["anc"] = {(C, "local/harness")}
+        ho = s.gated("h1", F)
+        s.assertEqual((ho["tools"], ho["T"]), ({"fork": C}, TA + "+" + C[:12]))  # build and gate are keyed by the carried head too
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1], "ship"); s.assertEqual(F.envs[-1]["TOOLS"], f"{fork}:local/harness:{C}")
+        F.f["refs"][f"{fork}:harness/h1"] = D
+        s.assertEqual(s.state(F, "h1")["actor"], "dev")                          # a moved tools ref is handed over again
+        F.f["refs"][f"{fork}:harness/h1"] = C; F.f["anc"].add((B, A))
+        s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # main holds the head, the tools branch not yet
+        F.f["anc"].add(("local/harness", C))
+        s.assertEqual(s.state(F, "h1")["state"], "done")
 
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")

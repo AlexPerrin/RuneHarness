@@ -42,7 +42,7 @@ harness/goals/<slug>.md        slug, track, target; measured by the track's `too
 harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version, closed; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
-state/<slug>/handover.json     {head, T}                       state/<slug>/gate.json      {T, ok, detail}
+state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
 state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note}, rules{file: blob}, run}   appended
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
@@ -57,7 +57,11 @@ permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar an
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run. The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume. The build copy is `<repo>/.worktrees/<slug>-build`, the
 dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
-(hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
+(hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing. A harness change carries
+a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless
+it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's
+`tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change
+is live once the live branch and every such branch hold their heads; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
 
 ## The loop
 
@@ -107,11 +111,11 @@ head. The one hook rule: `hd approve` is denied inside a subagent.
 
 | | Client | Server | Harness |
 |---|---|---|---|
-| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` |
+| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` (and `harness/<slug>` of each product repo whose tools it changes) |
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>` | the test suite at T |
-| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, trailers), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not |
+| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, trailers), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not; each carried tools head's tests |
 | judge | release only | every contract row | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`; upstream after the yes | fast-forward the live branch to T, push; moved past T's base: re-gate |
+| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`; upstream after the yes | fast-forward each carried tools branch, then the live branch to T, push; moved past T's base: re-gate |
 
 ```mermaid
 sequenceDiagram

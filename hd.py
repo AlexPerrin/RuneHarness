@@ -204,7 +204,8 @@ def seed_rows(c, track):
 
 def contract(slug):
     """evidence/<slug>/contract.md → {hash, rules, agreed, rows, text} | None.
-    Rows `- id | text | check: <cmd>` (hand-over and gate) | `gate: <cmd>` (gate only) | `judge: <skill>` (qa)."""
+    Rows `- id | text | check: <cmd>` (hand-over and gate) | `gate: <cmd>` (gate only) | `judge: <skill>` (qa);
+    an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run."""
     f = EVID / slug / "contract.md"
     if not f.exists():
         return None
@@ -217,9 +218,9 @@ def contract(slug):
             c["agreed"] = l[7:].strip() or None
         elif l.startswith("- ") and "|" in l:
             p = [x.strip() for x in l[2:].split("|")]
-            row = {"id": p[0], "text": p[1] if len(p) > 1 else "", "check": None, "gate": None, "judge": None}
+            row = {"id": p[0], "text": p[1] if len(p) > 1 else "", "check": None, "gate": None, "judge": None, "waive": None}
             for x in p[2:]:
-                for k in ("check", "gate", "judge"):
+                for k in ("check", "gate", "judge", "waive"):
                     if x.startswith(k + ":") or x == k:
                         row[k] = x[len(k) + 1:].strip() or k
             for k in ("check", "gate"):  # a row's command is a track script or a test run, never an arbitrary shell line
@@ -899,7 +900,11 @@ def cmd_handover(a):
 def rows(ctx, ch, con, head, tc, tree, build, gate):
     """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root."""
     env, why = ctx.env(ch, head, tc, tree, build), []
+    waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
     for row in con["rows"]:
+        if row["id"] in waived:
+            print(f"waived: {row['id']} by {waived[row['id']]}")
+            continue
         for cmd in ([row["check"]] + ([row["gate"]] if gate else [])):
             if cmd:
                 rc, out = ctx.F.run(cmd, str(track_root(ctx.cfg, ch["track"])), env)
@@ -955,15 +960,19 @@ def cmd_ask(a):
 
 
 def cmd_answer(a):
-    """R3: the user's answer is a contract row, never free text; the open question is closed."""
-    slug, text = a[0], " ".join(a[1:])
+    """R3: the user's answer is a contract row, never free text; the open question is closed.
+    `hd answer <slug> --waive <row id> <text>`: the user's word that a script row does not apply to this change."""
+    waive = a[2] if len(a) > 2 and a[1] == "--waive" else None
+    slug, text = a[0], " ".join(a[3:] if waive else a[1:])
     ch = defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
     f = EVID / slug / "contract.md"
     if not f.exists():
         write_contract(cfg(), slug, ch["track"], "")
+    if waive and not any(r["id"] == waive and (r["check"] or r["gate"]) for r in contract(slug)["rows"]):
+        refuse(f"no script row {waive} in the contract")
     n = sum(1 for l in f.read_text().splitlines() if l.startswith("- answer-")) + 1
     with open(f, "a") as o:
-        o.write(f"- answer-{n} | {now()} the user: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}\n")
+        o.write(f"- answer-{n} | {now()} the user: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}{f' | waive: {waive}' if waive else ''}\n")
     drop(slug, "ask")
     event(change=slug, record="answer", text=text[:300])
     print(f"answer-{n} added to the contract")

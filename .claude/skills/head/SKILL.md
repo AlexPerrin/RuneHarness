@@ -13,7 +13,8 @@ description: "Main as the chat head: woken by the harness, run hd, spawn each li
    prompt naming the brief path. Nothing is pasted into this chat.
 4. `card`: show it in full and ask the user (approve / fix first / no). Yes: run the printed `hd approve` command.
    Fix first: `hd answer <slug> "<their words>"`. No or silence: record nothing.
-5. `question`: ask the user, then `hd answer <slug> "<their words>"`; when their word closes the change as done,
+5. `question`: ask the user, then `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
+   `hd answer <slug> --waive <row> "<their words>"`; when their word closes the change as done,
    `hd close <slug> "<their words>"` and commit the definition.
 6. `alert`: tell the user in one line; only they can fix it.
 7. A hand-back arrives as one line; `hd` on the next wake shows what it recorded. Return to the user.

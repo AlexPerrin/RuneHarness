@@ -29,7 +29,7 @@ gh, docker and the process table; a live check reads the real state.
 2. **R2** `tests.test_hd.R2`: a change with a live dependency goes from defined to live with no `approve`, `answer` or
    console call; a closed change lists no run, ends its unspawned ones and leaves T_int, and a closed dependency holds nothing; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input.
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev; a hand-over with a failing
-   script row, or whose pushed ref is not the head it names, is refused; a verdict missing a row is refused; verdicts
+   script row, or whose pushed ref is not the head it names, is refused; a script row the user's answer waives is not run; a verdict missing a row is refused; verdicts
    append; a text-only fix leaves the verdict at the same head valid; a gate at T does not hold at T'; a verdict at H
    does not hold at H'; a harness change's tools commits are handed over, gated and landed with it; a moved upstream rule file voids only the rule rows; a failed fetch leaves every change where
    it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.

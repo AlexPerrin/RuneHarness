@@ -24,7 +24,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | Command | Who | Does |
 |---|---|---|
 | `hd` | main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, runs, goals, change facts (R7) |
-| `hd approve <slug> <head>`, `hd answer <slug> <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row |
+| `hd approve <slug> <head>`, `hd answer <slug> [--waive <row>] <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
 | `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its unspawned runs end, it leaves T_int and holds no dependent |
 | `hd new <slug> ...` | a planning run, the user | writes a definition |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |

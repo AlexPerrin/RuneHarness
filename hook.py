@@ -3,7 +3,7 @@
 
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
-PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` is denied inside a subagent.                 R4
+PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 write evidence/<slug>/handoff.md and hand back.                                                            R6
 SubagentStop    end the run: ended, usage, last message, record (the role's record newer than the start), then start the
@@ -130,12 +130,13 @@ def end_run(p):
     start_pass()
 
 
-def deny_approve(p):
-    """R4: the one guard rule. Authority is otherwise by credential; the approval record is main's alone."""
-    if p.get("agent_id") and re.search(r"\bhd(\.py)?\s+approve\b", (p.get("tool_input") or {}).get("command") or ""):
-        hd.event(action="denied", agent=p["agent_id"], role=p.get("agent_type"), rule="hd approve is main's")
+def deny_users_word(p):
+    """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is recorded by main alone."""
+    m = p.get("agent_id") and re.search(r"\bhd(\.py)?\s+(approve|close)\b", (p.get("tool_input") or {}).get("command") or "")
+    if m:
+        hd.event(action="denied", agent=p["agent_id"], role=p.get("agent_type"), rule=f"hd {m[2]} is main's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                                 "permissionDecisionReason": "hd approve is recorded by main after the user's yes, never by an agent. Report it; do not work around it."}}))
+                                                 "permissionDecisionReason": f"hd {m[2]} is recorded by main after the user's word, never by an agent. Report it; do not work around it."}}))
 
 
 def context_of(path):
@@ -177,7 +178,7 @@ def context_limit(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_approve(p)), "PostToolUse": context_limit, "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p)),"PostToolUse": context_limit, "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

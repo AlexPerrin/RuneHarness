@@ -8,6 +8,7 @@ created: '2026-10-24T19:31:52Z'
 branch: content/goblin-diplomacy
 network: true
 deps: [harness-close-done]
+closed: 'answer-1: Close it as done; the hand-in''s atomicity is judged under goblin-diplomacy-review-367-fftgsrq''s contract.'
 ---
 ## Change
 Upstream #367 review P2 (eaglepurerocketgrape 2026-10-22 11:42). Head content/goblin-diplomacy d77ac2b76, mergeable. Replaces the open work in `goblin-diplomacy-unstacked` for #367.

@@ -409,10 +409,14 @@ def digest(t):
 def nxt(ctx, ch):
     """The first unmet step of a change (docs/ARCHITECTURE.md, The loop); its state is a fact in words (R7)."""
     slug, track = ch["slug"], ch["track"]
+    if ch.get("closed"):  # the user's word: no further step, never in T_int
+        return step(f"closed: {ch['closed']}", "done")
     for d in ch["deps"]:
         dep = ctx.changes.get(d)
         if dep is None:
             return step(f"dependency {d} has no definition", "alert")
+        if dep.get("closed"):
+            continue
         dh = ctx.head(dep)
         if dh is None:
             return step(f"dependency {d}: ref unknown", "unknown")
@@ -504,8 +508,8 @@ def integration(ctx):
             heads.append((pin, h, None))
     for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
         head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
-        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ctx.F.contains(clone, base, head) \
-                and all(d in ctx.changes and ctx.live(ctx.changes[d], ctx.head(ctx.changes[d])) for d in ch["deps"]):
+        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
+                and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
     cur, included = base, []
     for name, h, ch in heads:
@@ -712,7 +716,12 @@ def tick(ctx=None, act=True):
             if (a := rec(ch["slug"], "ask")):
                 view["question"].append(f"{ch['slug']}: {a['text']}")
             last = rec(ch["slug"], "state")
-            if st["actor"] != "done" or not last or last["state"] != "done":
+            if ch.get("closed") and act:  # a run listed before the close is never spawned
+                for r in ctx.runs:
+                    if r["change"] == ch["slug"] and not r.get("started") and not r.get("ended"):
+                        r["ended"], r["reason"] = now(), "change closed"
+                        save_run(r)
+            if st["actor"] != "done" or not last or last["state"] != st["state"]:
                 view["change"].append(f"{ch['slug']} [{ch['track']} {ch['priority']}]: {st['state']}")
             if act and (not last or last["state"] != st["state"]):
                 put(ch["slug"], "state", {"state": st["state"]})
@@ -868,6 +877,21 @@ def cmd_answer(a):
     print(f"answer-{n} added to the contract")
 
 
+def cmd_close(a):
+    """R2: the user's word closes a change as done: an answer row, and `closed` in the definition (main commits it)."""
+    slug = a[0]
+    ch = defs("changes").get(slug) or refuse(f"no change {slug}")
+    if ch.get("closed"):
+        refuse(f"already closed: {ch['closed']}")
+    cmd_answer(a)
+    n = sum(1 for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- answer-"))
+    f = P(ch["path"])
+    head, sep, rest = f.read_text().partition("\n---\n")
+    f.write_text(head + "\n" + yaml.safe_dump({"closed": f"answer-{n}: {' '.join(a[1:])}"}, width=10**6).strip() + sep + rest)
+    event(change=slug, record="closed")
+    print(f"{slug} closed")
+
+
 def cmd_approve(a):
     """R4: only at the change's user step, bound to that head and the PR body's digest."""
     ctx = Ctx()
@@ -921,7 +945,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

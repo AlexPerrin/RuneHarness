@@ -682,6 +682,30 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_ship_moves_nothing_when_a_tools_branch_moved(s):
+        import subprocess
+        tmp = Path(tempfile.mkdtemp()); origin, repo, fork = tmp / "origin.git", tmp / "live", tmp / "fork"
+        run = lambda d, *a: subprocess.run(["git", "-C", str(d), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        commit = lambda d, msg: (run(d, "commit", "-q", "--allow-empty", "-m", msg), run(d, "rev-parse", "HEAD"))[1]
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+        for d, b in ((repo, "v8"), (fork, "main")):
+            subprocess.run(["git", "init", "-q", "-b", b, str(d)], check=True); commit(d, "base")
+        (repo / "tools").mkdir(); shutil.copy(Path(__file__).parent.parent / "tools" / "track.sh", repo / "tools")
+        run(repo, "add", "."); run(repo, "commit", "-qm", "tools"); run(repo, "remote", "add", "origin", str(origin)); run(repo, "push", "-q", "origin", "v8")
+        run(fork, "branch", "local/harness"); wt = fork / ".worktrees" / "harness"; run(fork, "worktree", "add", "-q", str(wt), "local/harness")
+        run(fork, "checkout", "-q", "-b", "harness/s1", "local/harness"); C = commit(fork, "carried fix"); run(fork, "checkout", "-q", "main")
+        run(repo, "checkout", "-q", "--detach"); T = commit(repo, "T"); run(repo, "checkout", "-q", "v8"); live = run(repo, "rev-parse", "v8")
+        ship = lambda: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T], env={**os.environ, "HD_ROOT": str(s.root), "TOOLS": f"{fork}:local/harness:{C}"}, capture_output=True, text=True)
+        moved = commit(wt, "another change shipped to local/harness")
+        hd.put("s1", "gate", {"T": "t", "ok": True}); hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
+        r = ship()
+        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness"), hd.rec("s1", "gate"), hd.rec("s1", "proc-ship")),
+                      (0, live, moved, None, None), r.stdout + r.stderr)   # nothing moved; the gate re-runs and check-tools sends the dev to merge
+        run(wt, "reset", "-q", "--hard", "HEAD~1")
+        r = ship()
+        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")), (0, T, C), r.stdout + r.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+
     def test_harness_build_refuses_without_the_loops_env(s):
         import subprocess
         script = Path(__file__).parent.parent / "tools" / "track.sh"

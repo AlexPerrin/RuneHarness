@@ -120,7 +120,7 @@ when a command runs them (hd at a command's start); a command that only quotes t
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>` | the test suite at T |
 | gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not; each carried tools head's tests |
 | judge | release only | every contract row | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | fast-forward each carried tools branch, then the live branch to T, push; moved past T's base: re-gate |
+| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | fast-forward each carried tools branch, then the live branch to T, push; any of them moved past its gated base: nothing moves, re-gate |
 
 ```mermaid
 sequenceDiagram

@@ -2,8 +2,8 @@
 # tools/track.sh <verb> <slug> [TCOMMIT]: the harness track (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT
 # EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
-# check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (fast-forward each
-# carried tools branch, then the live checkout's branch to T, push).
+# check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
+# past its gated base: fast-forward each carried tools branch, then the live checkout's branch to T, push).
 set -euo pipefail
 verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
 repo=$(cd "$(dirname "$0")/.." && pwd)   # the harness code; root: where state and evidence live
@@ -47,15 +47,20 @@ check_tools() {  # each carried tools head: a fast-forward of its branch, its to
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)
   [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
-  if ! git -C "$repo" merge-base --is-ancestor HEAD "$tc"; then  # the live branch moved past the gated base: the next pass re-gates T on it
-    rm -f "$state/proc-ship.json"; echo "live branch moved past T's base; re-gate"; exit 0
-  fi
-  for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree, by fast-forward only (local branches: no push)
+  moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch")
+  for t in ${TOOLS:-}; do  # nothing moves unless every branch fast-forwards to its gated head
     IFS=: read -r path branch sha <<< "$t"; wt=$path/.worktrees/${branch##*/}
     [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || { echo "refused: $wt has uncommitted edits"; exit 1; }
-    git -C "$wt" merge -q --ff-only "$sha" && echo "$branch at ${sha:0:9}"
+    git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"
   done
-  git -C "$repo" merge -q --ff-only "$tc" && git -C "$repo" push -q origin HEAD && echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
+  if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass re-gates (check-tools then sends the dev to merge it)
+    rm -f "$state/proc-ship.json" "$state/gate.json"; echo "$moved moved past T's base; re-gate"; exit 0
+  fi
+  for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree (local branches: no push)
+    IFS=: read -r path branch sha <<< "$t"; wt=$path/.worktrees/${branch##*/}
+    git -C "$wt" merge -q --ff-only "$sha"; echo "$branch at ${sha:0:9}"
+  done
+  git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
 }
 
 case $verb in build|gate|check-tests|check-dry-run|check-docs|check-tools|ship) "${verb//-/_}" ;; *) echo "verbs: build gate check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac

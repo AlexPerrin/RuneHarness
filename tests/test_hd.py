@@ -628,6 +628,13 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_harness_build_refuses_without_the_loops_env(s):
+        import subprocess
+        script = Path(__file__).parent.parent / "tools" / "track.sh"
+        env = {k: v for k, v in os.environ.items() if k not in ("T", "TCOMMIT")}
+        r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**env, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
+        s.assertEqual((r.returncode, hd.rec("s1", "build")), (2, None), r.stdout + r.stderr)   # no record written, no copy moved
+
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
         hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream

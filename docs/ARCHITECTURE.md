@@ -101,7 +101,8 @@ change that a harness dev run remediates. It writes no product code.
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N clients started and
-logged in by widget actions, blocks until every devtools endpoint answers), and hands over. The hook tells a run past
+logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
+unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it.
 
 **Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so

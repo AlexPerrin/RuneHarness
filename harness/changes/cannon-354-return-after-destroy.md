@@ -1,5 +1,6 @@
 ---
 slug: cannon-354-return-after-destroy
+finding: 4433259172
 track: server
 title: '#354: return after a shot that destroys the cannon (DwarfMulticannon.kt:396)'
 kind: change

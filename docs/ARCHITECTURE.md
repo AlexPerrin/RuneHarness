@@ -39,7 +39,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 ```
 harness/goals/<slug>.md        slug, track, target; measured by the track's `tools/track.sh measure`
-harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version, closed; body
+harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding (comment ids carried), network, version, closed; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
@@ -80,7 +80,9 @@ next(change):
                                     against a change, resolve in its own branch; against a permanent pin or a union, push local/merge/<a>-<b>
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push
-  wait                              upstream merged; a maintainer finding files a new change on the pr with deps [this], contract inherited plus the finding
+  wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no
+                                    definition's `finding` carries files a P0 change on the pr with deps [the pr's root changes],
+                                    their contract unagreed plus a judged `finding` row
   done
 ```
 A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A

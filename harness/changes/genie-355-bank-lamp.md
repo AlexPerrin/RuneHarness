@@ -1,5 +1,6 @@
 ---
 slug: genie-355-bank-lamp
+finding: 4433239755
 track: server
 title: '#355: Talk-to at a bank gives the lamp (GenieRandomEvent.kt:213)'
 kind: change

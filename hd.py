@@ -414,6 +414,15 @@ class Ctx:
         t, tools = s._m(("tree", commit, drop), lambda: s.F.tree(s.clone(ch), commit, drop)), s.tools(ch)
         return None if t is None or tools is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools))
 
+    def key(s, ch, tree):
+        """The build and gate key: T's tree, plus the tip of the track's tools branch when it has one, so a tools fix
+        re-runs both. `-` joins it: the server tags its image by the key."""
+        r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
+        if tree is None or not r.get("tools"):
+            return tree
+        t = s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
+        return None if t is None else tree + (f"-{t[:12]}" if t else "")
+
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
 
@@ -518,7 +527,7 @@ def nxt(ctx, ch):
     if T[0] == "conflict":
         return step("tree conflict: dev", "dev", mode="code", input=["conflict", head, con["hash"]], detail=T[1])
     tc = T[1]
-    tree = ctx.tree(ch, tc)
+    tree = ctx.key(ch, ctx.tree(ch, tc))
     if tree is None:
         return step("tree unknown", "unknown")
     env, script = ctx.env(ch, head, tc, tree), ctx.script(ch)
@@ -608,7 +617,7 @@ def integration(ctx):
             heads.append((pin, h, None))
     for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
         head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
-        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
+        if head and ho and ho["head"] == head and g and g["ok"] and g["T"].split("-")[0] == ho["T"] and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
     cur, included = base, []

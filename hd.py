@@ -100,6 +100,22 @@ class Facts:
     def alive(s, pid, start):
         return bool(pid) and s.proc_start(pid) == str(start)
 
+    def console(s):
+        """The Claude session this command runs in: the nearest ancestor named claude, else the top ancestor."""
+        pid = os.getppid()
+        while pid > 1:
+            try:
+                stat = Path(f"/proc/{pid}/stat").read_text()
+            except OSError:
+                break
+            if stat.split("(", 1)[1].rsplit(")", 1)[0] == "claude":
+                break
+            ppid = int(stat.rsplit(")", 1)[1].split()[1])
+            if ppid <= 1:
+                break
+            pid = ppid
+        return pid, s.proc_start(pid)
+
     def spawn(s, args, log, env=None):
         Path(log).parent.mkdir(parents=True, exist_ok=True)
         p = subprocess.Popen(args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
@@ -167,11 +183,16 @@ def contract(slug):
                 for k in ("check", "gate", "judge"):
                     if x.startswith(k + ":") or x == k:
                         row[k] = x[len(k) + 1:].strip() or k
+            for k in ("check", "gate"):  # a row's command is a track script or a test run, never an arbitrary shell line
+                if row[k] and not re.match(r"(\S*tools/\S+|python3 -m unittest\b|true$)", row[k]):
+                    row[k] = f"false # refused: '{row[k]}' is not under tools/"
             c["rows"].append(row)
     return c
 
 
 def write_contract(c, slug, track, agreed, rules=None):
+    if not seed_rows(c, track):
+        raise RuntimeError(f"no seed rows: {track_root(c, track) / 'tools' / 'track.md'} missing or without a '## Seed rows' section")
     f = EVID / slug / "contract.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(f"# Contract: {slug}\nrules: {' '.join(f'{k}={v}' for k, v in (rules or {}).items())}\nagreed: {agreed}\n\n{seed_rows(c, track)}\n")
@@ -208,7 +229,9 @@ def runs():
 
 def save_run(r):
     (STATE / "runs").mkdir(parents=True, exist_ok=True)
-    (STATE / "runs" / f"{r['name']}.json").write_text(json.dumps(r, indent=1, sort_keys=True))
+    tmp = STATE / "runs" / f".{r['name']}.tmp"
+    tmp.write_text(json.dumps(r, indent=1, sort_keys=True))
+    os.replace(tmp, STATE / "runs" / f"{r['name']}.json")
 
 
 def event(**e):
@@ -233,7 +256,7 @@ class Ctx:
     def __init__(s, facts=None, c=None):
         s.F, s.cfg = facts or Facts(), c or cfg()
         s.changes, s.goals = defs("changes"), defs("goals")
-        s.runs, s.memo, s.alerts, s.listed = runs(), {}, [], []
+        s.runs, s.memo, s.alerts = runs(), {}, []
 
     def _m(s, k, f):
         if k not in s.memo:
@@ -277,7 +300,7 @@ class Ctx:
                 return None
             cur = base
             for d in ch["deps"]:
-                dh = s.head(s.changes[d])
+                dh = s.head(s.changes[d]) if d in s.changes else None
                 if dh is None:
                     return None
                 if dh and not s.F.contains(clone, base, dh):
@@ -353,7 +376,7 @@ def nxt(ctx, ch):
     if head is None:
         return step("dev ref unknown", "unknown")
     ho = rec(slug, "handover")
-    if head and ctx.done(ch, head) and (ho or ch["kind"] == "release"):
+    if head and ctx.done(ch, head) and (head != ctx.base(ch) or ch["kind"] == "release"):
         return step("done", "done")
     if not head or not ho or ho["head"] != head:
         hoff = EVID / slug / "handoff.md"
@@ -379,10 +402,13 @@ def nxt(ctx, ch):
         return step(f"gate on {tree[:9]}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], env))
     if not g["ok"]:
         return step("gate failed: dev", "dev", mode="code", input=["gate", tree, con["hash"]], detail=g.get("detail", ""))
-    if ch["kind"] != "local":
+    if any(r["judge"] for r in con["rows"]):  # a reviewer judges only where the contract has judge rows (client: releases)
         vs = [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]
-        moved = [k for k, v in con["rules"].items() if (ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) or v) != v]
-        if moved and (not vs or vs[-1].get("rules") != {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in moved}):
+        blobs = {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in con["rules"]}
+        if None in blobs.values():
+            return step("upstream rule files unknown", "unknown")
+        moved = [k for k, v in con["rules"].items() if blobs[k] != v]
+        if moved and (not vs or any((vs[-1].get("rules") or {}).get(k) != blobs[k] for k in moved)):
             return step(f"upstream rules moved ({', '.join(moved)}): rule rows re-judged", "qa", mode="judge", input=[head, con["hash"], moved])
         if not vs:
             return step("review due", "qa", mode="judge", input=[head, con["hash"], []])
@@ -444,20 +470,18 @@ def dispatch(ctx, ch, st, act):
     inp = json.dumps(st.get("input"), sort_keys=True)
     same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("ended") and r.get("input") == inp]
     hoff = EVID / slug / "handoff.md"
-    if same and not (hoff.exists() and hoff.stat().st_mtime > max(r.get("started_at") or 0 for r in same)):
-        if len(same) >= 2 and not any(r.get("record") for r in same):
-            ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
+    if same and not hoff.exists() and len(same) >= 2:  # R5: one retry, then raised once
+        ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
         return
-    if len([r for r in ctx.runs if not r.get("ended")]) + len(ctx.listed) >= ctx.cfg.get("agents", 3) or not act:
+    if len([r for r in ctx.runs if not r.get("ended")]) >= ctx.cfg.get("agents", 3) or not act:
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
-    name, cpid = f"{slug}-{n}", os.getppid()
+    name, (cpid, cstart) = f"{slug}-{n}", ctx.F.console()
     r = {"name": name, "role": role, "change": slug, "step": st["state"], "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
-         "console_pid": cpid, "console_start": ctx.F.proc_start(cpid), "listed": now(), "started": None, "started_at": 0, "ended": None,
-         "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
+         "console_pid": cpid, "console_start": cstart, "listed": now(), "events_at": ctx.F.events_count(), "started": None, "started_at": 0,
+         "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
     ctx.runs.append(r)
-    ctx.listed.append(r)
     event(change=slug, run=name, action="listed", role=role)
 
 
@@ -465,7 +489,7 @@ def orchestrate(ctx, view, act):
     """The orchestrator run: cross-track planning and monitoring. Listed when the facts call for it: an alert, a goal
     below target with nothing open, or 50 events since its last run ended (never on time)."""
     last = [r for r in ctx.runs if r["role"] == "orchestrator"]
-    since = ctx.F.events_count() - (last[-1].get("events_at", 0) if last else 0)
+    since = ctx.F.events_count() - (last[-1].get("events_at") or 0 if last else 0)
     why = view["alert"][:] + [g for g in view["goal"] if "planning due" in g] + ([f"{since} events since the last orchestrator run"] if since >= 50 else [])
     if why:
         pseudo = {"slug": "orchestrator", "track": "harness", "deps": [], "kind": "orchestrator", "priority": "P0", "body": "\n".join(why), "title": "orchestrate"}
@@ -490,7 +514,10 @@ def tick(ctx=None, act=True):
         for ch in sorted(ctx.changes.values(), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):
             st = nxt(ctx, ch)
             if st["actor"] == "script" and act:
-                st["act"]()
+                try:
+                    st["act"]()
+                except RuntimeError as e:
+                    view["alert"].append(f"{ch['slug']}: {e}")
             elif st["actor"] in ("dev", "qa"):
                 dispatch(ctx, ch, st, act)
             elif st["actor"] == "user":
@@ -584,6 +611,7 @@ def cmd_handover(a):
         refuse(*why)
     put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "summary": " ".join(a[1:])})
     drop(ch["slug"], "ask")
+    (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
     print(f"handed over {head} (tree {tree[:9]})")
 
@@ -607,6 +635,7 @@ def cmd_verdict(a):
     with open(STATE / ch["slug"] / "verdicts.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "rows": rows, "rules": rules, "run": os.environ.get("HD_RUN", "")}, sort_keys=True) + "\n")
     failed = [k for k, v in rows.items() if v != "pass"]
+    (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="verdict", head=head, failed=len(failed))
     print(f"verdict at {head[:9]}: {'PASS' if not failed else f'FAIL {len(failed)} rows'}")
 
@@ -632,7 +661,7 @@ def cmd_answer(a):
         write_contract(cfg(), slug, ch["track"], "")
     n = sum(1 for l in f.read_text().splitlines() if l.startswith("- answer-")) + 1
     with open(f, "a") as o:
-        o.write(f"- answer-{n} | {now()} the user: {text} | judge: qa-{ch['track']}\n")
+        o.write(f"- answer-{n} | {now()} the user: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}\n")
     drop(slug, "ask")
     event(change=slug, record="answer", text=text[:300])
     print(f"answer-{n} added to the contract")

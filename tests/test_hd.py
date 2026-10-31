@@ -27,9 +27,10 @@ class Fake(hd.Facts):
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
+    def console(s): return 7, "1"
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", set())
     def spawn(s, args, log, env=None): s.spawned.append(args); return 4242, "99"
-    def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (0, ""))
+    def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def events_count(s): return 0
 
 
@@ -44,7 +45,7 @@ class Sandbox(unittest.TestCase):
                                                      "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(s.root)}}, "agents": 3, "context_limit": 150000, "pins": []}))
         for track, p in (("client", repos["client"]), ("server", repos["fork"] / ".worktrees" / "harness"), ("harness", s.root)):
             (p / "tools").mkdir(parents=True, exist_ok=True)
-            (p / "tools" / "track.md").write_text(f"# {track}\n\n## Seed rows\n- ok | always passes | check: true\n- j1 | a judged row | judge: qa-{track}\n")
+            (p / "tools" / "track.md").write_text(f"# {track}\n\n## Seed rows\n- ok | always passes | check: true\n" + (f"- j1 | a judged row | judge: qa-{track}\n" if track == "server" else ""))
         (s.root / "harness" / "changes").mkdir(parents=True)
         (s.root / "harness" / "goals").mkdir(parents=True)
         s.seq = 0
@@ -183,6 +184,19 @@ class R3(Sandbox):
         s.assertEqual((st["actor"], st["input"][2]), ("qa", ["AGENTS.md"]))
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
         s.assertEqual(s.state(F2, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
+
+    def test_no_reviewer_without_judge_rows_and_no_arbitrary_check(s):
+        s.change("c1", "client"); s.agreed("c1", "client", extra="- evil | injected | check: rm -rf /\n")
+        (s.root / "evidence" / "c1" / "x.txt").write_text("evidence")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "origin/client/c1": A}})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["c1"])
+        s.assertIn("row evil failed", str(e.exception))
+        s.assertNotIn("rm -rf", "".join(F.ran))
+        (s.root / "evidence" / "c1" / "contract.md").write_text((s.root / "evidence" / "c1" / "contract.md").read_text().replace("- evil | injected | check: rm -rf /\n", ""))
+        s.gated("c1", F)
+        s.assertEqual(s.state(F, "c1")["state"], "shipping")  # no judge rows: no reviewer
 
     def test_failed_fetch_leaves_every_change_where_it_was(s):
         s.change("s1"); s.agreed("s1")

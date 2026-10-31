@@ -6,7 +6,7 @@ description: "Main as the chat head: woken by the harness, run hd, spawn each li
 
 `hd` is `python3 ~/osrs-harness/hd.py`. Main holds no state: everything below is rebuilt from files on every wake.
 
-1. Arm a watch on `~/osrs-harness/state/wake` (the Monitor tool, polling the file's mtime: inotifywait is not installed). A wake, or the watch's expiry, is the only reason
+1. Arm a watch on `~/osrs-harness/state/wake` (the Monitor tool, inotifywait on close_write). A wake, or the watch's expiry, is the only reason
    to run this loop; re-arm it before returning to the user, every time.
 2. Run `hd`. It prints six sections and nothing else: `spawn`, `card`, `question`, `run`, `goal`, `change`, plus `alert`.
 3. `spawn`: call the Agent tool exactly as printed, in the background: the role as `subagent_type`, the one-line

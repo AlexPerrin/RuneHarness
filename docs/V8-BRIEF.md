@@ -13,6 +13,17 @@ Goal of v8: the same outcomes with the fewest concepts, files and lines, and mor
   content units from the cache, each checked against RSProx recordings and the wiki, with a pass flag).
   Harness: simpler and faster each iteration; measured by §3's numbers, which v8 must beat.
 
+## 1a. New requirement: R8 Build (from P2, P6)
+A server build is a function of one tree, **T = upstream base + the change's dependencies + its head** (computed by
+`git merge-tree`; a conflict goes to the dev before anything builds). Each T is built once, and dev check, QA, gate
+and test-server deploy all use that build. The game cache is its own artefact, keyed by its inputs, built and
+verified only when they change. A gate is keyed by T: an upstream move re-gates only if T changes. Only three events
+make a new T: a commit, an upstream move, a dependency change.
+Workflow: pin → T → build(T) → up(T, accounts) → dev loop (each edit is a new T, built incrementally) → hand-over at
+T → gate(T) → QA on the same build → verdict(T); integration = base + all pins is its own T, built once and deployed.
+Measured waste R8 removes: ~72 min of identical-tree builds, ~97 min of cache re-downloads, ~27 min of cache steps
+with unchanged inputs, ~219 CI min of re-gates on unchanged heads, and by-hand dependency trees (clans dev, 10-31).
+
 ## 2. The workflow as it ran
 One loop over five nouns: **change** (definition) · **commit** (head + base) · **judgment** (hand-over, verdict,
 approval, answer; bound to head + base) · **target** (where live means) · **run** (role, change, start, end).
@@ -55,6 +66,16 @@ Where a change's life went (35 changes):
    ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11). → that one script per track,
    plus a `wait-for <fact>` tool, a dialogue driver and a `gameval <table> <name|id>` lookup over every table;
    skills keep judgment only.
+   Transcript sweep (82 server runs; phase share of time, dev / QA): waiting 23% / 14%, code 17% / 13%, in-game test
+   16% / 27%, build 13% / 1%, client start and login 9% / 13%, orienting 6% / 10%. 252 build calls (188 repeats:
+   50 after an edit, 58 with no error between, 24 dirty `.data/gamevals`, 11 stale cs2, 10 missing base ref);
+   215 client start/login calls (158 repeats, 45 after "not ready"; ~320 min); ~30 waits end at ~9.3 min, the
+   Bash timeout, then loop. Only code + in-game test (~33% dev, ~40% QA) is the work itself.
+   Client (29 client-dev runs): no same-commit rebuilds (each followed an edit or merge; build median 144 s). The
+   cost is the device: 887 Bash calls drive adb by hand; WSL interop timeouts (accept4 failed 110) in 28 results;
+   login hangs to the 9-min timeout (~40 min), 51 login calls; emulator boot waits to 6 min; 16 of 32 restore checks
+   not OK; 322 screenshots despite the data-tools rule; 674 sleep commands. → the client bring-up (emulator boot,
+   install, login, restore) is one script that blocks on facts, run Windows-side so no call crosses WSL interop.
 3. **Agents read at full context.** Read-heavy lookups (RSProx, cache, decompiled code, logs) are done in the agent's
    own context. → those become scripts or tools that return conclusions.
 4. **The guard judges command text.** It blocks reads and evidence writes that mention upstream words, and lets the
@@ -79,13 +100,38 @@ Where a change's life went (35 changes):
    base, never a local ref (R3).
 10. **No agent can read the previous verdict** (`hd show` is missing; 26 failed calls), so "close every prior finding
    first" is not a step, and repeats follow. → a read command, and the checklist's first line.
-11. **Shared tool side effects:** `qa.sh dev`'s cache step dirties tracked `.data/gamevals`, and 3 runs restored it by
+11. **The shared cache download is discarded almost every run.** 36 of 49 cache steps re-downloaded the OpenRS2
+   cache (97 min); 35 first logged "Cache corrupted or incomplete. Deleting .../caches/oldschool/241", so the
+   shared volume `openrune-dl-cache` is not reused (only 12 reuses, all 10-25 23:52 → 10-26 03:12). The message
+   comes from a dependency, not the fork's source; cause unknown (a marker file, a concurrent writer). Also: the
+   cache step ran with no change to its inputs in 10 of 33 train gates (~27 min). Build sweep: 34 train gates
+   (438 min, 9 failed: 8 gameval id clashes between merged branches), 10 QA gate-runs, 63 fork CI runs (~14 min
+   each, 838 min); ~72 min spent building identical trees twice (e.g. world-entities f2a808495 built as `or/`
+   and `run/` with nothing merged in; two train gates of the identical tree eab9908af).
+   Gates: 49 fork CI dispatches over 35 heads, 811 run-minutes; 14 were re-gates of an unchanged head caused only by
+   an upstream move (~219 min, 27%); goblin-367 gated one head 7 times; three upstream moves in 4 min cancelled 2
+   runs. Train: 47 starts → 22 deploys; 8 rebuild conflicts, 7 silent exits (overlapping trains), 10 gate fails; gate
+   median ~850 s; one train rebuilt a tree identical to the previous one (likely a race on live.json). Integrator
+   (15 runs): conflicts and gameval clashes mostly between two pinned changes, not with upstream; one wrong recorded
+   resolution caused a later failure; one "conflict" was a stale MERGE_RR.lock from an overlapping train.
+   → v8: a gate is keyed by tree (re-gate only when the merged tree changes); pins conflict-checked against each
+   other when pinned, not at train time; one train at a time by construction.
+12. **Every run builds the change twice.** The dev's tree (`qa.sh dev`, persistent container) and a merged tree
+   (`qa.sh gate-run`, fresh container, `clean` first) each compile and rebuild the game cache (~3 min each); a
+   shared download volume still re-downloaded 213 MB when found incomplete. → one build per (head, base) in the
+   bring-up script, reused by dev, QA and the gate; the cache artefact keyed by cache id and verified, never rebuilt
+   per tree.
+13. **Shared tool side effects:** `qa.sh dev`'s cache step dirties tracked `.data/gamevals`, and 3 runs restored it by
    hand. → the build leaves the tree clean, checked.
-12. **Wide, long-lived PRs reopen findings** (hunter: ~75 files; each feature adds data lists; gamevals renumbered
+14. **Wide, long-lived PRs reopen findings** (hunter: ~75 files; each feature adds data lists; gamevals renumbered
    against other branches). → a size bound per change, measured.
-13. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
+15. **The pass repeats work with no state change.** Per pass-sweep: 467 gate-pending polls (357 identical, each a
+   CI API call), 202 gate records re-saved for an unchanged head, 432 identical "train running" lines, and the same
+   volume repaired 68 times (gd17-dev-gradle): a repair that never converges. → act and log on edges only; a repair
+   that recurs is a bug, raised once.
+16. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
    harness merge (the monitor's draft blocked harness-dupe-check, 2026-10-31). → the pass merges in its own clone.
-14. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
+17. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
    integration; the brief's first line parsed by three programs; orphans found only by v7 run names.
 
 ## 5. Component ledger: cut, merge, keep

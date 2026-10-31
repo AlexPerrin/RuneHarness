@@ -193,7 +193,7 @@ class R3(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
             hd.cmd_handover(["c1"])
         s.assertIn("row evil failed", str(e.exception))
-        s.assertNotIn("rm -rf", "".join(F.ran))
+        s.assertTrue(all(c.startswith(("true", "false")) for c in F.ran), F.ran)  # the injected line never reaches the shell as a command
         (s.root / "evidence" / "c1" / "contract.md").write_text((s.root / "evidence" / "c1" / "contract.md").read_text().replace("- evil | injected | check: rm -rf /\n", ""))
         s.gated("c1", F)
         s.assertEqual(s.state(F, "c1")["state"], "shipping")  # no judge rows: no reviewer

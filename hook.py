@@ -39,21 +39,25 @@ def brief_in(entries):
     return None
 
 
-def find_run(p):
+ROLES = ("dev", "qa", "orchestrator")
+
+
+def find_run(p, fallback=False):
+    """By agent id, else by the brief path in the transcript; a bind may fall back to the oldest listed run of the role."""
     rs, aid = hd.runs(), p.get("agent_id")
     by_id = [r for r in rs if aid and r.get("agent_id") == aid]
     if by_id:
         return by_id[0]
     name = brief_in(transcript(p))
     by_name = [r for r in rs if r["name"] == name and not r.get("ended")]
-    listed = [r for r in rs if not r.get("started") and not r.get("ended") and r["role"] == p.get("agent_type")]
+    listed = [r for r in rs if fallback and not r.get("started") and not r.get("ended") and r["role"] == p.get("agent_type")]
     return (by_name or listed or [None])[0]
 
 
 def bind(p):
-    if not p.get("agent_id"):
+    if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
-    r = find_run(p)
+    r = find_run(p, fallback=True)
     if not r or r.get("started"):
         return
     r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=p.get("agent_transcript_path") or p.get("transcript_path"))
@@ -100,7 +104,9 @@ def start_pass():
 
 def end_run(p):
     r = find_run(p)
-    if not r or r.get("ended"):
+    if not r:
+        return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
+    if r.get("ended"):
         return
     u, last = usage_of(transcript(p))
     r.update(ended=hd.now(), usage=u, last=(p.get("last_assistant_message") or last)[-500:], record=produced(r), events_at=hd.Facts().events_count())

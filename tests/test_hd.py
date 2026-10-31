@@ -177,6 +177,24 @@ class R2(Sandbox):
         s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"started"' in l), 1)
 
 
+    def test_orchestrator_record_and_unmatched_stop(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        with mock.patch.object(Fake, "events_count", lambda s: 60):        # fifty events since the last orchestrator run
+            v = hd.tick(s.ctx(F))
+        orc = [r for r in hd.runs() if r["role"] == "orchestrator"][0]
+        hook.bind(payload(orc, "agO", "SubagentStart", s.root))
+        hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the orchestrator files a change
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(orc, "agO", "SubagentStop", s.root))
+            s.assertTrue([r for r in hd.runs() if r["role"] == "orchestrator"][0]["record"])
+            dev = [r for r in hd.runs() if r["role"] == "dev"][0]
+            hook.end_run({"hook_event_name": "SubagentStop", "agent_id": "ghost", "agent_type": "dev"})  # no transcript, no id: ends nothing
+        s.assertIsNone([r for r in hd.runs() if r["name"] == dev["name"]][0]["ended"])
+        hook.bind({"hook_event_name": "PreToolUse", "agent_id": "x", "agent_type": "Explore"})          # not a harness role: no read
+        s.assertEqual(len(hd.runs()), 3)
+
+
 class R3(Sandbox):
     def test_no_contract_lists_contract_step_not_dev(s):
         s.change("s1")

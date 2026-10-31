@@ -1,9 +1,0 @@
-no actions need the user's OK
-fish-barrel-check-and-destroy: published -> merged (observed) [dry run]
-sheep-shearer: live -> merged (observed) [dry run]
-stile-approach: would run the hand-over check [dry run]
-would dispatch server-dev for cannon-review-354 (dev) [dry run]
-would dispatch server-dev for genie-review-355 (dev) [dry run]
-would dispatch server-dev for goblin-diplomacy-review-367 (dev) [dry run]
-would dispatch server-dev for witchs-potion-review-368 (dev) [dry run]
-would dispatch server-qa for sheep-shearer (gate) [dry run]

@@ -1,16 +1,49 @@
-# hd: repos, paths, the tracks, the roles (the guard's refs and the record each owes), the agent count.
+# hd: repos, paths, tracks, the agent count, the context limit, the fork's permanent pins.
 repos: {client: AlexPerrin/osrs-plugins-reverse, fork: AlexPerrin/OpenRune-Server, upstream: OpenRune/OpenRune-Server, harness: AlexPerrin/osrs-harness}
-paths: {client: ~/osrs-plugins-reverse, fork: ~/src/OpenRune-Server, work: ~/src/openrune-work}
-tracks:                        # head: the dev ref; base: what a change is checked against and merged into
-  client:  {dev: client-dev,  reviewer: client-qa, head: origin/client/<slug>, base: origin/main, remote: origin, checkout_branch: master}
-  server:  {dev: server-dev,  reviewer: server-qa, head: fork/dev/<slug>,      base: origin/main}
-  harness: {dev: harness-dev,                      head: harness/<slug>,       base: main,        remote: origin}
-roles:                         # push: the refs a role may push, by repo; record: what a run owes; worktree: spawned in one
-  client-dev:   {record: handover, worktree: true, push: {client: ["client/<slug>"]}}
-  client-qa:    {record: verdict,  worktree: true}
-  server-dev:   {record: handover, push: {fork: ["dev/<slug>"]}}
-  server-qa:    {record: verdict,  push: {fork: ["gate/<slug>", "docs"]}}
-  integrator:   {push: {fork: ["local/*", "fin/*"]}}
-  harness-dev:  {record: handover, worktree: true}
-  orchestrator: {record: measure}
+paths: {work: ~/src/work, cache: ~/src/work/cache}
+tracks:                        # clone: the shared read-only clone; head: the dev ref; base: what T merges onto; public: the act that needs the user
+  client:  {clone: ~/osrs-plugins-reverse,  remote: origin, head: origin/client/{slug}, base: origin/main, branch: master, public: release}
+  server:  {clone: ~/src/OpenRune-Server,   remote: fork,   head: fork/dev/{slug},      base: origin/main, public: upstream}
+  harness: {clone: ~/osrs-harness,          remote: origin, head: harness/{slug},       base: main,        branch: main}
 agents: 3
+context_limit: 150000          # tokens; past it the hook tells the run to hand off
+pins:                          # fork branches every integration tree carries; fix/* and fin/* become changes one by one
+  - local/android
+  - local/local-auth
+  - local/op-overrides
+  - local/quest-test-fixture
+  - local/romeo-juliet
+  - local/skip-cs2-packs
+  - local/spotless-241
+  - local/test-commands
+  - local/treasure-trails
+  - local/world-settings
+  - fin/diaries
+  - fin/fairy-rings
+  - fin/farming
+  - fin/grand-exchange
+  - fin/jewellery
+  - fin/quest-test-fixture
+  - fin/vampyre-slayer
+  - fix/06-varrock-single-juliet
+  - fix/07-juliet-house-stairs
+  - fix/10-login-welcome-message
+  - fix/11-dense-clientscript-ids
+  - fix/22-music-tab-play
+  - fix/25-ice-mountain-music-area
+  - fix/31-friend-add-update
+  - fix/36-giant-mole-kill-count
+  - fix/37-kitten-growth-and-wording
+  - fix/54-ernest-stage-2
+  - fix/56-misthalin-mystery-mandy-guards
+  - fix/59-gertrudes-cat-fluffs
+  - fix/63-gertrudes-cat-shilop-line
+  - fix/69-blue-moon-inn-stairs
+  - fix/70-missing-mesanims
+  - fix/71-item-config-tradeable
+  - fix/73-heldu-dispatch-order
+  - fix/74-bankside-view-op
+  - fix/75-coal-bag-messages
+  - fix/cannon-drop-tests
+  - fix/ground-item-despawn-times
+  - fix/stile-approach

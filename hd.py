@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent          # tests point HD_ROOT at a sandbox
-STATE, EVID, DEFS, TRACKS = ROOT / "state", ROOT / "evidence", ROOT / "harness", ROOT / "tracks"
+STATE, EVID, DEFS, TRACKS = ROOT / "state", ROOT / "evidence", ROOT / "harness", ROOT / "tools"
 
 
 # ---------------------------------------------------------------- facts (P1: an unknown fact is None, never False)
@@ -86,7 +86,7 @@ def contract(slug):
 
 
 def seed_rows(track):
-    """The '## Seed rows' section of tracks/<track>.md: the rows every contract of the track starts from."""
+    """The '## Seed rows' section of the track's tools/track.md: the rows every contract of the track starts from."""
 
 
 def record(slug, name):
@@ -112,9 +112,10 @@ def event(**fields):
 
 
 # ---------------------------------------------------------------- the five nouns, derived
-TRACK = {  # derived, not configured: the repo, the dev ref of a change, and the public act that needs the user
+TRACK = {  # derived, not configured: the repo, the dev ref of a change, the public act that needs the user. The track's
+    # script is <repo>/tools/track.sh (the fork's on its tools branch, checked out at <repo>/.worktrees/harness).
     "client": {"repo": "client", "dev": "client/{slug}", "public": "release"},
-    "server": {"repo": "fork", "dev": "dev/{slug}", "public": "upstream", "upstream": "upstream"},
+    "server": {"repo": "fork", "dev": "dev/{slug}", "public": "upstream"},
     "harness": {"repo": "harness", "dev": "harness/{slug}", "public": None},
 }
 
@@ -152,12 +153,12 @@ def nxt(ctx, ch):
     contract agreed?           no → seed rows written (script); server: qa run (mode contract)
     hand-over at the dev tip?  no → dev run (mode code; a hand-off file lists the successor)
     T                          conflict → dev
-    build(T)                   none → tracks/<track>.sh build; failed → dev
-    gate(T)                    none → tracks/<track>.sh gate; failed → dev
+    build(T)                   none → tools/track.sh build; failed → dev
+    gate(T)                    none → tools/track.sh gate; failed → dev
     verdict(head, contract)    none, or the rule files' blobs moved → qa (mode judge); failed code rows → dev
     server: live on the test server?   no → ship-test (the pass's integration step)
     public act?                approval at head? no → card (user)
-    ship                       upstream: hd-public; release: hd-public; else tracks/<track>.sh ship
+    ship                       upstream: hd-public; release: hd-public; else tools/track.sh ship
     wait                       upstream merged → done
     """
 

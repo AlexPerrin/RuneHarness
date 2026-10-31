@@ -32,7 +32,7 @@
  {
   "id": "R6",
   "requirement": "Economy: script before agent before user; nothing checked twice per input; agent count; events on edges; hand-off at the context limit; bring-up as a script",
-  "check": "python3 -m unittest tests.test_hd.R6 && tracks/server.sh up ${SLUG:?} 2 | grep -c LOGGED_IN | grep -qx 2",
+  "check": "python3 -m unittest tests.test_hd.R6 && $FORK/.worktrees/harness/tools/track.sh up ${SLUG:?} 2 | grep -c LOGGED_IN | grep -qx 2",
   "passes": false
  },
  {
@@ -44,7 +44,7 @@
  {
   "id": "R8",
   "requirement": "Trees: T by merge-tree; a merge ref for a resolution against a permanent pin; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run",
-  "check": "python3 -m unittest tests.test_hd.R8 && tracks/server.sh build ${SLUG:?} >/dev/null && tracks/server.sh build ${SLUG:?} | grep -q cached",
+  "check": "python3 -m unittest tests.test_hd.R8 && $FORK/.worktrees/harness/tools/track.sh build ${SLUG:?} >/dev/null && $FORK/.worktrees/harness/tools/track.sh build ${SLUG:?} | grep -q cached",
   "passes": false
  }
 ]

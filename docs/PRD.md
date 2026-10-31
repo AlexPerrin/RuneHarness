@@ -16,7 +16,7 @@ only `passes` may change.
 | R8 **Trees** | A change's tree T is its base, its dependencies and its head merged; a conflict is the dev's step, and a resolution against a permanent pin is a merge ref bound to both heads, used by the integration tree only. T is built at most once, in a copy no agent commits from; its artefact serves the dev's check, the gate, the review and the deployment. The game cache is rebuilt only when its inputs change. Every artefact and process is named after its change or run. | P6 P9 |
 
 Constraints that need no mechanism: nothing contacts Jagex; the user's own RuneLite and the tester account are never
-touched (A10). Each track's seed rows and the dev's and reviewer's rules live in `tracks/<track>.md`.
+touched (A10). Each track's seed rows and the dev's and reviewer's rules live in each repo's `tools/track.md` and `.claude/skills/`.
 
 ## Acceptance
 
@@ -42,11 +42,11 @@ gh, docker and the process table; a live check reads the real state.
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
    no more than the configured agents are listed; two passes over unchanged facts append no event; a run over the
    context limit is told to hand off and its successor is listed with the hand-off file; every run record carries
-   its usage and transcript. Live: `tracks/server.sh up <slug> 2` prints two logged-in clients' ports and returns.
+   its usage and transcript. Live: `tools/track.sh up <slug> 2` prints two logged-in clients' ports and returns.
 7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and
    prints no step name as a state. Live: `python3 hd.py` on the real state.
 8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head; a conflict lists the dev; a merge ref
    `local/merge/<a>-<b>` stands in for heads a and b in T_int and is ignored once either moves; build(T) runs once
    per T and in the change's build copy; the dev's clone is clean after a build; the cache step runs only when its
    input hash changes; every container, volume, clone and client window is named by its change or run. Live:
-   `tracks/server.sh build <slug>` twice prints `cached` the second time.
+   `tools/track.sh build <slug>` twice prints `cached` the second time.

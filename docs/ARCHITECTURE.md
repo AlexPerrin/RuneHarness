@@ -9,10 +9,10 @@ hd.py             the loop: next(change), facts, records, the pass; commands bel
 hd.yaml           repos, paths, the agent count, the context limit, the fork's permanent pins
 hook.py           SubagentStart/Stop: run start and end, then the pass started without waiting;
                   PreToolUse: a subagent may not `hd approve`; PostToolUse: hand off at the context limit
-tracks/<track>.md rules and seed contract rows of the track, read by dev and qa
-tracks/<track>.sh build | up | down | gate | ship | measure | log  <slug> [T]: block on facts, print the result
+tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
+                  track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
+                  <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
-tracks/server/    Dockerfile; tracks/client/up.ps1 (the Windows side of the client bring-up)
 .claude/agents/   dev.md, qa.md; .claude/skills/drive/  main's loop
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop, mobile)
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
@@ -33,7 +33,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 ## Data
 
 ```
-harness/goals/<slug>.md        slug, track, target, measure (a tracks/<track>.sh measure line)
+harness/goals/<slug>.md        slug, track, target, measure (a tools/track.sh measure line)
 harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
@@ -49,8 +49,8 @@ T = `git merge-tree --write-tree` of the base, the dependencies' heads and the h
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar and game cache), a client APK
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run. The game cache is keyed by the hash of its inputs
-(OpenRS2 cache id, pack configs, gamevals) in `~/src/work/cache/`. The build copy is `~/src/work/<slug>-build`, the
-dev's clone `~/src/work/<slug>`; containers, volumes and client windows carry the slug or the run name.
+(OpenRS2 cache id, pack configs, gamevals) in a named docker volume. The build copy is `<repo>/.worktrees/<slug>-build`, the
+dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; containers, volumes and client windows carry the slug or the run name.
 
 ## The loop
 
@@ -60,8 +60,8 @@ next(change):
   contract.md?                      no → qa run (server) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   T                                 conflict → dev
-  build(T)                          not built → tracks/<track>.sh build; failed → dev
-  gate(T)                           not run → tracks/<track>.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
+  build(T)                          not built → tools/track.sh build; failed → dev
+  gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
   server: live.json ⊇ head?         no → ship test server (T_int built once, deployed); a pin conflict → the younger change's dev:
                                     against a change, resolve in its own branch; against a permanent pin or a union, push local/merge/<a>-<b>
@@ -82,7 +82,7 @@ they own; repair what is observed broken, once. **Main** (skill `drive`): a watc
 it runs `hd`, spawns each listed run by path, shows each card, records the user's word, re-arms the watch (an expiry
 is a wake too) and returns to the user.
 **Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the
-track file holds the rules. A dev run commits in its clone, builds with `tracks/<track>.sh build <slug>` (the working
+track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N clients started and
 logged in by widget actions, blocks until every devtools endpoint answers), and hands over. The hook tells a run past
@@ -105,7 +105,7 @@ head. The one hook rule: `hd approve` is denied inside a subagent.
 sequenceDiagram
   participant M as Main
   participant D as dev
-  participant S as tracks/server.sh
+  participant S as tools/track.sh
   participant P as Pass
   participant Q as qa
   participant U as User

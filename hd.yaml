@@ -1,7 +1,11 @@
-# hd: the four facts the harness cannot derive. Everything else is derived: clones live under work/ and are made by
-# the harness; a track's base is its repo's default branch; a change's dev ref is <track>/<slug> (fork: dev/<slug>).
-repos: {client: AlexPerrin/osrs-plugins-reverse, fork: AlexPerrin/OpenRune-Server, upstream: OpenRune/OpenRune-Server, harness: AlexPerrin/osrs-harness}
-work: ~/src/work          # v8's clones (work/repos/<name>), the per-change clones and build copies, the cache store
+# hd: the facts the harness cannot derive. Each track's scripts, rules and skills live in its own repo (tools/track.sh,
+# tools/track.md, .claude/skills/); the server's on the fork's local/harness branch. Per-change clones and build
+# copies are worktrees of that repo under <repo>/.worktrees/; a track's base is its repo's default branch.
+repos:
+  client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse}
+  fork:     {name: AlexPerrin/OpenRune-Server,       path: ~/src/OpenRune-Server, tools: local/harness}
+  upstream: {name: OpenRune/OpenRune-Server}
+  harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
 agents: 3                 # runs alive at once
 context_limit: 150000     # tokens; past it the hook tells a run to hand off
 pins: []                  # fork branches every integration tree carries besides the changes: the user's list, not v7's

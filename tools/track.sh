@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tracks/harness.sh <verb> <slug>: the harness track's scripts (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT.
+# tools/track.sh <verb> <slug>: the harness track's scripts (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT.
 set -euo pipefail
 verb=$1; slug=$2; shift 2
 

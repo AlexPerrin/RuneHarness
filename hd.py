@@ -510,6 +510,32 @@ def orchestrate(ctx, view, act):
         dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate", input=why), act)
 
 
+def measure(ctx, g, act):
+    """R1: the goal's measure script runs when its target's tree differs from measure.json's (the client's target is master
+    plus the live test-server tree, so a server change live there re-measures the client); below target with no open
+    change serving the goal, the orchestrator plans."""
+    ch = {"slug": g["slug"], "track": g["track"], "kind": "goal", "deps": []}
+    target = ctx.base(ch)
+    tree = ctx.F.tree(ctx.clone(ch), target) if target else None
+    if not tree:
+        return "target unknown"
+    if g["track"] == "client":
+        tree += "+" + ((rec("live", "tree") or {}).get("tree") or "none")[:12]
+    m = rec(g["slug"], "measure")
+    if not m or m["tree"] != tree:
+        ctx.start(g["slug"], "measure", [ctx.script(ch), "measure", g["slug"], target], {"TREE": tree, "GOAL": g["slug"], "EVIDENCE": str(EVID / g["slug"]), "HD_ROOT": str(ROOT)}, act)
+        return f"measuring on {tree[:12]}"
+    try:
+        value = float(m["value"])
+    except (KeyError, TypeError, ValueError):
+        ctx.alerts.append(f"{g['slug']}: measure.json has no number: {str(m)[:120]}")
+        return "measurement unreadable"
+    s = f"{value:g} / {g['target']} on {tree[:12]} ({m.get('report', '')})"
+    if value < g["target"] and not any(c.get("goal") == g["slug"] and nxt(ctx, c)["actor"] != "done" for c in ctx.changes.values()):
+        s += "; planning due"
+    return s
+
+
 def repairs(ctx, act):
     """R5: end the runs whose console is gone (their agents died with it); make a missing tools worktree."""
     for name, r in ctx.cfg["repos"].items():
@@ -534,6 +560,8 @@ def tick(ctx=None, act=True):
     with lock():
         repairs(ctx, act)
         view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
+        for g in ctx.goals.values():
+            view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         for ch in sorted(ctx.changes.values(), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):
             st = nxt(ctx, ch)
             if st["actor"] == "script" and act:

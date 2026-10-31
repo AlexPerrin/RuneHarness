@@ -33,7 +33,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 ## Data
 
 ```
-harness/goals/<slug>.md        slug, track, target, measure (a tools/track.sh measure line)
+harness/goals/<slug>.md        slug, track, target; measured by the track's `tools/track.sh measure`
 harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md

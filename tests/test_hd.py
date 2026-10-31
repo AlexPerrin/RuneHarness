@@ -103,6 +103,59 @@ def payload(run, agent_id, event, root, last=None, usage=None, context=1000):
     return p
 
 
+class R1(Sandbox):
+    """R1 against v7's cause: the client goal stayed six days stale behind one open upstream PR (§4.19)."""
+
+    def goal(s, slug="client-api", track="client", target=100):
+        (s.root / "harness" / "goals" / f"{slug}.md").write_text(f"---\nslug: {slug}\ntrack: {track}\ntarget: {target}\n---\nthe goal")
+
+    def test_target_move_lists_measure_once(s):
+        s.goal()
+        F = Fake(**FACTS)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(v["goal"], ["client-api: measuring on tbtbtbtbtbtb"])
+        s.assertEqual([x[1:] for x in F.spawned], [["measure", "client-api", B]])
+        hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "api-probe.tsv"})
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len(F.spawned), 1)                               # measured on this tree: nothing runs again
+        s.assertTrue(v["goal"][0].startswith("client-api: 93.2 / 100 on tbtbtbtbtbtb"))
+        F2 = Fake(**{**FACTS, "refs": {**FACTS["refs"], "origin/HEAD": C}, "trees": {**FACTS["trees"], C: TC}})
+        hd.tick(s.ctx(F2))
+        s.assertEqual([x[1:] for x in F2.spawned], [["measure", "client-api", C]])   # the target moved: measured again, once
+
+    def test_live_server_tree_is_part_of_the_client_target(s):
+        s.goal()
+        F = Fake(**FACTS)
+        hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
+        hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})    # a server change went live on the test server
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x[1:] for x in F.spawned], [["measure", "client-api", B]])
+        s.assertEqual(v["goal"], ["client-api: measuring on tbtbtbtbtbtb"])
+
+    def test_server_head_live_on_test_server_unblocks_client_dep(s):
+        s.change("s1"); s.agreed("s1"); s.change("c1", "client", deps=["s1"])
+        F = Fake(**FACTS)
+        s.assertEqual(s.state(F, "c1")["state"], "waiting on s1")
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live on the test server, not merged upstream
+        s.assertNotEqual(s.state(F, "c1")["actor"], "wait")
+
+    def test_below_target_with_nothing_open_lists_the_orchestrator(s):
+        s.goal()
+        F = Fake(**FACTS)
+        hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
+        v = hd.tick(s.ctx(F))
+        s.assertIn("planning due", v["goal"][0])
+        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))
+        s.change("c1", "client", goal="client-api")                    # a change serves the goal: no planning
+        hd.tick(s.ctx(F))
+        hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
+        v = hd.tick(s.ctx(F))
+        s.assertNotIn("planning due", v["goal"][0])
+        hd.put("client-api", "measure", {"tree": TB + "+none", "value": 100, "report": "r"})
+        s.assertNotIn("planning due", hd.tick(s.ctx(F))["goal"][0])   # met: measured, nothing planned
+
+
 class R2(Sandbox):
     """R2 against v7's causes: spawns waited on an unwoken main (§4.5), hand-backs filled main (§1b), an agent's exit
     waited on the pass (§4.23), the run record came from a prompt protocol (ISSUES)."""

@@ -20,7 +20,7 @@
  {
   "id": "R4",
   "requirement": "Authority: no agent credential can write to OpenRune or release; the harness ships only at the approved head",
-  "check": "python3 -m unittest tests.test_hd.R4 && gh auth status 2>&1 | grep -q github_pat_ && id hd >/dev/null",
+  "check": "python3 -m unittest tests.test_hd.R4 && gh auth status 2>&1 | grep -q github_pat_ && sudo -n -l | grep -q hd-public",
   "passes": false
  },
  {
@@ -43,7 +43,7 @@
  },
  {
   "id": "R8",
-  "requirement": "Trees: T by merge-tree; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run",
+  "requirement": "Trees: T by merge-tree; a merge ref for a resolution against a permanent pin; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run",
   "check": "python3 -m unittest tests.test_hd.R8 && tracks/server.sh build ${SLUG:?} >/dev/null && tracks/server.sh build ${SLUG:?} | grep -q cached",
   "passes": false
  }

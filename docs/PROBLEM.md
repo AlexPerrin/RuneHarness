@@ -9,7 +9,7 @@ docs/ARCHITECTURE.md is the one solution we build.
 | Id | Fact |
 |---|---|
 | A1 | The user wants outcomes in two products, reached with nobody watching, overnight and across days. |
-| A2 | Claude Code agents do the work. Only the user's own chat session (main) can spawn them, at a turn boundary; it can vanish at any moment (usage limit, WSL restart, compaction, closed terminal) and its agents die with it. Its context is finite and shared with the user's conversation. |
+| A2 | Claude Code agents do the work. Only the user's own chat session (main) can spawn them, at a turn boundary; it can vanish at any moment (usage limit, WSL restart, compaction, closed terminal) and its agents die with it. Its context is finite and shared with the user's conversation. A watch can wake it, and every watch expires. |
 | A3 | Agents are fallible and their words are not evidence. Evidence is a commit on a ref, a tree, a file on disk, GitHub state, docker state, the process table. An agent repeats work it cannot see was done, re-derives know-how written as prose, cannot see its own context size, and fixes a defect where it is named rather than as a rule across a diff. |
 | A4 | Two actions are public or irreversible: a write to OpenRune/OpenRune-Server and a client release. The user alone authorizes them, in chat. Everything else is the user's own and reversible. |
 | A5 | Upstream is maintained by others: one change per PR, no stacking, no deferral, no tests unless asked or the change moves items (a dupe test per such flow), a defect reported at any time, rules revised at any time. The fork's CI on a merge with current upstream `main` is the same fact as upstream's PR CI. |

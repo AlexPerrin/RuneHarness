@@ -4,13 +4,13 @@ The harness that moves changes to their live targets for two products: a RuneLit
 Android app (AlexPerrin/osrs-plugins-reverse, APK releases) and an OpenRune test server (the fork
 AlexPerrin/OpenRune-Server, contributed upstream to OpenRune/OpenRune-Server). It is neither product's code.
 
-One mechanism: a change is a list of steps, each "done when this fact holds" plus an action by a script, an agent or
-the user. One pass per minute reads the facts (git, GitHub, docker, processes), does the next script step of every
-change, and names the agent or person every other step needs. Facts over claims; nothing is recorded that can be read.
+One loop over five nouns: a change (its definition and its contract), its tree T (base + dependencies + head), the
+judgments bound to T or to the head, its targets, and the runs that worked it. One pass reads the facts (git, GitHub,
+docker, processes) and does the first unmet step of every change: a script, an agent to spawn, or a card for the user.
 
 ```
-python3 hd.py                 # the console's list: goals, spawns, cards, questions, running, changes
-python3 hd.py tick --dry-run  # what the next pass would do, changing nothing
+python3 hd.py                 # a pass, then the view: spawns, cards, questions, runs, goals, changes, alerts
+python3 hd.py tick --dry-run  # the view, changing nothing
 python3 -m unittest discover -s tests
 ```
 

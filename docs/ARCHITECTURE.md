@@ -25,7 +25,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd approve <slug> <head>`, `hd answer <slug> <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row |
 | `hd new <slug> ...` | a planning run, the user | writes a definition |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
-| `hd handover <slug>` | dev | reads the pushed dev ref (no sha typed), runs every script row of the contract, refuses on any failure or a missing evidence file, records {head, T} |
+| `hd handover <slug>` | dev | reads the pushed dev ref (no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass or fail, appended; refused if a row is missing |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
 | `hd tick` | the timer, the hook | one pass |
@@ -38,11 +38,12 @@ harness/changes/<slug>.md      slug, track, kind (change|release|local), priorit
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T}                       state/<slug>/gate.json      {T, ok, detail}
-state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass|fail, note}}   appended
+state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note}, rules{file: blob}, run}   appended
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
-state/<goal>/measure.json      {tree, value, report}           state/live.json             {T, heads}
-state/runs/<name>.json         {role, change, step, input, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage}
-state/briefs/<run>.md          the prompt; state/events.jsonl  {ts, change, state, detail, run}: one line per state change
+state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
+state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, events_at, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
+state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
+state/<slug>/proc-<script>.json {pid, start, attempts}; repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T_int while both are current
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`
@@ -70,7 +71,7 @@ next(change):
   wait                              upstream merged; a maintainer finding files a new change on the pr with deps [this], contract inherited plus the finding
   done
 ```
-A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A
+A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A
 hand-over at the same head after a verdict re-marks only the failed rows. A goal's `measure` is a step of the goal:
 unmet when its target's tree (client: master and the live T_int) is not the tree of `measure.json`; below target,
 the orchestrator files changes.

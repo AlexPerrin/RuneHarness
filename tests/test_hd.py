@@ -604,6 +604,25 @@ class R8(Sandbox):
         s.assertTrue((s.root / "state" / "s1" / "proc-build.json").exists())
 
 
+class Tools(unittest.TestCase):
+    """The harness track script against this repo itself."""
+
+    def test_check_docs_and_gate_rows(s):
+        import subprocess
+        repo = Path(__file__).parent.parent
+        s.assertEqual(subprocess.run([str(repo / "tools" / "track.sh"), "check-docs"], cwd=repo, capture_output=True, text=True).returncode, 0)
+        root = Path(tempfile.mkdtemp())
+        (root / "evidence" / "g1").mkdir(parents=True)
+        (root / "evidence" / "g1" / "contract.md").write_text("- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
+        snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"  # the working tree as a commit
+        r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
+        rec = json.loads((root / "state" / "g1" / "gate.json").read_text())
+        s.assertEqual((r.returncode, rec["ok"]), (0, False), r.stderr)
+        s.assertIn("'rm -rf /' is not a tools/ script", rec["detail"]); s.assertIn("ok: true", rec["detail"]); s.assertIn("ok: tools/track.sh check-docs", rec["detail"])
+        subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(repo / ".worktrees" / "g1-build")], capture_output=True)
+        shutil.rmtree(root, ignore_errors=True)
+
+
 class R3(Sandbox):
     def test_no_contract_lists_contract_step_not_dev(s):
         s.change("s1")

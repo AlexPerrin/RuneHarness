@@ -1,49 +1,7 @@
-# hd: repos, paths, tracks, the agent count, the context limit, the fork's permanent pins.
+# hd: the four facts the harness cannot derive. Everything else is derived: clones live under work/ and are made by
+# the harness; a track's base is its repo's default branch; a change's dev ref is <track>/<slug> (fork: dev/<slug>).
 repos: {client: AlexPerrin/osrs-plugins-reverse, fork: AlexPerrin/OpenRune-Server, upstream: OpenRune/OpenRune-Server, harness: AlexPerrin/osrs-harness}
-paths: {work: ~/src/work, cache: ~/src/work/cache}
-tracks:                        # clone: the shared read-only clone; head: the dev ref; base: what T merges onto; public: the act that needs the user
-  client:  {clone: ~/osrs-plugins-reverse,  remote: origin, head: origin/client/{slug}, base: origin/main, branch: master, public: release}
-  server:  {clone: ~/src/OpenRune-Server,   remote: fork,   head: fork/dev/{slug},      base: origin/main, public: upstream}
-  harness: {clone: ~/osrs-harness,          remote: origin, head: harness/{slug},       base: main,        branch: main}
-agents: 3
-context_limit: 150000          # tokens; past it the hook tells the run to hand off
-pins:                          # fork branches every integration tree carries; fix/* and fin/* become changes one by one
-  - local/android
-  - local/local-auth
-  - local/op-overrides
-  - local/quest-test-fixture
-  - local/romeo-juliet
-  - local/skip-cs2-packs
-  - local/spotless-241
-  - local/test-commands
-  - local/treasure-trails
-  - local/world-settings
-  - fin/diaries
-  - fin/fairy-rings
-  - fin/farming
-  - fin/grand-exchange
-  - fin/jewellery
-  - fin/quest-test-fixture
-  - fin/vampyre-slayer
-  - fix/06-varrock-single-juliet
-  - fix/07-juliet-house-stairs
-  - fix/10-login-welcome-message
-  - fix/11-dense-clientscript-ids
-  - fix/22-music-tab-play
-  - fix/25-ice-mountain-music-area
-  - fix/31-friend-add-update
-  - fix/36-giant-mole-kill-count
-  - fix/37-kitten-growth-and-wording
-  - fix/54-ernest-stage-2
-  - fix/56-misthalin-mystery-mandy-guards
-  - fix/59-gertrudes-cat-fluffs
-  - fix/63-gertrudes-cat-shilop-line
-  - fix/69-blue-moon-inn-stairs
-  - fix/70-missing-mesanims
-  - fix/71-item-config-tradeable
-  - fix/73-heldu-dispatch-order
-  - fix/74-bankside-view-op
-  - fix/75-coal-bag-messages
-  - fix/cannon-drop-tests
-  - fix/ground-item-despawn-times
-  - fix/stile-approach
+work: ~/src/work          # v8's clones (work/repos/<name>), the per-change clones and build copies, the cache store
+agents: 3                 # runs alive at once
+context_limit: 150000     # tokens; past it the hook tells a run to hand off
+pins: []                  # fork branches every integration tree carries besides the changes: the user's list, not v7's

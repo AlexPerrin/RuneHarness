@@ -692,7 +692,7 @@ def tick(ctx=None, act=True):
         for g in ctx.goals.values():
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint = {}
-        for ch in sorted(ctx.changes.values(), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):
+        for ch in sorted(ctx.changes.values(), key=lambda c: (c["track"] != "harness", PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):  # harness fixes first: they unblock every track
             st = nxt(ctx, ch)
             if st["actor"] == "ship-test":
                 if "v" not in tint:

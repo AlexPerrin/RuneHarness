@@ -492,6 +492,12 @@ class R5(Sandbox):
 
 
 class R6(Sandbox):
+    def test_harness_changes_dispatch_before_product_changes(s):
+        s.change("s1", priority="P0"); s.agreed("s1")
+        s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")
+        c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(Fake(**FACTS)))["spawn"]], ["h1-1"])
+
     def test_same_tree_never_builds_or_gates_twice(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

@@ -6,7 +6,7 @@ repos:
   fork:     {name: AlexPerrin/OpenRune-Server,       path: ~/src/OpenRune-Server, tools: local/harness}
   upstream: {name: OpenRune/OpenRune-Server}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
-agents: 3                 # runs alive at once
+agents: 6                 # runs alive at once (raised from 3 while the harness fixes run: the user's word)
 context_limit: 150000     # tokens; past it the hook tells a run to hand off
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list
   - fix/06-varrock-single-juliet

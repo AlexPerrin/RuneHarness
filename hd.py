@@ -447,6 +447,67 @@ def nxt(ctx, ch):
     return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
 
 
+def integration(ctx):
+    """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in order of
+    creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
+    heads; else the conflict belongs to the younger side. → {commit, tree, heads, names} | {conflict, change, detail, with} | None."""
+    srv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}
+    clone, base = ctx.clone(srv), ctx.base(srv)
+    if not base:
+        return None
+    heads = []
+    for pin in ctx.cfg.get("pins") or []:
+        h = ctx.F.rev(clone, f"fork/{pin}")
+        if h is None:
+            return None
+        if h and not ctx.F.contains(clone, base, h):
+            heads.append((pin, h, None))
+    for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
+        head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
+        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ctx.F.contains(clone, base, head) \
+                and all(d in ctx.changes and ctx.live(ctx.changes[d], ctx.head(ctx.changes[d])) for d in ch["deps"]):
+            heads.append((ch["slug"], head, ch))
+    cur, included = base, []
+    for name, h, ch in heads:
+        r = ctx.F.merge(clone, cur, h, f"T_int: {name} {h[:9]}")
+        if r is None:
+            return None
+        if r[0] == "conflict":
+            for _, o, _ in included:
+                for ref in (f"fork/local/merge/{h[:7]}-{o[:7]}", f"fork/local/merge/{o[:7]}-{h[:7]}"):
+                    if (m := ctx.F.rev(clone, ref)):
+                        r = ctx.F.merge(clone, cur, m, f"T_int: resolution {ref}")
+                if r and r[0] == "ok":
+                    break
+            if r is None or r[0] != "ok":
+                return {"conflict": name, "change": ch, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
+        cur = r[1]
+        included.append((name, h, ch))
+    tree = ctx.F.tree(clone, cur)
+    return {"commit": cur, "tree": tree, "heads": [h for _, h, _ in included], "names": [n for n, _, _ in included]} if tree else None
+
+
+def ship_test(ctx, ch, st, tint, act):
+    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's."""
+    if tint is None:
+        st["state"] = "integration tree unknown"
+    elif "conflict" in tint:
+        if tint["change"] and tint["change"]["slug"] == ch["slug"]:
+            st.update(step(f"conflicts with the integration tree ({', '.join(tint['with'][-3:])}): dev", "dev", mode="code",
+                           input=["integration", ctx.head(ch), tint["detail"][:200]], detail=tint["detail"] +
+                           "\nAgainst a change: add it to your deps or resolve in your branch. Against a permanent pin or a union: "
+                           "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only."))
+            dispatch(ctx, ch, st, act)
+        else:
+            st["state"] = f"test server deploy blocked by {tint['conflict']}'s conflict"
+            if tint["change"] is None and f"pin {tint['conflict']}" not in " ".join(ctx.alerts):
+                ctx.alerts.append(f"pin {tint['conflict']} conflicts with the integration tree ({', '.join(tint['with'][-3:])}): a resolution ref or a change is needed")
+    elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
+        ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
+                  {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT)}, act)
+        st["state"] = f"test server: deploying {tint['tree'][:9]}"
+
+
 # ---------------------------------------------------------------- runs
 def brief(ctx, ch, st, name, role):
     con, hoff = contract(ch["slug"]), EVID / ch["slug"] / "handoff.md"
@@ -562,8 +623,13 @@ def tick(ctx=None, act=True):
         view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
         for g in ctx.goals.values():
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
+        tint = {}
         for ch in sorted(ctx.changes.values(), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):
             st = nxt(ctx, ch)
+            if st["actor"] == "ship-test":
+                if "v" not in tint:
+                    tint["v"] = integration(ctx)  # once per pass
+                ship_test(ctx, ch, st, tint["v"], act)
             if st["actor"] == "script" and act:
                 try:
                     st["act"]()

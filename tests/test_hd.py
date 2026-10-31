@@ -16,7 +16,7 @@ class Fake(hd.Facts):
 
     def __init__(s, **f):
         super().__init__()
-        s.f, s.spawned, s.ran = f, [], []
+        s.f, s.spawned, s.ran, s.envs = f, [], [], []
 
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref): return None if ref.split("/")[0] in s.f.get("unknown", ()) else s.f.get("refs", {}).get(ref, "")
@@ -29,7 +29,7 @@ class Fake(hd.Facts):
     def proc_start(s, pid): return "1"
     def console(s): return 7, "1"
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
-    def spawn(s, args, log, env=None): s.spawned.append(args); return 4242, "99"
+    def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def events_count(s): return 0
 
@@ -332,6 +332,75 @@ class R6(Sandbox):
             hd.event(action="y")
         s.assertTrue((s.root / "state" / "events.1.jsonl").exists())
         s.assertFalse(big.exists())
+
+
+class R8(Sandbox):
+    """R8 against v7's causes: identical trees rebuilt, 53 of 60 pins owned by no change, rerere resolutions replayed
+    wrongly, 15 integrator runs (§4.12, §4.13)."""
+
+    def test_tree_is_merge_of_base_deps_head(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
+        hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream
+        E = "e" * 40
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={E: "te" * 20}, merges={(B, A): ("ok", D), (D, C): ("ok", E)})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s2"])
+        s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
+
+    def test_conflict_lists_dev(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "merges": {(B, A): ("conflict", "CONFLICT (content): Merge conflict in x.kt")}})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["s1"])
+        s.assertIn("x.kt", str(e.exception))
+        hd.put("s1", "handover", {"head": A, "T": "old", "commit": "old"})          # a hand-over from before the base moved
+        st = s.state(F, "s1")
+        s.assertEqual((st["actor"], st["state"]), ("dev", "tree conflict: dev"))
+
+    def integration_fixture(s, with_ref):
+        P_, Q, M, R = "p" * 40, "q" * 40, "m" * 40, "r" * 40
+        s.change("s1"); s.agreed("s1")
+        c = json.loads((s.root / "hd.yaml").read_text()); c["pins"] = ["local/x"]; (s.root / "hd.yaml").write_text(json.dumps(c))
+        refs = {"origin/HEAD": B, "fork/dev/s1": A, "fork/local/x": P_}
+        if with_ref:
+            refs[f"fork/local/merge/{A[:7]}-{P_[:7]}"] = M
+        F = Fake(refs=refs, trees={A: TA, R: "tr" * 20}, merges={(B, A): ("ok", A), (B, P_): ("ok", Q), (Q, A): ("conflict", "CONFLICT (content): y.kt"), (Q, M): ("ok", R)})
+        s.gated("s1", F)
+        return F, R
+
+    def test_merge_ref_stands_in_for_pair_in_integration(s):
+        F, R = s.integration_fixture(with_ref=True)
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["commit"], t["names"]), (R, ["local/x", "s1"]))
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1:], ["ship", "integration", R])
+        s.assertEqual(F.envs[-1]["T"], "tr" * 20)
+        s.assertIn("s1 [server P2]: test server: deploying trtrtrtrt", v["change"])
+        F.f["procs"] = {(7, "1"), (4242, "99")}                                      # the deploy is running: not started again
+        hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
+        hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
+        s.assertEqual(s.state(F, "s1")["state"], "live on the test server; waiting for the user's yes")
+
+    def test_conflict_without_a_resolution_is_the_younger_change_s(s):
+        F, R = s.integration_fixture(with_ref=False)
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["conflict"], t["with"]), ("s1", ["local/x"]))
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
+        s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
+        s.assertEqual([x for x in F.spawned if x[1] == "ship"], [])
+
+    def test_artefacts_named_by_change(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s1"])
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1:], ["build", "s1", A])
+        s.assertEqual((F.envs[-1]["SLUG"], F.envs[-1]["T"]), ("s1", TA))
+        s.assertTrue((s.root / "state" / "s1" / "proc-build.json").exists())
 
 
 class R3(Sandbox):

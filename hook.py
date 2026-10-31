@@ -100,7 +100,7 @@ def produced(r):
 
 
 def start_pass():
-    """The pass runs after every run end, never waited on (v7 waited on it inside the hook and was cancelled)."""
+    """The pass runs after every run end, never waited on."""
     r = subprocess.run(["systemctl", "--user", "start", "--no-block", "hd-tick.service"], capture_output=True)
     if r.returncode:
         hd.STATE.mkdir(parents=True, exist_ok=True)

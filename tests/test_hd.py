@@ -111,8 +111,6 @@ def payload(run, agent_id, event, root, last=None, usage=None, context=1000):
 
 
 class R1(Sandbox):
-    """R1 against v7's cause: the client goal stayed six days stale behind one open upstream PR (§4.19)."""
-
     def goal(s, slug="client-api", track="client", target=100):
         (s.root / "harness" / "goals" / f"{slug}.md").write_text(f"---\nslug: {slug}\ntrack: {track}\ntarget: {target}\n---\nthe goal")
 
@@ -164,9 +162,6 @@ class R1(Sandbox):
 
 
 class R2(Sandbox):
-    """R2 against v7's causes: spawns waited on an unwoken main (§4.5), hand-backs filled main (§1b), an agent's exit
-    waited on the pass (§4.23), the run record came from a prompt protocol (ISSUES)."""
-
     def test_defined_to_live_with_no_person(s):
         s.change("s1"); hd.put("live", "tree", {"tree": TB, "commit": B, "heads": [A]})  # the dependency is live on the test server
         s.change("c1", "client", deps=["s1"])
@@ -256,8 +251,6 @@ class R2(Sandbox):
 
 
 class R4(Sandbox):
-    """R4 against v7's cause: a guard that judged command text, at least half its 44 denials wrong (§4.4)."""
-
     def test_upstream_and_release_run_only_after_approval_at_head(s):
         s.change("s1"); s.agreed("s1"); s.change("rel", "client", kind="release", version="0.1.3")
         hd.write_contract(hd.cfg(), "rel", "client", "derived")
@@ -343,8 +336,6 @@ class R4(Sandbox):
 
 
 class R7(Sandbox):
-    """R7 against v7's cause: `hd` printed step names where a reader expects a state ("done | merged", §4.21)."""
-
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client"); hd.put("s1", "ask", {"text": "scope?"})
         v = hd.tick(s.ctx(Fake(**FACTS)))
@@ -373,9 +364,6 @@ class R7(Sandbox):
 
 
 class R5(Sandbox):
-    """R5 against v7's causes: a volume repaired 68 times with no effect (§4.22), servers and clients outliving their
-    runs (ISSUES), runs hanging after the console died (§4.5), a question asked three times (§4.20)."""
-
     def started(s, F, slug):
         hd.tick(s.ctx(F))
         run = [r for r in hd.runs() if r["change"] == slug][-1]
@@ -450,9 +438,6 @@ class R5(Sandbox):
 
 
 class R6(Sandbox):
-    """R6 against v7's causes: one run read 205M tokens (§4.3), 764 of 1,174 events were repeats (§4.22), ~7 builds of one
-    tree per round (§4.13), spawn briefs pasted into main (§1b)."""
-
     def test_same_tree_never_builds_or_gates_twice(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -536,9 +521,6 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
-    """R8 against v7's causes: identical trees rebuilt, 53 of 60 pins owned by no change, rerere resolutions replayed
-    wrongly, 15 integrator runs (§4.12, §4.13)."""
-
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
         hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream

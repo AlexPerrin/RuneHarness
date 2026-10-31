@@ -72,17 +72,17 @@ restart the live server (`osrs-openrune*`); push any ref but yours; open or edit
 
 ## Seed rows
 Rows the contract starts from (`check:` rows run with SLUG, HEAD, T, BASE, CLONE, BUILD, EVIDENCE in the env).
-- claims | every PR claim, id, file, test name and ticked box is true of the exact head | judge
-- rsprox | timings, steps and messages checked against RSProx recordings tick by tick before the wiki | judge
-- no-deferral | no Not-done list, no unticked item, no open ask; every reported defect fixed in this PR | judge
-- net-change | on an existing PR, pr-comment.md covers only the commits since the PR's live head | judge
-- unsourced | the PR notes name every reconstruction and every cheat used to verify | judge
-- no-raw-data | no game data or raw ids in Kotlin; gameval symbols; state in varbits and varps | judge
-- playable | every flow playable without a cheat; in-game evidence in the evidence dir | judge
-- one-change | one feature, nothing unrelated, no open upstream PR for the same content, Depends stated | judge
-- style | no added comments or KDoc, no unjustified test, nothing public for a test, no quirk entries | judge
-- dupes | each item-moving flow's four paths tested with totals, or a reason that holds | judge
-- accuracy | each rule of accuracy.md matches in game or is a fixed difference | judge
+- claims | every PR claim, id, file, test name and ticked box is true of the exact head | judge: pr-text
+- rsprox | timings, steps and messages checked against RSProx recordings tick by tick before the wiki | judge: accuracy
+- no-deferral | no Not-done list, no unticked item, no open ask; every reported defect fixed in this PR | judge: pr-text
+- net-change | on an existing PR, pr-comment.md covers only the commits since the PR's live head | judge: pr-text
+- unsourced | the PR notes name every reconstruction and every cheat used to verify | judge: accuracy
+- no-raw-data | no game data or raw ids in Kotlin; gameval symbols; state in varbits and varps | judge: qa-server
+- playable | every flow playable without a cheat; in-game evidence in the evidence dir | judge: qa-server
+- one-change | one feature, nothing unrelated, no open upstream PR for the same content, Depends stated | judge: pr-text
+- style | no added comments or KDoc, no unjustified test, nothing public for a test, no quirk entries | judge: qa-server
+- dupes | each item-moving flow's four paths tested with totals, or a reason that holds | judge: dupes
+- accuracy | each rule of accuracy.md matches in game or is a fixed difference | judge: accuracy
 - evidence | accuracy.md, pr-title.txt, pr-body.md, pr-comment.md present and non-empty | check: tracks/server/text.py evidence
 - subject | commit subjects start with feat: or fix:; no Claude-Session trailer; the co-author line only | check: tracks/server/text.py commits
 - texts | template sections present; no fork PR link; pr-comment.md names HEAD | check: tracks/server/text.py texts

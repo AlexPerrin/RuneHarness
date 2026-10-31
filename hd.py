@@ -82,7 +82,7 @@ def goal(slug):
 
 def contract(slug):
     """evidence/<slug>/contract.md → {hash, rules: {file: blob}, agreed, rows: [{id, text, check | gate | judge}]} | None.
-    Rows `- id | text | check: <cmd>` run at hand-over and gate; `gate: <cmd>` at the gate only; `judge` by qa."""
+    Rows `- id | text | check: <cmd>` run at hand-over and gate; `gate: <cmd>` at the gate only; `judge: <skill>` by qa with that skill."""
 
 
 def seed_rows(track):
@@ -112,8 +112,16 @@ def event(**fields):
 
 
 # ---------------------------------------------------------------- the five nouns, derived
+TRACK = {  # derived, not configured: the repo, the dev ref of a change, and the public act that needs the user
+    "client": {"repo": "client", "dev": "client/{slug}", "public": "release"},
+    "server": {"repo": "fork", "dev": "dev/{slug}", "public": "upstream", "upstream": "upstream"},
+    "harness": {"repo": "harness", "dev": "harness/{slug}", "public": None},
+}
+
+
 class Ctx:
-    """One pass's view: config, definitions, runs, and memoised facts."""
+    """One pass's view: config, definitions, runs, and memoised facts. Clones are the harness's own under work/repos/<repo>,
+    made on first use; a track's base is its repo's default branch (origin/HEAD; the server's: upstream main)."""
 
     def head(s, ch):
         """The change's commit: the tip of its dev ref; a release: the base tip.  '' absent, None unknown."""

@@ -9,4 +9,4 @@ pass does not). Push the branch, then `hd handover <slug>`.
 ## Seed rows
 - tests | the suite passes at T | check: python3 -m unittest discover -s tests
 - dry-run | hd tick --dry-run at T plans no upstream action main's pass does not | check: tracks/harness.sh check-dry-run
-- docs | every requirement touched has its test class and its docs line | judge
+- docs | every requirement touched has its test class | check: tracks/harness.sh check-docs

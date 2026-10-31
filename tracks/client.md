@@ -39,4 +39,4 @@ send keyevent BACK in game; push any ref but `client/<slug>`; tag, release or de
 - device-evidence | a logcat extract, dump or devtools JSON in the evidence dir | check: tracks/client.sh check-evidence
 - probe | the probe report is built at HEAD (docs-only differences allowed) | check: tracks/client.sh check-probe
 - network-qa | netqa*.md present and PASS when the change has network: true | check: tracks/client.sh check-netqa
-- state-doc | docs/client-state.md rewritten from the probe report | judge
+- state-doc | docs/client-state.md rewritten from the probe report | judge: qa-client

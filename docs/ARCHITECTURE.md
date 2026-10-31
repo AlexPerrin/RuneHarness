@@ -53,7 +53,8 @@ so a copy can check it out; the integration tree T_int is the same over every ga
 permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar and game cache), a client APK
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run. The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume. The build copy is `<repo>/.worktrees/<slug>-build`, the
-dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; containers, volumes and client windows carry the slug or the run name.
+dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
+(hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
 
 ## The loop
 

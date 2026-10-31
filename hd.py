@@ -175,10 +175,15 @@ def defs(kind):
 defs.bad = []
 
 
+def tools_wt(r):
+    """A repo's tools branch worktree, <repo>/.worktrees/<the branch's last segment>; None without a tools branch."""
+    return P(r["path"]) / ".worktrees" / r["tools"].rsplit("/", 1)[-1] if r.get("tools") else None
+
+
 def track_root(c, track):
-    """The dir holding the track's tools/track.sh and tools/track.md (the fork's on its tools branch worktree)."""
+    """The dir holding the track's tools/track.sh and tools/track.md (on its tools branch worktree when it has one)."""
     r = c["repos"][TRACK[track]["repo"]]
-    return P(r["path"]) / ".worktrees" / "harness" if r.get("tools") else P(r["path"])
+    return tools_wt(r) or P(r["path"])
 
 
 def seed_rows(c, track):
@@ -380,7 +385,11 @@ class Ctx:
             s.alerts.append(f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)")
             return
         if act:
-            pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", env)
+            try:
+                pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", env)
+            except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
+                s.alerts.append(f"{slug}: {name} cannot start: {e}")
+                return
             put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "attempts": p.get("attempts", 0) + 1})
 
 
@@ -651,7 +660,7 @@ def repairs(ctx, act):
     """R5: end the runs whose console is gone (their agents died with it); bring down a server no run uses; make a
     missing tools worktree."""
     for name, r in ctx.cfg["repos"].items():
-        wt = P(r["path"]) / ".worktrees" / "harness" if r.get("tools") else None
+        wt = tools_wt(r)
         if wt and not wt.exists() and act:
             ok = ctx.F.sh(["git", "-C", str(P(r["path"])), "worktree", "add", str(wt), r["tools"]])
             if ok and ok[0] == 0:

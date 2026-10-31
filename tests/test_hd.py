@@ -428,6 +428,22 @@ class R5(Sandbox):
         s.assertEqual(F.spawned[-1][1:], ["upstream", "s1", A])
         s.assertTrue(F.spawned[-1][0].endswith("hd-public"))
 
+    def test_missing_script_is_an_alert_not_a_crash(s):
+        (s.root / "harness" / "goals" / "g1.md").write_text("---\nslug: g1\ntrack: client\ntarget: 100\n---\ngoal")
+        F = Fake(**FACTS)
+        F.spawn = lambda args, log, env=None: hd.Facts.spawn(F, [str(s.root / "nope" / "track.sh")] + args[1:], log, env)
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(a.startswith("g1: measure cannot start:") and "No such file" in a for a in v["alert"]))
+
+    def test_track_root_and_repair_on_the_tools_branch_worktree(s):
+        c = hd.cfg()
+        c["repos"]["client"]["tools"] = "client/harness-v8"
+        s.assertEqual(hd.track_root(c, "client"), s.root / "client" / ".worktrees" / "harness-v8")
+        s.assertEqual(hd.track_root(c, "server"), s.root / "fork" / ".worktrees" / "harness")
+        F = Fake(**FACTS)
+        hd.repairs(hd.Ctx(F, c), True)
+        s.assertIn(["git", "-C", str(s.root / "client"), "worktree", "add", str(s.root / "client" / ".worktrees" / "harness-v8"), "client/harness-v8"], F.ran)
+
     def test_docker_down_is_one_alert_and_no_script_starts(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS, containers=None)

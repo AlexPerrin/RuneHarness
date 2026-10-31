@@ -1,8 +1,8 @@
 # hd: the facts the harness cannot derive. Each track's scripts, rules and skills live in its own repo (tools/track.sh,
-# tools/track.md, .claude/skills/); the server's on the fork's local/harness branch. Per-change clones and build
+# tools/track.md, .claude/skills/) on its `tools` branch, worktree <repo>/.worktrees/<the branch's last segment>. Per-change clones and build
 # copies are worktrees of that repo under <repo>/.worktrees/; a track's base is its repo's default branch.
 repos:
-  client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse}
+  client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse, tools: client/harness-v8}
   fork:     {name: AlexPerrin/OpenRune-Server,       path: ~/src/OpenRune-Server, tools: local/harness}
   upstream: {name: OpenRune/OpenRune-Server}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}

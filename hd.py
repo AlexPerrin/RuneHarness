@@ -3,9 +3,8 @@
 
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
-Implemented: R3 (contract, records bound to T or head + contract, refusals). The other requirements follow one at a time.
 """
-import fcntl, hashlib, json, os, pwd, re, shutil, subprocess, sys
+import fcntl, hashlib, json, os, pwd, re, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -106,7 +105,7 @@ class Facts:
         return bool(pid) and s.proc_start(pid) == str(start)
 
     def console(s):
-        """The Claude session this command runs in: the nearest ancestor named claude, else the top ancestor."""
+        """The Claude session this process runs in (the hook binds it to a run): the nearest ancestor named claude, else the top one."""
         pid = os.getppid()
         while pid > 1:
             try:
@@ -209,8 +208,8 @@ def contract(slug):
                     if x.startswith(k + ":") or x == k:
                         row[k] = x[len(k) + 1:].strip() or k
             for k in ("check", "gate"):  # a row's command is a track script or a test run, never an arbitrary shell line
-                if row[k] and not re.match(r"(\S*tools/\S+|python3 -m unittest\b|true$)", row[k]):
-                    row[k] = f"false # refused: '{row[k]}' is not under tools/"
+                if row[k] and not re.match(r"((python3 )?tools/[\w./-]+|python3 -m unittest\b|true$)", row[k]):
+                    row[k] = f"false # refused: '{row[k]}' is not a tools/ script"
             c["rows"].append(row)
     return c
 
@@ -349,8 +348,8 @@ class Ctx:
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
 
-    def env(s, ch, head, tc, tree):
-        return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]),
+    def env(s, ch, head, tc, tree, build=""):
+        return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
                 "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT)}
 
@@ -361,7 +360,7 @@ class Ctx:
             return ["sudo", "-n", "-u", "hd", str(ROOT / "hd-public"), *args]
         except KeyError:
             if "R4" not in " ".join(s.alerts):
-                s.alerts.append("R4: no Unix user hd; public acts run as you with your token")
+                s.alerts.append("user: R4: no Unix user hd; public acts run as you with your token")
             return [str(ROOT / "hd-public"), *args]
 
     def alive_run(s, ch):
@@ -416,14 +415,14 @@ def nxt(ctx, ch):
     done = ctx.done(ch, head) if head else False
     if done is None:
         return step("release state unknown", "unknown")
-    if done and (head != ctx.base(ch) or ch["kind"] == "release"):
+    ho = rec(slug, "handover")
+    if done and (head != ctx.base(ch) or ch["kind"] == "release" or (ho and ho["head"] == head)):  # a bare dev ref at the base tip is not done
         return step("done", "done")
     con = contract(slug)
     if con is None:
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
-    ho = rec(slug, "handover")
     if ch["kind"] != "release" and (not head or not ho or ho["head"] != head):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
@@ -577,15 +576,18 @@ def dispatch(ctx, ch, st, act):
     inp = json.dumps(st.get("input"), sort_keys=True)
     same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("ended") and r.get("input") == inp]
     hoff = EVID / slug / "handoff.md"
-    if same and not hoff.exists() and len(same) >= 2:  # R5: one retry, then raised once
-        ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
-        return
+    if same and not hoff.exists():
+        if same[-1].get("record"):
+            return  # the record exists and the facts still want this step: another run would change nothing
+        if len(same) >= 2:  # R5: one retry, then raised once
+            ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
+            return
     if len([r for r in ctx.runs if not r.get("ended")]) >= ctx.cfg.get("agents", 3) or not act:
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
-    name, (cpid, cstart) = f"{slug}-{n}", ctx.F.console()
+    name = f"{slug}-{n}"
     r = {"name": name, "role": role, "change": slug, "step": st["state"], "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
-         "console_pid": cpid, "console_start": cstart, "listed": now(), "events_at": ctx.F.events_count(), "started": None, "started_at": 0,
+         "console_pid": None, "console_start": None, "listed": now(), "events_at": ctx.F.events_count(), "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
     ctx.runs.append(r)
@@ -595,9 +597,10 @@ def dispatch(ctx, ch, st, act):
 def orchestrate(ctx, view, act):
     """The orchestrator run: cross-track planning and monitoring. Listed when the facts call for it: an alert, a goal
     below target with nothing open, or 50 events since its last run ended (never on time)."""
-    last = [r for r in ctx.runs if r["role"] == "orchestrator"]
-    since = ctx.F.events_count() - (last[-1].get("events_at") or 0 if last else 0)
-    why = view["alert"][:] + [g for g in view["goal"] if "planning due" in g] + ([f"{since} events since the last orchestrator run"] if since >= 50 else [])
+    last = max((r for r in ctx.runs if r["role"] == "orchestrator"), key=lambda r: r["listed"], default=None)
+    since = ctx.F.events_count() - ((last or {}).get("events_at") or 0)
+    why = sorted({a for a in view["alert"] if not a.startswith(("orchestrator:", "user:"))} | {g for g in view["goal"] if "planning due" in g}
+                 | ({"fifty events since the last orchestrator run"} if since >= 50 else set()))
     if why:
         pseudo = {"slug": "orchestrator", "track": "harness", "deps": [], "kind": "orchestrator", "priority": "P0", "body": "\n".join(why), "title": "orchestrate"}
         dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate", input=why), act)
@@ -656,14 +659,14 @@ def repairs(ctx, act):
             else:
                 ctx.alerts.append(f"{name}: cannot add the worktree {wt} for {r['tools']}: {(ok or ['', '', 'git not run'])[2].strip()[-200:]}")
     for r in ctx.runs:
-        if not r.get("ended") and not ctx.F.alive(r.get("console_pid"), r.get("console_start")) and act:
+        if r.get("started") and not r.get("ended") and not ctx.F.alive(r.get("console_pid"), r.get("console_start")) and act:
             r["ended"], r["reason"] = now(), "console died"
             save_run(r)
             event(change=r["change"], run=r["name"], action="ended", reason="console died")
     cs = ctx.F.containers()
     if cs is None:
         ctx.docker = False
-        ctx.alerts.append("docker unreachable: no script starts until it answers")
+        ctx.alerts.append("user: docker unreachable: no script starts until it answers")
         return
     for ch in ctx.changes.values():
         if f"server-{ch['slug']}" in cs and not ctx.alive_run(ch):
@@ -671,7 +674,7 @@ def repairs(ctx, act):
 
 
 def tick(ctx=None, act=True):
-    """One pass under the state lock → the view for `hd`. R1 (goals) and the integration deploy follow."""
+    """One pass under the state lock → the view for `hd`."""
     ctx = ctx or Ctx()
     view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     with lock():
@@ -773,7 +776,7 @@ def cmd_handover(a):
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
     tree = ctx.tree(ch, T[1])
-    why = rows(ctx, ch, con, head, T[1], tree, str(ROOT), gate=False)
+    why = rows(ctx, ch, con, head, T[1], tree, "", gate=False)
     if why:
         refuse(*why)
     put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "summary": " ".join(a[1:])})
@@ -783,13 +786,13 @@ def cmd_handover(a):
     print(f"handed over {head} (tree {tree[:9]})")
 
 
-def rows(ctx, ch, con, head, tc, tree, cwd, gate):
-    """Run the contract's `check:` rows (and `gate:` rows at the gate) with the change's env in cwd → the failures."""
-    env, why = ctx.env(ch, head, tc, tree), []
+def rows(ctx, ch, con, head, tc, tree, build, gate):
+    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root."""
+    env, why = ctx.env(ch, head, tc, tree, build), []
     for row in con["rows"]:
         for cmd in ([row["check"]] + ([row["gate"]] if gate else [])):
             if cmd:
-                rc, out = ctx.F.run(cmd, cwd, env)
+                rc, out = ctx.F.run(cmd, str(track_root(ctx.cfg, ch["track"])), env)
                 print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {cmd}" + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} failed: {out.strip()[-400:]}")
@@ -797,7 +800,7 @@ def rows(ctx, ch, con, head, tc, tree, cwd, gate):
 
 
 def cmd_rows(a):
-    """`hd rows <slug> <tcommit> <cwd>`: the gate's row run from a build copy at T; exit 1 names every failing row."""
+    """`hd rows <slug> <tcommit> <build copy>`: the gate's row run at T; exit 1 names every failing row."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     con = contract(ch["slug"]) or refuse("no contract")

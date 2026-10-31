@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import json, os, shutil, tempfile, unittest
+import json, os, shutil, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -34,7 +34,6 @@ class Fake(hd.Facts):
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
-    def console(s): return 7, "1"
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
@@ -56,8 +55,10 @@ class Sandbox(unittest.TestCase):
         (s.root / "harness" / "changes").mkdir(parents=True)
         (s.root / "harness" / "goals").mkdir(parents=True)
         s.seq = 0
+        s.console = mock.patch.object(hd.Facts, "console", lambda f: (7, "1")); s.console.start()
 
     def tearDown(s):
+        s.console.stop()
         shutil.rmtree(s.root, ignore_errors=True)
 
     def change(s, slug, track="server", body="do it", **meta):
@@ -226,6 +227,7 @@ class R2(Sandbox):
         wake = (s.root / "state" / "wake").read_text()
         hook.bind(payload(r2, "agX", "SubagentStart", s.root))        # the second listed run is spawned first
         s.assertEqual([r.get("agent_id") for r in hd.runs()], [None, "agX"])
+        s.assertEqual((hd.runs()[1]["console_pid"], hd.runs()[0]["console_pid"]), (7, None))   # the hook binds the console; the pass records none
         s.assertNotEqual((s.root / "state" / "wake").read_text(), wake)  # a state change touches the wake file
         hook.bind(payload(r2, "agX", "PreToolUse", s.root))           # a repeated bind changes nothing
         s.assertEqual(hd.runs()[1]["started"], hd.runs()[1]["started"])
@@ -298,7 +300,7 @@ class R4(Sandbox):
         ctx = s.ctx(Fake(**FACTS))
         with mock.patch.object(hd.pwd, "getpwnam", mock.Mock(side_effect=KeyError)):
             s.assertTrue(ctx.public("upstream", "s1", A)[0].endswith("hd-public"))
-            s.assertTrue(any(a.startswith("R4") for a in ctx.alerts))
+            s.assertTrue(any(a.startswith("user: R4") for a in ctx.alerts))
 
 
     def test_hd_public_order_and_stop_on_red_ci(s):
@@ -323,6 +325,11 @@ class R4(Sandbox):
                 pub.upstream("s1", A)
             s.assertIn("no approval", str(e.exception))
             hd.put("s1", "approval", {"head": A, "body": "x"})
+            with s.assertRaises(SystemExit) as e:
+                pub.upstream("s1", A)
+            s.assertIn("no approval", str(e.exception))                       # the body changed since the yes
+            import hashlib
+            hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(b"").hexdigest()[:16]})
             with s.assertRaises(SystemExit) as e:
                 pub.upstream("s1", A)
         s.assertEqual(e.exception.code, 0)
@@ -392,6 +399,10 @@ class R5(Sandbox):
         s.assertFalse(any('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")))
         s.assertEqual([any("down had no effect" in a for a in v["alert"]) for v in (v1, v2, v3)], [False, True, False])
         s.assertEqual(hd.rec("s1", "repair-down")["attempts"], 3)
+        F.f["down_works"] = True
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.rec("s1", "repair-down"))                             # the effect observed: the count is gone, one event
+        s.assertEqual(sum('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")), 1)
 
     def test_dead_script_reruns_once_then_raised(s):
         s.change("s1"); s.agreed("s1")
@@ -584,6 +595,16 @@ class R8(Sandbox):
             hd.cmd_tree(["s1", C])                                                   # a working-copy snapshot, not the dev ref
         s.assertEqual(out.getvalue().split(), [D, "td" * 20])
 
+    def test_pin_conflict_is_an_alert_not_a_dev(s):
+        F, R = s.integration_fixture(with_ref=False)
+        c = json.loads((s.root / "hd.yaml").read_text()); c["pins"] = ["local/x", "local/y"]; (s.root / "hd.yaml").write_text(json.dumps(c))
+        F.f["refs"]["fork/local/y"] = "y" * 40; F.f["merges"][("q" * 40, "y" * 40)] = ("conflict", "CONFLICT (content): z.kt")
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        v = hd.tick(s.ctx(F))
+        s.assertIn("s1 [server P2]: test server deploy blocked by local/y's conflict", v["change"])
+        s.assertTrue(any(a.startswith("pin local/y conflicts") for a in v["alert"]))
+        s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])
+
     def test_artefacts_named_by_change(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -595,19 +616,65 @@ class R8(Sandbox):
         s.assertTrue((s.root / "state" / "s1" / "proc-build.json").exists())
 
 
+class EndToEnd(unittest.TestCase):
+    """A harness change through the real loop: real git, the real track script, real processes, no fakes."""
+
+    @unittest.skipIf(os.environ.get("HD_E2E"), "nested")
+    def test_harness_change_defined_to_live(s):
+        import subprocess, time
+        src = Path(__file__).resolve().parent.parent
+        snap = subprocess.run(["git", "-C", str(src), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
+        tmp = Path(tempfile.mkdtemp()); origin, repo, root = tmp / "origin.git", tmp / "harness", tmp / "root"
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+        subprocess.run(["git", "clone", "-q", str(src), str(repo)], check=True)
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("checkout", "-q", "-B", "main", snap); git("remote", "set-url", "origin", str(origin)); git("push", "-q", "origin", "main")
+        for d in ("harness/changes", "harness/goals", "evidence/e2e"):
+            (root / d).mkdir(parents=True)
+        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
+        (root / "harness" / "changes" / "e2e.md").write_text("---\nslug: e2e\ntrack: harness\ntitle: e2e\n---\nadd a line to the README")
+        (root / "evidence" / "e2e" / "note.txt").write_text("evidence")
+        git("worktree", "add", "-q", str(repo / ".worktrees" / "e2e"), "-b", "harness/e2e", "main")   # the dev's clone
+        wt = repo / ".worktrees" / "e2e"
+        (wt / "README.md").write_text((wt / "README.md").read_text() + "\ne2e\n")
+        subprocess.run(["git", "-C", str(wt), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "e2e: a line"], check=True)
+        head = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        env = {**os.environ, "HD_ROOT": str(root), "HD_E2E": "1"}
+        hd_ = lambda *a: subprocess.run([sys.executable, str(src / "hd.py"), *a], env=env, capture_output=True, text=True)
+        s.assertIn("contract: seed rows pending", hd_("tick").stdout)
+        v = hd_("tick").stdout
+        s.assertIn("dev run due", v); s.assertIn("spawn: e2e-1", v)
+        r = hd_("handover", "e2e"); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        def until(state):
+            for _ in range(90):
+                v = hd_("tick").stdout
+                if state in v:
+                    return v
+                time.sleep(1)
+            s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'e2e' / 'gate.json').read_text() if (root / 'state' / 'e2e' / 'gate.json').exists() else ''}")
+        until("gate on")
+        until("shipping")
+        until("e2e [harness P2]: done")
+        s.assertEqual(subprocess.run(["git", "-C", str(origin), "merge-base", "--is-ancestor", head, "main"]).returncode, 0)   # live on the target
+        events = (root / "state" / "events.jsonl").read_text()
+        s.assertEqual((events.count('"state": "shipping"'), events.count('"state": "done"')), (1, 1))                        # edges only
+        for d in ("e2e", "e2e-build"):
+            subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(repo / ".worktrees" / d)], capture_output=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 class Tools(unittest.TestCase):
     """The harness track script against this repo itself."""
 
     def test_check_docs_and_gate_rows(s):
         import subprocess
         repo = Path(__file__).parent.parent
-        s.assertEqual(subprocess.run([str(repo / "tools" / "track.sh"), "check-docs"], cwd=repo, capture_output=True, text=True).returncode, 0)
+        s.assertEqual(subprocess.run([str(repo / "tools" / "track.sh"), "check-docs"], cwd=repo, env={**os.environ, "BUILD": str(repo)}, capture_output=True, text=True).returncode, 0)
         root = Path(tempfile.mkdtemp())
         for d in ("harness/changes", "harness/goals", "evidence/g1", "tools"):
             (root / d).mkdir(parents=True)
-        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(root)}, "fork": {"name": "o/f", "path": str(root)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(root)}}, "agents": 3, "pins": []}))
+        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
         (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
-        (root / "tools" / "track.md").write_text("## Seed rows\n- a | fine | check: true\n")
         (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
         snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
         r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)

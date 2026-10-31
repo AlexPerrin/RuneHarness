@@ -64,7 +64,9 @@ def bind(p):
     r = find_run(p, fallback=True)
     if not r or r.get("started"):
         return
-    r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=p.get("agent_transcript_path") or p.get("transcript_path"))
+    cpid, cstart = hd.Facts().console()
+    r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=p.get("agent_transcript_path") or p.get("transcript_path"),
+             console_pid=cpid, console_start=cstart)
     hd.save_run(r)
     (hd.STATE / "runs" / "by-agent").mkdir(exist_ok=True)
     (hd.STATE / "runs" / "by-agent" / p["agent_id"]).write_text(r["name"])

@@ -8,7 +8,7 @@ token (docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval
   hd-public release <slug> <head> <tag>   gh release create with the APK, the notices and the log from the evidence dir.
 Until the `hd` user exists the pass runs it as the user and `hd` shows the R4 alert.
 """
-import json, re, subprocess, sys, time
+import hashlib, json, re, subprocess, sys, time
 from pathlib import Path
 import yaml
 
@@ -23,8 +23,10 @@ def sh(*args, inp=None):
 
 
 def approved(slug, head):
+    """The yes names this head and the PR body the user saw (its digest)."""
     f = STATE / slug / "approval.json"
-    return f.exists() and json.loads(f.read_text()).get("head") == head
+    a = json.loads(f.read_text()) if f.exists() else {}
+    return a.get("head") == head and a.get("body") == hashlib.sha256(text(slug, "pr-body.md").encode()).hexdigest()[:16]
 
 
 def change(slug):

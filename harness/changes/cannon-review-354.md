@@ -7,7 +7,7 @@ priority: P0
 created: '2026-10-24T19:31:52Z'
 branch: content/cannon
 network: true
-deps: []
+deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-build-volume-perms]
 ---
 ## Change
 Upstream #354 is CHANGES_REQUESTED (Mark7625 2026-10-22 07:57, eaglepurerocketgrape 11:42). Head content/cannon 9c08b42ca. Supersedes the BR-C1 fold decision on `cannon`: the fix goes on the PR head itself.

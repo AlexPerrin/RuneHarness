@@ -134,6 +134,12 @@ Where a change's life went (35 changes):
    CI API call), 202 gate records re-saved for an unchanged head, 432 identical "train running" lines, and the same
    volume repaired 68 times (gd17-dev-gradle): a repair that never converges. → act and log on edges only; a repair
    that recurs is a bug, raised once.
+   Cause (hd/tick.py:103-110): a volume is an orphan when its owner label is not a running run's name, but the label
+   is agent-chosen (`gd17`, `scc2`) and never equals the run name, so every live dev's volume is "orphaned" on every
+   pass; `docker volume rm` is refused while the container holds it, the exit code is ignored and a repair is logged
+   anyway. Harm: once a live dev's container idles out (45 min), the next pass deletes its warm Gradle home. The
+   container rule (tick.py:97) has the mirror bug and almost never removes a real orphan. → every artefact is named
+   after its run (no agent-chosen labels); a repair is recorded only when its effect is observed.
 16. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
    harness merge (the monitor's draft blocked harness-dupe-check, 2026-10-31). → the pass merges in its own clone.
 17. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in

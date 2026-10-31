@@ -129,7 +129,7 @@ class Facts:
 
     def events_count(s):
         f = STATE / "events.jsonl"
-        return sum(1 for _ in open(f)) if f.exists() else 0
+        return f.read_bytes().count(b"\n") if f.exists() else 0
 
 
 # ---------------------------------------------------------------- what is stored (P2) and nothing else
@@ -139,9 +139,16 @@ def _frontmatter(text):
 
 
 def defs(kind):
+    """harness/<kind>/*.md → {slug: front matter + body, path}. A file that does not parse is skipped and named in defs.bad."""
     out = {}
     for f in sorted((DEFS / kind).glob("*.md")):
-        meta, body = _frontmatter(f.read_text())
+        try:
+            meta, body = _frontmatter(f.read_text())
+            if not isinstance(meta, dict):
+                raise yaml.YAMLError("front matter is not a mapping")
+        except yaml.YAMLError as e:
+            defs.bad.append(f"{f.name}: {str(e).splitlines()[0]}")
+            continue
         meta.setdefault("slug", f.stem)
         meta.setdefault("deps", [])
         meta.setdefault("kind", "change")
@@ -149,6 +156,9 @@ def defs(kind):
         meta["body"], meta["path"] = body, str(f)
         out[meta["slug"]] = meta
     return out
+
+
+defs.bad = []
 
 
 def track_root(c, track):
@@ -224,7 +234,7 @@ def verdicts(slug):
 
 def runs():
     d = STATE / "runs"
-    return [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))] if d.exists() else []
+    return [json.loads(f.read_text()) for f in sorted(d.glob("*.json")) if not f.name.startswith(".")] if d.exists() else []
 
 
 def save_run(r):
@@ -238,7 +248,10 @@ def event(**e):
     STATE.mkdir(parents=True, exist_ok=True)
     with open(STATE / "events.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), **e}, sort_keys=True) + "\n")
-    (STATE / "wake").write_text(str((STATE / "events.jsonl").stat().st_size))  # grows with every event: main's watch sees each
+    size = (STATE / "events.jsonl").stat().st_size
+    (STATE / "wake").write_text(str(size))  # grows with every event: main's watch sees each
+    if size > 20_000_000:
+        os.replace(STATE / "events.jsonl", STATE / "events.1.jsonl")
 
 
 class lock:
@@ -255,6 +268,7 @@ class lock:
 class Ctx:
     def __init__(s, facts=None, c=None):
         s.F, s.cfg = facts or Facts(), c or cfg()
+        defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
         s.runs, s.memo, s.alerts = runs(), {}, []
 
@@ -497,7 +511,15 @@ def orchestrate(ctx, view, act):
 
 
 def repairs(ctx, act):
-    """R5: end the runs whose console is gone (their agents died with it)."""
+    """R5: end the runs whose console is gone (their agents died with it); make a missing tools worktree."""
+    for name, r in ctx.cfg["repos"].items():
+        wt = P(r["path"]) / ".worktrees" / "harness" if r.get("tools") else None
+        if wt and not wt.exists() and act:
+            ok = ctx.F.sh(["git", "-C", str(P(r["path"])), "worktree", "add", str(wt), r["tools"]])
+            if ok and ok[0] == 0:
+                event(action="worktree", repo=name)
+            else:
+                ctx.alerts.append(f"{name}: cannot add the worktree {wt} for {r['tools']}: {(ok or ['', '', 'git not run'])[2].strip()[-200:]}")
     for r in ctx.runs:
         if not r.get("ended") and not ctx.F.alive(r.get("console_pid"), r.get("console_start")) and act:
             r["ended"], r["reason"] = now(), "console died"
@@ -511,6 +533,7 @@ def tick(ctx=None, act=True):
     view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     with lock():
         repairs(ctx, act)
+        view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
         for ch in sorted(ctx.changes.values(), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):
             st = nxt(ctx, ch)
             if st["actor"] == "script" and act:

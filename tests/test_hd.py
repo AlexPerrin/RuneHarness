@@ -89,13 +89,13 @@ class Sandbox(unittest.TestCase):
 FACTS = dict(refs={"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
 
 
-def payload(run, agent_id, event, root, last=None, usage=None):
+def payload(run, agent_id, event, root, last=None, usage=None, context=1000):
     """A hook payload with a transcript whose first message is the one-line prompt naming the brief."""
     tp = root / "state" / f"transcript-{agent_id}.jsonl"
     lines = [{"type": "user", "message": {"role": "user", "content": f"Read and follow {run['brief']}"}}]
     for i in range(usage or 0):
         lines.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": f"turn {i}"}],
-                                                        "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}}})
+                                                        "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": context, "cache_creation_input_tokens": 0}}})
     tp.write_text("".join(json.dumps(l) + "\n" for l in lines))
     p = {"hook_event_name": event, "agent_id": agent_id, "agent_type": run["role"], "agent_transcript_path": str(tp)}
     if last:
@@ -193,6 +193,92 @@ class R2(Sandbox):
         s.assertIsNone([r for r in hd.runs() if r["name"] == dev["name"]][0]["ended"])
         hook.bind({"hook_event_name": "PreToolUse", "agent_id": "x", "agent_type": "Explore"})          # not a harness role: no read
         s.assertEqual(len(hd.runs()), 2)                                                            # nothing bound or listed for it
+
+
+class R6(Sandbox):
+    """R6 against v7's causes: one run read 205M tokens (§4.3), 764 of 1,174 events were repeats (§4.22), ~7 builds of one
+    tree per round (§4.13), spawn briefs pasted into main (§1b)."""
+
+    def test_same_tree_never_builds_or_gates_twice(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        for _ in range(3):
+            hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned, [])                                   # build and gate at T exist: no script runs again
+        hd.put("s1", "gate", {"T": "other", "ok": True})               # a gate of another tree is no gate of this one
+        hd.tick(s.ctx(F))
+        s.assertEqual([x[1] for x in F.spawned], ["gate"])
+
+    def test_same_head_and_contract_never_judges_twice(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        for _ in range(2):
+            v = hd.tick(s.ctx(F))
+        s.assertEqual([r for r in hd.runs() if r["role"] == "qa"], [])
+
+    def test_agent_count_bounds_listing(s):
+        for i in range(4):
+            s.change(f"s{i}"); s.agreed(f"s{i}")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], **{f"fork/dev/s{i}": A for i in range(4)}}})
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len(v["spawn"]), 3)
+        s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 3)
+
+    def test_unchanged_facts_append_no_event(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        n = sum(1 for _ in open(s.root / "state" / "events.jsonl"))
+        for _ in range(3):
+            hd.tick(s.ctx(F))
+        s.assertEqual(sum(1 for _ in open(s.root / "state" / "events.jsonl")), n)
+
+    def test_context_limit_hands_off_and_lists_successor(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        import io, contextlib
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=2, context=1000))
+        s.assertEqual(out.getvalue(), "")                              # under the limit: silent
+        with contextlib.redirect_stdout(out):
+            hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=3, context=160000))
+            hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=4, context=170000))
+        s.assertEqual(out.getvalue().count("handoff.md"), 1)           # told once
+        s.assertTrue(hd.runs()[0]["handoff_told"])
+        (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half; next: the rest")
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run s1-1: handoff", usage=4, context=170000))
+        r = hd.runs()[0]
+        s.assertEqual((r["record"], r["usage"]["turns"], r["usage"]["cache_read"] > 0, bool(r["transcript"])), (False, 4, True, True))
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len(v["spawn"]), 1)                              # the successor, with the hand-off in its brief
+        s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
+
+
+    def test_malformed_definition_is_one_alert(s):
+        s.change("s1"); s.agreed("s1")
+        (s.root / "harness" / "changes" / "bad.md").write_text("---\ntitle: [unclosed\n---\n")
+        v = hd.tick(s.ctx(Fake(**FACTS)))
+        s.assertTrue(any(a.startswith("definition skipped: bad.md") for a in v["alert"]))
+        s.assertEqual(len([x for x in v["spawn"] if x.startswith("s1-")]), 1)   # the pass went on for the others (the alert also lists the orchestrator)
+        v = hd.tick(s.ctx(Fake(**FACTS)))
+        s.assertEqual(sum(a.startswith("definition skipped") for a in v["alert"]), 1)   # once per pass, not growing
+
+    def test_event_log_rotates(s):
+        with mock.patch.object(hd, "event", hd.event):
+            hd.event(action="x")
+            big = s.root / "state" / "events.jsonl"
+            big.write_text("x" * 20_000_001)
+            hd.event(action="y")
+        s.assertTrue((s.root / "state" / "events.1.jsonl").exists())
+        s.assertFalse(big.exists())
 
 
 class R3(Sandbox):

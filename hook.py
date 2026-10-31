@@ -43,11 +43,15 @@ ROLES = ("dev", "qa", "orchestrator")
 
 
 def find_run(p, fallback=False):
-    """By agent id, else by the brief path in the transcript; a bind may fall back to the oldest listed run of the role."""
-    rs, aid = hd.runs(), p.get("agent_id")
-    by_id = [r for r in rs if aid and r.get("agent_id") == aid]
-    if by_id:
-        return by_id[0]
+    """By agent id (an index file: one read per call), else by the brief path in the transcript; a bind may fall back
+    to the oldest listed run of the role."""
+    aid = p.get("agent_id")
+    idx = hd.STATE / "runs" / "by-agent" / str(aid)
+    if aid and idx.exists():
+        f = hd.STATE / "runs" / f"{idx.read_text()}.json"
+        if f.exists():
+            return json.loads(f.read_text())
+    rs = hd.runs()
     name = brief_in(transcript(p))
     by_name = [r for r in rs if r["name"] == name and not r.get("ended")]
     listed = [r for r in rs if fallback and not r.get("started") and not r.get("ended") and r["role"] == p.get("agent_type")]
@@ -62,6 +66,8 @@ def bind(p):
         return
     r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=p.get("agent_transcript_path") or p.get("transcript_path"))
     hd.save_run(r)
+    (hd.STATE / "runs" / "by-agent").mkdir(exist_ok=True)
+    (hd.STATE / "runs" / "by-agent" / p["agent_id"]).write_text(r["name"])
     hd.event(change=r["change"], run=r["name"], action="started")
 
 
@@ -118,7 +124,40 @@ def end_run(p):
 def deny_approve(p): ...     # R4
 
 
-def context_limit(p): ...    # R6
+def context_of(path):
+    """The last assistant message's context size, from the transcript's tail (never the whole file)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, f.seek(0, 2) - 65536))
+            tail = f.read().split(b"\n")
+    except (OSError, TypeError):
+        return 0
+    for line in reversed(tail):
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("type") == "assistant" and (us := (e.get("message") or {}).get("usage")):
+            return (us.get("input_tokens") or 0) + (us.get("cache_read_input_tokens") or 0) + (us.get("cache_creation_input_tokens") or 0)
+    return 0
+
+
+def context_limit(p):
+    """R6: past cfg.context_limit the run is told once to write its hand-off and hand back; the successor is listed with it."""
+    if p.get("agent_type") not in ROLES:
+        return
+    r = find_run(p)
+    if not r or r.get("handoff_told"):
+        return
+    size = context_of(p.get("agent_transcript_path") or p.get("transcript_path"))
+    if size < hd.cfg().get("context_limit", 150000):
+        return
+    r["handoff_told"] = size
+    hd.save_run(r)
+    hd.event(change=r["change"], run=r["name"], action="context-limit", tokens=size)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+          f"Context limit reached ({size} tokens): write evidence/{r['change']}/handoff.md (what is done, what is next, the facts you rely on), "
+          "stop every process you started, and hand back now with `run " + r["name"] + ": handoff`. A fresh run continues from your file."}}))
 
 
 def main():

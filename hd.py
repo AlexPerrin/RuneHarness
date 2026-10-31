@@ -238,7 +238,7 @@ def event(**e):
     STATE.mkdir(parents=True, exist_ok=True)
     with open(STATE / "events.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), **e}, sort_keys=True) + "\n")
-    (STATE / "wake").write_text(now())
+    (STATE / "wake").write_text(str((STATE / "events.jsonl").stat().st_size))  # grows with every event: main's watch sees each
 
 
 class lock:

@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import mock
 
 os.environ["HD_ROOT"] = tempfile.mkdtemp()
-import hd  # noqa: E402  (reads HD_ROOT at import)
+import hd, hook  # noqa: E402  (both read HD_ROOT at import)
 
 A, B, C, D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 TA, TB, TC = "ta" * 20, "tb" * 20, "tc" * 20
@@ -28,7 +28,7 @@ class Fake(hd.Facts):
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
     def console(s): return 7, "1"
-    def alive(s, pid, start): return (pid, start) in s.f.get("procs", set())
+    def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def events_count(s): return 0
@@ -87,6 +87,94 @@ class Sandbox(unittest.TestCase):
 
 
 FACTS = dict(refs={"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+
+
+def payload(run, agent_id, event, root, last=None, usage=None):
+    """A hook payload with a transcript whose first message is the one-line prompt naming the brief."""
+    tp = root / "state" / f"transcript-{agent_id}.jsonl"
+    lines = [{"type": "user", "message": {"role": "user", "content": f"Read and follow {run['brief']}"}}]
+    for i in range(usage or 0):
+        lines.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": f"turn {i}"}],
+                                                        "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 0}}})
+    tp.write_text("".join(json.dumps(l) + "\n" for l in lines))
+    p = {"hook_event_name": event, "agent_id": agent_id, "agent_type": run["role"], "agent_transcript_path": str(tp)}
+    if last:
+        p["last_assistant_message"] = last
+    return p
+
+
+class R2(Sandbox):
+    """R2 against v7's causes: spawns waited on an unwoken main (§4.5), hand-backs filled main (§1b), an agent's exit
+    waited on the pass (§4.23), the run record came from a prompt protocol (ISSUES)."""
+
+    def test_defined_to_live_with_no_person(s):
+        s.change("s1"); hd.put("live", "tree", {"tree": TB, "commit": B, "heads": [A]})  # the dependency is live on the test server
+        s.change("c1", "client", deps=["s1"])
+        F = Fake(**{**FACTS, "refs": {"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": ""}})
+        views = [hd.tick(s.ctx(F))]                                   # contract derived (no qa run)
+        views.append(hd.tick(s.ctx(F)))                               # dev listed
+        spawn = [x for x in views[-1]["spawn"] if x.startswith("c1-")]
+        s.assertEqual(len(spawn), 1)                                  # (s1, not done upstream, gets its own qa run)
+        run = [r for r in hd.runs() if r["change"] == "c1"][0]
+        s.assertEqual((run["role"], run["started"]), ("dev", None))
+        s.assertIn("Read and follow", spawn[0])
+        s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in main's context
+        with mock.patch.object(hook, "start_pass") as sp:
+            hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+            F.f["refs"]["origin/client/c1"] = A                       # the dev pushes and hands over
+            (s.root / "evidence" / "c1" / "log.txt").write_text("evidence")
+            with mock.patch.object(hd, "Facts", lambda: F):
+                hd.cmd_handover(["c1"])
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run c1-1: handed over " + A, usage=3))
+            s.assertEqual(sp.call_count, 1)                           # the pass is started, never waited on
+        run = [r for r in hd.runs() if r["change"] == "c1"][0]
+        s.assertTrue(run["record"]); s.assertEqual(run["usage"]["turns"], 3); s.assertIn("handed over", run["last"])
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["build", "c1", A])
+        hd.put("c1", "build", {"T": TA, "ok": True})
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["gate", "c1", A])
+        hd.put("c1", "gate", {"T": TA, "ok": True})
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["ship", "c1", A])
+        F.f["anc"] = {(B, A)}                                          # the ship pushed the merge: master holds the head
+        v = hd.tick(s.ctx(F))
+        s.assertIn("c1 [client P2]: done", v["change"])
+        for view in views + [v]:
+            s.assertEqual((view["card"], view["question"]), ([], []))  # no person anywhere on the path
+        s.assertIsNone(hd.rec("c1", "approval"))
+
+    def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)
+        s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)            # the same listing, not a second run
+        s.assertEqual(len(hd.runs()), 1)
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        v = hd.tick(s.ctx(F))
+        s.assertEqual((v["spawn"], len(v["run"])), ([], 1))           # alive: listed under run, not spawn
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run s1-1: gave up"))
+        s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)            # one retry on the same input
+        run2 = hd.runs()[1]
+        hook.bind(payload(run2, "ag2", "SubagentStart", s.root))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run2, "ag2", "SubagentStop", s.root, last="run s1-2: gave up"))
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])   # then raised once, never a third
+        s.assertTrue(any("ended without a record" in a for a in v["alert"]))
+        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))  # the alert lists the orchestrator, not the user
+
+    def test_hook_binds_by_brief_path_and_wakes_main(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s2": A}})
+        hd.tick(s.ctx(F))
+        r1, r2 = hd.runs()
+        wake = (s.root / "state" / "wake").read_text()
+        hook.bind(payload(r2, "agX", "SubagentStart", s.root))        # the second listed run is spawned first
+        s.assertEqual([r.get("agent_id") for r in hd.runs()], [None, "agX"])
+        s.assertNotEqual((s.root / "state" / "wake").read_text(), wake)  # a state change touches the wake file
+        hook.bind(payload(r2, "agX", "PreToolUse", s.root))           # a repeated bind changes nothing
+        s.assertEqual(hd.runs()[1]["started"], hd.runs()[1]["started"])
+        s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"started"' in l), 1)
 
 
 class R3(Sandbox):

@@ -54,6 +54,7 @@ Where a change's life went (35 changes):
 | Metric | v7 |
 |---|---|
 | runs per upstream PR | 15–23 (4 PRs = 77 of 132 runs, 41 of 66 agent-hours) |
+| what triggered the 95 runs on 7 upstream changes | after a QA FAIL or for a QA check ~36; around a question to the user ~30 (18 of 20 runs "without a record" ended with `hd ask`, which the pass does not count as a record); after a gate or train failure ~23; maintainer findings 2; truly empty runs 2 |
 | per change, by kind (median) | upstream-PR server change 15 runs, 5.4 agent-h, 290M tokens; client change 2 runs, 1.0 h, 56M; local server change 3 runs, 0.8 h; harness change 1 run, 0.3 h |
 | QA rounds per PR | up to 9; findings per round goblin 4,2,1,PASS,4,6,4,2 |
 | spawn wait after the record that makes a run due | median 11 min, p90 83, max 534 |

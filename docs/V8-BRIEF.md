@@ -8,7 +8,7 @@ Goal of v8: the same outcomes with the fewest concepts, files and lines, and mor
 ## 1. Keep (the constraints, by id)
 - PROBLEM axioms A1–A10 and principles P1–P8; PRD R1–R7. The user's rules: CLAUDE.md "Rules" and "Shared rules", and
   the memory index `~/.claude/projects/-home-alex-osrs-harness/memory/MEMORY.md`.
-- Goals. Client: % of RuneLite API interface methods working in the app, by probe (`tools/api-probe.sh`, 60.9/100).
+- Goals. Client: % of RuneLite API interface methods working in the app, by probe (`tools/api-probe.sh`; about 93% at client master 6cc6bbe, though `hd` still shows a stale 60.9, §4.18).
   Server: 1:1 with the official game, the client never blocked; **no metric exists**: v8 defines one (an inventory of
   content units from the cache, each checked against RSProx recordings and the wiki, with a pass flag).
   Harness: simpler and faster each iteration; measured by §3's numbers, which v8 must beat.
@@ -47,7 +47,8 @@ Where a change's life went (35 changes):
 | runs per upstream PR | 15–23 (4 PRs = 77 of 132 runs, 41 of 66 agent-hours) |
 | QA rounds per PR | up to 9; findings per round goblin 4,2,1,PASS,4,6,4,2 |
 | spawn wait after the record that makes a run due | median 11 min, p90 83, max 534 |
-| context per turn | server-dev 222k, client-dev 187k, server-qa 144k |
+| context | starts at ~35k; peak median server-dev 160k, server-qa 189k, client-dev 207k; max 887k |
+| model time per run | 39–51% of wall time is the agent choosing its next step (median 5 s per turn) |
 | tool calls before first edit | server-dev 81, client-dev 52, server-qa 148 |
 | share of calls that are sleep/until polling | 12% (server-dev 946 sleeps, client-dev 683) |
 | subtask calls by server-dev | 0 |
@@ -59,6 +60,13 @@ Where a change's life went (35 changes):
    rule across the diff (goblin: `MailDye` enum fixed, `ARMOURS` list next round). PR-text-only fails cost a full dev
    and QA run each. Only the last `verdict.json` is kept. → QA and dev agree a fixed checklist (accuracy spec, live
    AGENTS.md rules, PR text, in-game) before coding; each item pass/fail; verdicts appended; text fixed without a new QA run.
+   Classified (23 FAIL rounds, 108 findings): accuracy 34, PR text 33, upstream rule 23, functional bug 14, process
+   4. 68 repeat an earlier round's rule or defect (PR text 25 of 33, rules 17 of 23). Every rule and text finding
+   (60) was catchable by a checklist row written before coding; accuracy and bugs partly. Seed rows, by count:
+   (15) every PR claim and ticked box true of the exact head; (11) timings, steps and messages checked against
+   RSProx recordings tick by tick first; (10) no deferral: no Not-done list, no unticked item, or `hd ask`; (8) on an
+   existing PR, pr-comment.md covers only the net change since the live head; (7) the unsourced list names every
+   reconstruction and cheat; (6) no game data or raw ids in Kotlin; (6) every flow playable without a cheat.
 2. **Know-how is prose, so agents re-derive it.** Bring-up of build, server and client is in skills, executed by hand
    every run (52–148 calls before work, 12% polling). Four of five agent retros independently ask for the same
    tool (`qa-run`, `hd up`, `qa-session`, `branch-session`): clone and merge onto the gate's base, build, start the
@@ -78,9 +86,10 @@ Where a change's life went (35 changes):
    install, login, restore) is one script that blocks on facts, run Windows-side so no call crosses WSL interop.
 3. **Agents read at full context.** Read-heavy lookups (RSProx, cache, decompiled code, logs) are done in the agent's
    own context. → those become scripts or tools that return conclusions.
+   Measured: every run starts at ~35k tokens (prompt, role, CLAUDE.md, tools) and peaks at a median 160k (server-dev), 189k (server-qa), 207k (client-dev); max 887k. Tool output totals ~6M tokens, but each is re-read every later turn: weighted by turns remaining, reads with cat/sed/head are 28%, grep/find 20%, git diff/log 12%, cache/wiki lookups 8%, devtools 8%. No single file dominates; the harness's own scripts and skills re-read each run (desktop.sh 72 reads, qa.sh 58, build-test 55, test-instances 23) are ~4%. → shorter runs with a hand-off file (cost grows with run length squared), lookups as scripts that return conclusions, and bring-up scripts nobody needs to read.
 4. **The guard judges command text.** It blocks reads and evidence writes that mention upstream words, and lets the
    pass act unguarded. → authority by credential or effect, not by parsing.
-5. **Spawning waits on the console** (§3). → decide whether the pass may spawn.
+5. **Spawning waits on the console** (§3). Of 56 waits of 10 min or more (3,585 min), 53 fell while the user was in the console and it was active (dozens of user messages, hundreds of turns inside the wait): spawns wait on a busy console, not an absent user. 51% of that wait time had all 3 slots taken (paused agents included); 49% (~1,790 min) had a free slot, 16% with no agent running at all. → driving is not done by the conversational session: the pass (or a dedicated driver) spawns the moment a slot is free; paused agents should not hold a slot.
 6. **A gate PASS survives a change of the gate.** Re-gating keys on head and the change definition hash
    (`hd/steps.py:629`), not the gate's own version, so a stricter gate does not re-check gated commits.
 7. **A pass change acts on upstream within a minute** of landing on `main` (twice put a PR in a wrong state).
@@ -96,11 +105,16 @@ Where a change's life went (35 changes):
    → v8: instructions point only at scripts that a test runs (a dead path fails CI); one file per role; each user
    answer amends the checklist, not a free-text Answers section.
 9. **QA can test the wrong base.** `qa.sh clone ... main` merged onto the shared clone's stale local main
-   (c2492318d, not upstream 31241beef); goblin-23 re-merged by hand. → the bring-up merges onto the gate's recorded
-   base, never a local ref (R3).
-10. **No agent can read the previous verdict** (`hd show` is missing; 26 failed calls), so "close every prior finding
+   (c2492318d, not upstream 31241beef); goblin-23 re-merged by hand. Confirmed: `clone <slug> <commit> main`
+   resolves `main` with `git -C $SRC rev-parse main`, the shared clone's local branch, never fetched (73 commits and
+   13 days behind on 10-31). 3 QA runs passed `main` (cannon-19, goblin-11, hunter-18); cannon-19 and goblin-11
+   noticed and fetched the gate's scratch merge by hand. → the bring-up merges onto the gate's recorded base, never
+   a local ref (R3).
+10. **The hand-over asks for what the harness already knows.** 29 of 98 `hd handover` calls were refused because
+   the pushed dev ref was not at the sha the agent typed. → the hand-over reads the pushed ref; it takes no sha.
+11. **No agent can read the previous verdict** (`hd show` is missing; 26 failed calls), so "close every prior finding
    first" is not a step, and repeats follow. → a read command, and the checklist's first line.
-11. **The shared cache download is discarded almost every run.** 36 of 49 cache steps re-downloaded the OpenRS2
+12. **The shared cache download is discarded almost every run.** 36 of 49 cache steps re-downloaded the OpenRS2
    cache (97 min); 35 first logged "Cache corrupted or incomplete. Deleting .../caches/oldschool/241", so the
    shared volume `openrune-dl-cache` is not reused (only 12 reuses, all 10-25 23:52 → 10-26 03:12). The message
    comes from a dependency, not the fork's source. Cause: `gate-steps.sh` publishes to the store by revision
@@ -116,21 +130,23 @@ Where a change's life went (35 changes):
    Gates: 49 fork CI dispatches over 35 heads, 811 run-minutes; 14 were re-gates of an unchanged head caused only by
    an upstream move (~219 min, 27%); goblin-367 gated one head 7 times; three upstream moves in 4 min cancelled 2
    runs. Train: 47 starts → 22 deploys; 8 rebuild conflicts, 7 silent exits (overlapping trains), 10 gate fails; gate
-   median ~850 s; one train rebuilt a tree identical to the previous one (likely a race on live.json). Integrator
+   median ~850 s; one train rebuilt a tree identical to the previous one: liveness is commit ancestry (steps.py:75-87), never tree equality, and the pass computes all next steps from one snapshot then acts (tick.py:164), so it started a train for a head the just-written live.json already held; every rebuild makes new merge commits, so nothing noticed the same tree. A start is counted at Popen (server.py:88-95), so 7 trains that exited silently (likely the flock path) still logged a start. Integrator
    (15 runs): conflicts and gameval clashes mostly between two pinned changes, not with upstream; one wrong recorded
    resolution caused a later failure; one "conflict" was a stale MERGE_RR.lock from an overlapping train.
    → v8: a gate is keyed by tree (re-gate only when the merged tree changes); pins conflict-checked against each
    other when pinned, not at train time; one train at a time by construction.
-12. **Every run builds the change twice.** The dev's tree (`qa.sh dev`, persistent container) and a merged tree
-   (`qa.sh gate-run`, fresh container, `clean` first) each compile and rebuild the game cache (~3 min each); a
-   shared download volume still re-downloaded 213 MB when found incomplete. → one build per (head, base) in the
-   bring-up script, reused by dev, QA and the gate; the cache artefact keyed by cache id and verified, never rebuilt
-   per tree.
-13. **Shared tool side effects:** `qa.sh dev`'s cache step dirties tracked `.data/gamevals`, and 3 runs restored it by
-   hand. → the build leaves the tree clean, checked.
-14. **Wide, long-lived PRs reopen findings** (hunter: ~75 files; each feature adds data lists; gamevals renumbered
+13. **Every run builds the change twice.** The dev's own tree (`qa.sh dev`, persistent container) and a merged tree (`qa.sh gate-run`, fresh container, `clean` first) each compile and run the cache step; QA builds a third copy. → R8: one build per T, reused by dev, QA, gate and deploy.
+14. **One dev-lane rebuild recompiled the whole server (cause unconfirmed).** After the clans dev added a pack module, `qa.sh dev ... :or-cache:buildCache` took 8 min 37 s: the cache build itself 15 s, then 131 `compileKotlin` tasks with 0 hits in the remote build cache, on the dev lane's 2 workers and in-process Kotlin. A plain code fix rebuilds in 15 s, so incremental compile works. The suspect, `api:generated`, was up to date in the first Gradle pass and its sources match git; the log was then overwritten by the next build (qa.sh keeps one log per step name). → keep build logs per T next to R8's build record; give the dev lane the gate's workers and Kotlin daemon.
+15. **In-game testing is paced by the agent's turns, not the tools.** Across all runs the gap from a tool result to the agent's next call is a median 5.0–6.2 s (p90 ~12 s), against a median 1.2 s per tool call: 39–51% of every run's wall time is the model choosing its next step (server-dev 42%, server-qa 51%). A run costs about turns × 5 s plus builds and waits, so the lever is fewer turns per outcome (scripted flows, one call per scenario), not faster tools. UI misses ("No menu entry matching", "Widget not found") are only 3–5% of devtools calls. A devtools call over the WSL bridge takes 0.06 s (curl.exe spawn 0.03 s, timed); one full fix iteration on the clans dev (stop, 15 s build, start, two logins) took 86 s. In 3:38-3:42 PM the dev made ~20 calls in 205 s, of which ~62 s in tools: the rest is model turns (~7 s each), plus sleeps the agent adds between steps. Logins (233 desktop.sh login calls, not chained with builds): median 37 s, p75 70 s, p90 180 s, max 558 s. The main failure is the client's devtools endpoint not answering (51 "no HTTP response": client still starting, or interop), against 12 server refusals ("login attempt refused; retrying"); each bridge call waits up to 180 s (`--max-time 180`, desktop_devtools_mcp.py:30), so a hung endpoint stalls a login for minutes. Not per-call cost. → test flows as scripts (one call runs a whole scenario and returns the observed state; the clans dev wrote its own form.sh), and a client start that blocks until the devtools endpoint answers (a fact), with short call timeouts after that. Every code fix restarts the server (OpenRune hot-loads only external plugin jars via ::loadplugin), so each iteration re-logs in. Mirrored WSL networking (at the hand-off; a WSL restart ends every session) is for interop reliability, not speed.
+16. **Shared tool side effects:** `qa.sh dev`'s cache step dirties tracked `.data/gamevals`; agents restored it by hand (24 rebuilds, ~200 min over 20 runs). → the build leaves the tree clean, checked.
+   Cause: the cache step runs upstream's `mergePluginGamevals`, which by design writes all plugin gamevals into the
+   tracked `.data/gamevals/*.rscm` (or-cache/build.gradle.kts:65-71, "used by release CI"): +3016 lines in 19 files
+   in the clans clone. → build in a disposable copy of T, never in the tree an agent commits from.
+17. **Wide, long-lived PRs reopen findings** (hunter: ~75 files; each feature adds data lists; gamevals renumbered
    against other branches). → a size bound per change, measured.
-15. **The pass repeats work with no state change.** Per pass-sweep: 467 gate-pending polls (357 identical, each a
+18. **The client goal's number is six days stale.** `hd` and the dashboard show `client-api: 60.9 / 100`, measured only on 10-25 (client-api/measure.json); since then 8 client changes merged to master and their commits record the probe at 90.8%, 92.2%, 92.6%, then 1168/1253 = 93.2% (client master 6cc6bbe). Only the orchestrator measures, and it ran 3 times. → the goal is re-measured by the pass whenever its track's target moves (a fact), and the number shown is that measurement with its commit (R1, R7).
+19. **`hd` prints the pending step's name where a reader expects a state.** "cannon-review-354: done | merged" means "live on the test server | waiting for upstream to merge" (steps.stage, hd/steps.py:587-592), while upstream #354 is open; this monitor misread it too. → print facts ("live on test server; PR #354 open, ready, awaiting review"), not step names.
+20. **The pass repeats work with no state change.** Per pass-sweep: 467 gate-pending polls (357 identical, each a
    CI API call), 202 gate records re-saved for an unchanged head, 432 identical "train running" lines, and the same
    volume repaired 68 times (gd17-dev-gradle): a repair that never converges. → act and log on edges only; a repair
    that recurs is a bug, raised once.
@@ -140,9 +156,9 @@ Where a change's life went (35 changes):
    anyway. Harm: once a live dev's container idles out (45 min), the next pass deletes its warm Gradle home. The
    container rule (tick.py:97) has the mirror bug and almost never removes a real orphan. → every artefact is named
    after its run (no agent-chosen labels); a repair is recorded only when its effect is observed.
-16. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
+21. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
    harness merge (the monitor's draft blocked harness-dupe-check, 2026-10-31). → the pass merges in its own clone.
-17. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
+22. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
    integration; the brief's first line parsed by three programs; orphans found only by v7 run names.
 
 ## 5. Component ledger: cut, merge, keep

@@ -1,5 +1,6 @@
 ---
 slug: genie-review-355
+pr: 355
 track: server
 kind: change
 title: 'Genie #355: address maintainer review and our gate findings'

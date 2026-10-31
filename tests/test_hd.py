@@ -38,6 +38,7 @@ class Fake(hd.Facts):
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def events_count(s): return 0
+    def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
 
 
 class Sandbox(unittest.TestCase):
@@ -218,6 +219,23 @@ class R2(Sandbox):
         s.assertNotIn("s1 [server P2]: closed: answer-1: done upstream", hd.tick(s.ctx(F))["change"])  # shown once
         with s.assertRaises(SystemExit):
             hd.cmd_close(["s1", "again"])
+
+    def test_maintainer_inline_comment_files_a_change_once(s):
+        s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")
+        s.change("s1-old", pr=354, deps=["s1"], finding=7)                 # filed by hand: carried
+        com = lambda i, who="a-thoren", **k: {"id": i, "author": who, "bot": False, "reply": None, "path": "N.kt", "line": 265, "body": "reset | the varp?", **k}
+        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9, reply=8), com(10, "O"), com(11, "ci", bot=True)]}})
+        hd.tick(s.ctx(F), act=False)
+        s.assertFalse((s.root / "harness" / "changes" / "s1-c8.md").exists())  # a dry run files nothing
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
+        s.assertEqual(list(new), ["s1-c8"])                                # one change, once: replies, ours, bots, carried skipped
+        c = new["s1-c8"]
+        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1"], 354, 8, "P0", "content/cannon"))
+        con = hd.contract("s1-c8")
+        s.assertIsNone(con["agreed"])                                      # the inherited contract is agreed again by qa
+        s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
+        s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
 
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")

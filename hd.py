@@ -50,7 +50,12 @@ class Facts:
             return None
 
     def fetch(s, clone, remote):
-        return s._m(("fetch", clone, remote), lambda: (s.sh(["git", "-C", clone, "fetch", "-q", "--prune", remote]) or [1])[0] == 0)
+        def f():
+            ok = (s.sh(["git", "-C", clone, "fetch", "-q", "--prune", remote]) or [1])[0] == 0
+            if ok:
+                s.sh(["git", "-C", clone, "remote", "set-head", remote, "--auto"])  # <remote>/HEAD names the default branch
+            return ok
+        return s._m(("fetch", clone, remote), f)
 
     def rev(s, clone, ref):
         """sha | '' (no such ref) | None (unknown)."""
@@ -405,20 +410,20 @@ def nxt(ctx, ch):
             return step(f"dependency {d}: ref unknown", "unknown")
         if not ctx.live(dep, dh):
             return step(f"waiting on {d}", "wait")
-    con = contract(slug)
-    if con is None:
-        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
-    if not con["agreed"]:
-        return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
     head = ctx.head(ch)
     if head is None:
         return step("dev ref unknown", "unknown")
-    ho = rec(slug, "handover")
     done = ctx.done(ch, head) if head else False
     if done is None:
         return step("release state unknown", "unknown")
     if done and (head != ctx.base(ch) or ch["kind"] == "release"):
         return step("done", "done")
+    con = contract(slug)
+    if con is None:
+        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
+    if not con["agreed"]:
+        return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
+    ho = rec(slug, "handover")
     if ch["kind"] != "release" and (not head or not ho or ho["head"] != head):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",

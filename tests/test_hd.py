@@ -632,6 +632,11 @@ class R3(Sandbox):
         st = s.state(F, "c1"); st["act"]()
         s.assertEqual(s.state(F, "c1")["actor"], "dev")  # derived contract: straight to the dev
 
+    def test_merged_change_is_done_before_any_contract(s):
+        s.change("s1")
+        F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract
+        s.assertEqual(s.state(F, "s1")["state"], "done")
+
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")
         F = Fake(**FACTS, rows={"false": (1, "nope")})

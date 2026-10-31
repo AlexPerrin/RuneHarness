@@ -4,13 +4,24 @@ The brief for a fresh session on branch `v8`. v7 runs on `main` with its pass pa
 `~/osrs-harness`); v8 is built in the worktree `~/osrs-harness-v8` and goes live only when the user approves the
 cutover (merge into `main`, the timer and the sudoers line installed).
 
-## Start prompt
-Start in ~/osrs-harness-v8 on branch `v8`. Read CLAUDE.md, docs/PROBLEM.md, docs/PRD.md, docs/ARCHITECTURE.md and
-docs/ACCEPTANCE.json, then docs/ISSUES.md. `python3 -m unittest discover -s tests` must pass. The track scripts live in
-the product repos: the fork's branch `local/harness` (worktree `~/src/OpenRune-Server/.worktrees/harness`) and the
-client's branch `client/harness-v8` (worktree `~/osrs-plugins-reverse/.worktrees/harness-v8`); each has its own tests.
+## Start prompt (the operating session: the head)
+Start a session **in ~/osrs-harness-v8** on branch `v8` (its `.claude/settings.json` wires v8's hooks and its
+`.claude/agents/` holds the roles; a session started elsewhere binds no run). Read CLAUDE.md, docs/HANDOFF.md and
+docs/ISSUES.md, then follow skill `head`: run `python3 hd.py`, spawn each listed run with the Agent tool exactly as
+printed, show cards and questions, arm the watch on `state/wake`, return to the user. The orchestrator run the pass
+lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same
+loop (a dev run in `~/osrs-harness-v8/.worktrees/<slug>`, the gate's tests, a fast-forward of `v8`).
+`python3 -m unittest discover -s tests` must stay green. The track scripts live in the product repos: the fork's branch
+`local/harness` (worktree `~/src/OpenRune-Server/.worktrees/harness`) and the client's branch `client/harness-v8`
+(worktree `~/osrs-plugins-reverse/.worktrees/harness-v8`), each with its own tests; both are local, unpushed.
 Commits pathspec-only, authored as Alex Perrin <44126061+AlexPerrin@users.noreply.github.com>, ending with the
-Co-Authored-By line only. Never leave uncommitted edits in ~/osrs-harness.
+Co-Authored-By line only. Never leave uncommitted edits in ~/osrs-harness (v7's main).
+
+## Before the first server change gates
+`pins` in hd.yaml is empty. The integration tree is upstream main plus the pins plus the gated heads, so the first
+test-server deploy would drop every branch v7 carried (40: `local/*`, `fin/*`, `fix/*`, listed in v7's
+`integration.txt` on the fork's `local/integration-tools`). Fill `pins` with the branches the test server must keep,
+or file each as a change, before any server change passes its gate.
 
 ## What is built and what is not
 Built with tests: the loop (`hd.py`, every requirement's class), the hook, `hd-public`, the three track scripts, the

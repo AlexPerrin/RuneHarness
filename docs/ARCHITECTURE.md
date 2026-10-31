@@ -7,7 +7,9 @@ it. `next(change)` is the first unmet of a fixed list; everything shown or acted
 ```
 hd.py             the loop: next(change), facts, records, the pass; commands below
 hd.yaml           repos, paths, the agent count, the context limit, the fork's permanent pins
-hook.py           SubagentStart/Stop: run start and end, then the pass started without waiting;
+hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
+                  <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
+                  started without waiting;
                   PreToolUse: a subagent may not `hd approve`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log

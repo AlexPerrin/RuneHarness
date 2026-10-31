@@ -234,6 +234,33 @@ class R2(Sandbox):
         s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"started"' in l), 1)
 
 
+    def test_runs_spawned_together_each_bind_their_own_brief(s):
+        """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
+        for c in ("s1", "s2", "s3"):
+            s.change(c); s.agreed(c)
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s2": A, "fork/dev/s3": A}})
+        hd.tick(s.ctx(F))
+        runs = sorted(hd.runs(), key=lambda r: r["name"])
+        session = s.root / "state" / "session.jsonl"
+        session.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "drive"}}) + "\n")
+        (s.root / "state" / "session" / "subagents").mkdir(parents=True)
+        def p(r, aid, ev, prompt=True):
+            if prompt:
+                (s.root / "state" / "session" / "subagents" / f"agent-{aid}.jsonl").write_text(
+                    json.dumps({"type": "user", "message": {"role": "user", "content": f"Read and follow {r['brief']}"}}) + "\n")
+            return {"hook_event_name": ev, "agent_id": aid, "agent_type": r["role"], "transcript_path": str(session)}
+        hook.bind(p(runs[2], "a3", "SubagentStart"))                  # spawned in one message: started in any order
+        hook.bind(p(runs[0], "a1", "SubagentStart", prompt=False))    # its prompt not written yet: binds nothing
+        hook.bind(p(runs[1], "a2", "SubagentStart"))
+        s.assertEqual([r.get("agent_id") for r in sorted(hd.runs(), key=lambda r: r["name"])], [None, "a2", "a3"])
+        hook.bind(p(runs[0], "a1", "PreToolUse"))                     # its first tool call binds it
+        bound = sorted(hd.runs(), key=lambda r: r["name"])
+        s.assertEqual([r["agent_id"] for r in bound], ["a1", "a2", "a3"])
+        s.assertTrue(bound[2]["transcript"].endswith("subagents/agent-a3.jsonl"))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(p(runs[2], "a3", "SubagentStop", prompt=False))   # the first to stop ends its own run only
+        s.assertEqual([bool(r["ended"]) for r in sorted(hd.runs(), key=lambda r: r["name"])], [False, False, True])
+
     def test_orchestrator_record_and_unmatched_stop(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

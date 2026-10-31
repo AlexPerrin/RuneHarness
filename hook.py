@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """hook.py: the one hook program, wired in .claude/settings.json (docs/ARCHITECTURE.md). Reads the event JSON on stdin.
 
-SubagentStart   bind the listed run: the brief path in the agent's first message names it (else the oldest listed run of
-                the role); record agent_id and the transcript path.                                                       R2
-PreToolUse      bind if the start was missed; the one rule (R4): `hd approve` is denied inside a subagent.                 R4
+SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
+                spawned together start at once); record agent_id and the agent's transcript path.                         R2
+PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` is denied inside a subagent.                 R4
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 write evidence/<slug>/handoff.md and hand back.                                                            R6
 SubagentStop    end the run: ended, usage, last message, record (the role's record newer than the start), then start the
@@ -17,8 +17,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hd  # noqa: E402
 
 
+def agent_transcript(p):
+    """The agent's own transcript: SubagentStart and PreToolUse carry only the session's transcript_path, beside which
+    the agent's lives at <session>/subagents/agent-<agent_id>.jsonl."""
+    if p.get("agent_transcript_path"):
+        return p["agent_transcript_path"]
+    t = p.get("transcript_path")
+    if t and p.get("agent_id"):
+        return str(Path(t).with_suffix("") / "subagents" / f"agent-{p['agent_id']}.jsonl")
+    return t
+
+
 def transcript(p):
-    t = p.get("agent_transcript_path") or p.get("transcript_path")
+    t = agent_transcript(p)
     try:
         return [json.loads(l) for l in open(t) if l.strip()] if t else []
     except (OSError, ValueError):
@@ -42,30 +53,26 @@ def brief_in(entries):
 ROLES = ("dev", "qa", "orchestrator")
 
 
-def find_run(p, fallback=False):
-    """By agent id (an index file: one read per call), else by the brief path in the transcript; a bind may fall back
-    to the oldest listed run of the role."""
+def find_run(p):
+    """By agent id (an index file: one read per call), else by the brief path in the agent's own transcript."""
     aid = p.get("agent_id")
     idx = hd.STATE / "runs" / "by-agent" / str(aid)
     if aid and idx.exists():
         f = hd.STATE / "runs" / f"{idx.read_text()}.json"
         if f.exists():
             return json.loads(f.read_text())
-    rs = hd.runs()
     name = brief_in(transcript(p))
-    by_name = [r for r in rs if r["name"] == name and not r.get("ended")]
-    listed = [r for r in rs if fallback and not r.get("started") and not r.get("ended") and r["role"] == p.get("agent_type")]
-    return (by_name or listed or [None])[0]
+    return next((r for r in hd.runs() if name and r["name"] == name and not r.get("ended")), None)
 
 
 def bind(p):
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
-    r = find_run(p, fallback=True)
+    r = find_run(p)
     if not r or r.get("started"):
         return
     cpid, cstart = hd.Facts().console()
-    r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=p.get("agent_transcript_path") or p.get("transcript_path"),
+    r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=agent_transcript(p),
              console_pid=cpid, console_start=cstart)
     hd.save_run(r)
     (hd.STATE / "runs" / "by-agent").mkdir(exist_ok=True)
@@ -156,7 +163,7 @@ def context_limit(p):
     r = find_run(p)
     if not r or r.get("handoff_told"):
         return
-    size = context_of(p.get("agent_transcript_path") or p.get("transcript_path"))
+    size = context_of(agent_transcript(p))
     if size < hd.cfg().get("context_limit", 150000):
         return
     r["handoff_told"] = size

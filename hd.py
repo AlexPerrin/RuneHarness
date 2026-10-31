@@ -5,7 +5,7 @@ Commands: hd | new | show | handover | verdict | ask | answer | approve | tick [
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 Implemented: R3 (contract, records bound to T or head + contract, refusals). The other requirements follow one at a time.
 """
-import fcntl, hashlib, json, os, re, subprocess, sys
+import fcntl, hashlib, json, os, pwd, re, shutil, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -126,6 +126,11 @@ class Facts:
         """A contract script row, inline: (rc, output)."""
         r = s.sh(["bash", "-c", cmd], cwd=cwd, env=env, timeout=3600)
         return (1, "could not run") if r is None else (r[0], (r[1] + r[2])[-4000:])
+
+    def release(s, repo, tag):
+        """{tag} when the release exists, {} when not, None when GitHub cannot be read."""
+        r = s.sh(["gh", "release", "view", tag, "-R", repo, "--json", "tagName"], timeout=120)
+        return None if r is None else {"tag": tag} if r[0] == 0 else {} if "release not found" in r[2] else None
 
     def containers(s):
         """{name: state} of every docker container, or None when docker cannot be reached."""
@@ -306,7 +311,10 @@ class Ctx:
         return s.F.contains(s.clone(ch), s.base(ch), head)
 
     def done(s, ch, head):
-        """A6: a server change when upstream main holds head; every other change when live."""
+        """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live."""
+        if ch["kind"] == "release":
+            r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
+            return None if r is None else bool(r)
         if ch["track"] == "server" and ch["kind"] != "local":
             return s.F.contains(s.clone(ch), s.base(ch), head) if head else False
         return s.live(ch, head)
@@ -339,6 +347,16 @@ class Ctx:
     def env(s, ch, head, tc, tree):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]),
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""), "HD_ROOT": str(ROOT)}
+
+    def public(s, *args):
+        """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""
+        try:
+            pwd.getpwnam("hd")
+            return ["sudo", "-n", "-u", "hd", str(ROOT / "hd-public"), *args]
+        except KeyError:
+            if "R4" not in " ".join(s.alerts):
+                s.alerts.append("R4: no Unix user hd; public acts run as you with your token")
+            return [str(ROOT / "hd-public"), *args]
 
     def alive_run(s, ch):
         return next((r for r in s.runs if r["change"] == ch["slug"] and not r.get("ended")), None)
@@ -395,9 +413,12 @@ def nxt(ctx, ch):
     if head is None:
         return step("dev ref unknown", "unknown")
     ho = rec(slug, "handover")
-    if head and ctx.done(ch, head) and (head != ctx.base(ch) or ch["kind"] == "release"):
+    done = ctx.done(ch, head) if head else False
+    if done is None:
+        return step("release state unknown", "unknown")
+    if done and (head != ctx.base(ch) or ch["kind"] == "release"):
         return step("done", "done")
-    if not head or not ho or ho["head"] != head:
+    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
                     input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
@@ -443,12 +464,12 @@ def nxt(ctx, ch):
         a = rec(slug, "approval")
         if not a or a["head"] != head:
             return step("live on the test server; waiting for the user's yes", "user", input=head)
-        return step("shipping upstream", "script", act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd-public"), "upstream", slug, head], env))
+        return step("shipping upstream", "script", act=lambda: ctx.start(slug, "ship", ctx.public("upstream", slug, head), env))
     if ch["kind"] == "release":
         a = rec(slug, "approval")
         if not a or a["head"] != head:
             return step(f"release v{ch['version']} at {head[:9]} waits for the user's yes", "user", input=head)
-        return step(f"publishing v{ch['version']}", "script", act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd-public"), "release", slug, head, f"v{ch['version']}"], env))
+        return step(f"publishing v{ch['version']}", "script", act=lambda: ctx.start(slug, "ship", ctx.public("release", slug, head, f"v{ch['version']}"), env))
     return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
 
 

@@ -121,7 +121,12 @@ def end_run(p):
     start_pass()
 
 
-def deny_approve(p): ...     # R4
+def deny_approve(p):
+    """R4: the one guard rule. Authority is otherwise by credential; the approval record is main's alone."""
+    if p.get("agent_id") and re.search(r"\bhd(\.py)?\s+approve\b", (p.get("tool_input") or {}).get("command") or ""):
+        hd.event(action="denied", agent=p["agent_id"], role=p.get("agent_type"), rule="hd approve is main's")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                 "permissionDecisionReason": "hd approve is recorded by main after the user's yes, never by an agent. Report it; do not work around it."}}))
 
 
 def context_of(path):

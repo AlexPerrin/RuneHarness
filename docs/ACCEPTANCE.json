@@ -1,0 +1,50 @@
+[
+ {
+  "id": "R1",
+  "requirement": "Goals: measured when the target moves, bound to its tree; a server head live on the test server unblocks the client",
+  "check": "python3 -m unittest tests.test_hd.R1 && python3 hd.py | grep -E '^goal .* tree [0-9a-f]{7,}'",
+  "passes": false
+ },
+ {
+  "id": "R2",
+  "requirement": "Flow: defined to live with no person once deps are live; main woken only to spawn or show a card",
+  "check": "python3 -m unittest tests.test_hd.R2",
+  "passes": false
+ },
+ {
+  "id": "R3",
+  "requirement": "Contract: rows before code, every row judged once, verdicts append, text fixed in place; gate bound to T, verdict and approval to head and contract",
+  "check": "python3 -m unittest tests.test_hd.R3 && for f in evidence/*/contract.md; do grep -qE '^- [a-z0-9-]+ \\|' \"$f\" || exit 1; done",
+  "passes": false
+ },
+ {
+  "id": "R4",
+  "requirement": "Authority: no agent credential can write to OpenRune or release; the harness ships only at the approved head",
+  "check": "python3 -m unittest tests.test_hd.R4 && gh auth status 2>&1 | grep -q github_pat_ && id hd >/dev/null",
+  "passes": false
+ },
+ {
+  "id": "R5",
+  "requirement": "Recovery: any failure repaired in one pass; repairs logged on observed effect; the user raised once per change",
+  "check": "python3 -m unittest tests.test_hd.R5",
+  "passes": false
+ },
+ {
+  "id": "R6",
+  "requirement": "Economy: script before agent before user; nothing checked twice per input; agent count; events on edges; hand-off at the context limit; bring-up as a script",
+  "check": "python3 -m unittest tests.test_hd.R6 && tracks/server.sh up ${SLUG:?} 2 | grep -c LOGGED_IN | grep -qx 2",
+  "passes": false
+ },
+ {
+  "id": "R7",
+  "requirement": "Visibility: hd prints spawns, cards, questions, runs, goals and change facts, nothing else, no step names as states",
+  "check": "python3 -m unittest tests.test_hd.R7 && python3 hd.py",
+  "passes": false
+ },
+ {
+  "id": "R8",
+  "requirement": "Trees: T by merge-tree; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run",
+  "check": "python3 -m unittest tests.test_hd.R8 && tracks/server.sh build ${SLUG:?} >/dev/null && tracks/server.sh build ${SLUG:?} | grep -q cached",
+  "passes": false
+ }
+]

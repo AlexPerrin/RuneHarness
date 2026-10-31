@@ -3,7 +3,7 @@ slug: goblin-diplomacy-review-367-fftgsrq
 track: server
 kind: change
 priority: P0
-deps: []
+deps: [harness-subject-row-range, harness-dupe-tests-row-scope]
 branch: content/goblin-diplomacy
 pr: 367
 finding: IC_kwDOQBbPT88AAAABfTgSRQ

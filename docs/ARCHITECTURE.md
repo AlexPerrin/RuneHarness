@@ -129,10 +129,23 @@ sequenceDiagram
   P->>P: ship upstream: push, PR, CI, comment, ready
 ```
 
+## Run and test
+
+```
+~/.config/systemd/user/hd-tick.service   [Service] Type=oneshot  ExecStart=/usr/bin/python3 %h/osrs-harness/hd.py tick
+~/.config/systemd/user/hd-tick.timer     [Timer] OnBootSec=1min  OnUnitActiveSec=1min   [Install] WantedBy=timers.target
+loginctl enable-linger alex && systemctl --user enable --now hd-tick.timer
+/etc/sudoers.d/hd-public                 alex ALL=(hd) NOPASSWD: /home/alex/osrs-harness/hd-public   (user hd holds the full token)
+python3 hd.py                            # a pass, then the view
+python3 hd.py tick --dry-run             # the view, nothing started or recorded
+python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
+fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
+```
+
 | Requirement | Mechanism |
 |---|---|
-| R1 Goals | the goal's `measure` step keyed by the target's tree; live.json unblocks client deps; the planning run |
-| R2 Flow | `next`, the pass, the briefs, the Monitor wake |
+| R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the orchestrator plans |
+| R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, the wake file |
 | R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
 | R4 Authority | the two credentials, `hd-public` under sudoers, the one hook rule, ship after approval at head |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |

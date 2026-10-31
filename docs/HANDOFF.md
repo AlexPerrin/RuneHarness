@@ -1,34 +1,29 @@
 # HANDOFF
 
-The brief for a fresh session on branch `v8`. v7 runs on `main` (its pass is paused: `harness/state/paused`); v8 is
-built here, in the worktree `~/osrs-harness-v8`, and goes live only when the user approves the cutover.
+The brief for a fresh session on branch `v8`. v7 runs on `main` with its pass paused (`harness/state/paused` in
+`~/osrs-harness`); v8 is built in the worktree `~/osrs-harness-v8` and goes live only when the user approves the
+cutover (merge into `main`, the timer and the sudoers line installed).
 
 ## Start prompt
 Start in ~/osrs-harness-v8 on branch `v8`. Read CLAUDE.md, docs/PROBLEM.md, docs/PRD.md, docs/ARCHITECTURE.md and
-docs/ACCEPTANCE.json (the design, approved by the user on 2026-10-31), then docs/V8-BRIEF.md §0–§4 for the measured
-evidence and docs/ISSUES.md. The user's go for the implementation is given. Build one requirement at a time, each with
-its test class in tests/test_hd.py, flipping its row in docs/ACCEPTANCE.json only after its check command passes.
-Measure against docs/V8-BRIEF.md §3 with the scripts in ~/osrs-harness/evidence/monitor/ (git-ignored, main checkout).
+docs/ACCEPTANCE.json, then docs/ISSUES.md. `python3 -m unittest discover -s tests` must pass. The track scripts live in
+the product repos: the fork's branch `local/harness` (worktree `~/src/OpenRune-Server/.worktrees/harness`) and the
+client's branch `client/harness-v8` (worktree `~/osrs-plugins-reverse/.worktrees/harness-v8`); each has its own tests.
 Commits pathspec-only, authored as Alex Perrin <44126061+AlexPerrin@users.noreply.github.com>, ending with the
-Co-Authored-By line only. Never leave uncommitted edits in ~/osrs-harness (main's working tree).
+Co-Authored-By line only. Never leave uncommitted edits in ~/osrs-harness.
 
-## Decisions taken with the user (2026-10-31)
-- Gate bound to T; verdict and approval bound to head + contract; rule rows carry the upstream rule files' blob shas.
-- Main spawns, woken by a watch re-armed on every wake; the pass never spawns.
-- Only the public act runs as Unix user `hd` through one sudoers-limited helper; everything else as the user with a
-  token limited to AlexPerrin/*.
-- Server contract written by a qa run before code; client and harness contracts derived.
-- A maintainer finding files a new change on the same PR, contract inherited plus the finding's row.
-- No integrator, no orchestrator roles: a pin conflict is the younger change's dev (merge ref against a permanent
-  pin); planning is a dev brief.
-- Runs hand off at 150–200k context (cost, not quality).
+## What is built and what is not
+Built with tests: the loop (`hd.py`, every requirement's class), the hook, `hd-public`, the three track scripts, the
+server's check rows (`gamevals.py`, `text.py`), the client's check rows. `python3 hd.py tick --dry-run` runs against the
+real repos and v7's definitions.
+Not yet run for real: a server `build`, `up`, `gate-ci` and `ship`; a client `build`, `up` and `measure`; `hd-public`
+against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until its live check runs.
 
-## Waits on the user (docs/V8-BRIEF.md §0a plus)
-Mirrored WSL networking (done at this restart), the fine-grained token and the `hd` user with the sudoers line, the
-`fix/31` decision, the jav_config privacy change. Before the first server contract: regenerate the RSProx text
-transcripts with every packet filter on (0 of 151 hold clan or friend-list packets).
-
-## Unconfirmed measurements (from the monitor, to carry into docs/ISSUES.md)
-The 131-module recompile after adding a pack module; why every SubagentStop hook was cancelled; that the binary
-RSProx recordings hold clan packets; fixed-mode login coordinates as the cause of the login stall; no Jagex contact
-from the desktop jav_config (RSProx logs only, no capture).
+## Cutover, in order
+1. The user: a fine-grained token limited to AlexPerrin/* for `gh`; Unix user `hd` with the full token and the sudoers
+   line (docs/ARCHITECTURE.md, Run and test); the `pins` list in hd.yaml; the `fix/31` decision.
+2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
+   branch) until it moves onto `local/harness`.
+3. Regenerate the RSProx text transcripts with every packet filter on (`tools/track.sh recordings` reads them).
+4. Stop v7's timer, merge `v8` into `main`, install the units, resume with `python3 hd.py` from the user's chat
+   (skill `head`).

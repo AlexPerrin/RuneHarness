@@ -91,7 +91,7 @@ Where a change's life went (35 changes):
 | step events that repeat the last one | 764 of 1174 |
 
 ## 4. What failed, and why (the root causes)
-1. **Review has no contract.** QA finds new defects every round, and devs fix a finding where it was named, not as a
+1. **Review has no contract.** The costliest change of v7 (goblin-367-fftgsrq: 23 runs, 13.4 agent-h, 9 QA rounds) began as one maintainer comment on #367, "I'd really like to get the cutscene in as well": the deferral a pre-coding checklist row (everything the wiki page lists) would have held. Maintainers raised only 3 findings in v7. QA finds new defects every round, and devs fix a finding where it was named, not as a
    rule across the diff (goblin: `MailDye` enum fixed, `ARMOURS` list next round). PR-text-only fails cost a full dev
    and QA run each. Only the last `verdict.json` is kept. → QA and dev agree a fixed checklist (accuracy spec, live
    AGENTS.md rules, PR text, in-game) before coding; each item pass/fail; verdicts appended; text fixed without a new QA run.

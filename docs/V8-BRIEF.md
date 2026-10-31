@@ -80,7 +80,7 @@ Where a change's life went (35 changes):
    every run (52–148 calls before work, 12% polling). Four of five agent retros independently ask for the same
    tool (`qa-run`, `hd up`, `qa-session`, `branch-session`): clone and merge onto the gate's base, build, start the
    server on free ports, seed accounts (members, dev_mode), start and log in N clients, print ports, block until
-   ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11). → that one script per track,
+   ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11, clan-channels-2; the last adds a `reload` that only reinstalls and logs back in, and a recipe for features that need N players). → that one script per track,
    plus a `wait-for <fact>` tool, a dialogue driver and a `gameval <table> <name|id>` lookup over every table;
    skills keep judgment only.
    Transcript sweep (82 server runs; phase share of time, dev / QA): waiting 23% / 14%, code 17% / 13%, in-game test
@@ -110,6 +110,7 @@ Where a change's life went (35 changes):
    - Rule clashes: the brief's "one commit off upstream main" vs a change on an existing PR branch; "FAIL any
      unticked item" vs a gap the user accepted (hunter's wiki item, so FAIL by rule every round); "default no tests"
      vs upstream AGENTS.md's dupe tests.
+   - Wrong facts that cost runs (clan-channels-2): build-test says the `gate-run` tree is enough for in-game checks, but it never runs `buildCache`, so new pack configs are missing (two extra rebuild rounds); accuracy-check never says RSProx filters hide clan and friends-chat packets by default, so an earlier spec claimed "no recordings" that exist (an accuracy defect, A-class); the brief's "build on the friends chat change" against server-track's "never stacked" (the dependency tree R8 defines).
    - Monolithic skills: server-track's integrator section and test-instances' Android parts are noise for others.
    → v8: instructions point only at scripts that a test runs (a dead path fails CI); one file per role; each user
    answer amends the checklist, not a free-text Answers section.

@@ -54,6 +54,7 @@ Where a change's life went (35 changes):
 | Metric | v7 |
 |---|---|
 | runs per upstream PR | 15–23 (4 PRs = 77 of 132 runs, 41 of 66 agent-hours) |
+| per change, by kind (median) | upstream-PR server change 15 runs, 5.4 agent-h, 290M tokens; client change 2 runs, 1.0 h, 56M; local server change 3 runs, 0.8 h; harness change 1 run, 0.3 h |
 | QA rounds per PR | up to 9; findings per round goblin 4,2,1,PASS,4,6,4,2 |
 | spawn wait after the record that makes a run due | median 11 min, p90 83, max 534 |
 | context | starts at ~35k; peak median server-dev 160k, server-qa 189k, client-dev 207k; max 887k |

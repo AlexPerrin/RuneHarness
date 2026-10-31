@@ -14,6 +14,10 @@ docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md and questions all four.
   only the latest `verdict.json` is kept, so findings per round cannot be measured. v8: QA runs one fixed, exhaustive
   checklist per change (accuracy spec, live AGENTS.md rules, PR text) before its first verdict; the dev checks the same
   list before hand-over; every verdict is appended, not overwritten; a text-only finding is fixed without a new QA run.
+  Devs also leave findings open: goblin round 9 failed on two repeats (PR text "not fixed"; game data in Kotlin fixed
+  for the `MailDye` enum, then back as `ARMOURS`), because a finding is fixed where it was named, not as a rule across
+  the commit. v8: the hand-over records each prior finding with the rule it breaks and the check that proves it
+  closed across the whole diff.
 - **Agents run at the top of their context.** Average context per turn: server-dev 222k, client-dev 187k, server-qa
   144k tokens (4.1B cache-read tokens over 22k turns). Why: dev runs read the evidence, logs and decompiled code
   themselves instead of through subtasks. v8: read-heavy work goes to subtasks by default, and context per turn is a

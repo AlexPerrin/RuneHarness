@@ -11,19 +11,30 @@ brief file's text as the prompt and the role as the agent type; show cards and q
 A quick fix lands at once; a root cause or a rewrite too large for the run is one entry in docs/ISSUES.md for v8.
 
 ## What is live
-v7 development is complete (2026-10-25). The pass runs from the systemd user timer `hd-tick.timer` every minute and
-after every agent hand-back. The backlog is one change per open upstream PR (#354, #355, #367, #408) plus the P0
-changes the pass files for maintainer findings. The goal `client-api` has no measurement and no client change yet; the
-orchestrator's first run defines the client backlog, starting with the probe `tools/api-probe.sh`.
+v7 ran 2026-10-25 → 2026-10-31; v8 is next (read docs/V8-BRIEF.md first). The pass runs from the systemd user timer
+`hd-tick.timer` and is **paused** (`harness/state/paused`): remove the file to resume. The dashboard is
+http://localhost:7790 (unit `hd-dashboard.service`). The devtools MCP servers are `osrs-devtools-mobile` and
+`osrs-devtools-desktop`, both through `mcp/devtools_bridge.py` (they connect with no client running).
 
-The dashboard is http://localhost:7790 (unit `hd-dashboard.service`): the task queue, the agents running with their
-last activity, what waits for the user, the PRs, the train and the test server; the pass rewrites it every minute.
+State at the pause (2026-10-31, US Eastern evening); `hd` is the live truth:
+- **goblin-diplomacy-review-367-fftgsrq** (#367): head 77ac377e4 FAIL, 2 findings (pr-comment.md describes intermediate
+  commits; `ARMOURS` should read cache category 528). Queued, not spawned: dev run -24. Also fails the new dupe check
+  (GoblinDiplomacy.kt moves items without a dupe test).
+- **hunter-feat-pr**: head b3209ffc9 FAIL, 5 findings plus sourcing; scope answer B (Misc items and goat luring). Fails
+  the dupe check (26 files). Queued for the next dev run.
+- **server-friends-chat-clan-channels**: head b8bdf662e handed over, awaits gate and review; integrator run -12 queued
+  for a train failure, not spawned.
+- **server-clan-channels** (clans core, settings folded in): 5e6344c7b handed over, awaits gate. Depends on friends
+  chat; `MessagePublicHandler.kt` conflicts with it textually, so the train needs that resolution recorded.
+  server-clan-guest → server-clan-broadcasts and server-clan-hall (P3) follow it, not started.
+- **server-sidecar-jav-config-local-auth** (P0, privacy): filed; the sidecar's jav_config names Jagex hosts. Not started.
+- #354, #355, #367 (the original) are merged. Live test server: integration f331350.
+- Agent retros (QA and dev friction) are `evidence/<slug>/retro-<run>.md`; their themes are in docs/V8-BRIEF.md §4.
 
 ## Open decisions for the user
 - Eleven `fin/*` fork branches hold finished, test-server-live work never contributed (diaries, doric, fairy-rings,
   farming, grand-exchange, jewellery, op-overrides, plank-sack, quest-test-fixture, rune-pouch, vampyre-slayer): the
   source of the rebuilt backlog, one change per feature, after the open PRs settle.
-- The client API probe (`tools/api-probe.sh`, the measure of goal `client-api`) does not exist yet.
 - `harness/state.v6/` (the v6 records) is kept until a server change completed a full v7 pass; then delete it.
 
 ## Standing rules

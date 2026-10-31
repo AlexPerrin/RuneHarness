@@ -7,6 +7,12 @@ docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md and questions all four.
 
 ## Open
 
+- **Smaller faults found 2026-10-31** (not in docs/V8-BRIEF.md): a change whose dep was deleted blocks with no message;
+  the guard refuses an `hd ask` whose text quotes a push command; an integrator's note-only `hd ask` reaches the user as
+  a question; a definition of done is not rewritten when a scope answer changes it (hunter, clans); the session
+  devtools assume port 7780 and mobile needs `ANDROID_SERIAL` set; the pass refuses to merge a harness change while
+  another session has uncommitted docs edits. v8: each is a fact the owning step checks, not a rule an agent recalls.
+
 - **Review does not converge.** The four upstream review changes took 77 of 131 runs and 41 of 66 agent-hours
   (goblin-367-fftgsrq: 23 runs, 8 QA rounds). Each QA round confirms the previous findings fixed and then finds new
   ones (goblin 4, 2, 1, PASS, 4, 6, 4; hunter 9, 5, 5, PASS, 10, 5), and several rounds failed on PR text alone, at

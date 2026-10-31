@@ -593,6 +593,15 @@ class R8(Sandbox):
         s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([x for x in F.spawned if x[1] == "ship"], [])
 
+    def test_tree_of_a_snapshot(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "trees": {**FACTS["trees"], D: "td" * 20}, "merges": {(B, C): ("ok", D)}})
+        import io, contextlib
+        out = io.StringIO()
+        with mock.patch.object(hd, "Facts", lambda: F), contextlib.redirect_stdout(out):
+            hd.cmd_tree(["s1", C])                                                   # a working-copy snapshot, not the dev ref
+        s.assertEqual(out.getvalue().split(), [D, "td" * 20])
+
     def test_artefacts_named_by_change(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

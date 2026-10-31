@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | handover | verdict | ask | answer | approve | tick [--dry-run].
+Commands: hd | new | show | tree | handover | verdict | ask | answer | approve | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 Implemented: R3 (contract, records bound to T or head + contract, refusals). The other requirements follow one at a time.
 """
@@ -846,6 +846,19 @@ def cmd_approve(a):
     print(f"approved {a[1]}")
 
 
+def cmd_tree(a):
+    """R8: `hd tree <slug> <commit>` prints `<T commit> <T tree>` for a commit of the change (a dev's working-copy
+    snapshot): base + deps + that commit, so a dev builds T, never the bare head."""
+    ctx = Ctx()
+    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
+    T = ctx.T(ch, a[1])
+    if T is None:
+        refuse("tree cannot be computed")
+    if T[0] == "conflict":
+        refuse("conflict with the base or a dependency:\n" + T[1])
+    print(T[1], ctx.tree(ch, T[1]) or "")
+
+
 def cmd_new(a):
     import argparse
     p = argparse.ArgumentParser(prog="hd new")
@@ -874,7 +887,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "new": cmd_new, "tick": cmd_tick}
+            "approve": cmd_approve, "new": cmd_new, "tree": cmd_tree, "tick": cmd_tick}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

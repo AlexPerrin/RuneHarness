@@ -9,6 +9,8 @@ design or a rewrite too large for the run, and the measurements of v7 that were 
   plugin would remove the last coordinates.
 - **A dev's tap on the emulator is never retried** (`tools/device_login.py`): a missed tap waits forever; the screen
   state needs a readable fact (the host's logcat lines) per dialog.
+- **`hd-public` finds the PR with `gh pr list --head owner:branch`**, a form not verified against a real fork branch;
+  if gh ignores the owner part the lookup finds nothing and a second draft PR is opened. Check once before the first ship.
 - **The compose file was not validated from this session**: the v7 guard refuses `docker compose config`; the first
   `ship` validates it.
 - **The sidecar's data and image come from v7's tools branch** (`osrs-rsps-test:241`, `sidecar/data`): the server

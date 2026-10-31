@@ -27,6 +27,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
 | `hd handover <slug>` | dev | reads the pushed dev ref (no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass or fail, appended; refused if a row is missing |
+| `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
+| `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
 | `hd tick` | the timer, the hook | one pass |
 

@@ -7,7 +7,7 @@ only `passes` may change.
 | Id | Constraint | From |
 |---|---|---|
 | R1 **Goals** | Each goal is measured by its command whenever its target moves, shown with the tree it was measured on, and work is chosen to close the gap to its target. A server change unblocks the client once live on the test server. | P1 P10 |
-| R2 **Flow** | A defined change reaches its live target with no person involved once the changes it depends on are live. Main is woken only to spawn an agent or show a card; nothing else depends on it. | P3 |
+| R2 **Flow** | A defined change reaches its live target with no person involved once the changes it depends on are live. Main is woken only to spawn an agent, show a card or relay the user's word; planning across tracks and the monitoring of operations belong to an orchestrator run listed by facts; nothing depends on either staying alive. | P3 |
 | R3 **Contract** | What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows, the accuracy spec, the live upstream rules with their blob shas, the user's answers and prior findings. The hand-over passes every script row; the reviewer judges every row once, pass or fail, and verdicts append; a text-only failure is fixed in place. A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves. A claim with no record counts for nothing; an unknown fact stops a step. | P1 P2 P7 |
 | R4 **Authority** | Only a write to OpenRune and a client release need the user. No agent credential can do either; the harness does them only at the approved head. | P4 |
 | R5 **Recovery** | Any failure is repaired in one pass with no user action; a repair is recorded only when its effect is observed, and one that recurs is raised once. Only what the user alone can decide or fix is raised, once per change. Nothing is decided from elapsed time. | P3 P5 |
@@ -24,7 +24,7 @@ Each check is a command. `python3 -m unittest tests.test_hd.<R>` runs the requir
 gh, docker and the process table; a live check reads the real state.
 
 1. **R1** `tests.test_hd.R1`: a target move lists the measure step once; the measurement is bound to the target's tree;
-   a server head live on the test server unblocks the client changes depending on it. Live: `hd` shows each goal's
+   a server head live on the test server unblocks the client changes depending on it; below target with nothing open an orchestrator run is listed. Live: `hd` shows each goal's
    number with a tree equal to its target's current tree.
 2. **R2** `tests.test_hd.R2`: a change with a live dependency goes from defined to live with no `approve`, `answer` or
    console call; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input.

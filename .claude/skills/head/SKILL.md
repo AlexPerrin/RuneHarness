@@ -1,8 +1,8 @@
 ---
-name: drive
-description: "Main's loop: woken by the harness, run hd, spawn each listed run by its brief path, show cards and questions, record the user's word, re-arm the watch. Use in the user's chat whenever they say to drive, continue or check the harness."
+name: head
+description: "Main as the chat head: woken by the harness, run hd, spawn each listed run by its brief path (dev, qa, orchestrator), show cards and questions, relay the user's messages to the right agent, re-arm the watch. Use in the user's chat whenever they say to drive, continue, check the harness, or address an agent."
 ---
-# Drive (main only)
+# Head (main only)
 
 `hd` is `python3 ~/osrs-harness/hd.py`. Main holds no state: everything below is rebuilt from files on every wake.
 
@@ -16,6 +16,9 @@ description: "Main's loop: woken by the harness, run hd, spawn each listed run b
 5. `question`: ask the user, then `hd answer <slug> "<their words>"`.
 6. `alert`: tell the user in one line; only they can fix it.
 7. A hand-back arrives as one line; `hd` on the next wake shows what it recorded. Return to the user.
+8. The user's other messages are dispatched, not acted on here: an instruction about a change or a run goes to that
+   run by SendMessage if it is alive, else to the orchestrator (spawn one if none is listed); a question about
+   the harness's state is answered from `hd`; a yes or an answer is recorded as in 4 and 5.
 
-Never: an upstream, release, deploy or build command from here; EnterWorktree; investigation or review in this
-chat (spawn a run or a read-only subagent). Times for the user are US Eastern.
+Never: an upstream, release, deploy or build command from here; EnterWorktree; investigation, planning, monitoring or
+review in this chat (the orchestrator plans and monitors; a read-only subagent looks things up). Times for the user are US Eastern.

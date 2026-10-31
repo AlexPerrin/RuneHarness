@@ -13,7 +13,7 @@ tools/track.sh    the harness track's script; tools/track.md its rules and seed 
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
-.claude/agents/   dev.md, qa.md; .claude/skills/drive/  main's loop
+.claude/agents/   dev.md, qa.md, orchestrator.md (cross-track planning and monitoring); .claude/skills/head/  main's loop
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop, mobile)
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
@@ -73,14 +73,18 @@ next(change):
 A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A
 hand-over at the same head after a verdict re-marks only the failed rows. A goal's `measure` is a step of the goal:
 unmet when its target's tree (client: master and the live T_int) is not the tree of `measure.json`; below target,
-a planning dev run files changes.
+the orchestrator files changes.
 
 **The pass** (`hd tick`, a systemd user timer and after every run end): fetch each remote once; for every change
 compute `next`; start the script step of each change whose process is not alive (pid with start time), one ship at a
 time; write an event only when `next` differs from the last event; end the runs whose console is gone and remove what
-they own; repair what is observed broken, once. **Main** (skill `drive`): a watch on `state/events.jsonl` wakes it;
-it runs `hd`, spawns each listed run by path, shows each card, records the user's word, re-arms the watch (an expiry
-is a wake too) and returns to the user.
+they own; repair what is observed broken, once. **Main** (skill `head`) is the chat head: a watch on `state/wake` wakes it; it runs `hd`, spawns each listed run by
+path, shows each card, records the user's word, dispatches the user's other messages to the run or the orchestrator
+they concern, re-arms the watch (an expiry is a wake too) and returns to the user. **The orchestrator** is a run
+listed when the facts call for it (an alert, a goal below target with nothing open, fifty events since its last run):
+it files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
+operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness
+change that a harness dev run remediates. It writes no product code.
 **Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings

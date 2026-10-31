@@ -51,9 +51,10 @@ Every **change** has one shape on every track: defined, given a contract, built 
 a tree built once, gated by scripts, judged once by a reviewer against the contract, and shipped. A server change
 reaches two targets independently: the test server as soon as it is gated, upstream after the user's yes. The user is
 asked only for that yes and for decisions of scope or accuracy; a maintainer's finding files a new change on the same
-PR with the finding as a contract row. Each goal is measured when its target moves, and a planning run files the
-changes that close the gap, with dependencies across tracks. Main, the user's chat, is woken by the harness only to
-spawn an agent or show a card.
+PR with the finding as a contract row. Each goal is measured when its target moves, and an orchestrator run files
+the changes that close the gap, with dependencies across tracks; the same role watches operations and files a harness
+change for each issue it finds. Main, the user's chat, is the head: woken by the harness only to spawn an agent, show
+a card or relay the user's word.
 
 ```mermaid
 flowchart LR

@@ -103,7 +103,12 @@ Where a change's life went (35 changes):
 11. **The shared cache download is discarded almost every run.** 36 of 49 cache steps re-downloaded the OpenRS2
    cache (97 min); 35 first logged "Cache corrupted or incomplete. Deleting .../caches/oldschool/241", so the
    shared volume `openrune-dl-cache` is not reused (only 12 reuses, all 10-25 23:52 → 10-26 03:12). The message
-   comes from a dependency, not the fork's source; cause unknown (a marker file, a concurrent writer). Also: the
+   comes from a dependency, not the fork's source. Cause: `gate-steps.sh` publishes to the store by revision
+   directory (`/dl/caches/oldschool/241`) and skips publishing when that directory exists, while the library
+   checks the cache id inside it. When OpenRS2 publishes a new cache id for the same revision (2746 → 2752 on
+   10-30), every build seeds the old `2746-disk.zip`, the library judges it incomplete, deletes it and downloads
+   2752, and publish skips because `241/` exists: a permanent miss until someone clears the store. The same
+   pattern ran 10-21 → 10-25 with the previous id. → key the store by `<id>-disk.zip` and replace a stale id. Also: the
    cache step ran with no change to its inputs in 10 of 33 train gates (~27 min). Build sweep: 34 train gates
    (438 min, 9 failed: 8 gameval id clashes between merged branches), 10 QA gate-runs, 63 fork CI runs (~14 min
    each, 838 min); ~72 min spent building identical trees twice (e.g. world-entities f2a808495 built as `or/`

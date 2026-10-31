@@ -603,13 +603,17 @@ class Tools(unittest.TestCase):
         repo = Path(__file__).parent.parent
         s.assertEqual(subprocess.run([str(repo / "tools" / "track.sh"), "check-docs"], cwd=repo, capture_output=True, text=True).returncode, 0)
         root = Path(tempfile.mkdtemp())
-        (root / "evidence" / "g1").mkdir(parents=True)
-        (root / "evidence" / "g1" / "contract.md").write_text("- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
-        snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"  # the working tree as a commit
+        for d in ("harness/changes", "harness/goals", "evidence/g1", "tools"):
+            (root / d).mkdir(parents=True)
+        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(root)}, "fork": {"name": "o/f", "path": str(root)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(root)}}, "agents": 3, "pins": []}))
+        (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
+        (root / "tools" / "track.md").write_text("## Seed rows\n- a | fine | check: true\n")
+        (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
+        snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
         r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
         rec = json.loads((root / "state" / "g1" / "gate.json").read_text())
         s.assertEqual((r.returncode, rec["ok"]), (0, False), r.stderr)
-        s.assertIn("'rm -rf /' is not a tools/ script", rec["detail"]); s.assertIn("ok: true", rec["detail"]); s.assertIn("ok: tools/track.sh check-docs", rec["detail"])
+        s.assertIn("FAIL: b: false # refused", rec["detail"]); s.assertIn("ok: a: true", rec["detail"]); s.assertIn("ok: c: tools/track.sh check-docs", rec["detail"])
         subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(repo / ".worktrees" / "g1-build")], capture_output=True)
         shutil.rmtree(root, ignore_errors=True)
 

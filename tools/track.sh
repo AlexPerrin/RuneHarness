@@ -21,13 +21,9 @@ build() {
   wt=$(copy)
   if out=$(cd "$wt" && python3 -m unittest discover -s tests 2>&1); then record true build <<< "$out"; else record false build <<< "$out"; fi
 }
-gate() {  # the contract's check: and gate: rows at T, each under the hand-over's env, from the build copy
-  wt=$(copy); ok=true; detail=""
-  while IFS= read -r cmd; do
-    if ! [[ $cmd =~ ^([^[:space:]]*tools/[^[:space:]]+|python3\ -m\ unittest|true$) ]]; then ok=false; detail+="FAIL: '$cmd' is not a tools/ script"$'\n'; continue; fi  # the same rule as hd handover
-    if out=$(cd "$wt" && HD_ROOT=$root bash -c "$cmd" 2>&1); then detail+="ok: $cmd"$'\n'; else ok=false; detail+="FAIL: $cmd"$'\n'"${out: -800}"$'\n'; fi
-  done < <(grep -E '^- [a-z0-9-]+ \|' "${EVIDENCE:-$root/evidence/$slug}/contract.md" | grep -oE '\| (check|gate): .*' | sed -E 's/^\| (check|gate): //')
-  record $ok gate <<< "$detail"
+gate() {  # every check: and gate: row of the contract at T, from the build copy (hd rows applies the hand-over's rules)
+  wt=$(copy)
+  if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "$slug" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
 }
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute)
   mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'shipping upstream|publishing v' | sort || true)

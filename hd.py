@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | handover | verdict | ask | answer | approve | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 Implemented: R3 (contract, records bound to T or head + contract, refusals). The other requirements follow one at a time.
 """
@@ -768,13 +768,7 @@ def cmd_handover(a):
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
     tree = ctx.tree(ch, T[1])
-    env = ctx.env(ch, head, T[1], tree)
-    why = []
-    for row in con["rows"]:
-        if row["check"]:
-            rc, out = ctx.F.run(row["check"], str(ROOT), env)
-            if rc:
-                why.append(f"row {row['id']} failed: {out.strip()[-400:]}")
+    why = rows(ctx, ch, con, head, T[1], tree, str(ROOT), gate=False)
     if why:
         refuse(*why)
     put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "summary": " ".join(a[1:])})
@@ -782,6 +776,28 @@ def cmd_handover(a):
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
     print(f"handed over {head} (tree {tree[:9]})")
+
+
+def rows(ctx, ch, con, head, tc, tree, cwd, gate):
+    """Run the contract's `check:` rows (and `gate:` rows at the gate) with the change's env in cwd → the failures."""
+    env, why = ctx.env(ch, head, tc, tree), []
+    for row in con["rows"]:
+        for cmd in ([row["check"]] + ([row["gate"]] if gate else [])):
+            if cmd:
+                rc, out = ctx.F.run(cmd, cwd, env)
+                print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {cmd}" + (f"\n{out.strip()[-800:]}" if rc else ""))
+                if rc:
+                    why.append(f"row {row['id']} failed: {out.strip()[-400:]}")
+    return why
+
+
+def cmd_rows(a):
+    """`hd rows <slug> <tcommit> <cwd>`: the gate's row run from a build copy at T; exit 1 names every failing row."""
+    ctx = Ctx()
+    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
+    con = contract(ch["slug"]) or refuse("no contract")
+    why = rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True)
+    sys.exit(1 if why else 0)
 
 
 def cmd_verdict(a):
@@ -888,7 +904,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "new": cmd_new, "tree": cmd_tree, "tick": cmd_tick}
+            "approve": cmd_approve, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

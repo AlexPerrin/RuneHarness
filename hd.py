@@ -346,7 +346,8 @@ class Ctx:
 
     def env(s, ch, head, tc, tree):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]),
-                "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""), "HD_ROOT": str(ROOT)}
+                "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
+                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT)}
 
     def public(s, *args):
         """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""

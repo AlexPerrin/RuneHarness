@@ -5,6 +5,30 @@ transcripts, 2026-10-25 → 2026-10-31: 132 runs, 14.5k tool calls). Read it bef
 docs/ISSUES.md. docs/ARCHITECTURE.md describes v7 as it was built, legacy logic included: reference only, not a spec.
 Goal of v8: the same outcomes with the fewest concepts, files and lines, and more throughput per token.
 
+## 0. Where to start (priorities by measured impact)
+Order the v8 work by what the data says each removes. Section numbers point to the evidence.
+1. **A contract per change, judged once** (§4.1, §4.11): QA FAILs and re-checks drove ~36 of the 95 runs on upstream
+   changes; 68 of 108 findings repeated. An upstream change cost a median 15 runs against 2 for a client change.
+2. **Ask the user only what needs the user** (§4.19): questions drove ~30 of those runs, and about half did not need
+   the user (rewords the harness caused, notices, duplicates).
+3. **The driver wakes on events and spawns at once** (§1b, §4.5): ~30% of a change's life was due for a spawn; 49% of
+   long waits had a free slot.
+4. **Measure goals when their target moves** (§4.18): the client track has been idle since 10-31 04:26 UTC because one
+   open upstream PR blocks the measurement.
+5. **R8: build and gate each tree once** (§1a, §4.12–4.13, §4.16): ~7 builds per round, cache re-downloads, re-gates
+   on unchanged heads, a build that dirties the tree.
+6. **Bring-up and test scenarios as scripts** (§4.2, §4.15): 52–148 calls before work, ~6 min per fix loop, 39–51% of
+   run time spent choosing the next step.
+7. **Runs hand off at a context limit** (§4.3): one run read ~205M tokens, 5% of all v7.
+8. **Authority by credential; pins owned by changes; the pass acts on edges** (§4.4, §4.12, §4.21–4.23).
+
+## 0a. Before v8 starts (only the user can do these)
+- At the hand-off: set `networkingMode=mirrored` in `C:\Users\Alex\.wslconfig` and restart WSL (a restart ends
+  every session), then check WSL reaches the desktop client on `127.0.0.1:7780`.
+- Drop `admin:public_key` from the GitHub token.
+- Decide `fix/31-friend-add-update`: give it a change, or have the integrator record the union with friends-chat.
+- Land or drop the P0 privacy change `server-sidecar-jav-config-local-auth`.
+
 ## 1. Keep (the constraints, by id)
 - PROBLEM axioms A1–A10 and principles P1–P8; PRD R1–R7. The user's rules: CLAUDE.md "Rules" and "Shared rules", and
   the memory index `~/.claude/projects/-home-alex-osrs-harness/memory/MEMORY.md`.
@@ -63,7 +87,7 @@ Where a change's life went (35 changes):
 | tool calls before first edit | server-dev 81, client-dev 52, server-qa 148 |
 | share of calls that are sleep/until polling | 12% (server-dev 946 sleeps, client-dev 683) |
 | subtask calls by server-dev | 0 |
-| guard denials judged wrong | ≥ half of 40 |
+| guard denials judged wrong | at least half of 44 (5 harmless reads on 10-31 alone) |
 | step events that repeat the last one | 764 of 1174 |
 
 ## 4. What failed, and why (the root causes)
@@ -79,7 +103,7 @@ Where a change's life went (35 changes):
    existing PR, pr-comment.md covers only the net change since the live head; (7) the unsourced list names every
    reconstruction and cheat; (6) no game data or raw ids in Kotlin; (6) every flow playable without a cheat.
 2. **Know-how is prose, so agents re-derive it.** Bring-up of build, server and client is in skills, executed by hand
-   every run (52–148 calls before work, 12% polling). Four of five agent retros independently ask for the same
+   every run (52–148 calls before work, 12% polling). Five of six agent retros independently ask for the same
    tool (`qa-run`, `hd up`, `qa-session`, `branch-session`): clone and merge onto the gate's base, build, start the
    server on free ports, seed accounts (members, dev_mode), start and log in N clients, print ports, block until
    ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11, clan-channels-2; the last adds a `reload` that only reinstalls and logs back in, and a recipe for features that need N players). → that one script per track,

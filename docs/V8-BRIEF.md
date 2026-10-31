@@ -146,7 +146,7 @@ Where a change's life went (35 changes):
    13 days behind on 10-31). 3 QA runs passed `main` (cannon-19, goblin-11, hunter-18); cannon-19 and goblin-11
    noticed and fetched the gate's scratch merge by hand. → the bring-up merges onto the gate's recorded base, never
    a local ref (R3).
-10. **The hand-over asks for what the harness already knows.** 29 of 98 `hd handover` calls were refused because
+10. **The hand-over asks for what the harness already knows, and the gate finds the rest a pass later.** Gate failures (27 distinct): 17 harness-made (a required evidence file missing 10, a Claude-Session trailer the tooling wrote 4, a gate script bug 3), 5 gameval id clashes between parallel branches (each branch allocates new ids alone, e.g. varp 65464 taken by both friends-chat and hunter), 3 stale client probe reports, 2 genuine (merge, CI). → the hand-over command enforces evidence and trailer rules at once instead of the gate finding them a pass later; ids are reserved from one registry when a branch creates them.  29 of 98 `hd handover` calls were refused because
    the pushed dev ref was not at the sha the agent typed. → the hand-over reads the pushed ref; it takes no sha.
 11. **No agent can read the previous verdict** (`hd show` is missing; 26 failed calls), so "close every prior finding
    first" is not a step, and repeats follow. → a read command, and the checklist's first line.

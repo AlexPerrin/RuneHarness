@@ -9,7 +9,7 @@ class Fake:
 
 
 class Sandbox(unittest.TestCase):
-    """A temp HD_ROOT with hd.yaml, tracks/*.md seed rows, harness/changes and goals written by helpers."""
+    """A temp HD_ROOT with hd.yaml, tools/track.md seed rows, harness/changes and goals written by helpers."""
 
 
 class R1(Sandbox):

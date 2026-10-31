@@ -1,6 +1,6 @@
 # Harness track
 
-Changes to this repo (hd.py, hook.py, tracks/, roles, skills, docs, tests). Branch `harness/<slug>` in a worktree
+Changes to this repo (hd.py, hook.py, hd-public, tools/, roles, the drive skill, docs, tests). Branch `harness/<slug>` in a worktree
 `~/src/work/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); docs state current
 truth only; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's

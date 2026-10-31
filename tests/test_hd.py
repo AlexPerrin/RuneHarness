@@ -803,6 +803,17 @@ class R3(Sandbox):
         s.assertIn("row bad failed", str(e.exception))
         s.assertIsNone(hd.rec("s1", "handover"))
 
+    def test_answer_waives_a_script_row(s):
+        s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")
+        with s.assertRaises(SystemExit):
+            hd.cmd_answer(["s1", "--waive", "j1", "not a script row"])
+        hd.cmd_answer(["s1", "--waive", "bad", "no new tests, per decision 7"])
+        F = Fake(**FACTS, rows={"false": (1, "nope")})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s1"])
+        s.assertEqual(F.ran, ["true"])
+        s.assertEqual(hd.rec("s1", "handover")["head"], A)
+
     def test_handover_reads_pushed_ref_takes_no_sha(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

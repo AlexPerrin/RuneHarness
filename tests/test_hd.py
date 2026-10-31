@@ -18,6 +18,12 @@ class Fake(hd.Facts):
         super().__init__()
         s.f, s.spawned, s.ran, s.envs = f, [], [], []
 
+    def sh(s, args, cwd=None, env=None, timeout=600):
+        s.ran.append(args)
+        if len(args) > 2 and args[1] == "down" and s.f.get("down_works", True):
+            s.f.get("containers", {}).pop(f"server-{args[2]}", None)
+        return 0, "", ""
+    def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref): return None if ref.split("/")[0] in s.f.get("unknown", ()) else s.f.get("refs", {}).get(ref, "")
     def contains(s, clone, tip, sha):
@@ -246,6 +252,83 @@ class R2(Sandbox):
         s.assertIsNone([r for r in hd.runs() if r["name"] == dev["name"]][0]["ended"])
         hook.bind({"hook_event_name": "PreToolUse", "agent_id": "x", "agent_type": "Explore"})          # not a harness role: no read
         s.assertEqual(len(hd.runs()), 2)                                                            # nothing bound or listed for it
+
+
+class R5(Sandbox):
+    """R5 against v7's causes: a volume repaired 68 times with no effect (§4.22), servers and clients outliving their
+    runs (ISSUES), runs hanging after the console died (§4.5), a question asked three times (§4.20)."""
+
+    def started(s, F, slug):
+        hd.tick(s.ctx(F))
+        run = [r for r in hd.runs() if r["change"] == slug][-1]
+        hook.bind(payload(run, "ag-" + run["name"], "SubagentStart", s.root))
+        return run
+
+    def test_console_gone_ends_runs_and_brings_down_in_one_pass(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS, containers={"server-s1": "running", "osrs-openrune": "running"})
+        run = s.started(F, "s1")
+        F.f["procs"] = set()                                                    # the console is gone
+        v = hd.tick(s.ctx(F))
+        r = [x for x in hd.runs() if x["name"] == run["name"]][0]
+        s.assertEqual(r["reason"], "console died")
+        s.assertEqual([a[1:] for a in F.ran if a[1:2] == ["down"]], [["down", "s1"]])
+        s.assertNotIn("server-s1", F.f["containers"]); s.assertIn("osrs-openrune", F.f["containers"])
+        s.assertTrue(any('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")))
+        F.f["procs"] = {(7, "1")}
+        s.assertEqual(len([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")]), 1)   # listed again for a live console
+
+    def test_repair_logged_only_on_observed_effect_and_raised_once(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS, containers={"server-s1": "running"}, down_works=False)
+        hd.put("s1", "ask", {"text": "?"})                                       # no run is listed while a question is open
+        v1 = hd.tick(s.ctx(F)); v2 = hd.tick(s.ctx(F)); v3 = hd.tick(s.ctx(F))
+        s.assertFalse(any('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")))
+        s.assertEqual([any("down had no effect" in a for a in v["alert"]) for v in (v1, v2, v3)], [False, True, False])
+        s.assertEqual(hd.rec("s1", "repair-down")["attempts"], 3)
+
+    def test_dead_script_reruns_once_then_raised(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s1"])
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))                                     # the build died without build.json: once more
+        s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
+        s.assertTrue(any("build died twice" in a for a in v["alert"]))
+
+    def test_yes_then_console_gone_still_ships(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_approve(["s1", A])
+        F.f["procs"] = set()                                                    # main is gone after the yes
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1:], ["upstream", "s1", A])
+        s.assertTrue(F.spawned[-1][0].endswith("hd-public"))
+
+    def test_docker_down_is_one_alert_and_no_script_starts(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS, containers=None)
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s1"])
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned, [])
+        s.assertEqual(sum("docker unreachable" in a for a in v["alert"]), 1)
+
+    def test_second_ask_refused_while_one_open(s):
+        s.change("s1")
+        hd.cmd_ask(["s1", "which scope?"])
+        with s.assertRaises(SystemExit) as e:
+            hd.cmd_ask(["s1", "which scope?"])
+        s.assertIn("already open", str(e.exception))
+        hd.cmd_answer(["s1", "scope B"])
+        s.assertIsNone(hd.rec("s1", "ask"))
+        hd.cmd_ask(["s1", "another?"])                                          # after the answer, a new question may open
 
 
 class R6(Sandbox):

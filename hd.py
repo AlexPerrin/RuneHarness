@@ -127,6 +127,11 @@ class Facts:
         r = s.sh(["bash", "-c", cmd], cwd=cwd, env=env, timeout=3600)
         return (1, "could not run") if r is None else (r[0], (r[1] + r[2])[-4000:])
 
+    def containers(s):
+        """{name: state} of every docker container, or None when docker cannot be reached."""
+        r = s.sh(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"], timeout=60)
+        return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
+
     def events_count(s):
         f = STATE / "events.jsonl"
         return f.read_bytes().count(b"\n") if f.exists() else 0
@@ -270,7 +275,7 @@ class Ctx:
         s.F, s.cfg = facts or Facts(), c or cfg()
         defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
-        s.runs, s.memo, s.alerts = runs(), {}, []
+        s.runs, s.memo, s.alerts, s.docker = runs(), {}, [], True
 
     def _m(s, k, f):
         if k not in s.memo:
@@ -345,7 +350,7 @@ class Ctx:
     def start(s, slug, name, args, env=None, act=True):
         """R5: start a track script once; one that died twice without its result is raised once."""
         st = s.proc(slug, name)
-        if st == "alive":
+        if st == "alive" or not s.docker:
             return
         p = rec(slug, f"proc-{name}") or {}
         if st == "dead" and p.get("attempts", 1) >= 2:
@@ -597,8 +602,24 @@ def measure(ctx, g, act):
     return s
 
 
+def repair(ctx, slug, name, args, check, act):
+    """R5: a repair is recorded only when its effect is observed; one that recurs is raised once (on its second miss)."""
+    p = rec(slug, f"repair-{name}") or {"attempts": 0}
+    if not act:
+        return
+    ctx.F.sh(args, timeout=120)
+    if check():
+        drop(slug, f"repair-{name}")
+        event(change=slug, action=name)
+    else:
+        put(slug, f"repair-{name}", {"attempts": p["attempts"] + 1, "args": args})
+        if p["attempts"] + 1 == 2:
+            ctx.alerts.append(f"{slug}: {name} had no effect twice ({' '.join(args)})")
+
+
 def repairs(ctx, act):
-    """R5: end the runs whose console is gone (their agents died with it); make a missing tools worktree."""
+    """R5: end the runs whose console is gone (their agents died with it); bring down a server no run uses; make a
+    missing tools worktree."""
     for name, r in ctx.cfg["repos"].items():
         wt = P(r["path"]) / ".worktrees" / "harness" if r.get("tools") else None
         if wt and not wt.exists() and act:
@@ -612,6 +633,14 @@ def repairs(ctx, act):
             r["ended"], r["reason"] = now(), "console died"
             save_run(r)
             event(change=r["change"], run=r["name"], action="ended", reason="console died")
+    cs = ctx.F.containers()
+    if cs is None:
+        ctx.docker = False
+        ctx.alerts.append("docker unreachable: no script starts until it answers")
+        return
+    for ch in ctx.changes.values():
+        if f"server-{ch['slug']}" in cs and not ctx.alive_run(ch):
+            repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
 
 
 def tick(ctx=None, act=True):

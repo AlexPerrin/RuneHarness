@@ -192,7 +192,7 @@ class R2(Sandbox):
             hook.end_run({"hook_event_name": "SubagentStop", "agent_id": "ghost", "agent_type": "dev"})  # no transcript, no id: ends nothing
         s.assertIsNone([r for r in hd.runs() if r["name"] == dev["name"]][0]["ended"])
         hook.bind({"hook_event_name": "PreToolUse", "agent_id": "x", "agent_type": "Explore"})          # not a harness role: no read
-        s.assertEqual(len(hd.runs()), 3)
+        s.assertEqual(len(hd.runs()), 2)                                                            # nothing bound or listed for it
 
 
 class R3(Sandbox):

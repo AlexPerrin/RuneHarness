@@ -18,7 +18,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": AUTHOR[0], "GIT_AUTHOR_EMAIL": AUTHOR[1], "GIT_COM
 TRACK = {  # derived, not configured: the repo, the remotes fetched, the base, the dev ref of a change, the public act
     "client": {"repo": "client", "fetch": ["origin"], "base": "origin/HEAD", "dev": "origin/client/{slug}", "public": "release"},
     "server": {"repo": "fork", "fetch": ["origin", "fork"], "base": "origin/HEAD", "dev": "fork/dev/{slug}", "public": "upstream"},
-    "harness": {"repo": "harness", "fetch": [], "base": "main", "dev": "harness/{slug}", "public": None},
+    "harness": {"repo": "harness", "fetch": [], "base": "HEAD", "dev": "harness/{slug}", "public": None},  # base: the live checkout's branch
 }
 PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 now = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -311,7 +311,7 @@ class Ctx:
         return s._m(("base", ch["track"]), lambda: s.F.rev(s.clone(ch), TRACK[ch["track"]]["base"]) if s.fetched(ch) else None)
 
     def live(s, ch, head):
-        """A6: the target holds head. client: master; server: the test server's tree; harness: main."""
+        """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch."""
         if not head:
             return False
         if ch["track"] == "server":

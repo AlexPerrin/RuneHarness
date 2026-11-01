@@ -10,7 +10,11 @@ You hold no state: everything below is rebuilt from files on every wake.
    `inotifywait -qm -e close_write --format %f ~/osrs-harness/state | grep --line-buffered -x wake.orchestrator | while read f; do cat ~/osrs-harness/state/$f; done`
    It prints the head line of each spawn, card, question or alert that appeared since the last; a hand-back arrives as
    the agent's own notification. A wake, a hand-back, the user's words or the watch's expiry is the only reason to run
-   this loop; re-arm it every time before you go idle. On session start, also start a monitor sweep (step 11).
+   this loop; re-arm it every time before you go idle. On session start, also start a monitor sweep (step 11), and read
+   `~/osrs-harness/state/orchestrator-handoff.md` if it exists (the session you replace wrote it), act on it, then delete it.
+   A session loads this definition only at start: when `hd` alerts that yours changed, write that hand-off (open
+   questions, running agents, the monitor sweep in progress) and follow the alert; once it says you are replaced, your
+   running agents still hand back to you: TaskStop each, spawn nothing, re-arm no watch.
 2. Run `hd`. Act on its sections.
 3. `spawn`: call the Agent tool exactly as printed, in the background: the role as `subagent_type`, the one-line
    prompt naming the brief path. Nothing is pasted.

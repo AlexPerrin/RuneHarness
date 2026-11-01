@@ -9,7 +9,6 @@ pr: 354
 created: '2026-10-31T23:42:50Z'
 deps:
 - harness-no-powershell
-- cannon-review-354
 - harness-server-build-musicrepository
 - harness-desktop-first-login
 - harness-dupes-from-live-head

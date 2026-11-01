@@ -34,7 +34,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd approve <slug> <head>` | the user, as a `!` command in the orchestrator's window | at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts} |
 | `hd ship <slug> <head>` | the pass (the public step's script) | carries the approved head upstream or publishes the release, re-checking the yes; records `ship.json` (R4) |
 | `hd answer <slug> [--waive <row>] <text>` | the orchestrator, with the user's words | an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
-| `hd hold <slug> [--all\|--lift] [<why>]` | the orchestrator, on the user's no or word | `held: <head\|all>[: <why>]` in the definition (the orchestrator commits it): no card at that head (every head with --all) until a new head; --lift removes it |
+| `hd hold <slug> [--all\|--lift] [<why>]` | the orchestrator, on the user's no or word | `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves; --all: `held: all[: <why>]` in the definition (the orchestrator commits it), no card at any head; --lift removes both |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
 | `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle. A change's mechanism is its `mechanism` (else its slug); a filing on a mechanism with an open change appends its text to that change instead; `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes'); `--supersedes` closes those open harness changes as `superseded by <slug>` |
@@ -55,7 +55,7 @@ evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary; a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
 state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
-state/<slug>/ask.json          {text}
+state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
@@ -123,7 +123,7 @@ next(change):
                                     or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the
                                     comment (pr-comment.md) when it pushes, each reply (pr-reply-<finding>.md),
                                     ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes
-                                    (`hd approve`), no (`hd hold`) and close (`hd close`) commands; `held: <head|all>` in the
+                                    (`hd approve`), no (`hd hold`) and close (`hd close`) commands; hold.json at its head or `held: all` in the
                                     definition hides it (held by the user, a wait) until a new head or the lift; it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)       release: gh release with the APK, notices and log. Upstream: push head to the PR's branch
                                     (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that

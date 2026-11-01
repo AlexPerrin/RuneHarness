@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import io, json, os, re, shutil, subprocess, sys, tempfile, unittest
+import hashlib, io, json, os, re, shutil, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -1256,10 +1256,50 @@ class R5(Sandbox):
         """The pass process's own peak (its builds and gates run in their own scopes), on the live state, dry."""
         code = ("import resource, sys; sys.path.insert(0, sys.argv[1]); import hd; hd.tick(act=False); "
                 "print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)")
-        out = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve().parents[1])], env={**os.environ, "HD_ROOT": str(s.LIVE)},
+        out = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve().parents[1])], env={**os.environ, "HD_ROOT": str(s.LIVE), "HD_GH": "cache"},
                              capture_output=True, text=True, timeout=600)
         s.assertEqual(out.returncode, 0, out.stderr[-500:])
         s.assertLess(int(out.stdout.split()[-1]), 200 * 1024)            # ru_maxrss in KiB
+
+    def test_github_reads_are_conditional_shared_and_held_on_an_exhausted_quota(s):
+        """Two passes and a gate over the same state: the first pass reads each GitHub resource once, the second only
+        revalidates (304s, no quota), the gate's dry-run reads the cache alone; an exhausted quota is an alert and reads nothing."""
+        s.change("s1", pr=7); s.agreed("s1")
+        api = {"repos/u/f/pulls?state=open&per_page=100": [{"number": 7, "head": {"ref": "content/s1", "sha": A, "repo": {"owner": {"login": "o"}}}, "draft": False, "title": "t", "body": "b"}],
+               "repos/u/f/pulls/7/comments?per_page=100": [{"id": 99, "user": {"login": "rev", "type": "User"}, "in_reply_to_id": None, "path": "N.kt", "line": 3, "body": "reset it?"}],
+               "repos/u/f/issues/7/comments?per_page=100": [], "repos/u/f/pulls/7/reviews?per_page=100": []}
+        calls, quota = [], {}
+
+        class GitHub(Fake):  # the real GitHub reads of Facts, over a GitHub that answers 304 to a matching If-None-Match
+            review_comments, pr_comments, open_prs = hd.Facts.review_comments, hd.Facts.pr_comments, hd.Facts.open_prs
+            def sh(s_, args, cwd=None, env=None, timeout=600):
+                if args[:2] != ["gh", "api"]:
+                    return super().sh(args, cwd, env, timeout)
+                url, tag = args[-1], f'"{hashlib.sha1(json.dumps(api[args[-1]]).encode()).hexdigest()}"'
+                calls.append((url, "If-None-Match: " + tag in args))
+                if quota:
+                    return 1, f"HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: {quota['reset']}\n\n{{\"message\": \"API rate limit exceeded\"}}", ""
+                if "If-None-Match: " + tag in args:
+                    return 1, "HTTP/2.0 304 Not Modified\n\n", "gh: HTTP 304"
+                return 0, f"HTTP/2.0 200 OK\nEtag: {tag}\n\n{json.dumps(api[url])}", ""
+
+        F = Fake(**FACTS); s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)   # due upstream: the open PRs are read too
+        hd.tick(s.ctx(GitHub(**FACTS)))                                         # pass 1: a dry pass and the pass under the lock
+        s.assertEqual(sorted(u for u, _ in calls), sorted(api))                 # each resource read once, whatever reads it
+        calls.clear(); hd.tick(s.ctx(GitHub(**FACTS)))                          # pass 2, the same state: every read revalidates
+        s.assertEqual(sorted(calls), sorted((u, True) for u in api))            # all conditional: GitHub answers 304, no quota spent
+        calls.clear()
+        with mock.patch.dict(os.environ, {"HD_GH": "cache"}):                   # the gate's dry-runs (check-dry-run): the cache alone
+            hd.tick(s.ctx(GitHub(**FACTS)), act=False)
+            s.assertEqual(GitHub(**FACTS).review_comments("u/f", 7)[0]["author"], "rev")   # what the passes read
+        s.assertEqual(calls, [])
+        quota["reset"] = int(time.time()) + 3600
+        shutil.rmtree(hd.STATE / "gh")                                          # nothing cached: every read goes to GitHub
+        v = hd.tick(s.ctx(GitHub(**FACTS)))
+        s.assertEqual(len(calls), 1, calls)                                     # the first refusal holds every later read
+        s.assertTrue(any(a.startswith("github: API quota exhausted") for a in v["alert"]), v["alert"])
+        calls.clear(); hd.tick(s.ctx(GitHub(**FACTS)), act=False)
+        s.assertEqual(calls, [])                                                # held until GitHub's reset: no read spends a refusal
 
     def started(s, F, slug):
         hd.tick(s.ctx(F))

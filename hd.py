@@ -263,41 +263,89 @@ class Facts:
         r = s.sh(["bash", "-c", cmd], cwd=cwd, env=env, timeout=3600)
         return (1, "could not run") if r is None else (r[0], (r[1] + r[2])[-4000:])
 
+    def api(s, path):
+        """R5: a GitHub REST GET of every page of path through the one cache of GitHub reads, state/gh/, keyed by URL, which
+        passes, gates and dry-runs share: each page is read conditionally (If-None-Match its cached ETag; a 304 costs no
+        quota). (200, the pages' JSON, lists joined) | (404, None) | None when GitHub cannot be read: HD_GH=cache (a dry-run
+        inside a gate) reads the cache alone, and an exhausted quota (state/gh/quota.json, until GitHub's reset) reads nothing."""
+        out, url = None, path + ("&" if "?" in path else "?") + "per_page=100"
+        while url:
+            p = s.page(url)
+            if p is None:
+                return None
+            code, body, url = p
+            if code == 404:
+                return 404, None
+            out = body if out is None else out + body
+        return 200, out
+
+    def page(s, url):
+        """One page of a GitHub read through the cache: (code, JSON, the next page's url) | None unknown."""
+        f = STATE / "gh" / (hashlib.sha1(url.encode()).hexdigest()[:16] + ".json")
+        try:
+            c = json.loads(f.read_text())
+        except (OSError, ValueError):
+            c = None
+        if os.environ.get("HD_GH") == "cache":
+            return c and (c["code"], c["body"], c["next"])
+        if quota():
+            return None
+        r = s.sh(["gh", "api", "-i", *(["-H", f"If-None-Match: {c['etag']}"] if c and c.get("etag") else []), url], timeout=120)
+        head, _, body = (r[1] if r else "").replace("\r\n", "\n").partition("\n\n")
+        lines = head.splitlines()
+        code = int(lines[0].split()[1]) if lines and re.match(r"HTTP/\S+ \d{3}", lines[0]) else None
+        h = {k.strip().lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}
+        if code == 304 and c:
+            return c["code"], c["body"], c["next"]
+        if code in (403, 429) and (h.get("x-ratelimit-remaining") == "0" or "rate limit" in body.lower()):
+            reset = int(h["retry-after"]) + int(time.time()) if h.get("retry-after", "").isdigit() else int(h.get("x-ratelimit-reset") or time.time() + 60)  # GitHub's own: its reset, its retry-after, else its documented minute
+            _atomic(STATE / "gh" / "quota.json", {"reset": reset, "at": now(), "url": url})
+            return None
+        if code not in (200, 404):
+            return None
+        nxt = re.search(r'<([^>]+)>;\s*rel="next"', h.get("link", ""))
+        try:
+            c = {"url": url, "code": code, "etag": h.get("etag") if code == 200 else None,
+                 "body": json.loads(body) if code == 200 else None, "next": nxt.group(1) if nxt else None}
+        except ValueError:
+            return None
+        _atomic(f, c)
+        return c["code"], c["body"], c["next"]
+
     @_read
     def release(s, repo, tag):
         """{tag} when the release exists, {} when not, None when GitHub cannot be read."""
-        r = s.sh(["gh", "release", "view", tag, "-R", repo, "--json", "tagName"], timeout=120)
-        return None if r is None else {"tag": tag} if r[0] == 0 else {} if "release not found" in r[2] else None
+        r = s.api(f"repos/{repo}/releases/tags/{tag}")
+        return None if r is None else {"tag": tag} if r[0] == 200 else {}
 
     @_read
     def review_comments(s, repo, pr):
         """R2: the PR's inline review comments [{id, author, bot, reply, path, line, body}], or None when GitHub cannot be read."""
-        jq = '.[] | {id, author: .user.login, bot: (.user.type == "Bot" or .performed_via_github_app != null), reply: .in_reply_to_id, path, line: (.line // .original_line), body}'
-        r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments", "--jq", jq], timeout=120)
-        return None if r is None or r[0] else [json.loads(l) for l in r[1].splitlines() if l.strip()]
+        r = s.api(f"repos/{repo}/pulls/{pr}/comments")
+        return None if r is None or r[0] != 200 else [
+            {"id": c["id"], "author": (c.get("user") or {}).get("login"), "bot": _bot(c), "reply": c.get("in_reply_to_id"), "path": c.get("path"),
+             "line": c.get("line") or c.get("original_line"), "body": c.get("body") or ""} for c in r[1]]
 
     @_read
     def pr_comments(s, repo, pr):
         """R4: the PR's conversation comments and reviews [{id, author, bot, body, at}] (ids are node ids: `IC_` a comment,
         `PRR_` a review), read with the REST API, which marks bots (user.type, performed_via_github_app); None when GitHub cannot be read."""
         out = []
-        for path, at in ((f"issues/{pr}/comments", ".created_at"), (f"pulls/{pr}/reviews", ".submitted_at")):
-            jq = f'.[] | {{id: .node_id, author: .user.login, bot: (.user.type == "Bot" or .performed_via_github_app != null), body: (.body // ""), at: ({at} // "")}}'
-            r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/{path}", "--jq", jq], timeout=120)
-            if r is None or r[0]:
+        for path, at in ((f"issues/{pr}/comments", "created_at"), (f"pulls/{pr}/reviews", "submitted_at")):
+            r = s.api(f"repos/{repo}/{path}")
+            if r is None or r[0] != 200:
                 return None
-            out += [json.loads(l) for l in r[1].splitlines() if l.strip()]
+            out += [{"id": c["node_id"], "author": (c.get("user") or {}).get("login"), "bot": _bot(c), "body": c.get("body") or "", "at": c.get(at) or ""} for c in r[1]]
         return out
 
     @_read
     def open_prs(s, repo):
         """R4: the open PRs of an upstream repo [{number, branch, owner, head, draft, title, body}], None unknown."""
-        r = s.sh(["gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json",
-                  "number,headRefName,headRefOid,isDraft,headRepositoryOwner,title,body"], timeout=120)
-        if r is None or r[0]:
+        r = s.api(f"repos/{repo}/pulls?state=open")
+        if r is None or r[0] != 200:
             return None
-        return [{"number": p["number"], "branch": p["headRefName"], "owner": (p.get("headRepositoryOwner") or {}).get("login", ""),
-                 "head": p["headRefOid"], "draft": p["isDraft"], "title": p.get("title"), "body": p.get("body")} for p in json.loads(r[1] or "[]")]
+        return [{"number": p["number"], "branch": p["head"]["ref"], "owner": ((p["head"].get("repo") or {}).get("owner") or {}).get("login", ""),
+                 "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body")} for p in r[1]]
 
     @_read
     def containers(s):
@@ -316,6 +364,26 @@ class Facts:
             if a and Path(a[0].decode(errors="replace")).name == "claude" and b"orchestrator" in a and (b"--agent" in a):
                 return int(d.name)
         return None
+
+
+def _bot(c):
+    return (c.get("user") or {}).get("type") == "Bot" or c.get("performed_via_github_app") is not None
+
+
+def _atomic(f, v):
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_name(f".{f.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(v))
+    tmp.replace(f)  # whole or not at all: another pass reads it at any moment
+
+
+def quota():
+    """R5: GitHub's quota is exhausted: {reset, at, url} until GitHub's reset, else None. Every GitHub read holds until then."""
+    try:
+        q = json.loads((STATE / "gh" / "quota.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return q if q.get("reset", 0) > time.time() else None
 
 
 # ---------------------------------------------------------------- what is stored (P2) and nothing else
@@ -1866,6 +1934,9 @@ def _pass(ctx, act):
     findings(ctx, open_prs, act)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
+    if q := quota():
+        view["alert"].append(f"github: API quota exhausted ({q['url']} at {q['at']}): every GitHub read and the steps on it hold until "
+                             f"{datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}")
     if not ctx.F.orchestrator():
         view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
     for r in ctx.runs:

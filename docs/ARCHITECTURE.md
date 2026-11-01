@@ -170,7 +170,7 @@ general-purpose agent that edits nothing and validates that the harness changes 
 started on session start; its report kept as `evidence/monitor/sweep-<n>.md` with the v8 head it swept, its findings filed by root cause,
 the next sweep's brief naming that report, the changes shipped since and its open findings),
 re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
-`user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it shows each card in full and shows questions and alerts, records answers (`hd answer`), and
+`user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and
 acts on the user's other words at once; the user's yes is their own `!
 python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook. **The planner** is a run
 listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;

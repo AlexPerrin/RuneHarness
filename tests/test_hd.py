@@ -752,6 +752,23 @@ class R5(Sandbox):
 
 
 class R6(Sandbox):
+    def test_devtools_servers_start_with_no_client(s):
+        import subprocess
+        repo = Path(__file__).parent.parent
+        home = Path(tempfile.mkdtemp()); (home / "netstat.exe").write_text("#!/bin/sh\n"); (home / "netstat.exe").chmod(0o755)   # nothing listens
+        msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_client_state", "arguments": {"port": 7781}}}]
+        for name, srv in json.loads((repo / ".mcp.json").read_text())["mcpServers"].items():
+            if "devtools" not in name:
+                continue
+            s.assertTrue(srv["args"][1].startswith("http://") or os.path.exists(srv["args"][1]), srv)   # the backend exists
+            r = subprocess.run([str(repo / "mcp" / "devtools_bridge.py"), *srv["args"]], input="".join(json.dumps(m) + "\n" for m in msgs),
+                               env={**os.environ, "HOME": str(home), "WINDOWS_SYSTEM32": str(home)}, capture_output=True, text=True)
+            out = [json.loads(l) for l in r.stdout.splitlines()]
+            s.assertEqual([("result" in o, "error" in o) for o in out], [(True, False), (True, False), (False, True)], r.stderr)
+            s.assertIn("get_client_state", [t["name"] for t in out[1]["result"]["tools"]])
+        shutil.rmtree(home, ignore_errors=True)
+
     def test_harness_changes_dispatch_before_product_changes(s):
         s.change("s1", priority="P0"); s.agreed("s1")
         s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")

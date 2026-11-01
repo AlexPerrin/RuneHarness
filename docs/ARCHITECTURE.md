@@ -18,7 +18,7 @@ tools/track.sh    the harness track's script; tools/track.md its rules and seed 
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
 .claude/agents/   dev.md, qa.md, orchestrator.md (cross-track planning and monitoring); .claude/skills/head/  main's loop
-mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop, mobile)
+mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a client's devtools port, a tool's `port` picks it; mobile: the client repo's bridge), answering with no client from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
 ```

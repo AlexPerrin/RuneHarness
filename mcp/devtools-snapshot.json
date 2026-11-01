@@ -1,0 +1,1086 @@
+{
+ "initialize": {
+  "protocolVersion": "2025-06-18",
+  "capabilities": {
+   "tools": {}
+  },
+  "serverInfo": {
+   "name": "flux-client-mcp",
+   "version": "0.1.0"
+  },
+  "instructions": "RuneLite game client control. Prefer the one-call interaction tools over screenshots and raw clicks:\n- inventory item (drop/eat/wield/use): item_action - NEVER screenshot or click_component for this\n- scene object (chop/mine/open/bank): interact_object\n- NPC: interact_npc, or get_npc_menu + click_menu_option for server-added options\n- other player (trade/follow): interact_player\n- widget right-click option: widget_action\nData tools (list_*, get_*, dump_interface) answer questions about game state - use them instead of screenshots.\nTo wait for something to finish (walking somewhere, combat, an interface opening, a game message), call wait_for - never poll with screenshots or repeated list calls.\nOnly call screenshot when the user explicitly asks to SEE something or for visual layout verification."
+ },
+ "tools": [
+  {
+   "name": "screenshot",
+   "description": "Capture a PNG of the game canvas. No args = full canvas. Crop with componentId (single widget), interfaceId (whole interface, tight), or x/y/width/height (region).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id to crop to (interfaceId << 16 | childId)"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Dynamic child index of componentId to crop to"
+     },
+     "interfaceId": {
+      "type": "integer",
+      "description": "Interface (group) id to crop to: union of its visible component bounds"
+     },
+     "padding": {
+      "type": "integer",
+      "description": "Extra pixels around the widget/interface crop (default 0)"
+     },
+     "x": {
+      "type": "integer",
+      "description": "Region crop x (canvas pixels)"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Region crop y"
+     },
+     "width": {
+      "type": "integer",
+      "description": "Region crop width"
+     },
+     "height": {
+      "type": "integer",
+      "description": "Region crop height"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_widget",
+   "description": "Get a widget's values by packed component id: bounds, relative/original position, text, item, sprite, hidden state and children.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id (interfaceId << 16 | childId)"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index"
+     },
+     "depth": {
+      "type": "integer",
+      "description": "How many levels of dynamic children to include (default 1, max 5)"
+     }
+    },
+    "required": [
+     "componentId"
+    ]
+   }
+  },
+  {
+   "name": "dump_interface",
+   "description": "Dump every component of an interface with positions/sizes/text. Call twice and diff the JSON to spot layout changes.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "interfaceId": {
+      "type": "integer",
+      "description": "Interface (group) id to dump"
+     },
+     "includeHidden": {
+      "type": "boolean",
+      "description": "Include hidden components (default false)"
+     }
+    },
+    "required": [
+     "interfaceId"
+    ]
+   }
+  },
+  {
+   "name": "list_interfaces",
+   "description": "List interface (group) ids currently loaded and visible, so you know what can be inspected.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_widget_at",
+   "description": "Find the deepest visible widget at a canvas pixel: its packed component id, bounds, text etc plus the parent chain. Use to identify what is at a spot on a screenshot.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "Canvas x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Canvas y"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "set_widget",
+   "description": "Live-edit a widget client-side and revalidate: move, resize, hide, retext, recolor etc. Great for prototyping interface layout changes before touching server code. Server scripts may overwrite the change on the next interface update.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id of the widget to modify"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index"
+     },
+     "hidden": {
+      "type": "boolean",
+      "description": "Show/hide the widget"
+     },
+     "text": {
+      "type": "string",
+      "description": "New text"
+     },
+     "x": {
+      "type": "integer",
+      "description": "New original X"
+     },
+     "y": {
+      "type": "integer",
+      "description": "New original Y"
+     },
+     "width": {
+      "type": "integer",
+      "description": "New original width"
+     },
+     "height": {
+      "type": "integer",
+      "description": "New original height"
+     },
+     "spriteId": {
+      "type": "integer",
+      "description": "New sprite id"
+     },
+     "opacity": {
+      "type": "integer",
+      "description": "New opacity 0-255 (0 = solid)"
+     },
+     "textColor": {
+      "type": "integer",
+      "description": "New text color as 0xRRGGBB int"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "New item id"
+     },
+     "itemQuantity": {
+      "type": "integer",
+      "description": "New item quantity"
+     }
+    },
+    "required": [
+     "componentId"
+    ]
+   }
+  },
+  {
+   "name": "get_client_state",
+   "description": "Get game state, canvas size, resized/fixed mode, mouse position, player world position/region, run energy, weight, camera yaw/pitch/zoom and whether a right-click menu is open.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_skills",
+   "description": "Local player skills: level, boosted level and xp per skill, plus total level. Hitpoints boosted level = current HP.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "click",
+   "description": "Click at canvas coordinates by dispatching real mouse events.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "Canvas x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Canvas y"
+     },
+     "button": {
+      "type": "integer",
+      "description": "Mouse button: 1=left (default), 2=middle, 3=right"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "click_component",
+   "description": "Click the center of a widget resolved by packed component id. Fails if the widget is missing or hidden.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id to click"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index"
+     },
+     "button": {
+      "type": "integer",
+      "description": "Mouse button: 1=left (default), 2=middle, 3=right"
+     }
+    },
+    "required": [
+     "componentId"
+    ]
+   }
+  },
+  {
+   "name": "hover",
+   "description": "Move the mouse to canvas coordinates or a widget's center without clicking.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "Canvas x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Canvas y"
+     },
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id to hover (used instead of x/y)"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index"
+     }
+    }
+   }
+  },
+  {
+   "name": "drag",
+   "description": "Press at the source, drag through intermediate points, release at the target. Source/target are either packed component ids or canvas coordinates.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "fromComponentId": {
+      "type": "integer",
+      "description": "Packed component id to drag from"
+     },
+     "fromChildIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index for the source"
+     },
+     "fromX": {
+      "type": "integer",
+      "description": "Source canvas x (used if fromComponentId absent)"
+     },
+     "fromY": {
+      "type": "integer",
+      "description": "Source canvas y"
+     },
+     "toComponentId": {
+      "type": "integer",
+      "description": "Packed component id to drag to"
+     },
+     "toChildIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index for the target"
+     },
+     "toX": {
+      "type": "integer",
+      "description": "Target canvas x (used if toComponentId absent)"
+     },
+     "toY": {
+      "type": "integer",
+      "description": "Target canvas y"
+     },
+     "steps": {
+      "type": "integer",
+      "description": "Number of intermediate drag moves (default 8)"
+     },
+     "stepDelayMs": {
+      "type": "integer",
+      "description": "Delay between drag moves in ms (default 20)"
+     }
+    }
+   }
+  },
+  {
+   "name": "type_chat",
+   "description": "Type text into the game chatbox by dispatching key events, then press Enter to send. Works for :: commands.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "Text to type into the chatbox, e.g. a chat message or a :: command"
+     },
+     "send": {
+      "type": "boolean",
+      "description": "Press Enter after typing (default true)"
+     }
+    },
+    "required": [
+     "text"
+    ]
+   }
+  },
+  {
+   "name": "press_key",
+   "description": "Press a single key on the game canvas (e.g. ESCAPE to close an interface).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string",
+      "description": "Single character, or ENTER, ESCAPE, SPACE, TAB, BACKSPACE, UP, DOWN, LEFT, RIGHT, F1-F12"
+     }
+    },
+    "required": [
+     "key"
+    ]
+   }
+  },
+  {
+   "name": "walk_to",
+   "description": "Click the tile at world coordinates to walk there. Clicks the viewport when the tile is on screen, otherwise the minimap. Tile must be in the loaded scene.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "World (map) x coordinate"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World (map) y coordinate"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane 0-3 (default: current plane)"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "list_npcs",
+   "description": "List NPCs with id, index, name, combat level, actions, world location, distance, animation, facing, health (when visible) and canvas position, sorted by distance.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on NPC name"
+     },
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only NPCs within this many tiles of the player"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap on returned NPCs (default 50)"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_players",
+   "description": "List players with name, combat level, world location, distance, animation, facing, health (when visible) and canvas position, sorted by distance. Local player is flagged isLocal.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on player name"
+     },
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only players within this many tiles of the local player"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap on returned players (default 50)"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_objects",
+   "description": "List scene objects (game, wall, decorative, ground) with id, name, actions, world position, face direction (orientation in jau 0-2047, degrees and compass) and size, sorted by distance.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on object name"
+     },
+     "objectId": {
+      "type": "integer",
+      "description": "Only objects with this id"
+     },
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only objects within this many tiles of the player"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap on returned objects (default 50)"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_ground_items",
+   "description": "List items on the floor: itemId, name, quantity, world location and distance, sorted by distance. Use pickup_item to take one.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on item name"
+     },
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only items within this many tiles of the player"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap on returned items (default 50)"
+     }
+    }
+   }
+  },
+  {
+   "name": "pickup_item",
+   "description": "Invoke Take on a ground item at world coordinates. Player walks to the tile and picks it up.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "itemId": {
+      "type": "integer",
+      "description": "Item id from list_ground_items"
+     },
+     "x": {
+      "type": "integer",
+      "description": "World x of the tile the item is on"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y of the tile"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default current)"
+     }
+    },
+    "required": [
+     "itemId",
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "list_projectiles",
+   "description": "List projectiles currently in flight: id, remaining cycles, start scene position and target point/actor.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_inventory",
+   "description": "Read an item container by id: every slot with itemId, name and quantity. 93=inventory, 94=worn, 95=bank; server-made containers work too.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "inventoryId": {
+      "type": "integer",
+      "description": "Item container id, e.g. 93 inventory, 94 worn equipment, 95 bank"
+     },
+     "includeEmpty": {
+      "type": "boolean",
+      "description": "Include empty slots as itemId -1 (default false)"
+     }
+    },
+    "required": [
+     "inventoryId"
+    ]
+   }
+  },
+  {
+   "name": "list_inventories",
+   "description": "List all item containers currently loaded in the client: container id, slot count and non-empty item count. Use get_inventory for contents.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "interact_npc",
+   "description": "Invoke a cache-defined right-click option on an NPC (default Talk-to). Only sees options from the NPC definition; for server-added or runtime menu options use get_npc_menu + click_menu_option instead.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "npcIndex": {
+      "type": "integer",
+      "description": "NPC index from list_npcs (exact match)"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "Case-insensitive NPC name substring; nearest match wins (used if npcIndex absent)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Right-click menu option to invoke, e.g. Talk-to, Trade, Attack (default Talk-to)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_npc_menu",
+   "description": "Hover an NPC and read its live right-click mini-menu: every entry including server-added quick options, top entry first (index 0 = default left-click). Follow with click_menu_option.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "npcIndex": {
+      "type": "integer",
+      "description": "NPC index from list_npcs (exact match)"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "Case-insensitive NPC name substring; nearest match wins"
+     }
+    }
+   }
+  },
+  {
+   "name": "click_menu_option",
+   "description": "Click an entry of the currently built mini-menu (hover something first, e.g. via get_npc_menu or hover). Invokes the entry exactly as a right-click menu click would.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "option": {
+      "type": "string",
+      "description": "Case-insensitive substring of the menu option text, e.g. Vote, Trade, Quick-start"
+     },
+     "target": {
+      "type": "string",
+      "description": "Optional case-insensitive substring of the entry target to disambiguate"
+     }
+    },
+    "required": [
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "item_action",
+   "description": "Right-click an inventory item and click an option in ONE call - no screenshot needed. Finds the item slot, hovers it, invokes the matching menu entry (e.g. Drop). Inventory tab must be visible.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "itemId": {
+      "type": "integer",
+      "description": "Item id in the inventory"
+     },
+     "itemName": {
+      "type": "string",
+      "description": "Case-insensitive item name substring (used if itemId absent)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Right-click option to invoke, e.g. Drop, Eat, Wield, Use, Bury"
+     }
+    },
+    "required": [
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "interact_object",
+   "description": "Interact with a scene object in ONE call - no screenshot needed. Finds the nearest matching object, hovers it and clicks the option. e.g. nameFilter 'tree' + option 'Chop down'. list_objects shows available actions.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "objectId": {
+      "type": "integer",
+      "description": "Object id to interact with"
+     },
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive object name substring; nearest match wins (used if objectId absent)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Menu option to click, e.g. Chop down, Mine, Bank, Open. Default: the object's first action"
+     }
+    }
+   }
+  },
+  {
+   "name": "interact_player",
+   "description": "Interact with another player in ONE call - no screenshot needed. Hovers the player and clicks the matching right-click option, e.g. Trade with.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "playerName": {
+      "type": "string",
+      "description": "Case-insensitive player name substring; nearest match wins"
+     },
+     "option": {
+      "type": "string",
+      "description": "Menu option to click, e.g. Trade with, Follow, Challenge, Attack"
+     }
+    },
+    "required": [
+     "playerName",
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "widget_action",
+   "description": "Right-click any widget and click a menu option in ONE call: hovers the widget, then invokes the matching mini-menu entry. Works for spells, prayers, equipment, buttons.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id of the widget"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Optional dynamic child index"
+     },
+     "option": {
+      "type": "string",
+      "description": "Case-insensitive substring of the menu option to invoke"
+     }
+    },
+    "required": [
+     "componentId",
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "invoke_menu_action",
+   "description": "Low-level escape hatch: invoke client.menuAction with raw parameters. Use only when the higher-level interact tools cannot express the action (params visible in get_npc_menu entries or script history).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "param0": {
+      "type": "integer",
+      "description": "Menu param0 (often slot or scene x)"
+     },
+     "param1": {
+      "type": "integer",
+      "description": "Menu param1 (often packed widget id or scene y)"
+     },
+     "type": {
+      "type": "string",
+      "description": "MenuAction enum name, e.g. CC_OP, WIDGET_TARGET, GAME_OBJECT_FIRST_OPTION"
+     },
+     "identifier": {
+      "type": "integer",
+      "description": "Menu identifier (op index, npc index, object id...)"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "Item id (default -1)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Option text (default empty)"
+     },
+     "target": {
+      "type": "string",
+      "description": "Target text (default empty)"
+     }
+    },
+    "required": [
+     "param0",
+     "param1",
+     "type",
+     "identifier"
+    ]
+   }
+  },
+  {
+   "name": "get_dialogue",
+   "description": "Read the current dialogue state: NPC/player dialogue text and speaker, numbered options menu, message box, item dialog, or open chatbox input prompt.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "continue_dialogue",
+   "description": "Press space to advance the current dialogue and return the new dialogue state as soon as it changes.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "select_option",
+   "description": "Choose a numbered dialogue option by pressing its number key and return the new dialogue state as soon as it changes.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "option": {
+      "type": "integer",
+      "description": "Option number as shown by get_dialogue (1-based)"
+     }
+    },
+    "required": [
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "enter_input",
+   "description": "Type a value into the open chatbox input (string or amount prompt) and press Enter, then return the new dialogue state.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "Value to type: a string or a number depending on the prompt"
+     }
+    },
+    "required": [
+     "text"
+    ]
+   }
+  },
+  {
+   "name": "get_script_history",
+   "description": "Report clientscripts fired recently: per-script fire counts plus individual events with game tick, timestamp and root-script arguments.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 5000)"
+     },
+     "scriptId": {
+      "type": "integer",
+      "description": "Only this clientscript id"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned, newest kept (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_var_history",
+   "description": "Report varbit, varp and varc changes in a recent window, in order, with old and new values, game tick and timestamp.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 5000)"
+     },
+     "type": {
+      "type": "string",
+      "description": "Filter: varbit, varp, varcint or varcstr"
+     },
+     "id": {
+      "type": "integer",
+      "description": "Only this varbit/varp/varc id"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned, newest kept (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_var",
+   "description": "Read the current value of a varbit, varp, varc int or varc string.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "description": "One of: varbit, varp, varcint, varcstr"
+     },
+     "id": {
+      "type": "integer",
+      "description": "The varbit/varp/varc id"
+     }
+    },
+    "required": [
+     "type",
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "get_projectile_history",
+   "description": "Report projectiles launched recently: id, start position, slope/height values, cycles and target, one entry per projectile.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 10000)"
+     },
+     "projectileId": {
+      "type": "integer",
+      "description": "Only this projectile (gfx) id"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_effect_history",
+   "description": "Report animations and graphics (spotanims) played by NPCs/players recently, with actor name, npc id, value and game tick.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 10000)"
+     },
+     "kind": {
+      "type": "string",
+      "description": "Filter: animation or graphic"
+     },
+     "actorName": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on the actor name"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_chat_history",
+   "description": "Read chatbox messages received recently: type, sender, message, game tick and timestamp. Covers game messages, public/private chat etc (not NPC dialogue - use get_dialogue).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 60000)"
+     },
+     "type": {
+      "type": "string",
+      "description": "Filter by ChatMessageType name, e.g. GAMEMESSAGE, PUBLICCHAT, PRIVATECHAT, SPAM"
+     },
+     "nameFilter": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on the sender name"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max messages returned (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_combat_history",
+   "description": "Report hitsplats applied recently: damage amount, hitsplat type, the actor hit, its remaining health ratio and game tick. Use this for max hit, accuracy and splash checks instead of watching damage numbers on screen.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 10000)"
+     },
+     "actorName": {
+      "type": "string",
+      "description": "Case-insensitive substring filter on the actor name"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_xp_history",
+   "description": "Report experience gains recently: skill, xp gained, new total xp, level and boosted level, with game tick. Use to check xp per action against the expected rate.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 60000)"
+     },
+     "skill": {
+      "type": "string",
+      "description": "Only this skill, e.g. ATTACK, WOODCUTTING"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_container_history",
+   "description": "Report item container changes recently as per-item deltas (was, now, delta), so you can see exactly what was gained, consumed or dropped and on which tick. 93 inventory, 94 worn, 95 bank.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 60000)"
+     },
+     "containerId": {
+      "type": "integer",
+      "description": "Only this container id"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_sound_history",
+   "description": "Report sound effects played recently: sound id, source actor, and for area sounds the scene position, with game tick.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 10000)"
+     },
+     "soundId": {
+      "type": "integer",
+      "description": "Only this sound id"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_timeline",
+   "description": "Every recorded channel merged into one tick-ordered stream: vars, projectiles, effects, chat, combat, experience, containers and sounds. Scripts fire many times a second, so they are left out unless requested via channels. Read this to see what happened around an action, instead of correlating the per-channel history tools by hand.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in milliseconds looking back from now (default 10000)"
+     },
+     "channels": {
+      "type": "array",
+      "description": "Only these channels: script, var, projectile, effect, chat, combat, experience, container, sound (default all but script)"
+     },
+     "fromTick": {
+      "type": "integer",
+      "description": "Only events on or after this game tick"
+     },
+     "toTick": {
+      "type": "integer",
+      "description": "Only events on or before this game tick"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events returned, newest kept (default 300)"
+     }
+    }
+   }
+  },
+  {
+   "name": "wait_for",
+   "description": "Block until a game condition is met, checked every 100ms - returns the moment it happens. Use this after walk_to/interact/attack instead of taking screenshots or guessing delays. Returns met:false with current state on timeout.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "condition": {
+      "type": "string",
+      "description": "What to wait for: idle (player stopped animating/moving), at_tile (arrived at x/y), npc_dead (npcIndex/npcName), dialogue (any dialogue opened), interface_open / interface_closed (interfaceId), chat_message (textContains appeared)"
+     },
+     "timeoutMs": {
+      "type": "integer",
+      "description": "Give up after this long (default 10000, max 60000)"
+     },
+     "x": {
+      "type": "integer",
+      "description": "at_tile: world x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "at_tile: world y"
+     },
+     "range": {
+      "type": "integer",
+      "description": "at_tile: max tiles away to count as arrived (default 1)"
+     },
+     "npcIndex": {
+      "type": "integer",
+      "description": "npc_dead: NPC index from list_npcs"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "npc_dead: NPC name substring"
+     },
+     "interfaceId": {
+      "type": "integer",
+      "description": "interface_open/closed: interface group id"
+     },
+     "textContains": {
+      "type": "string",
+      "description": "chat_message: case-insensitive substring to watch for"
+     }
+    },
+    "required": [
+     "condition"
+    ]
+   }
+  }
+ ]
+}

@@ -109,7 +109,7 @@ head. The one hook rule: `hd approve` is denied inside a subagent.
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>` | the test suite at T |
 | gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, dupe tests per item-moving module, evidence files, trailers), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not |
 | judge | release only | every contract row | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`; upstream after the yes | merge `main`, push |
+| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | merge `main`, push |
 
 ```mermaid
 sequenceDiagram

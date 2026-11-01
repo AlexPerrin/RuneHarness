@@ -1614,6 +1614,22 @@ class R8(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
 
+    def test_a_base_move_after_the_hand_over_keeps_a_regated_change_in_t_int(s):
+        F, R = s.integration_fixture(with_ref=False)
+        E, X = "e" * 40, "x" * 40
+        F.f["refs"]["origin/HEAD"] = E                                               # the base moves; T is recomputed and re-gated
+        F.f["trees"][X] = "tx" * 20
+        F.f["merges"].update({(E, A): ("ok", X), (E, "p" * 40): ("conflict", "CONFLICT (content): ObjTakePlugin.kt")})
+        for k in ("build", "gate"):
+            hd.put("s1", k, {"T": "tx" * 20, "ok": True})                            # the hand-over keeps the old T
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        s.assertNotEqual(hd.rec("s1", "handover")["T"], "tx" * 20)
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["conflict"], t["change"]["slug"]), ("local/x", "s1"))      # the pin's conflict has its owner
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
+        s.assertEqual([a for a in v["alert"] if a.startswith("pin ")], [])
+
     def test_pin_base_conflict_resolved_by_its_merge_ref(s):
         F, R = s.integration_fixture(with_ref=False)
         P_, M2 = "p" * 40, "n" * 40

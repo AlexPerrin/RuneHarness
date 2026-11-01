@@ -466,8 +466,7 @@ class Ctx:
         if not (o := s.own(ch, head)):
             return o
         if ch["track"] == "central":  # its test target is its gate: the locally built Central a dependent server build includes
-            ho, g = rec(ch["slug"], "handover") or {}, rec(ch["slug"], "gate") or {}
-            return ho.get("head") == head and bool(g.get("ok")) and (g.get("T", "") + "-").startswith(ho.get("T") + "-")
+            return (rec(ch["slug"], "handover") or {}).get("head") == head and s.gated(ch, head)
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
@@ -549,6 +548,17 @@ class Ctx:
                     return None  # shortcut: two Central changes that conflict read as unknown; give it a dev step if it ever happens
                 cur = r[1]
         return cur
+
+    def gated(s, ch, head):
+        """R8: the gate passed at the change's current key, the test nxt() applies: True | False | None (unknown)."""
+        g = rec(ch["slug"], "gate")
+        if not g or not g.get("ok"):
+            return False
+        T = s.T(ch, head)
+        if T is None or T[0] != "ok":
+            return None if T is None else False
+        k = s.key(ch, s.tree(ch, T[1]))
+        return None if k is None else g["T"] == k
 
     def key(s, ch, tree):
         """The build and gate key: T's tree, plus the tip of the track's tools branch when it has one, so a tools fix
@@ -803,8 +813,12 @@ def integration(ctx):
         if h and not ctx.F.contains(clone, base, h):
             heads.append((pin, h, None))
     for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""))):
-        head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
-        if head and ho and ho["head"] == head and g and g["ok"] and (g["T"] + "-").startswith(ho["T"] + "-") and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
+        head, ho = ctx.head(ch), rec(ch["slug"], "handover")
+        if not (head and ho and ho["head"] == head and not ch.get("closed")):
+            continue
+        if (gd := ctx.gated(ch, head)) is None:
+            return None
+        if gd and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
     cur, included, conflicts = base, [], []

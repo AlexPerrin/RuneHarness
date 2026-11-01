@@ -649,7 +649,7 @@ def integration(ctx):
     """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in order of
     creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
     heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the younger side, and a pin's
-    to the oldest gated change. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with} | None."""
+    to the oldest gated change at the test server deploy step. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with} | None."""
     srv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}
     clone, base = ctx.clone(srv), ctx.base(srv)
     if not base:
@@ -679,7 +679,8 @@ def integration(ctx):
                 if r and r[0] == "ok":
                     break
             if r is None or r[0] != "ok":
-                owner = ch or next((c for _, _, c in heads if c), None)  # a pin's conflict is owned by the oldest gated change
+                # a pin's conflict is owned by the oldest gated change whose step is this deploy: only that step dispatches its dev
+                owner = ch or next((c for _, _, c in heads if c and nxt(ctx, c)["actor"] == "ship-test"), None)
                 return {"conflict": name, "change": owner, "head": h, "base": base, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
         cur = r[1]
         included.append((name, h, ch))
@@ -688,7 +689,7 @@ def integration(ctx):
 
 
 def ship_test(ctx, ch, st, tint, act):
-    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's, a pin's the oldest gated change's."""
+    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's, a pin's the oldest gated change's at this step."""
     if tint is None:
         st["state"] = "integration tree unknown"
     elif "conflict" in tint:

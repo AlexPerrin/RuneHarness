@@ -88,7 +88,7 @@ next(change):
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
   server: live.json ⊇ head?         no → ship test server (T_int built once, deployed); a conflict → the younger change's dev
-                                    (a pin's: the oldest gated change's): against a change, resolve in its own branch; against a
+                                    (a pin's: the oldest one at this step): against a change, resolve in its own branch; against a
                                     permanent pin, the base or a union, push local/merge/<a>-<b>
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push

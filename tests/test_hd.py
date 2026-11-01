@@ -1097,10 +1097,23 @@ class R8(Sandbox):
         s.assertIn(f"local/merge/{'y' * 7}-{B[:7]}", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([a for a in v["alert"] if a.startswith("pin ")], [])
 
+    def test_pin_conflict_owned_by_a_change_at_the_deploy_step(s):
+        s.change("s0"); s.agreed("s0")                                               # older, gated, its review due: not at the deploy
+        F, R = s.integration_fixture(with_ref=False)
+        F.f["refs"]["fork/dev/s0"] = C; F.f["trees"][C] = TC
+        s.gated("s0", F)
+        F.f["merges"][(B, "p" * 40)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        s.assertEqual(s.state(F, "s0")["state"], "review due")
+        s.assertEqual(hd.integration(s.ctx(F))["change"]["slug"], "s1")
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
+
     def test_pin_base_conflict_resolved_by_its_merge_ref(s):
         F, R = s.integration_fixture(with_ref=False)
         P_, M2 = "p" * 40, "n" * 40
         F.f["merges"][(B, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         t = hd.integration(s.ctx(F))
         s.assertEqual((t["conflict"], t["change"]["slug"], t["with"]), ("local/x", "s1", []))  # the base alone: owned, not an alert
         F.f["refs"][f"fork/local/merge/{P_[:7]}-{B[:7]}"] = M2; F.f["merges"][(B, M2)] = ("ok", "q" * 40); F.f["merges"][("q" * 40, A)] = ("ok", R)

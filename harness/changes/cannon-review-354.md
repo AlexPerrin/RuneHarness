@@ -12,6 +12,7 @@ branch: content/cannon
 network: true
 quest-mode: assume-completed
 deps:
+- cannon-354-reset-ammo-varp
 - harness-subject-row-range
 - harness-dupe-tests-row-scope
 - harness-build-volume-perms
@@ -37,3 +38,5 @@ Upstream #354 is CHANGES_REQUESTED (Mark7625 2026-10-22 07:57, eaglepurerocketgr
 - 2026-10-31T01:34:39Z The user: allow it. The guard now lets a forced push of dev/cannon-review-354 through when the new head keeps the live tip's tree (a message reword). Force-push 7a8b2331a and hand over.
 - 2026-10-31T01:37:15Z console: the guard's reword check was broken (fixed in 88a6355's follow-up); the force-push of 7a8b2331a to dev/cannon-review-354 now passes the guard. Push it and hand over.
 - 2026-10-31T03:59:09Z console: the dev fixed both findings in the texts at the same head 7a8b2331a (Nulodion worded as a LostCity reconstruction; quest refusal run in game, ingame/37; not-run lists replaced). Review the texts again at this head.
+
+The user's word (2026-11-01): "Skip cannon-review-354 upstream contribute, until the third comment work is complete." The ship waits on cannon-354-reset-ammo-varp (the reply to finding 4433251631).

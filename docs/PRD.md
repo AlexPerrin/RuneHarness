@@ -48,7 +48,7 @@ gh, docker and the process table; a live check reads the real state.
    its usage and transcript. Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
 7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and
    prints no step name as a state. Live: `python3 hd.py` on the real state.
-8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head; a head holding another PR's unmerged commits is a dev step before its build (stacked), and the card names the base; a gated change's card is shown, and its ship planned, while T_int conflicts, the conflict's dev listed beside it; a server change's key and `CENTRAL` carry the
+8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head; a head holding another PR's unmerged commits is a dev step before its build (stacked), and the card names the base; a change whose same-track upstream dependency has a PR (open or not yet opened) joins it, its head on top of the dependency's, and waits on no upstream merge; a PR's card is offered only when every open change of that PR is in the head (one card, one ship); a gated change's card is shown, and its ship planned, while T_int conflicts, the conflict's dev listed beside it; a server change's key and `CENTRAL` carry the
    merge of its central dependencies, and T_int the one of its heads'; a conflict lists the dev; a carried tools head its branch moved past is
    rebased by the pass and re-gated, a conflict listing the dev; a merge ref
    `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges; a

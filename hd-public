@@ -76,9 +76,9 @@ def upstream(slug, head):
     ch = change(slug)
     fork = c["repos"]["central" if ch.get("track") == "central" else "fork"]  # the fork of the change's upstream: OpenRune-Server or OpenRune-Central-Server
     up, owner = fork["upstream"], fork["name"].split("/")[0]
-    branch = ch.get("branch") or f"content/{slug}"
+    branch = ch.get("branch") or os.environ.get("PUBLIC_BRANCH") or f"content/{slug}"  # the pass's PUBLIC_BRANCH and PR: a joined PR's
     mark = f"<!-- hd:{head[:12]} -->"
-    number = ch.get("pr")
+    number = ch.get("pr") or os.environ.get("PR")
     if not number:  # gh's --head matches the branch name only: keep the fork owner's PR
         rc, out, _ = sh("gh", "pr", "list", "-R", up, "--head", branch, "--state", "open", "--json", "number,headRepositoryOwner")
         number = next((p["number"] for p in (json.loads(out) if rc == 0 and out else [])

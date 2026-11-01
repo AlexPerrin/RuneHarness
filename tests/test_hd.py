@@ -98,7 +98,8 @@ class Sandbox(unittest.TestCase):
         return hd.Ctx(F, hd.cfg())
 
     def state(s, F, slug):
-        return hd.nxt(s.ctx(F), hd.defs("changes")[slug])
+        ctx = s.ctx(F)
+        return hd.nxt(ctx, ctx.changes[slug])
 
     def gated(s, slug, F):
         """Hand over, build and gate at the current head and tree."""
@@ -226,20 +227,6 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
-    def test_a_dependency_on_another_pr_waits_for_its_upstream_merge(s):
-        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
-        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC})
-        s.gated("s1", F)
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": D, "heads": [A]})        # live on the test server, not merged
-        s.assertEqual(s.state(F, "s2")["state"], "waiting on s1's upstream merge")
-        F.f["anc"] = {(B, A)}                                                        # merged upstream
-        s.assertTrue(s.state(F, "s2")["state"].startswith("dev run due"))
-        F.f["anc"] = set()
-        for slug in ("s1", "s2"):                                                  # one PR: the dependency's own gate is enough
-            p_ = s.root / "harness" / "changes" / f"{slug}.md"; p_.write_text(p_.read_text().replace("---\ndo it", 'pr: 9\n---\ndo it'))
-        hd.drop("live", "tree")
-        s.assertTrue(s.state(F, "s2")["state"].startswith("dev run due"))
-
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
         s.assertNotIn("message", v)                                                            # no relayed inbox
@@ -399,7 +386,7 @@ class R2(Sandbox):
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
         s.assertEqual(list(new), ["s1-c8"])                                # one change, once: replies, ours, bots, carried skipped
         c = new["s1-c8"]
-        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1"], 354, 8, "P1", "content/cannon"))
+        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1-old"], 354, 8, "P1", "content/cannon"))  # on the PR's tip
         con = hd.contract("s1-c8")
         s.assertIsNone(con["agreed"])                                      # the inherited contract is agreed again by qa
         s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
@@ -1480,6 +1467,54 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_a_dependent_of_a_new_pr_ships_in_that_same_pr(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}})
+        s.assertEqual(s.state(F, "s2")["state"], "waiting on s1")
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertTrue(s.state(F, "s2")["state"].startswith("dev run due"))       # never an upstream merge to wait on
+        s.assertEqual(s.ctx(F).changes["s2"]["branch"], "content/s1")          # s1's PR, not yet opened
+        s.gated("s2", F)
+        st = s.state(F, "s2")
+        s.assertEqual((st["actor"], st["state"]), ("dev", "joins s1's PR without its head: dev"))
+        F.f["anc"] = {(C, A)}                                                    # s2's commits on top of s1's head: not a stack
+        s.verdict("s2", C, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s2 in the head")
+        s.assertEqual(s.state(F, "s2")["state"], "gated; waiting for the user's yes")
+        cards = hd.tick(s.ctx(F))["card"]
+        s.assertEqual(len(cards), 1); s.assertIn("branch content/s1, new draft PR", cards[0]); s.assertIn("## s2", cards[0])
+        hd.put("s2", "approval", {"head": C, "body": "x"})
+        hd.tick(s.ctx(F))
+        i = next(i for i, a in enumerate(F.spawned) if "hd-public" in " ".join(a))
+        s.assertEqual((F.spawned[i][-3:], F.envs[i]["PUBLIC_BRANCH"], F.envs[i]["PR"]), (["upstream", "s2", C], "content/s1", ""))
+        import importlib.util
+        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
+        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
+        calls = []
+        def fake_sh(*args, inp=None):
+            calls.append(args)
+            return (1, "", "stop") if args[:3] == ("gh", "pr", "create") else (0, "[]", "")
+        import hashlib
+        hd.put("s2", "approval", {"head": C, "body": hashlib.sha256(b"body").hexdigest()[:16]})
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch.dict(os.environ, F.envs[i]), s.assertRaises(SystemExit):
+            pub.upstream("s2", C)
+        s.assertIn(f"{C}:refs/heads/content/s1", next(c for c in calls if "push" in c))   # one new PR on s1's branch holds both
+
+    def test_a_dependent_joins_its_dependencys_open_pr(s):
+        s.change("s1", pr=9, branch="content/x"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2"); s.change("s3", deps=["s2"])
+        ctx = s.ctx(Fake(**FACTS))
+        s.assertEqual([(ctx.changes[k].get("pr"), ctx.changes[k].get("branch")) for k in ("s2", "s3")], [(9, "content/x")] * 2)  # a chain is one PR
+        s.change("s4", "client", deps=["s1"])                                    # another track: no PR to join
+        s.assertNotIn("branch", s.ctx(Fake(**FACTS)).changes["s4"])
+
+    def test_a_pr_with_a_finding_not_in_the_head_gets_no_card(s):
+        s.change("s1", pr=9); s.agreed("s1"); s.change("s1-c8", deps=["s1"], pr=9, finding=8)
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A}, trees={A: TA, B: TB})
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s1-c8 in the head")
+        s.assertEqual(hd.tick(s.ctx(F))["card"], [])                             # not a complete PR: not ready
+
     def test_a_stacked_head_is_refused_at_the_gate(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
         F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}})

@@ -3,13 +3,12 @@
 
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
-PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
+PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 start no new work and hand off cleanly: commit (and, off the harness track, push) its work in progress on the
-                dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; tell main (no agent) once per session to start nothing
-                new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn; else, while the
+                dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; else, while the
                 change's up.json lists desktops, IDLE_CALLS tool calls in a row with no desktop devtools call since that up
                 → tell the run once to `down` until it next plays (a devtools call or a new up starts the count again).   R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
@@ -188,15 +187,15 @@ def end_run(p):
 
 
 def deny_users_word(p):
-    """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is recorded by main alone."""
+    """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is the user's own `!` command, which fires no hook."""
     cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", (p.get("tool_input") or {}).get("command") or "", flags=re.S)  # heredoc bodies are data
     # only a command that runs hd: hd at the start of a command (after ; & | ( newline or $( ), never a mere mention
     # a subagent carries agent_id; the orchestrator, a top-level `claude --agent orchestrator` session, agent_type alone
     m = (p.get("agent_id") or p.get("agent_type")) and re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
     if m:
-        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is main's")
+        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is the user's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                                 "permissionDecisionReason": f"hd {m[2]} is recorded by main after the user's word, never by an agent. Report it; do not work around it."}}))
+                                                 "permissionDecisionReason": f"hd {m[2]} is the user's own word, typed by the user as a `!` command, never run by an agent. Report it; do not work around it."}}))
 
 
 def context_of(path):
@@ -217,29 +216,8 @@ def context_of(path):
     return 0
 
 
-def main_context_limit(p):
-    """R6: main holds no state beyond files, so past the limit a fresh session replaces it rather than a compaction."""
-    told = hd.STATE / "main-told"
-    sid = str(p.get("session_id"))
-    if told.exists() and told.read_text() == sid:
-        return
-    size = context_of(p.get("transcript_path"))
-    if size < hd.cfg().get("context_limit", 150000):
-        return
-    hd.STATE.mkdir(parents=True, exist_ok=True)
-    told.write_text(sid)
-    hd.event(action="context-limit", role="main", tokens=size)
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-          f"Context limit reached ({size} tokens): start nothing new. Tell the user to start a fresh session in ~/osrs-harness "
-          "with docs/HANDOFF.md's start prompt (read CLAUDE.md, docs/HANDOFF.md and docs/ISSUES.md, then follow skill head), "
-          "and end your turn now. Everything you hold is in files."}}))
-    return True
-
-
 def context_limit(p):
     """R6: past cfg.context_limit the run is told once to write its hand-off and hand back; the successor is listed with it."""
-    if not p.get("agent_id") and not p.get("agent_type"):
-        return main_context_limit(p)
     if p.get("agent_type") not in ROLES:
         return
     r = find_run(p)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | tell | heard | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | decline | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
 import fcntl, hashlib, json, os, pwd, re, subprocess, sys
@@ -349,12 +349,12 @@ def event(**e):
         os.replace(STATE / "events.jsonl", STATE / "events.1.jsonl")
 
 
-WATCH = {"main": ("card", "question", "alert"), "orchestrator": ("spawn", "message")}
+WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
 
 
 def wake(view):
     """R2: state/wake.<session> is rewritten, with the head line of each, only when a line that session acts on appears;
-    a line that stays or goes wakes nobody. `view` may hold only some sections (hd tell: the messages)."""
+    a line that stays or goes wakes nobody."""
     for who, keys in WATCH.items():
         f = STATE / f"seen.{who}.json"
         seen = json.loads(f.read_text()) if f.exists() else {}
@@ -1121,7 +1121,7 @@ def order(ctx):
 def tick(ctx=None, act=True):
     """One pass under the state lock → the view for `hd`."""
     ctx = ctx or Ctx()
-    view = {"spawn": [], "card": [], "question": [], "message": [], "run": [], "goal": [], "change": [], "alert": []}
+    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     with lock():
         ctx.__init__(ctx.F, ctx.cfg)  # R2: decide on the state read under the lock, never on what was read while waiting for it
         repairs(ctx, act)
@@ -1175,7 +1175,6 @@ def tick(ctx=None, act=True):
         findings(ctx, open_prs, act)
         view["alert"] += ctx.alerts
         plan(ctx, view, act)
-        view["message"] = [f"{n}: {m['text']}" for n, m in inbox() if n > heard()]
         if not ctx.F.orchestrator():
             view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
         for r in ctx.runs:
@@ -1198,7 +1197,7 @@ def card(ctx, ch, st):
     else:
         lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR"),
                   f"### title\n{t['title']}", f"### body\n{t['body']}", f"### comment\n{t['comment']}"]
-    lines += [f"then: python3 {ROOT}/hd.py approve {ch['slug']} {head}"]
+    lines += [f"the user types: ! python3 {ROOT}/hd.py approve {ch['slug']} {head}"]
     return "\n".join(lines)
 
 
@@ -1329,37 +1328,8 @@ def cmd_ask(a):
     print("asked")
 
 
-def inbox():
-    f = STATE / "inbox.jsonl"
-    return list(enumerate((json.loads(l) for l in f.read_text().splitlines() if l.strip()), 1)) if f.exists() else []
-
-
-def heard():
-    f = STATE / "inbox.read"
-    return int(f.read_text()) if f.exists() else 0
-
-
-def cmd_tell(a):
-    """R2: main relays the user's message to the orchestrator: listed under `message` until the orchestrator has handled it."""
-    text = " ".join(a) or refuse("empty message")
-    STATE.mkdir(parents=True, exist_ok=True)
-    with open(STATE / "inbox.jsonl", "a") as f:
-        f.write(json.dumps({"ts": now(), "text": text}) + "\n")
-    event(record="message", text=text[:300])
-    with lock():  # the orchestrator's watch, without a pass
-        wake({"message": [f"{n}: {m['text']}" for n, m in inbox() if n > heard()]})
-    print(f"message {len(inbox())}")
-
-
-def cmd_heard(a):
-    """R2: the orchestrator has handled every message up to n."""
-    n = int(a[0]) if a and a[0].isdigit() else refuse("hd heard <n>")
-    (STATE / "inbox.read").write_text(str(max(n, heard())))
-    print(f"heard {n}")
-
-
 def cmd_stop(a):
-    """R5: a run main stops (TaskStop fires no SubagentStop) ends here, or it would hold an agent slot for good."""
+    """R5: a run the orchestrator stops (TaskStop fires no SubagentStop) ends here, or it would hold an agent slot for good."""
     r = next((r for r in runs() if a and r["name"] == a[0]), None) or refuse(f"no run {a[0] if a else ''}")
     if r.get("ended"):
         refuse(f"{r['name']} already ended")
@@ -1389,7 +1359,7 @@ def cmd_answer(a):
 
 
 def cmd_close(a):
-    """R2: the user's word closes a change as done: an answer row, and `closed` in the definition (main commits it)."""
+    """R2: the user's word closes a change as done: an answer row, and `closed` in the definition (the orchestrator commits it)."""
     slug = a[0]
     ch = defs("changes").get(slug) or refuse(f"no change {slug}")
     if ch.get("closed"):
@@ -1486,8 +1456,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick,
-            "tell": cmd_tell, "heard": cmd_heard, "decline": cmd_decline}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "decline": cmd_decline}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

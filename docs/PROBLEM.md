@@ -33,7 +33,6 @@ docs/ARCHITECTURE.md is the one solution we build.
 | P8 | **Know-how is a script, judgment is a rule.** Bring-up, builds, in-game scenarios and lookups are scripts that block on facts and return results; an agent reads rules and results, never procedures. | A3 A1 |
 | P9 | **Scarce things are counted**, and every artefact is named after the change or run that owns it. | A7 |
 | P10 | **The user sees derived facts only**: what runs, what waits for them, each goal's number, what happened; and every agent session, live in their console. | A1 A2 A3 |
-| P11 | **The chat is not the driver.** The user's chat holds the user's conversation and the user's word; the loop is driven by a session of its own, so neither's context or life bounds the other's. | A2 |
 
 ## Goals
 
@@ -55,8 +54,8 @@ asked only for that yes and for decisions of scope or accuracy; a maintainer's f
 PR with the finding as a contract row. Each goal is measured when its target moves, and a planner run files
 the changes that close the gap, with dependencies across tracks; the same role watches operations and files a harness
 change for each issue it finds. The orchestrator, a long-lived session of its own, drives the loop: it spawns and
-stops every run and handles their hand-backs. Main, the user's chat, is only the interface: it shows cards and
-questions, records the user's word, and relays the user's other messages to the orchestrator.
+stops every run and handles their hand-backs, and it is the user's chat: it shows cards, questions and alerts and acts
+on the user's other words at once, while the user's yes and close are typed by the user, never run by an agent.
 
 ```mermaid
 flowchart LR

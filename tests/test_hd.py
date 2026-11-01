@@ -221,18 +221,20 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
-    def test_main_relays_to_the_orchestrator_session(s):
-        import io, contextlib
-        with contextlib.redirect_stdout(io.StringIO()):
-            hd.cmd_tell(["also", "measure", "the", "client"]); hd.cmd_tell(["second"])
+    def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
-        s.assertEqual(v["message"], ["1: also measure the client", "2: second"])       # listed until handled
+        s.assertNotIn("message", v)                                                            # no relayed inbox
         s.assertFalse(any("orchestrator session" in a for a in v["alert"]))
-        with contextlib.redirect_stdout(io.StringIO()):
-            hd.cmd_heard(["1"])
+        for verb in ("tell", "heard"):
+            with s.assertRaises(SystemExit):
+                hd.main([verb, "x"])
+        root = Path(__file__).parent.parent
+        s.assertFalse((root / ".claude" / "skills" / "head").exists())
+        brief = (root / ".claude" / "agents" / "orchestrator.md").read_text()
+        for step in ("`card`", "`question`", "`alert`", "the `! python3", "`! python3 ~/osrs-harness/hd.py close"):   # the head skill's steps; the user types the yes and the close
+            s.assertIn(step, brief)
         v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrator": None})))
-        s.assertEqual(v["message"], ["2: second"])
-        s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))   # main tells the user to start it
+        s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))
         s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))                       # the user's to fix, no planner
 
     def test_defined_to_live_with_no_person(s):
@@ -246,7 +248,7 @@ class R2(Sandbox):
         run = [r for r in hd.runs() if r["change"] == "c1"][0]
         s.assertEqual((run["role"], run["started"]), ("dev", None))
         s.assertIn("Read and follow", spawn[0])
-        s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in main's context
+        s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in the orchestrator's context
         s.assertIn(f"Base: origin/HEAD at {B[:9]}", open(run["brief"]).read())   # the dev branches from the base tip the brief names
         with mock.patch.object(hook, "start_pass") as sp:
             hook.bind(payload(run, "ag1", "SubagentStart", s.root))
@@ -513,24 +515,19 @@ class R2(Sandbox):
         s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"started"' in l), 1)
 
 
-    def test_each_watch_wakes_only_on_a_new_line_it_acts_on(s):
-        w = lambda who: (s.root / "state" / f"wake.{who}")
+    def test_the_watch_wakes_only_on_a_new_line_it_acts_on(s):
+        w = s.root / "state" / "wake.orchestrator"
         s.change("s1"); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": A}})
         hd.tick(s.ctx(F))
-        s.assertIn("Agent(", w("orchestrator").read_text())                       # a new spawn wakes the orchestrator
-        s.assertFalse(w("main").exists() and "Agent(" in w("main").read_text())  # never main
-        os.utime(w("orchestrator"), ns=(1, 1))
+        s.assertIn("Agent(", w.read_text())                                     # a new spawn wakes the orchestrator
+        os.utime(w, ns=(1, 1))
         hd.tick(s.ctx(F))
-        s.assertEqual(w("orchestrator").stat().st_mtime_ns, 1)                  # the same lines again wake nobody
-        with mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_tell(["stop", "everything"])
-        s.assertEqual(w("orchestrator").read_text(), "1: stop everything\n")      # a message wakes it without a pass
+        s.assertEqual(w.stat().st_mtime_ns, 1)                                  # the same lines again wake nobody
         hd.put("s1", "ask", {"text": "which one?"})
-        os.utime(w("orchestrator"), ns=(1, 1))
         hd.tick(s.ctx(F))
-        s.assertIn("s1: which one?", w("main").read_text())                       # a question wakes main
-        s.assertEqual(w("orchestrator").stat().st_mtime_ns, 1)                  # and not the orchestrator
+        s.assertIn("s1: which one?", w.read_text())                             # a question wakes it too: it is the user's chat
+        s.assertEqual(sorted(f.name for f in (s.root / "state").glob("wake*")), ["wake.orchestrator"])   # no other session's watch
 
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
@@ -718,7 +715,7 @@ class R4(Sandbox):
         with contextlib.redirect_stdout(out):
             for verb in ("approve s1 " + A, "close s1 done"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
-                hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
+                hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # no agent: allowed (the user's `!` fires no hook at all)
                 hook.deny_users_word({"agent_type": "orchestrator", "tool_input": {"command": "hd " + verb}})      # the orchestrator session: denied
             for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done"):      # runs it: denied
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
@@ -780,7 +777,7 @@ class R7(Sandbox):
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client"); hd.put("s1", "ask", {"text": "scope?"})
         v = hd.tick(s.ctx(Fake(**FACTS)))
-        s.assertEqual(list(v), ["spawn", "card", "question", "message", "run", "goal", "change", "alert"])
+        s.assertEqual(list(v), ["spawn", "card", "question", "run", "goal", "change", "alert"])
         for line in v["change"]:
             state = line.split("]: ", 1)[1]
             s.assertTrue(" " in state or state == "done", line)                 # a sentence of facts, never a bare step name
@@ -901,7 +898,7 @@ class R5(Sandbox):
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_approve(["s1", A])
-        F.f["procs"] = set()                                                    # main is gone after the yes
+        F.f["procs"] = set()                                                    # the orchestrator is gone after the yes
         hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["upstream", "s1", A])
         s.assertTrue(F.spawned[-1][0].endswith("hd-public"))
@@ -1242,25 +1239,16 @@ class R6(Sandbox):
         s.assertTrue(any(a.startswith("s1: 3 runs reached the context limit") for a in v["alert"]))   # three new limits re-raise it
 
 
-    def test_main_past_context_limit_is_told_once_to_hand_off(s):
+    def test_a_session_of_no_run_gets_no_context_notice(s):
         import io, contextlib
-        def main_payload(session, context):
-            tp = s.root / f"main-{session}.jsonl"
-            tp.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": "x",
-                          "usage": {"input_tokens": 10, "cache_read_input_tokens": context}}}) + "\n")
-            return {"hook_event_name": "PostToolUse", "session_id": session, "transcript_path": str(tp)}
+        tp = s.root / "session.jsonl"
+        tp.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": "x",
+                      "usage": {"input_tokens": 10, "cache_read_input_tokens": 160000}}}) + "\n")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            hook.context_limit(main_payload("m1", 1000))
-            s.assertEqual(out.getvalue(), "")                          # under the limit: silent
-            hook.context_limit(main_payload("m1", 160000))
-            hook.context_limit(main_payload("m1", 170000))
-            s.assertEqual(out.getvalue().count("start prompt"), 1)  # told once
-            hook.context_limit(main_payload("m2", 160000))
-        s.assertEqual(out.getvalue().count("start prompt"), 2)      # a fresh main session is told for itself
-        with contextlib.redirect_stdout(out):                          # the orchestrator is no main
-            hook.context_limit({**main_payload("m3", 160000), "agent_type": "orchestrator"})
-        s.assertEqual(out.getvalue().count("start prompt"), 2)
+            for extra in ({}, {"agent_type": "orchestrator"}):                     # the user's chat, the orchestrator, is no run
+                hook.context_limit({"hook_event_name": "PostToolUse", "session_id": "m1", "transcript_path": str(tp), **extra})
+        s.assertEqual(out.getvalue(), "")
 
 
     def test_malformed_definition_is_one_alert(s):

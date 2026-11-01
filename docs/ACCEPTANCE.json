@@ -7,7 +7,7 @@
  },
  {
   "id": "R2",
-  "requirement": "Flow: defined to live with no person once deps are live; a change the user closes takes no step; a done or closed change leaves no worktree or local branch; the orchestrator session spawns every run; main only shows cards and relays the user's word",
+  "requirement": "Flow: defined to live with no person once deps are live; a change the user closes takes no step; a done or closed change leaves no worktree or local branch; the orchestrator session spawns every run and is the user's chat; the user types the yes and the close",
   "check": "python3 -m unittest tests.test_hd.R2",
   "passes": false
  },

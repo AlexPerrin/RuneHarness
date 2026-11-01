@@ -14,15 +14,15 @@ hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the conte
 hd-public      the one program that acts on OpenRune or publishes a release, after the user's yes
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
-.claude/       agents/ orchestrator (the driver session), dev, qa, planner; skills/ head (main's relay); product repos hold the judgment skills
+.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner; product repos hold the judgment skills
 harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
 docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
 tests/         python3 -m unittest discover -s tests   (one class per requirement)
 ```
 
 Agents are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief;
-main (skill `head`) is the chat interface that relays the user's word to it. A write to OpenRune and a client release
-happen only after the user's yes in chat, recorded with `hd approve` and done by `hd-public`.
+the user chats with it directly. A write to OpenRune and a client release happen only after the user's yes, typed by
+the user in the orchestrator's window as `! python3 ~/osrs-harness/hd.py approve <slug> <head>`, and done by `hd-public`.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,
@@ -39,7 +39,7 @@ one document that owns it. Code, tests, config keys and docs traceable to no req
 - Docs state current truth only: no revision justification, history or dated rationale. A quick fix lands at once and
   is not logged; a root cause or a rewrite too large for the run goes to docs/ISSUES.md alone (short, newest first),
   cleared at each hand-off. Docs live in docs/; CLAUDE.md and README.md are the only root docs.
-- Main never enters a worktree (EnterWorktree) while agents run.
+- The orchestrator never enters a worktree (EnterWorktree).
 - Times for the user are US Eastern.
 - Hooks live in the committed `.claude/settings.json`, never the personal `settings.local.json`.
 

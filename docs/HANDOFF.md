@@ -4,12 +4,12 @@ The brief for a fresh session. `~/osrs-harness` has branch `v8` checked out; `ma
 stopped, its state under `harness/state`). v8 runs from here; the merge into `main`, the timer and the sudoers line
 are the cutover the user approves.
 
-## Start (two sessions, both in ~/osrs-harness on branch `v8`)
+## Start (one session, in ~/osrs-harness on branch `v8`)
 Its `.claude/settings.json` wires v8's hooks and its `.claude/agents/` holds the roles; a session started elsewhere
-binds no run. The driver: `cd ~/osrs-harness && claude --agent orchestrator`, told "drive": it arms the watch on
-`state/wake.orchestrator`, runs `python3 hd.py`, spawns each listed run, handles hand-backs and relayed messages. The user's chat:
-read CLAUDE.md, docs/HANDOFF.md and docs/ISSUES.md, then follow skill `head` (cards, questions, the user's word,
-`hd tell` for the rest). The planner run the pass lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same
+binds no run. The driver and the user's chat: `cd ~/osrs-harness && claude --agent orchestrator`, told "drive": it
+arms the watch on `state/wake.orchestrator`, runs `python3 hd.py`, spawns each listed run, handles hand-backs, shows cards,
+questions and alerts and acts on the user's words; the user types the yes and the close themselves
+(`! python3 ~/osrs-harness/hd.py approve <slug> <head>` / `close <slug> <text>`). The planner run the pass lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same
 loop (a dev run in `~/osrs-harness/.worktrees/<slug>`, the gate's tests, a fast-forward of `v8`).
 `python3 -m unittest discover -s tests` must stay green. The track scripts live in the product repos: the fork's branch
 `local/harness` (worktree `~/src/OpenRune-Server/.worktrees/harness`) and the client's branch `client/harness-v8`
@@ -36,5 +36,4 @@ against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until it
 2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
    branch) until it moves onto `local/harness`.
 3. Regenerate the RSProx text transcripts with every packet filter on (`tools/track.sh recordings` reads them).
-4. Stop v7's timer, merge `v8` into `main`, install the units, resume with `python3 hd.py` from the user's chat
-   (skill `head`).
+4. Stop v7's timer, merge `v8` into `main`, install the units, resume with `claude --agent orchestrator`.

@@ -399,6 +399,24 @@ class R2(Sandbox):
         s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
         s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
 
+    def test_a_maintainer_reply_after_ours_a_review_body_and_a_new_pr_comment_each_file_a_change(s):
+        s.change("s1", pr=354); s.agreed("s1"); s.change("s1-c8", pr=354, deps=["s1"], finding=8)
+        com = lambda i, who="a-thoren", reply=8: {"id": i, "author": who, "bot": False, "reply": reply, "path": "N.kt", "line": 265, "body": "and then?"}
+        talk = lambda i, who, at, body="still wrong": {"id": i, "author": who, "body": body, "at": at}
+        F = Fake(**{**FACTS, "comments": {354: [com(8, reply=None), com(9), com(10, "O"), com(11), com(12, reply=50), com(51, "O", reply=50)]},
+                    "talk": {354: [talk("IC_a", "rev", "1"), talk("IC_b", "O", "2"), talk("IC_c", "rev", "3"),
+                                   talk("PRR_d", "rev", "0", "please split it"), talk("PRR_e", "rev", "4", ""), talk("PRR_f", "O", "5", "ours")]}})
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-c8")}
+        s.assertEqual(sorted(new), ["s1-c11", "s1-cicc", "s1-cprrd"])   # 9 precedes our reply 10; 12 is in a thread we never answered; IC_a precedes ours
+        s.assertEqual((new["s1-c11"]["deps"], new["s1-c11"]["finding"]), (["s1-c8"], 11))
+        s.assertEqual((new["s1-cicc"]["finding"], new["s1-cicc"]["title"]), ("IC_c", "#354: rev on the PR"))
+        s.assertIn("please split it", hd.contract("s1-cprrd")["rows"][-1]["text"])
+        s.assertEqual(hd.root(F.f["comments"][354], 11), 8)               # its reply goes in thread 8, and answers it only after 11
+        ctx = s.ctx(F); ch = {**ctx.changes["s1-c11"]}
+        s.assertFalse(hd.answered(ctx, ch, 11, "x"))
+        F.f["comments"][354].append(com(13, "O")); s.assertTrue(hd.answered(s.ctx(F), ch, 11, "x"))
+
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

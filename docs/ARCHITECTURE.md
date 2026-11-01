@@ -127,8 +127,9 @@ next(change):
                                     Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
                                     args an alert
   ship (other tracks)               merge and push
-  wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no
-                                    definition's `finding` carries files a P1 change on the pr with deps [the pr's tip changes],
+  wait                              upstream merged; each maintainer word on the pr that no definition's `finding` carries (an
+                                    inline comment opening a thread, a reply newer than ours in a thread we answered, a review's
+                                    body, a conversation comment newer than our last; no bot) files a P1 change on the pr with deps [the pr's tip changes],
                                     its root's contract unagreed plus a judged `finding` row
   done
 ```

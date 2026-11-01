@@ -189,6 +189,7 @@ def end_run(p):
 def deny_users_word(p):
     """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is the user's own `!` command, which fires no hook."""
     cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", (p.get("tool_input") or {}).get("command") or "", flags=re.S)  # heredoc bodies are data
+    cmd = re.sub(r"(?<!-c )(?<!eval )('[^']*'|\"[^\"]*\")", "''", cmd)  # a quoted argument is data, unless it is a -c or eval script
     # only a command that runs hd: hd at the start of a command (after ; & | ( newline or $( ), never a mere mention
     # a subagent carries agent_id; the orchestrator, a top-level `claude --agent orchestrator` session, agent_type alone
     m = (p.get("agent_id") or p.get("agent_type")) and re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)

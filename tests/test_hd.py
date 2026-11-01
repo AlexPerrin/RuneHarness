@@ -860,6 +860,19 @@ class R4(Sandbox):
         s.assertEqual([c[:3] for c in calls if c[:3] in (("gh", "pr", "list"), ("gh", "pr", "create"))], [])
         s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
 
+    def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
+        repo, build = s.root / "live", s.root / "cand"
+        (repo / "tools").mkdir(parents=True); build.mkdir()
+        shutil.copy(Path(__file__).parent.parent / "tools" / "track.sh", repo / "tools")
+        n = repo / "n"; n.write_text("0")
+        (repo / "hd.py").write_text(f"import pathlib\np = pathlib.Path({str(n)!r}); k = int(p.read_text()) + 1; p.write_text(str(k))\n"
+                                    "if k > 1: print('change: a [server P2]: shipping upstream')\n")   # a's approval lands after main's first read
+        check = lambda acts: ((build / "hd.py").write_text("".join(f"print('change: {a} [server P2]: shipping upstream')\n" for a in acts)),
+                              subprocess.run([str(repo / "tools" / "track.sh"), "check-dry-run"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True))[1]
+        s.assertEqual(check(["a"]).returncode, 0)                                # the state moved mid-check: no extra act
+        n.write_text("0"); r = check(["a", "b"])                                 # the candidate's code plans b
+        s.assertNotEqual(r.returncode, 0); s.assertIn("change: b", r.stdout); s.assertNotIn("change: a", r.stdout)
+
 
 class R7(Sandbox):
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):

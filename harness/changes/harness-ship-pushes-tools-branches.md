@@ -3,7 +3,7 @@ slug: harness-ship-pushes-tools-branches
 track: harness
 title: Ship pushes the tools branches it moves
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T02:02:35Z'
 ---

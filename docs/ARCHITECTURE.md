@@ -25,6 +25,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 |---|---|---|
 | `hd` | main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, runs, goals, change facts (R7) |
 | `hd approve <slug> <head>`, `hd answer <slug> <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row |
+| `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its unspawned runs end, it leaves T_int and holds no dependent |
 | `hd new <slug> ...` | a planning run, the user | writes a definition |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
 | `hd handover <slug>` | dev | reads the pushed dev ref (no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
@@ -38,7 +39,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 ```
 harness/goals/<slug>.md        slug, track, target; measured by the track's `tools/track.sh measure`
-harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version; body
+harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version, closed; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T}                       state/<slug>/gate.json      {T, ok, detail}
@@ -62,7 +63,8 @@ dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's
 
 ```
 next(change):
-  deps live?                        no → wait on them
+  closed by the user?               yes → done
+  deps live or closed?              no → wait on them
   contract.md?                      no → qa run (server) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   T                                 conflict → dev

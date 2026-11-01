@@ -197,6 +197,28 @@ class R2(Sandbox):
             s.assertEqual((view["card"], view["question"]), ([], []))  # no person anywhere on the path
         s.assertIsNone(hd.rec("c1", "approval"))
 
+    def test_a_change_the_user_closes_takes_no_step_and_leaves_t_int(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"])
+        F = Fake(**FACTS)
+        (s.root / "evidence" / "s1" / "log.txt").write_text("evidence")
+        s.gated("s1", F)
+        s.assertEqual(hd.integration(s.ctx(F))["names"], ["s1"])
+        hd.tick(s.ctx(F))
+        listed = [r for r in hd.runs() if r["change"] == "s1"]
+        s.assertEqual(len(listed), 1)                                 # a qa run listed, not yet spawned
+        hd.cmd_close(["s1", "done", "upstream"])
+        s.assertIn("closed: 'answer-1: done upstream'", (s.root / "harness" / "changes" / "s1.md").read_text())
+        s.assertIn("- answer-1 |", hd.contract("s1")["text"])
+        v = hd.tick(s.ctx(F))
+        s.assertIn("s1 [server P2]: closed: answer-1: done upstream", v["change"])
+        s.assertFalse([x for x in v["spawn"] if x.startswith("s1-")])  # the listed run ends; none is listed again
+        s.assertEqual(hd.runs()[0]["reason"], "change closed")
+        s.assertEqual(hd.integration(s.ctx(F))["names"], [])         # nothing open: no T_int beyond what is live
+        s.assertNotEqual(s.state(F, "s2")["state"], "waiting on s1")  # a closed dependency holds nothing
+        s.assertNotIn("s1 [server P2]: closed: answer-1: done upstream", hd.tick(s.ctx(F))["change"])  # shown once
+        with s.assertRaises(SystemExit):
+            hd.cmd_close(["s1", "again"])
+
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

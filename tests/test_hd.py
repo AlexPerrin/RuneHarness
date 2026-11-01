@@ -38,7 +38,11 @@ class Fake(hd.Facts):
     def rev(s, clone, ref):
         if ref.split("/")[0] in s.f.get("unknown", ()): return None
         if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
+        if len(ref) == 7: return next((v for v in s.f.get("refs", {}).values() if v.startswith(ref)), "")  # an abbreviated sha
         return s.f.get("refs", {}).get(ref, "")
+    def resolutions(s, clone, h7):
+        ab = [(r, r.rsplit("/", 1)[1].partition("-")) for r in sorted(s.f.get("refs", {})) if r.startswith("fork/local/merge/")]
+        return [(r, b if a == h7 else a) for r, (a, _, b) in ab if h7 in (a, b)]
     def worktrees(s, repo): return s.f.get("worktrees", {}).get(repo, [])
     def edits(s, wt): return wt in s.f.get("dirty", ())  # "links": worktrees git refuses to remove unforced, no one's edits
     def contains(s, clone, tip, sha):
@@ -1619,8 +1623,13 @@ class R8(Sandbox):
         s.assertEqual((t["conflict"], t["change"]["slug"], t["with"]), ("local/x", "s1", []))  # the base alone: owned, not an alert
         F.f["refs"][f"fork/local/merge/{P_[:7]}-{B[:7]}"] = M2; F.f["merges"][(B, M2)] = ("ok", "q" * 40); F.f["merges"][("q" * 40, A)] = ("ok", R)
         s.assertEqual(hd.integration(s.ctx(F))["names"], ["local/x", "s1"])
-        F.f["refs"]["origin/HEAD"] = C                                               # the base moves: the resolution no longer binds
-        F.f["merges"][(C, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        F.f["refs"]["origin/HEAD"] = C                                               # the base moves past it: the resolution still serves
+        F.f["anc"] = {(C, B)}; F.f["refs"]["old-base"] = B
+        F.f["merges"].update({(C, P_): ("conflict", "CONFLICT (content): MusicTabScript.kt"), (C, M2): ("ok", "q" * 40)})
+        s.assertEqual(hd.integration(s.ctx(F))["names"], ["local/x", "s1"])
+        F.f["merges"][(C, M2)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")  # the resolution itself no longer merges
+        s.assertEqual(hd.integration(s.ctx(F))["conflict"], "local/x")
+        F.f["anc"] = set(); F.f["merges"][(C, M2)] = ("ok", "q" * 40)                # a base not past the partner: not bound
         s.assertEqual(hd.integration(s.ctx(F))["conflict"], "local/x")
 
     def test_every_pin_conflict_in_one_pass(s):

@@ -62,6 +62,18 @@ class Facts:
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", ref + "^{commit}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
 
+    def resolutions(s, clone, h7):
+        """R8: [(fork ref local/merge/<a7>-<b7>, the other side's 7)] for every recorded resolution naming h7 on one side; None unknown."""
+        r = s.sh(["git", "-C", clone, "for-each-ref", "--format=%(refname:short)", "refs/remotes/fork/local/merge/"])
+        if r is None or r[0]:
+            return None
+        out = []
+        for ref in sorted(r[1].split()):
+            a, _, b = ref.rsplit("/", 1)[1].partition("-")
+            if h7 in (a, b):
+                out.append((ref, b if a == h7 else a))
+        return out
+
     def contains(s, clone, tip, sha):
         if not tip or not sha:
             return None if tip is None else False
@@ -775,7 +787,7 @@ def findings(ctx, open_prs, act):
 def integration(ctx):
     """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in priority
     order, then creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
-    heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the later side, and a pin's
+    heads (the base is one partner: local/merge/<pin7>-<base7>) while b is an ancestor of (or is) the current partner and it merges; else the conflict belongs to the later side, and a pin's
     to the oldest gated change at the test server deploy step. A conflicting head is left out and the merge goes on, so
     one pass names every conflict; only a pin's conflict holds the tree, a change's leaves the rest to deploy.
     → {commit, tree, heads, names, conflicts, base, order} | {conflict, change, head, base, detail, with, conflicts, order} | None."""
@@ -801,10 +813,16 @@ def integration(ctx):
         if r is None:
             return None
         if r[0] == "conflict":
+            res = ctx.F.resolutions(clone, h[:7])
+            if res is None:
+                return None
             for o in [base] + [o for _, o, _ in included]:  # the base is a partner too: a pin can conflict with it alone
-                for ref in (f"fork/local/merge/{h[:7]}-{o[:7]}", f"fork/local/merge/{o[:7]}-{h[:7]}"):
-                    if (m := ctx.F.rev(clone, ref)):
+                # a resolution against an ancestor of the partner still serves: a base move past it keeps the tree while it merges
+                for ref, x7 in res:
+                    if (p := ctx.F.rev(clone, x7)) and ctx.F.contains(clone, o, p) and (m := ctx.F.rev(clone, ref)):
                         r = ctx.F.merge(clone, cur, m, f"T_int: resolution {ref}")
+                        if r and r[0] == "ok":
+                            break
                 if r and r[0] == "ok":
                     break
             if r is None or r[0] != "ok":
@@ -837,7 +855,7 @@ def ship_test(ctx, ch, st, tint, act):
                     "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only.") if c["conflict"] == ch["slug"] else (
                     f"The permanent pin {c['conflict']} ({h7}) conflicts on base {b7}; you own its resolution, your head stays as it is. "
                     f"Merge the pin into the base (or the head it conflicts with) and push the merge to the fork as local/merge/{h7}-{b7} "
-                    f"(or local/merge/{h7}-<that head7>); it serves the integration tree only, bound to those two commits. "
+                    f"(or local/merge/{h7}-<that head7>); it serves the integration tree only, and keeps serving while the base moves past it and it merges. "
                     "Report whether the base supersedes the pin; the pin list is the user's."))
             order = ", ".join(f"{n} {h[:7]}" for n, h in tint["order"])
             detail = "\n\n".join(map(how, mine)) + (f"\n\nhd's merge order, the one to reproduce by hand: base {b7}, then {order}; "

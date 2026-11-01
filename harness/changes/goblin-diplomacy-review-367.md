@@ -7,6 +7,7 @@ priority: P0
 created: '2026-10-24T19:31:52Z'
 branch: content/goblin-diplomacy
 network: true
+deps: [harness-close-done]
 ---
 ## Change
 Upstream #367 review P2 (eaglepurerocketgrape 2026-10-22 11:42). Head content/goblin-diplomacy d77ac2b76, mergeable. Replaces the open work in `goblin-diplomacy-unstacked` for #367.

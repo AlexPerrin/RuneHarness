@@ -229,6 +229,8 @@ def defs(kind):
             meta, body = _frontmatter(f.read_text())
             if not isinstance(meta, dict):
                 raise yaml.YAMLError("front matter is not a mapping")
+            if kind == "goals" and (meta.get("track") not in TRACK or not isinstance(meta.get("target"), (int, float))):
+                raise yaml.YAMLError("a goal needs a track and a numeric target: a request without one is a change (hd new)")
         except yaml.YAMLError as e:
             defs.bad.append(f"{f.name}: {str(e).splitlines()[0]}")
             continue
@@ -698,7 +700,7 @@ def nxt(ctx, ch):
 
 def findings(ctx, open_prs, act):
     """R2: each maintainer's inline review comment on an open PR that no definition carries (`finding`: an id or a list)
-    becomes a P0 change on the PR with deps [the PR's root changes] and their contract, unagreed, plus the finding."""
+    becomes a P1 change on the PR with deps [the PR's root changes] and their contract, unagreed, plus the finding."""
     carried = {str(f) for c in ctx.changes.values() for f in (c["finding"] if isinstance(c.get("finding"), list) else [c.get("finding")]) if f}
     for track, pr in sorted(open_prs):
         r = ctx.cfg["repos"][TRACK[track]["repo"]]
@@ -710,7 +712,7 @@ def findings(ctx, open_prs, act):
                 continue
             carried.add(str(c["id"]))
             slug = f"{roots[0]['slug'] if roots else f'pr{pr}'}-c{c['id']}"
-            meta = {"slug": slug, "track": track, "title": f"#{pr}: {c['author']} on {c['path']}:{c['line']}", "kind": "change", "priority": "P0",
+            meta = {"slug": slug, "track": track, "title": f"#{pr}: {c['author']} on {c['path']}:{c['line']}", "kind": "change", "priority": "P1",
                     "deps": [r["slug"] for r in roots], "pr": pr, "finding": c["id"]}
             if roots and roots[0].get("branch"):
                 meta["branch"] = roots[0]["branch"]
@@ -1072,6 +1074,29 @@ def close_branches(ctx, ch, act):
         ctx.alerts.append(f"{slug}: cannot remove {'; '.join(left)[:300]}")
 
 
+def order(ctx):
+    """R6: harness changes first (they unblock every track); then a change on a PR, or off the upstream tracks, or blocking
+    one, before new content (an upstream change without a PR); each at the best priority of the open changes it blocks,
+    by a dep or by the conflict a change's last state names as holding its test server deploy. → ({slug: P}, sort key)."""
+    best = {k: PRIO.get(c["priority"], 9) for k, c in ctx.changes.items()}
+    blocks = {}  # blocked → its blockers
+    for k, c in ctx.changes.items():
+        if not c.get("closed"):
+            m = re.search(r"test server deploy blocked by (\S+)'s conflict", (rec(k, "state") or {}).get("state", ""))
+            blocks[k] = {b for b in c["deps"] + ([m.group(1)] if m else []) if b in best}
+    moved = True
+    while moved:  # through chains of blockers
+        moved = False
+        for k, bs in blocks.items():
+            for b in bs:
+                if best[k] < best[b]:
+                    best[b], moved = best[k], True
+    blocking = set().union(*blocks.values())
+    prio = {k: f"P{best[k]}" if best[k] < PRIO.get(c["priority"], 9) else c["priority"] for k, c in ctx.changes.items()}
+    new = lambda c: TRACK[c["track"]]["public"] == "upstream" and not c.get("pr") and c["slug"] not in blocking
+    return prio, lambda c: (c["track"] != "harness", new(c), best[c["slug"]], c.get("created", ""), c["slug"])
+
+
 def tick(ctx=None, act=True):
     """One pass under the state lock → the view for `hd`."""
     ctx = ctx or Ctx()
@@ -1083,7 +1108,8 @@ def tick(ctx=None, act=True):
         for g in ctx.goals.values():
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
-        for ch in sorted(ctx.changes.values(), key=lambda c: (c["track"] != "harness", PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):  # harness fixes first: they unblock every track
+        prio, key = order(ctx)
+        for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)
             if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
                 open_prs.add((ch["track"], ch["pr"]))
@@ -1119,7 +1145,7 @@ def tick(ctx=None, act=True):
             if st["actor"] == "done":
                 close_branches(ctx, ch, act)
             if st["actor"] != "done" or not last or last["state"] != st["state"]:
-                view["change"].append(f"{ch['slug']} [{ch['track']} {ch['priority']}]: {st['state']}")
+                view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
             if act and (not last or last["state"] != st["state"]):
                 put(ch["slug"], "state", {"state": st["state"]})
                 event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])

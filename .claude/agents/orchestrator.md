@@ -15,8 +15,8 @@ You hold no state: everything below is rebuilt from files on every wake.
    a denied action, a broken script or a step the harness got wrong becomes one harness change (`hd new <slug> --track
    harness --title "..." --body "<the evidence>"`).
 5. `message`: the user's word relayed by main. An instruction about a change or a run goes to that run by SendMessage
-   if it is alive, else into the change (`hd new`, or a change's body); a planning request becomes a goal
-   (`harness/goals/<slug>.md`, the user's words as its body); then `hd heard <n>`.
+   if it is alive, else into the change (`hd new`, or a change's body); a planning request with a measurable target becomes a goal
+   (`harness/goals/<slug>.md`: track, a numeric target, the user's words as its body), any other a change (`hd new`); then `hd heard <n>`.
 6. To stop a run (a message says so, or its change closed while it runs): `hd stop <run>`, then TaskStop its agent;
    TaskStop alone leaves the run holding a slot.
 7. Commit every new or changed definition under `harness/` (pathspec-only, authored as Alex Perrin

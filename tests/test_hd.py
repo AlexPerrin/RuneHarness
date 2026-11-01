@@ -553,6 +553,18 @@ class R2(Sandbox):
         hd.wake({"card": [c2]})                                                     # its head moved: a new card
         s.assertNotEqual(w.stat().st_mtime_ns, 1)
 
+    def test_a_bind_racing_a_pass_decides_on_the_run_read_under_the_lock(s):
+        import threading
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        r = hd.runs()[0]
+        with hd.lock():                                                 # a pass holds the lock
+            t = threading.Thread(target=hook.bind, args=(payload(r, "agX", "SubagentStart", s.root),))
+            t.start()
+            hd.save_run({**r, "ended": hd.now(), "reason": "no longer due"})   # the pass drops the unstarted run
+        t.join()
+        s.assertEqual([(x.get("started"), x["reason"]) for x in hd.runs()], [(None, "no longer due")])   # the bind wrote nothing over it
+
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
         for c in ("s1", "s2", "s3"):
@@ -1394,6 +1406,14 @@ class R6(Sandbox):
         s.assertIn(f"Resume from {s.root / 'evidence' / 'q2' / 'handoff.md'}", b)
         s.assertIn("proven: A1; next: A2", b)
         s.assertIn("q2-2", " ".join(hd.tick(s.ctx(F))["spawn"]))      # kept while unstarted, not dropped as held
+
+    def test_a_listed_run_stays_listed_when_a_higher_change_appears(s):
+        s.change("q2", priority="P2"); s.agreed("q2")
+        F = Fake(**FACTS)
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["q2-1"])
+        s.change("p1", priority="P1"); s.agreed("p1")
+        s.assertEqual(sorted(x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]), ["p1-1", "q2-1"])   # the tier hold lists no new run, drops no listed one
+        s.assertIsNone(next(r for r in hd.runs() if r["name"] == "q2-1")["ended"])
 
     def test_a_held_band_lists_no_run_below_it(s):
         s.change("q3", priority="P3"); s.agreed("q3")

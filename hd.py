@@ -1451,6 +1451,7 @@ def tick(ctx=None, act=True):
                     st = {**st, "state": f"{st['state']}; {dst['state']}"}
                     dues.add((dst["actor"], json.dumps(dst.get("input"), sort_keys=True)))
             held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], work["actor"])
+            banded = held and PRIO.get(prio[ch["slug"]], 9) > PRIO.get(ctx.cfg.get("hold"), 9)  # only the user's band drops a listed run; the tier hold lists no new one
             if work["actor"] in ("dev", "qa") and not held:  # R6: the one dispatch of a change's agent step, its pin conflict's included
                 dispatch(ctx, ch, work, act)
             if st["actor"] == "script" and act:
@@ -1469,8 +1470,8 @@ def tick(ctx=None, act=True):
                 for r in ctx.runs:
                     if r["change"] != ch["slug"] or r.get("ended"):
                         continue
-                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (held or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
-                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {hold}" if held else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
+                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
                         if r.get("started"):
                             r["record"] = produced(r)
                             event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])

@@ -80,6 +80,14 @@ def bind(p):
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
+    if not r or r.get("started") and (not r.get("ended") or r.get("reason")):  # nothing to write: no lock on each tool call
+        return
+    with hd.lock():  # R5: a pass reads and saves runs under the same lock: decide on the run read under it
+        bind_locked(p)
+
+
+def bind_locked(p):
+    r = find_run(p)
     if r and r.get("ended") and not r.get("reason") and r.get("agent_id") == p["agent_id"]:   # resumed after its hand-back
         r["ended"] = None
         hd.save_run(r)

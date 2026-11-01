@@ -145,7 +145,7 @@ def end_run(p):
     r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
     if handed:   # an idle stop leaves the run live
         rec = hd.produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not
-        r.update(ended=hd.now(), record=rec, events_at=hd.Facts().events_count())
+        r.update(ended=hd.now(), record=rec)
     hd.save_run(r)
     if handed:
         hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])

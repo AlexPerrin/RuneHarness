@@ -912,7 +912,8 @@ def integration(ctx):
 
 
 def ship_test(ctx, ch, st, tint, act):
-    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the later change's, a pin's the oldest gated change's at this step."""
+    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the later change's, a pin's the oldest
+    gated change's at this step (st becomes its dev step, which tick dispatches under the tier hold)."""
     mine = [c for c in (tint or {}).get("conflicts", []) if c["change"] and c["change"]["slug"] == ch["slug"]]
     if tint is None:
         st["state"] = "integration tree unknown"
@@ -935,7 +936,6 @@ def ship_test(ctx, ch, st, tint, act):
             st.update(step(f"{'conflicts' if c['conflict'] == ch['slug'] else 'pin ' + ', '.join(x['conflict'] for x in mine) + (' conflicts' if len(mine) == 1 else ' conflict')} "
                            f"with the integration tree ({', '.join(c['with'][-3:]) or 'the base'}): dev", "dev", mode="code",
                            input=["integration", ctx.head(ch), tint["base"]] + [x["head"] for x in mine] + [x["detail"][:200] for x in mine], detail=detail))
-            dispatch(ctx, ch, st, act)
         else:
             st["state"] = f"test server deploy blocked by {tint['conflict']}'s conflict"
             for c in tint["conflicts"]:
@@ -1280,8 +1280,7 @@ def tick(ctx=None, act=True):
                 due += [] if why else [prio[k]]
         hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
         for ch in sorted(ctx.changes.values(), key=key):
-            st = nxt(ctx, ch)
-            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], st["actor"])
+            st = work = nxt(ctx, ch)
             if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
                 open_prs.add((ch["track"], ch["pr"]))
             dues = {(st["actor"], json.dumps(st.get("input"), sort_keys=True))}
@@ -1290,16 +1289,18 @@ def tick(ctx=None, act=True):
                     tint["v"] = integration(ctx)  # once per pass
                 dst = st if st["actor"] == "ship-test" else step("test server deploy pending", "ship-test")
                 ship_test(ctx, ch, dst, tint["v"], act)
+                work = dst if dst["actor"] in ("dev", "qa") else st
                 if dst is not st:
                     st = {**st, "state": f"{st['state']}; {dst['state']}"}
                     dues.add((dst["actor"], json.dumps(dst.get("input"), sort_keys=True)))
+            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], work["actor"])
+            if work["actor"] in ("dev", "qa") and not held:  # R6: the one dispatch of a change's agent step, its pin conflict's included
+                dispatch(ctx, ch, work, act)
             if st["actor"] == "script" and act:
                 try:
                     st["act"]()
                 except RuntimeError as e:
                     view["alert"].append(f"{ch['slug']}: {e}")
-            elif st["actor"] in ("dev", "qa") and not held:
-                dispatch(ctx, ch, st, act)
             elif st["actor"] == "user" and (rec(ch["slug"], "decline") or {}).get("head") != st["input"]:
                 view["card"].append(card(ctx, ch, st))  # a declined card stays hidden until its head moves
             elif st["actor"] == "alert":

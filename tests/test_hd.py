@@ -1733,6 +1733,17 @@ class R8(Sandbox):
         s.assertIn(f"local/merge/{'y' * 7}-{B[:7]}", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([a for a in v["alert"] if a.startswith("pin ")], [])
 
+    def test_a_held_change_s_pin_conflict_lists_no_run(s):
+        F, R = s.integration_fixture(with_ref=False)
+        F.f["merges"][(B, "p" * 40)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        c = json.loads((s.root / "hd.yaml").read_text()); c["hold"] = "P1"; (s.root / "hd.yaml").write_text(json.dumps(c))
+        for _ in range(2):                                                           # s1 (P2) is held: its pin step lists nothing, pass after pass
+            s.assertFalse([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")])
+        s.assertEqual([r for r in hd.runs() if r["change"] == "s1"], [])
+        c["hold"] = None; (s.root / "hd.yaml").write_text(json.dumps(c))
+        s.assertTrue(any(x.startswith("s1-") for x in hd.tick(s.ctx(F))["spawn"]))  # released: the pin's dev is listed
+
     def test_pin_conflict_owned_by_a_change_at_the_deploy_step(s):
         s.change("s0"); s.agreed("s0")                                               # older, gated, its review due: not at the deploy
         F, R = s.integration_fixture(with_ref=False)

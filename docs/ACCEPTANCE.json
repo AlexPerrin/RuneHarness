@@ -43,7 +43,7 @@
  },
  {
   "id": "R8",
-  "requirement": "Trees: T by merge-tree; a merge ref for a resolution against a permanent pin; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run",
+  "requirement": "Trees: T by merge-tree; a merge ref for a resolution against a permanent pin; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run; a game client is a mobile or a desktop",
   "check": "python3 -m unittest tests.test_hd.R8 && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh build ${SLUG:?} >/dev/null && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh build ${SLUG:?} | grep -q cached",
   "passes": false
  }

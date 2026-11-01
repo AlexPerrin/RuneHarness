@@ -81,7 +81,7 @@ def listed(name, cmd):
     if cmd[0].startswith("http"):
         for x in t.get("tools", []):
             x.setdefault("inputSchema", {"type": "object"}).setdefault("properties", {})["port"] = {
-                "type": "integer", "description": "devtools port of the desktop client (up.json clients), default " + re.search(r":(\d+)/", cmd[0]).group(1)}
+                "type": "integer", "description": "devtools port of the desktop (up.json desktops), default " + re.search(r":(\d+)/", cmd[0]).group(1)}
     return t
 
 

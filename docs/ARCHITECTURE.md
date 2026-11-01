@@ -18,7 +18,7 @@ tools/track.sh    the harness track's script; tools/track.md its rules and seed 
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
 .claude/agents/   dev.md, qa.md, orchestrator.md (cross-track planning and monitoring); .claude/skills/head/  main's loop
-mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a client's devtools port, a tool's `port` picks it; mobile: the client repo's bridge), answering with no client from a cache or the snapshot
+mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, a tool's `port` picks it; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
 ```
@@ -68,7 +68,7 @@ it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), 
 is live once the live branch and every such branch hold their heads. A done or closed change leaves nothing behind: the pass
 ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`,
 `dev/<slug>`; one whose status shows only untracked symlinks holds no edits and goes forced, one with edits stays), then those branches, the dev ref last; a branch goes once the base, the repo's tools branch or the change's
-head holds its tip, or the change is closed; `swept.json` keeps the head the dev ref held; remote branches are public and stay; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
+head holds its tip, or the change is closed; `swept.json` keeps the head the dev ref held; remote branches are public and stay; a script that cannot start is an alert; containers, volumes, mobiles and desktops carry the slug or the run name.
 
 ## The loop
 
@@ -113,7 +113,7 @@ change that a harness dev run remediates. Its hand-back is its record, filed or 
 **Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
-the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N clients started and
+the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started and
 logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it.
@@ -143,7 +143,7 @@ sequenceDiagram
   P->>P: contract exists, no hand-over: brief written, event
   M->>D: Agent(dev, "Read and follow state/briefs/<run>.md")
   D->>S: build <slug>: T, image or:<T>
-  D->>S: up <slug> 2: server, two logged-in clients
+  D->>S: up <slug> 2: server, two logged-in desktops
   D->>P: hd handover <slug> (script rows pass, {head, T})
   P->>S: gate <slug> <T>: rows, fork CI
   P->>S: ship test server: or:<T_int>

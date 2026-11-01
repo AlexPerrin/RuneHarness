@@ -7,7 +7,7 @@ design or a rewrite too large for the run, and the measurements of v7 that were 
 - **The desktop login still clicks the login screen.** `tools/server/desktop_login.py` offsets fixed-mode points by
   the canvas size; RuneLite's login screen has no widget ids to act on. A devtools `login` tool in the client's devtools
   plugin would remove the last coordinates.
-- **A dev's tap on the emulator is never retried** (`tools/device_login.py`): a missed tap waits forever; the screen
+- **A dev's tap on the mobile is never retried** (`tools/mobile_login.py`): a missed tap waits forever; the screen
   state needs a readable fact (the host's logcat lines) per dialog.
 - **`hd-public` finds the PR with `gh pr list --head owner:branch`**, a form not verified against a real fork branch;
   if gh ignores the owner part the lookup finds nothing and a second draft PR is opened. Check once before the first ship.

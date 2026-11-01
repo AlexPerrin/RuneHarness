@@ -14,10 +14,10 @@ docs/ARCHITECTURE.md is the one solution we build.
 | A4 | Two actions are public or irreversible: a write to OpenRune/OpenRune-Server and a client release. The user alone authorizes them, in chat. Everything else is the user's own and reversible. |
 | A5 | Upstream is maintained by others: one change per PR, no stacking, no deferral, no tests unless asked or the change moves items (a dupe test per such flow), a defect reported at any time, rules revised at any time. The fork's CI on a merge with current upstream `main` is the same fact as upstream's PR CI. |
 | A6 | A change is live when its target contains it: client `master`, the tree the test server runs, harness the live checkout's branch. A server change is done when upstream `main` contains it; every other change is done when live. |
-| A7 | A build is a function of a tree; the game cache is a function of its inputs. The machine bounds how many agents, builds and clients run at once; the live server and the Android device exist once. |
+| A7 | A build is a function of a tree; the game cache is a function of its inputs. The machine bounds how many agents, builds and clients run at once; the live server and the user's own mobile exist once. |
 | A8 | Elapsed time says nothing about what happened. |
 | A9 | Python 3.12 standard library and PyYAML; git ≥ 2.38; WSL2 with systemd and mirrored networking; Docker Desktop and the Android emulator run on Windows and are started by hand; GitHub is reached with `gh`. |
-| A10 | No client contacts Jagex; the user's own RuneLite and the tester account are never touched. |
+| A10 | No mobile or desktop contacts Jagex; the user's own RuneLite and the tester account are never touched. |
 
 ## Principles
 

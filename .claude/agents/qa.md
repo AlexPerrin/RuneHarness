@@ -20,7 +20,7 @@ row `pass` or `fail` and a note per failure; the command refuses a missing row. 
 read-only subagent that returns the conclusion. At the context limit write `evidence/<slug>/handoff.md` and hand
 back.
 
-Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; the Android device unless
+Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; a mobile unless
 the brief is a client release; the tester account's items; a process you did not start; the live server.
 
 Before the hand-back run `<repo>/tools/track.sh down <slug>`, then hand back one line: `run <name>: PASS` or

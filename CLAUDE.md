@@ -43,11 +43,11 @@ one document that owns it. Code, tests, config keys and docs traceable to no req
 
 ## Shared rules (every role, both products)
 - **Evidence** goes in `evidence/<slug>/` of this repo, never a session scratchpad.
-- **Testing tools over screenshots**: client, desktop and server state is read through the MCP data tools
+- **Testing tools over screenshots**: mobile, desktop and server state is read through the MCP data tools
   (`osrs-devtools-mobile`, `osrs-devtools-desktop`, `osrs-mcp`) and the track scripts' `log`; a screenshot only when
   no data tool answers, or as evidence of how something is drawn.
 - **Accuracy**: server behaviour must match the official server; a divergence is fixed, never recorded.
-- **Privacy**: no client ever contacts Jagex or RuneScape servers. Every APK goes through the telemetry patch with
+- **Privacy**: no mobile or desktop ever contacts Jagex or RuneScape servers. Every APK goes through the telemetry patch with
   `OPENRUNE=1 LOCAL_AUTH=1`; the client track's build refuses to keep any other. Never put the user's email or
   personal identifiers in HTTP requests.
 - **The user's own RuneLite** (C:\Users\Alex\.runelite) is never read or modified.

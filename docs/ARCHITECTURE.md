@@ -85,12 +85,13 @@ head holds its tip, or the change is closed; `swept.json` keeps the head the dev
 ```
 next(change):
   closed by the user?               yes → done
-  deps live or closed?              no → wait on them (a same-track dependency of another upstream PR: merged upstream; of the same PR, its pr or branch: gated)
+  deps live or closed?              no → wait on them (a same-track upstream dependency: gated; the dependent with no pr or branch of its own joins its PR, a chain one PR)
   question open (hd ask)?           yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   carried tools head behind branch? rebase it in the pass, record it in the hand-over; conflict → dev
-  T                                 conflict → dev; an upstream head holding unmerged commits of another PR's change (stacked) → dev
+  T                                 conflict → dev; an upstream head holding unmerged commits of another PR's change (stacked), or
+                                    not holding the head of a same-PR dependency it joins → dev
   build(T)                          not built → tools/track.sh build; failed → dev
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
@@ -99,15 +100,17 @@ next(change):
                                     permanent pin, the base or a union, push local/merge/<a>-<b>; every conflicting head is left out
                                     and the rest merged on (pins first, then heads by priority, then creation), so one dev step lists them all with the merge
                                     order; only a pin's conflict holds the deploy, the tree without a conflicting head deploys
-  public (upstream, release)?       approval at head? no → card (naming the base)
+  public (upstream, release)?       an open change of the same PR (finding, joined dependent) outside head? yes → wait: a card is
+                                    a complete PR, one card and one ship for the head holding them all, its texts covering them
+                                    approval at head? no → card (naming the base)
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; a reply change (one `finding`,
                                     its head a same-track dependency's: no commit of its own): pr-comment.md posted in that finding's thread,
                                     quoting it and naming only its author; release: gh release; else merge and push. hd-public's last
                                     step on success writes ship.json at head (a PR already at head, ready, with our comment naming
                                     it: recorded with no act); a ship.json at head → wait, never shipped again
   wait                              upstream merged (a reply change: our reply in the finding's thread); each maintainer inline review comment on the pr (no reply, no bot) that no
-                                    definition's `finding` carries files a P1 change on the pr with deps [the pr's root changes],
-                                    their contract unagreed plus a judged `finding` row
+                                    definition's `finding` carries files a P1 change on the pr with deps [the pr's tip changes],
+                                    its root's contract unagreed plus a judged `finding` row
   done
 ```
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in); a fresh dev ref cut at a base commit is neither. A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A

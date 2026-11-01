@@ -1,74 +1,216 @@
 # Requirements
 
-The constraints every solution to docs/PROBLEM.md must satisfy, each derived from its principles. Code and tests cite the
-ids. docs/ARCHITECTURE.md is the mechanism that meets each; docs/ACCEPTANCE.json is the checklist below as data, where
-only `passes` may change.
+The constraints every solution to docs/PROBLEM.md must satisfy, each derived from its principles.
+Code and tests cite the ids. docs/ARCHITECTURE.md is the mechanism that meets each;
+docs/ACCEPTANCE.json is the checklist below as data, where only `passes` may change.
 
 The workflow they constrain: agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR.
 
-| Id | Constraint | From |
-|---|---|---|
-| R1 **Goals** | Each goal is measured by its command whenever its target moves, shown with the tree it was measured on, and work is chosen to close the gap to its target. A server change unblocks the client once live on the test server. | P1 P10 |
-| R2 **Flow** | A defined change reaches its live target with no person involved once the changes it depends on are live (a dependency of another upstream PR: merged upstream; of the same PR: gated); a change the user closes takes no further step and leaves the integration tree; a done or closed change leaves no worktree or local branch. The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on); the user's yes (`hd approve`) and close are the user's own; with no orchestrator session the user is told to start one; its watch wakes it only when a line it acts on appears (spawn, card, question, alert); planning across tracks belongs to a planner run listed by facts, and the orchestrator keeps one read-only monitor sweep running that validates shipped harness changes landed and finds harness bugs, each session restarting it from the last sweep's report; nothing depends on any session staying alive. | P3 P10 |
-| R3 **Contract** | What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows, the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over is the dev's before the head moves on) and prior findings; a row is proved through the change's own tree, never through a change that depends on it. The hand-over passes every script row; the reviewer judges every row once, pass or fail, a row it did not check is not judged and never passes, and verdicts append; a text-only failure is fixed in place. A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves. A claim with no record counts for nothing; an unknown fact stops a step. A limit in the mechanism a change touches is fixed in that change: a hand-over naming one is refused; a limit in another mechanism, and any filing on a mechanism with an open change, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges. | P1 P2 P7 P11 |
-| R4 **Authority** | Only a write to OpenRune and a client release need the user. Each is shown, once complete, as one card in the orchestrator's console: every act the carry will do, in order (the upstream PR, new or the open one found by its head branch, the head and its base), each exact text it posts (title, body, comment, each reply with the finding it quotes), the verdict and the evidence path. The user's yes is their own `hd approve <slug> <head>`, recorded locally, bound to the head and the digest of the card's texts and withdrawn when either moves; their no or their word to wait is `hd hold` (recorded by the orchestrator): the card is hidden at that head, or at every head with `--all`, until a new head or the lift, and their close is `hd close`; a card wakes the orchestrator once per head and texts. The carry does the act exactly as shown, rerunnable, and records its result. The comment is the dev's push summary (pr-comment.md): a new PR's names its head, an update's every commit since the PR's live head (fetched from the PR when the clone lacks it); until it does the change goes back to its dev with the commits it misses, and no card shows. A PR already at the head, ready, with nothing left to post gets no card; only a commit waits on CI. A maintainer's finding answered with no code is one run: its contract, reply and verdict, with no gate. | P4 P5 |
-| R5 **Recovery** | Any failure is repaired in one pass with no user action; a repair is recorded only when its effect is observed, and one that recurs is raised once. Only what the user alone can decide or fix is raised, once per change. Nothing is decided from elapsed time. | P3 P5 |
-| R6 **Economy** | A script runs before an agent, an agent before the user; nothing is checked twice for the same input; agents but the planner are bounded by one count; harness changes are dispatched first, then a change on a PR before new content, each change at the best priority of the changes it blocks; priorities are the user's five tiers (P0 a harness fix: it blocks work; P1 a harness improvement: work goes ahead without it, but it significantly cuts the time to reach P2 work, such as the login flow; P2 our upstream changes; P3 features; P4 new quests), a harness change never below P1; no run is listed for a change below the best tier of a change with a run due and not yet listed, a change whose run is listed or alive or only waiting (on a dependency, a gate, the user) holding nothing, nor one whose due run the pass cannot list (an alert names why), nor below the band the user holds until the user lifts it, that band alone dropping a listed run not yet started; the pass acts and logs only when a change's state changes; a run hands off to a fresh run at the context limit, listed at once whatever the tier or the count; a run keeps a desktop up only while it plays in it; bring-up, scenarios and lookups are scripts. | P5 P8 P9 |
-| R7 **Visibility** | `hd` prints what to spawn, the cards and questions waiting, what runs, each goal's number with its tree, and the facts of every open change, derived; nothing else. Every run is an agent of a visible session. | P10 |
-| R8 **Trees** | A change's tree T is its base, its dependencies and its head merged; an upstream PR is self-contained: its head holds no unmerged commit of another PR's change, so its T is its head on upstream main (with its same-PR dependencies), and its card and carry follow its own gate there (a head the upstream PR is already at is never rebuilt or re-gated because main moved), the test server deploy running beside them and holding neither; a carried tools head rebased onto its moved branch; a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it and it still merges. The harness changes, and the client code changes, ready to ship merge onto their live branch as one batch per track, gated and shipped once, one ship or definition commit at a time on the live checkout; a failure drops only the change that causes it, and one the live branch fails alone blames none. The integration tree merges the pins, then the gated heads by priority and creation; a head's conflict is its own dev step and leaves it out while the rest deploy; a pin's conflict, with the base or another head, holds the deploy and is the dev step of the oldest gated change at it; one pass names every conflict. A server change's T includes the Central tree of its central dependencies, a central change being live once gated. T is built at most once, in a copy no agent commits from; its artefact serves the dev's check, the gate, the review and the deployment. The game cache is rebuilt only when its inputs change. Every artefact and process is named after its change or run; a game client is a mobile (the official Android app on an emulator) or a desktop (RuneLite on Windows), by that word alone. | P6 P9 |
+### R1 Goals (from P1 P10)
+Each goal is measured by its command whenever its target moves, shown with the tree it was measured on, and work is chosen to close the gap to its target.
+A server change unblocks the client once live on the test server.
 
-Nothing contacts Jagex: every mobile the client track boots resolves no hostname, checked by its `up`. Constraints
-that need no mechanism: the user's own RuneLite and the tester account are never touched (A10). Each track's seed rows and the dev's and reviewer's rules live in each repo's `tools/track.md` and `.claude/skills/`.
+### R2 Flow (from P3 P10)
+A defined change reaches its live target with no person involved once the changes it depends on are live (a dependency of another upstream PR: merged upstream;
+of the same PR: gated);
+a change the user closes takes no further step and leaves the integration tree;
+a done or closed change leaves no worktree or local branch.
+The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on);
+the user's yes (`hd approve`) and close are the user's own;
+with no orchestrator session the user is told to start one;
+its watch wakes it only when a line it acts on appears (spawn, card, question, alert);
+planning across tracks belongs to a planner run listed by facts, and the orchestrator keeps one read-only monitor sweep running that validates shipped harness changes landed and finds harness bugs, each session restarting it from the last sweep's report;
+nothing depends on any session staying alive.
+
+### R3 Contract (from P1 P2 P7 P11)
+What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows, the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over is the dev's before the head moves on) and prior findings;
+a row is proved through the change's own tree, never through a change that depends on it.
+The hand-over passes every script row;
+the reviewer judges every row once, pass or fail, a row it did not check is not judged and never passes, and verdicts append;
+a text-only failure is fixed in place.
+A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves.
+A claim with no record counts for nothing;
+an unknown fact stops a step.
+A limit in the mechanism a change touches is fixed in that change: a hand-over naming one is refused;
+a limit in another mechanism, and any filing on a mechanism with an open change, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges.
+
+### R4 Authority (from P4 P5)
+Only a write to OpenRune and a client release need the user.
+Each is shown, once complete, as one card in the orchestrator's console: every act the carry will do, in order (the upstream PR, new or the open one found by its head branch, the head and its base), each exact text it posts (title, body, comment, each reply with the finding it quotes), the verdict and the evidence path.
+The user's yes is their own `hd approve <slug> <head>`, recorded locally, bound to the head and the digest of the card's texts and withdrawn when either moves;
+their no or their word to wait is `hd hold` (recorded by the orchestrator): the card is hidden at that head, or at every head with `--all`, until a new head or the lift, and their close is `hd close`;
+a card wakes the orchestrator once per head and texts.
+The carry does the act exactly as shown, rerunnable, and records its result.
+The comment is the dev's push summary (pr-comment.md): a new PR's names its head, an update's every commit since the PR's live head (fetched from the PR when the clone lacks it);
+until it does the change goes back to its dev with the commits it misses, and no card shows.
+A PR already at the head, ready, with nothing left to post gets no card;
+only a commit waits on CI.
+A maintainer's finding answered with no code is one run: its contract, reply and verdict, with no gate.
+
+### R5 Recovery (from P3 P5)
+Any failure is repaired in one pass with no user action;
+a repair is recorded only when its effect is observed, and one that recurs is raised once.
+Only what the user alone can decide or fix is raised, once per change.
+Nothing is decided from elapsed time.
+
+### R6 Economy (from P5 P8 P9)
+A script runs before an agent, an agent before the user;
+nothing is checked twice for the same input;
+agents but the planner are bounded by one count;
+harness changes are dispatched first, then a change on a PR before new content, each change at the best priority of the changes it blocks;
+priorities are the user's five tiers (P0 a harness fix: it blocks work;
+P1 a harness improvement: work goes ahead without it, but it significantly cuts the time to reach P2 work, such as the login flow;
+P2 our upstream changes;
+P3 features;
+P4 new quests), a harness change never below P1;
+no run is listed for a change below the best tier of a change with a run due and not yet listed, a change whose run is listed or alive or only waiting (on a dependency, a gate, the user) holding nothing, nor one whose due run the pass cannot list (an alert names why), nor below the band the user holds until the user lifts it, that band alone dropping a listed run not yet started;
+the pass acts and logs only when a change's state changes;
+a run hands off to a fresh run at the context limit, listed at once whatever the tier or the count;
+a run keeps a desktop up only while it plays in it;
+bring-up, scenarios and lookups are scripts.
+
+### R7 Visibility (from P10)
+`hd` prints what to spawn, the cards and questions waiting, what runs, each goal's number with its tree, and the facts of every open change, derived;
+nothing else.
+Every run is an agent of a visible session.
+
+### R8 Trees (from P6 P9)
+A change's tree T is its base, its dependencies and its head merged;
+an upstream PR is self-contained: its head holds no unmerged commit of another PR's change, so its T is its head on upstream main (with its same-PR dependencies), and its card and carry follow its own gate there (a head the upstream PR is already at is never rebuilt or re-gated because main moved), the test server deploy running beside them and holding neither;
+a carried tools head rebased onto its moved branch;
+a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it and it still merges.
+Two changes conflict only where they change the same fact: the source docs (PROBLEM.md, PRD.md, ARCHITECTURE.md) hold one fact per line, each requirement and paragraph a block of its own, and the gate's docs row fails a doc out of that format.
+The harness changes, and the client code changes, ready to ship merge onto their live branch as one batch per track, gated and shipped once, one ship or definition commit at a time on the live checkout;
+a failure drops only the change that causes it, and one the live branch fails alone blames none.
+The integration tree merges the pins, then the gated heads by priority and creation;
+a head's conflict is its own dev step and leaves it out while the rest deploy;
+a pin's conflict, with the base or another head, holds the deploy and is the dev step of the oldest gated change at it;
+one pass names every conflict.
+A server change's T includes the Central tree of its central dependencies, a central change being live once gated.
+T is built at most once, in a copy no agent commits from;
+its artefact serves the dev's check, the gate, the review and the deployment.
+The game cache is rebuilt only when its inputs change.
+Every artefact and process is named after its change or run;
+a game client is a mobile (the official Android app on an emulator) or a desktop (RuneLite on Windows), by that word alone.
+
+Nothing contacts Jagex: every mobile the client track boots resolves no hostname, checked by its `up`.
+Constraints that need no mechanism: the user's own RuneLite and the tester account are never touched (A10).
+Each track's seed rows and the dev's and reviewer's rules live in each repo's `tools/track.md` and `.claude/skills/`.
 
 ## Acceptance
 
-Each check is a command. `python3 -m unittest tests.test_hd.<R>` runs the requirement's class against fakes of git,
-gh, docker and the process table; a live check reads the real state.
+Each check is a command.
+`python3 -m unittest tests.test_hd.<R>` runs the requirement's class against fakes of git, gh, docker and the process table;
+a live check reads the real state.
 
-1. **R1** `tests.test_hd.R1`: a target move lists the measure step once; the measurement is bound to the target's tree;
+1. **R1** `tests.test_hd.R1`: a target move lists the measure step once;
+   the measurement is bound to the target's tree;
    a goal dependency neither live nor closed holds its measure;
-   a server head live on the test server unblocks the client changes depending on it; a passing verdict on a live change marks the units it names, and only then; below target with nothing open a planner run is listed. Live: `hd` shows each goal's
-   number with a tree equal to its target's current tree.
-2. **R2** `tests.test_hd.R2`: a hook during a pass completes in under 1 s, runs its deny rules and its fact is folded in (a bound run is never dropped as no longer due) and deleted once folded; a pass reads the world outside the state lock, takes the result of a fetch another pass has in flight instead of fetching again, and streams the events file; a change with a live dependency goes from defined to live with no `approve`, `answer` or
-   console call; a closed change lists no run and leaves T_int; a dependency of another upstream PR holds its dependent until merged upstream, one of the same PR until gated; a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing; a fresh dev ref the base contains is neither live nor done until handed over; a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run; a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command or monitor it started has not reported its end, and its record newer than its change's last answer; an alert an open change carries or a planner hand-back answered lists no planner until the trigger changes (a gate failure at a new T, an alert with a new count), and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive); `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps and denies it the AskUserQuestion tool; with no `claude --agent orchestrator` process the user is told to start one, and no planner is listed for it; a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
-3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev; a hand-over with a failing
-   script row, or whose pushed ref is not the head it names, is refused; a harness hand-over reads its local dev ref, never a pushed one; a script row the user's answer waives is not run; an answer recorded after a hand-over, on any track, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over; a verdict missing a row, or with a row not judged and none failing, is refused, and the next brief lists the open rows; a contract row needs no change depending on its own; verdicts
-   append; a text-only fix leaves the verdict at the same head valid; a gate at T does not hold at T'; a verdict at H
-   does not hold at H'; a harness change's tools commits are handed over, gated and landed with it; a moved upstream rule file voids only the rule rows; a hand-over naming a limit in its own scope is refused, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` closes the merged changes; a failed fetch leaves every change where
-   it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.
-4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in
-   the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch
-   without the owner prefix, replacing its title and body where they differ from the live ones, CI, the comment, each
-   reply, ready), each exact text, the finding each reply quotes, the
-   verdict and evidence, and the yes, no and close commands; `hd hold` hides the card at its head (held by the user, a wait), a new head
-   shows it again, `--all` holds every head until `--lift`; the same-head tips of one PR show one card; `hd approve` records
-   the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw
-   it; the carry runs only while the yes holds; a release card is published after the yes; the carry pushes (no force),
-   opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with
-   the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its
-   thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its
-   result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card), and on red CI stops with the PR as it is; a PR the carry opened keeps the yes on a rerun; a PR already at the
-   head, ready, with every reply posted, gets no card; a finding with no dev ref has its PR tip's head and no gate; a
-   central change is carried to Central's upstream; the dry-run check fails a candidate only on a public act main plans
-   neither before nor after it. Live: `hd approve` or `hd close` from a subagent or the orchestrator session is denied,
-   while the user's own `!` command fires no hook.
-5. **R5** `tests.test_hd.R5`: a state record read while hd or a track script writes it is whole; two passes and a gate over the same state read each GitHub resource once, then only revalidate (304s), the gate from the cache alone, the carry's CI wait through the same cache (no GitHub read bypasses it), and an exhausted quota is an alert that holds every GitHub read; a pass on the live state peaks under 200 MB; console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended; a `reader`'s Bash command that writes is denied; a dead ship
-   process → rerun; a script dead twice on the same args → raised once, a new args or a landed result restarts the count; a yes recorded then the orchestrator gone → the ship completes; a repair whose effect is not observed is not
-   logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer; a fix a dev
-   files with `hd new --blocks` holds the change with no question raised; a dependency cycle among open changes is one alert naming it, each change in it shows as in that cycle (never plain 'waiting on'), and `hd new` and a git commit naming harness/ refuse it; a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env; docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.
-6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
-   no more than the configured agents are listed, the planner outside that count; with a band held, no run is listed for a change below it and a listed one is dropped; while a change of a higher tier has a run due and none listed or alive, no run is listed for a lower one, a dependency of the higher change still runs, and the lower is listed while every higher change only waits, has a run listed or alive, or has a due run the pass cannot list, which shows as an alert; `hd new` makes a harness change P1 at least; two passes over unchanged facts append no event; a run over the
-   context limit is told to start no new work and hand off cleanly (commit and push its work in progress, record what it judged, collect its subagents and stop its processes, write the hand-off file: what is proven, what is left, the exact next step, whether a server or desktop is up), and its successor, the same role on the same change, is listed in the same pass with the hand-off file and that commit, past the tier hold and the agent count; three runs of a change past it since its last handover or the last planner run that handed back on that alert are raised; a session of no run past it is told nothing; a run whose desktops are up through a stretch of tool calls with no devtools call is told once to bring them down, the count starting again at its next devtools call or up; every run record carries
-   its usage and transcript. Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
-7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and
-   prints no step name as a state. Live: `python3 hd.py` on the real state.
-8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head; a head holding another PR's unmerged commits is a dev step before its build (stacked); a change whose same-track upstream dependency has a PR (open or not yet opened) joins it, its head on top of the dependency's, and waits on no upstream merge, while one in another repo holds its card until merged there; a PR has its card only when every open change of that PR is in its tip's head (one card, one carry); a head the upstream PR is at is not re-gated when main moves, and its pending reply's card shows at once; three handed-over harness changes merge into one batch tree, gated once and shipped once, no second ship starting while one runs, and a failing batch is bisected to the change that fails alone, which leaves it once the live branch passes its rows alone (failing them, an alert and no member blamed), while one conflicting only with an earlier member waits, and the planner reads a batched member's failure from its batch's gate; `hd commit` waits for a ship's lock and commits its paths alone; a client code change ships in the client batch; a gated change has its card, and its carry planned, while T_int conflicts, the conflict's dev listed beside it; a server change's key and `CENTRAL` carry the
-   merge of its central dependencies, and T_int the one of its heads'; a conflict lists the dev; a carried tools head its branch moved past is
-   rebased by the pass and re-gated, a conflict listing the dev; a merge ref
-   `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges; a
-   pin's conflict lists the dev of the oldest gated change at its deploy step; T_int merges heads by priority, then creation, and a
-   lower-priority head's conflict lists its dev while the higher-priority heads deploy; one T_int pass names every conflicting head
-   (each left out, the rest merged on) in one dev run, with hd's merge order; build(T) runs once
-   per T and in the change's build copy; the dev's clone is clean after a build; the cache step runs only when its
-   input hash changes; every container, volume, clone, mobile and desktop is named by its change or run. Live:
-   `tools/track.sh build <slug>` twice prints `cached` the second time.
+   a server head live on the test server unblocks the client changes depending on it;
+   a passing verdict on a live change marks the units it names, and only then;
+   below target with nothing open a planner run is listed.
+   Live: `hd` shows each goal's number with a tree equal to its target's current tree.
+
+2. **R2** `tests.test_hd.R2`: a hook during a pass completes in under 1 s, runs its deny rules and its fact is folded in (a bound run is never dropped as no longer due) and deleted once folded;
+   a pass reads the world outside the state lock, takes the result of a fetch another pass has in flight instead of fetching again, and streams the events file;
+   a change with a live dependency goes from defined to live with no `approve`, `answer` or console call;
+   a closed change lists no run and leaves T_int;
+   a dependency of another upstream PR holds its dependent until merged upstream, one of the same PR until gated;
+   a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
+   a fresh dev ref the base contains is neither live nor done until handed over;
+   a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
+   `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run;
+   a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command or monitor it started has not reported its end, and its record newer than its change's last answer;
+   an alert an open change carries or a planner hand-back answered lists no planner until the trigger changes (a gate failure at a new T, an alert with a new count), and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive);
+   `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps and denies it the AskUserQuestion tool;
+   with no `claude --agent orchestrator` process the user is told to start one, and no planner is listed for it;
+   a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
+
+3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;
+   a hand-over with a failing script row, or whose pushed ref is not the head it names, is refused;
+   a harness hand-over reads its local dev ref, never a pushed one;
+   a script row the user's answer waives is not run;
+   an answer recorded after a hand-over, on any track, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over;
+   a verdict missing a row, or with a row not judged and none failing, is refused, and the next brief lists the open rows;
+   a contract row needs no change depending on its own;
+   verdicts append;
+   a text-only fix leaves the verdict at the same head valid;
+   a gate at T does not hold at T';
+   a verdict at H does not hold at H';
+   a harness change's tools commits are handed over, gated and landed with it;
+   a moved upstream rule file voids only the rule rows;
+   a hand-over naming a limit in its own scope is refused, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` closes the merged changes;
+   a failed fetch leaves every change where it was.
+   Live: every `evidence/<slug>/contract.md` row has an id and a result.
+
+4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch without the owner prefix, replacing its title and body where they differ from the live ones, CI, the comment, each reply, ready), each exact text, the finding each reply quotes, the verdict and evidence, and the yes, no and close commands;
+   `hd hold` hides the card at its head (held by the user, a wait), a new head shows it again, `--all` holds every head until `--lift`;
+   the same-head tips of one PR show one card;
+   `hd approve` records the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw it;
+   the carry runs only while the yes holds;
+   a release card is published after the yes;
+   the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card), and on red CI stops with the PR as it is;
+   a PR the carry opened keeps the yes on a rerun;
+   a PR already at the head, ready, with every reply posted, gets no card;
+   a finding with no dev ref has its PR tip's head and no gate;
+   a central change is carried to Central's upstream;
+   the dry-run check fails a candidate only on a public act main plans neither before nor after it.
+   Live: `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.
+
+5. **R5** `tests.test_hd.R5`: a state record read while hd or a track script writes it is whole;
+   two passes and a gate over the same state read each GitHub resource once, then only revalidate (304s), the gate from the cache alone, the carry's CI wait through the same cache (no GitHub read bypasses it), and an exhausted quota is an alert that holds every GitHub read;
+   a pass on the live state peaks under 200 MB;
+   console gone → its runs end and their artefacts are removed in one pass;
+   a run the orchestrator stops (`hd stop`) ends and frees its slot;
+   an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
+   a `reader`'s Bash command that writes is denied;
+   a dead ship process → rerun;
+   a script dead twice on the same args → raised once, a new args or a landed result restarts the count;
+   a yes recorded then the orchestrator gone → the ship completes;
+   a repair whose effect is not observed is not logged;
+   the same repair twice raises once;
+   a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer;
+   a fix a dev files with `hd new --blocks` holds the change with no question raised;
+   a dependency cycle among open changes is one alert naming it, each change in it shows as in that cycle (never plain 'waiting on'), and `hd new` and a git commit naming harness/ refuse it;
+   a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env;
+   docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.
+
+6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice;
+   the same head and contract never judge twice;
+   no more than the configured agents are listed, the planner outside that count;
+   with a band held, no run is listed for a change below it and a listed one is dropped;
+   while a change of a higher tier has a run due and none listed or alive, no run is listed for a lower one, a dependency of the higher change still runs, and the lower is listed while every higher change only waits, has a run listed or alive, or has a due run the pass cannot list, which shows as an alert;
+   `hd new` makes a harness change P1 at least;
+   two passes over unchanged facts append no event;
+   a run over the context limit is told to start no new work and hand off cleanly (commit and push its work in progress, record what it judged, collect its subagents and stop its processes, write the hand-off file: what is proven, what is left, the exact next step, whether a server or desktop is up), and its successor, the same role on the same change, is listed in the same pass with the hand-off file and that commit, past the tier hold and the agent count;
+   three runs of a change past it since its last handover or the last planner run that handed back on that alert are raised;
+   a session of no run past it is told nothing;
+   a run whose desktops are up through a stretch of tool calls with no devtools call is told once to bring them down, the count starting again at its next devtools call or up;
+   every run record carries its usage and transcript.
+   Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
+
+7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and prints no step name as a state.
+   Live: `python3 hd.py` on the real state.
+
+8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head;
+   a head holding another PR's unmerged commits is a dev step before its build (stacked);
+   a change whose same-track upstream dependency has a PR (open or not yet opened) joins it, its head on top of the dependency's, and waits on no upstream merge, while one in another repo holds its card until merged there;
+   a PR has its card only when every open change of that PR is in its tip's head (one card, one carry);
+   a head the upstream PR is at is not re-gated when main moves, and its pending reply's card shows at once;
+   three handed-over harness changes merge into one batch tree, gated once and shipped once, no second ship starting while one runs, and a failing batch is bisected to the change that fails alone, which leaves it once the live branch passes its rows alone (failing them, an alert and no member blamed), while one conflicting only with an earlier member waits, and the planner reads a batched member's failure from its batch's gate;
+   `hd commit` waits for a ship's lock and commits its paths alone;
+   a client code change ships in the client batch;
+   a gated change has its card, and its carry planned, while T_int conflicts, the conflict's dev listed beside it;
+   a server change's key and `CENTRAL` carry the merge of its central dependencies, and T_int the one of its heads';
+   a conflict lists the dev;
+   two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
+   a carried tools head its branch moved past is rebased by the pass and re-gated, a conflict listing the dev;
+   a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;
+   a pin's conflict lists the dev of the oldest gated change at its deploy step;
+   T_int merges heads by priority, then creation, and a lower-priority head's conflict lists its dev while the higher-priority heads deploy;
+   one T_int pass names every conflicting head (each left out, the rest merged on) in one dev run, with hd's merge order;
+   build(T) runs once per T and in the change's build copy;
+   the dev's clone is clean after a build;
+   the cache step runs only when its input hash changes;
+   every container, volume, clone, mobile and desktop is named by its change or run.
+   Live: `tools/track.sh build <slug>` twice prints `cached` the second time.

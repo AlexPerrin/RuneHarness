@@ -2313,6 +2313,51 @@ class R8(Sandbox):
         st = s.state(F, "s1")
         s.assertEqual((st["actor"], st["state"]), ("dev", "tree conflict: dev"))
 
+    def test_sibling_doc_facts_merge_in_either_order_and_one_fact_changed_two_ways_conflicts(s):
+        # the source docs hold one fact per line (tools/docfmt.py), a blank line between requirements and paragraphs
+        root, tmp = Path(__file__).parent.parent, Path(tempfile.mkdtemp())
+        docs = ["docs/PROBLEM.md", "docs/PRD.md", "docs/ARCHITECTURE.md"]
+        fmt = lambda *a: subprocess.run([sys.executable, str(root / "tools/docfmt.py"), "--check", *a], cwd=root, capture_output=True, text=True)
+        s.assertEqual(fmt(*docs).stderr, "")
+        (tmp / "wrapped.md").write_text("one fact; another fact.\n")
+        s.assertIn("wrapped.md:1: not one fact per line", fmt(str(tmp / "wrapped.md")).stderr)
+        git = lambda *a: subprocess.run(["git", "-C", str(tmp), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q", "-b", "live"); (tmp / "docs").mkdir()
+        for d in docs:
+            shutil.copy(root / d, tmp / d)
+        git("add", "."); git("commit", "-qm", "base"); base = git("rev-parse", "HEAD")
+
+        def chunks(d):  # the last line of each requirement (PRD) or block outside code (the others)
+            L, fence, last, start = (tmp / d).read_text().split("\n"), False, [], None
+            for i, l in enumerate(L):
+                fence ^= l.startswith("```")
+                if fence or l.startswith("```") or not l.strip():
+                    start = None; continue
+                start = i if start is None else start
+                if (i + 1 == len(L) or not L[i + 1].strip()) and not l.startswith("#") and (not d.endswith("PRD.md") or L[start].startswith("### R")):
+                    last.append(i)
+            return L, last
+
+        def sibling(name, parity, edit=None):  # every other unit's last fact changed and a new fact added after it
+            git("checkout", "-q", "-b", name, base)
+            for d in docs:
+                L, last = chunks(d)
+                for k, i in reversed(list(enumerate(last))):
+                    if k % 2 == parity:
+                        L[i] += f" ({name})"; L.insert(i + 1, f"a fact of {name}.")
+                (tmp / d).write_text("\n".join(edit(L) if edit else L))
+            git("commit", "-qam", name); return git("rev-parse", "HEAD")
+        a, b = sibling("a", 0), sibling("b", 1)
+        F = hd.Facts()
+        s.assertEqual(len(chunks("docs/PRD.md")[1]), 8)                           # every requirement is a unit of its own
+        for first, second in [(a, b), (b, a)]:                                   # the first ships (live = its T), the second's T is merged onto it
+            live = F.merge(str(tmp), base, first, "T first")
+            s.assertEqual(live[0], "ok")
+            s.assertEqual(F.merge(str(tmp), live[1], second, "T second")[0], "ok")
+        fact = lambda how: lambda L: [l.replace("A defined change reaches its live target", how, 1) for l in L]
+        c, d = sibling("c", 2, fact("A defined change reaches its target")), sibling("d", 2, fact("A change reaches its live target"))
+        s.assertEqual(F.merge(str(tmp), c, d, "T same fact")[0], "conflict")   # the same fact changed two ways is the dev's
+
     def integration_fixture(s, with_ref):
         P_, Q, M, R = "p" * 40, "q" * 40, "m" * 40, "r" * 40
         s.change("s1"); s.agreed("s1")

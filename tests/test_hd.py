@@ -1513,8 +1513,22 @@ class R3(Sandbox):
         s.assertIn("rows missing: j1", str(e.exception))
         with s.assertRaises(SystemExit) as e:
             s.verdict("s1", A, {"ok": "pass", "j1": "maybe"}, F)
-        s.assertIn("'pass' or 'fail", str(e.exception))
+        s.assertIn("'pass', 'fail", str(e.exception))
         s.assertEqual(hd.verdicts("s1"), [])
+
+    def test_an_unjudged_row_never_passes(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        with s.assertRaises(SystemExit) as e:                                    # a PASS verdict judges every row
+            s.verdict("s1", A, {"ok": "pass", "j1": "not-judged"}, F)
+        s.assertIn("not judged: j1", str(e.exception))
+        s.assertEqual(hd.verdicts("s1"), [])
+        s.verdict("s1", A, {"ok": "fail: no", "j1": "not-judged"}, F)          # a FAIL verdict may leave rows open
+        hd.tick(s.ctx(F))
+        b = open([r for r in hd.runs() if r["change"] == "s1"][-1]["brief"]).read()
+        s.assertIn("Open rows (the judge's, not judged at that head): j1", b)
+        s.assertIn("not-judged", (Path(__file__).parent.parent / ".claude/agents/qa.md").read_text())
 
     def test_verdicts_append(s):
         s.change("s1"); s.agreed("s1")

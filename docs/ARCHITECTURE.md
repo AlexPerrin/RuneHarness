@@ -105,12 +105,12 @@ next(change):
   shipped (upstream)?               the open upstream PR (found by its head branch, no owner prefix) is at head, or the change
                                     is a finding with no commit of its own (reply-only): no build, no gate (only a commit is gated;
                                     a PR's live head is never re-gated because main moved); a same-PR dependent counts it gated
-  public (upstream, release)       one fact read per pass: the open PRs of the upstream (`gh pr list`), the review and conversation comments of a PR
+  public (upstream, release)       one fact read per pass: the open PRs of the upstream (`gh pr list`), the review and conversation comments of a PR (REST, which marks bots)
     carried (its own ship.json, the  yes → wait on the maintainers (a release: until its tag exists)
     PR open at it and ready, or a
     same-PR change's built on it;
     or the PR at head, ready, ours
-    in every finding's thread)?
+    answering every finding)?
     a dependency upstream in        yes → wait on its upstream merge (it is in no PR of this repo)
     another repo, not merged there?
     an open change of the PR it     yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips),
@@ -127,15 +127,16 @@ next(change):
                                     differ from the live ones, CI green
                                     at head when it pushed or the PR is draft, the comment naming the head (once: its marker), each
                                     finding's reply in its thread (a conversation finding: a PR comment; quoting it, @ only its
-                                    author; ours there: none), ready, the review requests read back (upstream's CODEOWNERS asks on
+                                    author; one of ours answering it: none), ready, the review requests read back (upstream's CODEOWNERS asks on
                                     ready); each step a ship.log line as it starts and ends, the CI wait naming the checks it waits
                                     on and ending on their result or a failed read, a step observed done skipped. Success: ship.json, approval.json removed (the yes is spent).
                                     Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
                                     args an alert
   ship (other tracks)               merge and push
-  wait                              upstream merged; each maintainer word on the pr that no definition's `finding` carries (an
-                                    inline comment opening a thread, a reply newer than ours in a thread we answered, a review's
-                                    body, a conversation comment newer than our last; no bot) files a P1 change on the pr with deps [the pr's tip changes],
+  wait                              upstream merged; each maintainer word on the pr (an inline comment, a review's body, a
+                                    conversation comment; no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's
+                                    `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply
+                                    after it in its thread, or any comment of ours quoting it; no date counts) files a P1 change on the pr with deps [the pr's tip changes],
                                     its root's contract unagreed plus a judged `finding` row
   done
 ```

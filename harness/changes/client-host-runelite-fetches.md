@@ -3,7 +3,7 @@ slug: client-host-runelite-fetches
 track: client
 title: The host contacts only the local server and the two RuneLite hosts
 kind: change
-priority: P2
+priority: P1
 network: true
 created: '2026-11-01T01:26:04Z'
 deps:

@@ -4,7 +4,7 @@ finding: 4433239755
 track: server
 title: '#355: Talk-to at a bank gives the lamp (GenieRandomEvent.kt:213)'
 kind: change
-priority: P1
+priority: P2
 pr: 355
 created: '2026-10-31T23:42:50Z'
 deps: [harness-no-powershell, genie-review-355, harness-server-build-musicrepository, harness-desktop-first-login]

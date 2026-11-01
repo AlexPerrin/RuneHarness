@@ -3,7 +3,7 @@ slug: quest-miniquest_hisfaithfulservants
 track: server
 title: 'His Faithful Servants (miniquest): 1:1 with the official game'
 kind: change
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:miniquest_hisfaithfulservants

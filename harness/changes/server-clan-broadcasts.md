@@ -3,7 +3,7 @@ slug: server-clan-broadcasts
 track: server
 kind: change
 title: 'Clans: clan broadcasts'
-priority: P2
+priority: P3
 created: '2026-10-31T18:03:38Z'
 deps: [harness-no-powershell, server-clan-guest, harness-server-build-musicrepository, harness-desktop-first-login]
 ---

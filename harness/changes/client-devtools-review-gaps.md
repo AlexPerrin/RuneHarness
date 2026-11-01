@@ -4,7 +4,7 @@ track: client
 title: 'devtools: chathead anim in get_dialogue, jingles in the sound history, interact_object
   clicks offset locs'
 kind: change
-priority: P2
+priority: P1
 deps:
 - client-devtools-login
 created: '2026-11-01T05:30:04Z'

@@ -409,7 +409,7 @@ class R2(Sandbox):
         s.assertTrue(any(x.startswith("planner-") for x in v["spawn"]))  # the alert lists the planner, not the user
 
     def test_a_listed_spawn_goes_when_its_change_stops_being_due(s):
-        s.change("s1"); s.agreed("s1")
+        s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**FACTS)
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)
         hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1"])
@@ -417,7 +417,7 @@ class R2(Sandbox):
         s.assertTrue(any(c.startswith("s1 ") and "waiting on x1" in c for c in v["change"]))
         s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])          # the listed run is dropped, not kept
         s.assertEqual(hd.runs()[0]["reason"], "no longer due")
-        s.change("s1")                                                             # the dep dropped again
+        s.change("s1", priority="P1")                                              # the dep dropped again
         v = hd.tick(s.ctx(F))
         s.assertEqual([x.split(":")[0] for x in v["spawn"] if x.startswith("s1-")], ["s1-2"])   # due again: listed afresh
         s.assertFalse(any("ended without a record" in a for a in v["alert"]))     # an unspawned run is no failed attempt
@@ -956,7 +956,7 @@ class R5(Sandbox):
         s.assertEqual(sum("docker unreachable" in a for a in v["alert"]), 1)
 
     def test_docker_down_lists_no_build_run_until_it_answers(s):
-        s.change("s1"); s.agreed("s1"); s.change("p1", "harness")
+        s.change("s1", priority="P1"); s.agreed("s1"); s.change("p1", "harness")
         F = Fake(**FACTS)
         s.assertTrue([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")])   # listed while docker answers
         F.f["containers"] = None
@@ -1079,13 +1079,15 @@ class R6(Sandbox):
         s.assertEqual(out, [2, 1])                                     # the screenshot first, the wait after
 
     def test_harness_changes_dispatch_before_product_changes(s):
-        s.change("s1", priority="P0"); s.agreed("s1")
-        s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")
+        s.change("s1", priority="P1"); s.agreed("s1")
+        s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")     # a harness change is never below P1
         c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
         s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(Fake(**FACTS)))["spawn"]], ["h1-1"])
+        hd.cmd_new(["h2", "--track", "harness", "--title", "t"])
+        s.assertIn("priority: P1", (s.root / "harness" / "changes" / "h2.md").read_text())   # hd new without --priority: P1
 
     def test_pr_changes_before_new_content_and_blockers_raised(s):
-        for slug, k in (("q0", {"priority": "P0"}), ("p1", {"priority": "P1", "pr": 354}), ("q3", {"priority": "P3"}), ("q2", {"priority": "P2"})):
+        for slug, k in (("q0", {"priority": "P1"}), ("p1", {"priority": "P1", "pr": 354}), ("q3", {"priority": "P3"}), ("q2", {"priority": "P2"})):
             s.change(slug, **k); s.agreed(slug)
         s.change("c3", track="client", priority="P3", deps=["q2"]); s.agreed("c3", track="client")
         c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
@@ -1098,14 +1100,22 @@ class R6(Sandbox):
         s.assertIn("q3 [server P1]", " ".join(v["change"]))
         s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["p1-1"])
 
-    def test_a_held_band_lists_no_run_below_it_but_a_blocker_keeps_its_raised_priority(s):
-        for slug, k in (("p1", {"priority": "P1", "deps": ["b3"]}), ("b3", {"priority": "P3"}), ("q3", {"priority": "P3"})):
+    def test_a_lower_tier_waits_while_a_higher_one_is_open(s):
+        for slug, k in (("p1", {"priority": "P1", "deps": ["b4"]}), ("b4", {"priority": "P4"}), ("q3", {"priority": "P3"})):
             s.change(slug, **k); s.agreed(slug)
+        F = Fake(**FACTS)
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(c.startswith("p1 ") and "waiting on b4" in c for c in v["change"]))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["b4-1"])   # q3 held while p1 waits; b4, p1's dependency, runs at P1
+        s.change("p1", priority="P1", deps=["b4"], closed="answer-1: done")
+        s.assertIn("q3-1", " ".join(hd.tick(s.ctx(F))["spawn"]))          # no higher change open: q3 is listed
+
+    def test_a_held_band_lists_no_run_below_it(s):
+        s.change("q3", priority="P3"); s.agreed("q3")
         F = Fake(**FACTS)
         s.assertIn("q3-1", " ".join(hd.tick(s.ctx(F))["spawn"]))     # no hold: q3 is listed
         c = json.loads((s.root / "hd.yaml").read_text()); c["hold"] = "P1"; (s.root / "hd.yaml").write_text(json.dumps(c))
-        v = hd.tick(s.ctx(F))
-        s.assertEqual(sorted(x.split(":")[0] for x in v["spawn"]), ["b3-1"])   # q3's listed run dropped; b3 runs at p1's P1
+        s.assertEqual(hd.tick(s.ctx(F))["spawn"], [])                 # q3's listed run dropped
         s.assertEqual(next(r for r in hd.runs() if r["name"] == "q3-1")["reason"], "held below P1")
 
     def test_same_tree_never_builds_or_gates_twice(s):
@@ -1472,7 +1482,7 @@ class R8(Sandbox):
         s.assertEqual((t["names"], [(c["conflict"], c["with"]) for c in t["conflicts"]]), (["hi"], [("lo", ["hi"])]))   # priority first, the P3 left out
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["ship", "integration", A])              # the P1 deploys
-        s.assertTrue(any(x.startswith("lo-") for x in v["spawn"]))                 # the P3 resolves its own conflict
+        s.assertFalse(any(x.startswith("lo-") for x in v["spawn"]))                # the P3's conflict waits while the P1 is open
 
     def test_tree_of_a_snapshot(s):
         s.change("s1"); s.agreed("s1")
@@ -1583,7 +1593,7 @@ class EndToEnd(unittest.TestCase):
             s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'e2e' / 'gate.json').read_text() if (root / 'state' / 'e2e' / 'gate.json').exists() else ''}")
         until("gate on")
         until("shipping")
-        until("e2e [harness P2]: done")
+        until("e2e [harness P1]: done")
         s.assertEqual(subprocess.run(["git", "-C", str(origin), "merge-base", "--is-ancestor", head, "main"]).returncode, 0)   # live on the target
         events = (root / "state" / "events.jsonl").read_text()
         s.assertEqual((events.count('"state": "shipping"'), events.count('"state": "done"')), (1, 1))                        # edges only

@@ -2,7 +2,7 @@
 slug: goblin-diplomacy-review-367-fftgsrq
 track: server
 kind: change
-priority: P1
+priority: P2
 branch: content/goblin-diplomacy
 pr: 367
 finding: IC_kwDOQBbPT88AAAABfTgSRQ

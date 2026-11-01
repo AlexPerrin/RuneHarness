@@ -24,9 +24,9 @@ docs/ARCHITECTURE.md is the one solution we build.
 | Id | Principle | From |
 |---|---|---|
 | P1 | **Facts decide.** Every decision reads git, GitHub, docker, the process table, or a record bound to the tree or commit it covers. An unknown fact stops the step; it is never read as false. | A3 A8 |
-| P2 | **Store only what cannot be derived**: definitions (what the user wants, the contract), judgments (a hand-over, a gate, a verdict, an approval (on GitHub, as the queue PR's label), a measurement, an answer) and run starts and ends. A judgment is bound to what it covers and void when that moves. Everything else is derived on each read. | A2 A3 |
+| P2 | **Store only what cannot be derived**: definitions (what the user wants, the contract), judgments (a hand-over, a gate, a verdict, an approval (bound to a head and the card's texts), a measurement, an answer) and run starts and ends. A judgment is bound to what it covers and void when that moves. Everything else is derived on each read. | A2 A3 |
 | P3 | **Every step is rerunnable.** A step is "done when this fact holds" plus "do this"; any process may die anywhere and the next pass continues from facts. Nothing waits on a process or a session; nothing is decided from elapsed time. | A2 A8 |
-| P4 | **One authority, at the approved commit.** Only the carry writes to OpenRune or publishes a release, and only what the user approved where they read it: the queue PR on our own repo, its head and its texts. | A4 |
+| P4 | **One authority, at the approved commit.** Only the carry writes to OpenRune or publishes a release, and only what the user approved where they read it: the card in the orchestrator's console, its head and its texts. | A4 |
 | P5 | **Cheapest check first, each check once.** A script before an agent, an agent before the user; a check keyed by its input never runs twice for that input; a question that needs no decision of the user is not asked. | A1 A3 |
 | P6 | **One tree, one build.** A change is gated, judged and deployed from one tree (its base, its dependencies, its head), built at most once, in a copy nobody commits from. | A7 A3 |
 | P7 | **The contract before the code.** What "done" means for a change is a list of rows written before coding and judged once, every row pass or fail; a finding or an answer becomes a row, never a free-text round. | A3 A5 |
@@ -49,12 +49,12 @@ a goal is measured whenever its target moves and stays measured once met.
 
 Every **change** has one shape on every track: defined, given a contract, built by a dev agent into one commit against
 a tree built once, gated by scripts, judged once by a reviewer against the contract, and shipped. A server change
-reaches two targets independently: the test server as soon as it is gated, upstream after the user's yes on its queue
-PR (a draft PR on our fork showing the complete upstream PR: head and exact texts). The user is asked only for that yes and for decisions of scope or accuracy; a maintainer's finding files a new change on the same
+reaches two targets independently: the test server as soon as it is gated, upstream after the user's yes on its card
+(the console's text of the complete upstream PR: head, acts and exact texts). The user is asked only for that yes and for decisions of scope or accuracy; a maintainer's finding files a new change on the same
 PR with the finding as a contract row. Each goal is measured when its target moves, and a planner run files
 the changes that close the gap, with dependencies across tracks; the same role watches operations and files a harness
 change for each issue it finds. The orchestrator, a long-lived session of its own, drives the loop: it spawns and
-stops every run and handles their hand-backs, and it is the user's chat: it points at queue PRs and shows questions and alerts and acts
+stops every run and handles their hand-backs, and it is the user's chat: it shows cards, questions and alerts and acts
 on the user's other words at once, while the user's yes and close are the user's own, never an agent's.
 
 ```mermaid
@@ -66,7 +66,7 @@ flowchart LR
   d --> c[Gate: scripts on the tree]
   c --> j[Judge: every row pass or fail]
   j --> s{OpenRune write or release?}
-  s -- yes --> q[Queue PR on the fork] --> u{{User's label approved}} --> r[Carry upstream]
+  s -- yes --> q[Card in the console] --> u{{User's hd approve}} --> r[Carry upstream]
   s -- no --> l([Live])
   r --> l
   l --> m

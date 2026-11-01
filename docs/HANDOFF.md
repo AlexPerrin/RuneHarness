@@ -24,7 +24,7 @@ test-server deploy would drop every branch v7 carried (40: `local/*`, `fin/*`, `
 or file each as a change, before any server change passes its gate.
 
 ## What is built and what is not
-Built with tests: the loop (`hd.py`, every requirement's class), the hook, the public act (`hd ship`: queue PR and carry), the three track scripts, the
+Built with tests: the loop (`hd.py`, every requirement's class), the hook, the public act (the console card and `hd ship`'s carry), the three track scripts, the
 server's check rows (`gamevals.py`, `text.py`), the client's check rows. `python3 hd.py tick --dry-run` runs against the
 real repos and v7's definitions.
 Not yet run for real: a server `build`, `up`, `gate-ci` and `ship`; a client `build`, `up` and `measure`; `hd ship`

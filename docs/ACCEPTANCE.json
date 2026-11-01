@@ -19,7 +19,7 @@
  },
  {
   "id": "R4",
-  "requirement": "Authority: only the carry writes to OpenRune or releases, only at the head and texts the user approved on the queue PR",
+  "requirement": "Authority: only the carry writes to OpenRune or releases, only at the head and texts the user approved on its console card",
   "check": "python3 -m unittest tests.test_hd.R4",
   "passes": false
  },

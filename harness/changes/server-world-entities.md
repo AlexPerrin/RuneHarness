@@ -4,7 +4,7 @@ track: server
 kind: local
 title: 'World entities: the server never creates one (no boat or other world entity
   in any scene)'
-priority: P3
+priority: P2
 created: '2026-10-25T20:31:36Z'
 goal: client-api
 deps: [harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]

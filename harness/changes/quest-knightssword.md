@@ -3,7 +3,7 @@ slug: quest-knightssword
 track: server
 title: 'The Knight''s Sword: 1:1 with the official game'
 kind: change
-priority: P4
+priority: P3
 goal: server-content
 units:
 - quest:knightssword

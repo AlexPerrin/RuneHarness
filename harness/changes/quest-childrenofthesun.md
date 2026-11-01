@@ -3,7 +3,7 @@ slug: quest-childrenofthesun
 track: server
 title: 'Children of the Sun: 1:1 with the official game'
 kind: change
-priority: P4
+priority: P3
 goal: server-content
 units:
 - quest:childrenofthesun

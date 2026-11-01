@@ -27,7 +27,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 |---|---|---|
 | `hd` | main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, runs, goals, change facts (R7) |
 | `hd approve <slug> <head>`, `hd answer <slug> [--waive <row>] <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
-| `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its unspawned runs end, it leaves T_int and holds no dependent |
+| `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | main, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
 | `hd new <slug> ... [--blocks <change>]` | a planning run, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track) |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
@@ -66,7 +66,7 @@ a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over r
 it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's
 `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change
 is live once the live branch and every such branch hold their heads. A done or closed change leaves nothing behind: the pass
-removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`,
+ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`,
 `dev/<slug>`; one whose status shows only untracked symlinks holds no edits and goes forced, one with edits stays), then those branches, the dev ref last; a branch goes once the base, the repo's tools branch or the change's
 head holds its tip, or the change is closed; `swept.json` keeps the head the dev ref held; remote branches are public and stay; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
 

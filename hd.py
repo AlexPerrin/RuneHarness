@@ -885,6 +885,23 @@ def repairs(ctx, act):
             repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
 
 
+def produced(r):
+    """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
+    hand-over, verdict, question, agreed contract or filed change."""
+    slug, f = r["change"], STATE / "events.jsonl"
+    ev = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+    since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in ev if e.get("change") == slug and e.get("record") == "answer"])
+    newer = lambda ts: ts >= since and ts > answered
+    if any(x and newer(x["ts"]) for x in (rec(slug, "handover"), rec(slug, "ask"))):
+        return True
+    if any(newer(v["ts"]) for v in verdicts(slug)):
+        return True
+    con = contract(slug)
+    if con and con["agreed"] == r["name"]:
+        return True
+    return any(e.get("action") == "new" and newer(e["ts"]) for e in ev)
+
+
 def close_branches(ctx, ch, act):
     """R2: a done or closed change leaves no worktree or local branch in any repo: its clone, build copies and any
     worktree on its branches go, then its local branches, the dev ref last; a branch goes only once its base, its repo's
@@ -971,10 +988,13 @@ def tick(ctx=None, act=True):
             if (a := rec(ch["slug"], "ask")):
                 view["question"].append(f"{ch['slug']}: {a['text']}")
             last = rec(ch["slug"], "state")
-            if ch.get("closed") and act:  # a run listed before the close is never spawned
+            if (ch.get("closed") or st["actor"] == "done") and act:  # a done or closed change holds no run, spawned or not
                 for r in ctx.runs:
-                    if r["change"] == ch["slug"] and not r.get("started") and not r.get("ended"):
-                        r["ended"], r["reason"] = now(), "change closed"
+                    if r["change"] == ch["slug"] and not r.get("ended"):
+                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done"
+                        if r.get("started"):
+                            r["record"] = produced(r)
+                            event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
                         save_run(r)
             if st["actor"] == "done":
                 close_branches(ctx, ch, act)

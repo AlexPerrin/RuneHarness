@@ -276,6 +276,24 @@ class R2(Sandbox):
             hd.cmd_handover(["h1"])
         s.assertEqual(s.state(F, "h1")["state"], "done")                          # handed over: its own work
 
+    def test_a_live_run_of_a_done_change_ends_with_its_record(s):
+        s.change("h1", "harness"); hd.write_contract(hd.cfg(), "h1", "harness", "derived")
+        F = Fake(**{**FACTS, "refs": {"HEAD": B, "harness/h1": A, "origin/HEAD": B}, "anc": {(B, A)}, "line": {A, B}, "trees": {A: TA}})
+        hd.tick(s.ctx(F))
+        run = [r for r in hd.runs() if r["change"] == "h1"][0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="handed over"))   # a plain-text stop: still live
+        s.assertFalse(hd.runs()[0]["ended"])
+        v = hd.tick(s.ctx(F))
+        r = hd.runs()[0]
+        s.assertEqual((r["reason"], r["record"], bool(r["ended"])), ("change done", True, True))
+        s.assertEqual(v["run"], [])                                                         # its slot is free
+        s.assertTrue(any('"action": "ended"' in l and '"change done"' in l for l in open(s.root / "state" / "events.jsonl")))
+
     def test_a_done_change_leaves_no_worktree_or_local_branch(s):
         s.change("h1", "harness"); hd.write_contract(hd.cfg(), "h1", "harness", "derived")
         r, f = str(s.root), str(s.root / "fork")

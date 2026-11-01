@@ -106,23 +106,6 @@ def usage_of(entries):
     return u, last[-500:], handed
 
 
-def produced(r):
-    """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
-    hand-over, verdict, question, agreed contract or filed change."""
-    slug, f = r["change"], hd.STATE / "events.jsonl"
-    ev = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
-    since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in ev if e.get("change") == slug and e.get("record") == "answer"])
-    newer = lambda ts: ts >= since and ts > answered
-    if any(x and newer(x["ts"]) for x in (hd.rec(slug, "handover"), hd.rec(slug, "ask"))):
-        return True
-    if any(newer(v["ts"]) for v in hd.verdicts(slug)):
-        return True
-    con = hd.contract(slug)
-    if con and con["agreed"] == r["name"]:
-        return True
-    return any(e.get("action") == "new" and newer(e["ts"]) for e in ev)
-
-
 def start_pass():
     """The pass runs after every run end, never waited on."""
     r = subprocess.run(["systemctl", "--user", "start", "--no-block", "hd-tick.service"], capture_output=True)
@@ -141,7 +124,7 @@ def end_run(p):
     u, last, handed = usage_of(transcript(p))
     r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
     if handed:   # an idle stop leaves the run live
-        rec = produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not
+        rec = hd.produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not
         r.update(ended=hd.now(), record=rec, events_at=hd.Facts().events_count())
     hd.save_run(r)
     if handed:

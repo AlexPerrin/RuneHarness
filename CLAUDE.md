@@ -9,9 +9,10 @@ OpenRune/OpenRune-Server and OpenRune/OpenRune-Central-Server). It is neither pr
 docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.
 
 ```
-hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | verdict | ask | answer | approve | ship | tick)
+hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | rows | verdict | ask | answer | stop | close | approve | ship | tree | tick)
 hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the context limit)
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
+mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
 .claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner; product repos hold the judgment skills
 harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored

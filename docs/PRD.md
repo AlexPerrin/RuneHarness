@@ -44,7 +44,7 @@ gh, docker and the process table; a live check reads the real state.
    opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with
    the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its
    thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its
-   result, and on red CI stops with the PR as it is; a PR the carry opened keeps the yes on a rerun; a PR already at the
+   result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card), and on red CI stops with the PR as it is; a PR the carry opened keeps the yes on a rerun; a PR already at the
    head, ready, with every reply posted, gets no card; a finding with no dev ref has its PR tip's head and no gate; a
    central change is carried to Central's upstream; the dry-run check fails a candidate only on a public act main plans
    neither before nor after it. Live: `hd approve` or `hd close` from a subagent or the orchestrator session is denied,

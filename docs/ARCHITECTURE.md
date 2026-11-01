@@ -126,7 +126,7 @@ change that a harness dev run remediates. Its hand-back is its record, filed or 
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each
-loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers; a server change's quest requirements in the mode its front matter `quest-mode` names, `respect-progress` unless `assume-completed`; `restart <slug>` keeps that mode and the database), and hands over. A harness dev runs the
+loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers; a server change's quest requirements in the mode its front matter `quest-mode` names, `respect-progress` unless `assume-completed`; `restart <slug>` keeps that mode and the database; a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character), and hands over. A harness dev runs the
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it. Main, which holds nothing beyond files, is
 told once per session past the same limit to start nothing new, give the user docs/HANDOFF.md's start prompt for a

@@ -37,7 +37,7 @@ gh, docker and the process table; a live check reads the real state.
    status` in an agent's shell shows the token scoped to AlexPerrin/*; `sudo -n -l` lists only the public-act helper
    under user `hd`; `hd approve` from a subagent is denied.
 5. **R5** `tests.test_hd.R5`: console gone → its runs end and their artefacts are removed in one pass; a dead ship
-   process → rerun; a yes recorded then main gone → the ship completes; a repair whose effect is not observed is not
+   process → rerun; a script dead twice on the same args → raised once, a new args or a landed result restarts the count; a yes recorded then main gone → the ship completes; a repair whose effect is not observed is not
    logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused.
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
    no more than the configured agents are listed; two passes over unchanged facts append no event; a run over the

@@ -5,7 +5,7 @@ the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_
 truth only, one fact per line (`python3 tools/docfmt.py docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md` writes it: a break after each '; ' and sentence, never re-wrapped; a blank line between requirements and paragraphs; a new fact on its own line beside the fact it refines, a new test beside the test it refines), so siblings merge and only the same fact changed two ways conflicts; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's
 pass does not). The dev ref stays local, as does each carried tools ref: hd reads the local ref and ship pushes only
-the live branch and the tools branches it moves, so rebase it onto the base at will and never push it. Commit, then `hd handover <slug>`.
+the live branch and the tools branches it moves, so rebase it onto the base at will and never push it. Commit, then `hd handover <slug> Limits: none` (or `Limits: limit:<slug> ...`).
 
 A fix to a product repo's tools (the fork's `local/harness`, the client's `client/harness-v8`) is committed on branch
 `harness/<slug>` of that repo, from its tools branch, in a worktree `<repo>/.worktrees/<slug>`; the dev ref

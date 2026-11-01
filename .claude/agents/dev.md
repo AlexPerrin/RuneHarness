@@ -10,7 +10,7 @@ with the user's answers, last verdict, build and gate results, the hand-off of a
 `python3 ~/osrs-harness/hd.py`.
 
 Your goal is one commit at the tip of your dev ref that passes every row of the contract, with its evidence in the
-evidence dir, handed over with `hd handover <slug>`; it refuses while a script row fails. A planning brief asks for
+evidence dir, handed over with `hd handover <slug> Limits: ...`; it refuses while a script row fails. A planning brief asks for
 changes filed with `hd new`, no code. Build with `<repo>/tools/track.sh build <slug>`, bring up with `up`, read logs
 with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with the touched
 classes (`python3 -m unittest tests.test_hd.<Class>`) in your worktree; the full suite runs at the gate. Read-heavy lookups go to a `reader`
@@ -22,8 +22,8 @@ work and follow its hand-off steps in order: commit, collect your subagents and 
 Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. A limit you find in the mechanism your change touches is a bug of your change: fix it, or rewrite the mechanism so it
 cannot arise, before you hand over. Only a limit in another mechanism is filed, once, as that mechanism's root-cause change:
 `hd new <new-slug> --track harness --title "..." --body "..." --mechanism <m> --limit-of <slug>` (it joins the open change
-on `<m>` if there is one, and refuses `<m>` inside your scope); name each in `hd handover <slug> limit:<new-slug>` and after
-your hand-back line.
+on `<m>` if there is one, and refuses `<m>` inside your scope); every hand-over ends with its Limits: section, `hd handover <slug> Limits: none` or `Limits: limit:<new-slug> ...`
+(it refuses any other entry: a limit in your scope is fixed, never stated), and your hand-back line carries the same section.
 
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that

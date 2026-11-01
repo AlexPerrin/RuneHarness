@@ -1318,11 +1318,10 @@ def tick(ctx=None, act=True):
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
         prio, key = order(ctx)
-        due = []  # R6: a due run holds the tiers below only while it is alive or this pass can list it; one it cannot is an alert
+        due = []  # R6: a due run holds the tiers below only until it is listed; one alive or listed holds nothing, one the pass cannot list is an alert
         for k, c in ctx.changes.items():
-            if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")):
-                why = None if ctx.alive_run(c) else unlistable(ctx, c, st)
-                if why and why not in ctx.alerts:
+            if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")) and not ctx.alive_run(c):
+                if (why := unlistable(ctx, c, st)) and why not in ctx.alerts:
                     ctx.alerts.append(why)
                 due += [] if why else [prio[k]]
         hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band

@@ -1288,6 +1288,14 @@ class R6(Sandbox):
         s.assertTrue(any(c.startswith("p1 ") and "question open" in c for c in v["change"]))
         s.assertIn("q3-1", " ".join(v["spawn"]))                          # p1 only waits on the user: q3 is listed
 
+    def test_a_higher_run_alive_holds_no_lower_tier(s):
+        s.change("p0", track="harness", priority="P0"); s.agreed("p0", track="harness")
+        s.change("q2", priority="P2"); s.agreed("q2")
+        F = Fake(**FACTS)
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["p0-1"])   # p0's run due, not yet listed: q2 held
+        hook.bind(payload(next(r for r in hd.runs() if r["name"] == "p0-1"), "ag1", "SubagentStart", s.root))
+        s.assertIn("q2-1", " ".join(hd.tick(s.ctx(F))["spawn"]))                          # p0's run alive: q2 is listed
+
     def test_a_due_run_the_pass_cannot_list_holds_nothing_and_is_an_alert(s):
         s.change("p1", priority="P1"); s.agreed("p1")
         F = Fake(**FACTS)

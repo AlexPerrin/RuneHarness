@@ -535,6 +535,21 @@ class R5(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(a.startswith("g1: measure cannot start:") and "No such file" in a for a in v["alert"]))
 
+    def test_a_tools_fix_reruns_a_failed_gate(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        hd.put("s1", "gate", {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: ci: a tools bug"})
+        s.assertEqual(s.state(F, "s1")["actor"], "dev")                      # the failure stands while the tools stand
+        F.f["refs"] = {**F.f["refs"], "local/harness": B}                    # the tools fix ships
+        st = s.state(F, "s1")
+        s.assertEqual((st["actor"], st["state"]), ("script", f"building {hd.rec('s1', 'build')['T'][:9]}"))
+        hd.tick(s.ctx(F))
+        s.assertEqual([x[1] for x in F.spawned], ["build"])                 # build and gate re-run under the new tools
+        s.assertEqual(F.envs[0]["T"], f"{hd.rec('s1', 'handover')['T']}-{B[:12]}")
+        hd.put("s1", "gate", {"T": F.envs[0]["T"], "ok": True})
+        s.assertIn("s1", hd.integration(s.ctx(F))["names"])                  # the re-run gate still admits the hand-over to T_int
+
     def test_track_root_and_repair_on_the_tools_branch_worktree(s):
         c = hd.cfg()
         c["repos"]["client"]["tools"] = "client/harness-v8"

@@ -53,7 +53,7 @@ fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
-permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar and game cache), a client APK
+permanent pins. Build and gate are keyed by T's tree joined with `-<tip12>` of the track's tools branch when it has one (a tools fix re-builds and re-gates; T_int admits a gate whose tree part is the hand-over's). Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition
 commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current T). The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned). The build copy is `<repo>/.worktrees/<slug>-build`, the

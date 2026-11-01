@@ -621,6 +621,8 @@ def nxt(ctx, ch):
     ho = rec(slug, "handover")
     if done:
         return step("done", "done")
+    if (q := rec(slug, "ask")):  # the user's answer releases it: no run, gate, ship or upstream step until then
+        return step(f"question open: {q['text'][:200]}", "wait")
     con = contract(slug)
     if con is None:
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else ""))
@@ -851,7 +853,7 @@ def brief(ctx, ch, st, name, role):
 
 def dispatch(ctx, ch, st, act):
     """R2 R6: a change whose runs reached the context limit three times since its last handover, or since the last planner
-    run that handed back on that alert, is raised. List a run for an unmet agent step once per input: no run of the change alive, no question open, no
+    run that handed back on that alert, is raised. List a run for an unmet agent step once per input: no run of the change alive, no
     ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The planner is outside
     the count (one at most, no product code, no mobile or desktop): the run that files remedies never waits behind the blocked work."""
     role, slug = st["actor"], ch["slug"]
@@ -860,7 +862,7 @@ def dispatch(ctx, ch, st, act):
                  and any(a.startswith(lim[0]) and lim[1] in a for a in json.loads(r.get("input") or "[]"))])
     if role == "dev" and (n := len([r for r in ctx.runs if r["change"] == slug and r.get("handoff_told") and (r.get("listed") or "") > since])) >= 3:
         ctx.alerts.append(f"{slug}: {n} runs reached the context limit without a handover: the change is too large for one run, or its brief spends context on reading")
-    if ctx.alive_run(ch) or rec(slug, "ask") or ctx.dockerless(ch, st.get("mode")):
+    if ctx.alive_run(ch) or ctx.dockerless(ch, st.get("mode")):
         return
     inp = json.dumps(st.get("input"), sort_keys=True)
     same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]

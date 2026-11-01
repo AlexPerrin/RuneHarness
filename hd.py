@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | decline | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, subprocess, sys, tempfile
+import fcntl, hashlib, json, os, re, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -217,6 +217,14 @@ class Facts:
         r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments", "--jq", jq], timeout=120)
         return None if r is None or r[0] else [json.loads(l) for l in r[1].splitlines() if l.strip()]
 
+    def queue(s, repo):
+        """R4: the queue PRs on our repo {head branch queue/<slug>/<head12>: {number, url, state, approved, body}}, None unknown."""
+        r = s.sh(["gh", "pr", "list", "-R", repo, "--state", "all", "--limit", "5000", "--json", "number,url,headRefName,state,labels,body"], timeout=120)
+        if r is None or r[0]:
+            return None
+        return {p["headRefName"]: {**p, "approved": any(l["name"] == "approved" for l in p.get("labels") or [])}
+                for p in json.loads(r[1] or "[]") if p["headRefName"].startswith("queue/")}
+
     def containers(s):
         """{name: state} of every docker container, or None when docker cannot be reached."""
         r = s.sh(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"], timeout=60)
@@ -377,14 +385,14 @@ WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
 
 def wake(view):
     """R2: state/wake.<session> is rewritten, with the head line of each, only when a line that session acts on appears;
-    a line that stays or goes wakes nobody. A card is known by its change and head, remembered while it is absent,
-    so it wakes again only when its head moves."""
+    a line that stays or goes wakes nobody. A card is known by its change and line (its queue PR and head), remembered
+    while it is absent, so it wakes again only when it moves."""
     for who, keys in WATCH.items():
         f = STATE / f"seen.{who}.json"
         seen = json.loads(f.read_text()) if f.exists() else {}
-        heads = {l.split(":")[0]: l.splitlines()[1] for l in view.get("card", []) if "card" in keys}
+        heads = {l.split(":")[0]: l for l in view.get("card", []) if "card" in keys}
         new = [l.splitlines()[0] for k in keys if k in view for l in view[k]
-               if (seen.get("heads", {}).get(l.split(":")[0]) != l.splitlines()[1] if k == "card" else l not in seen.get(k, []))]
+               if (seen.get("heads", {}).get(l.split(":")[0]) != l if k == "card" else l not in seen.get(k, []))]
         seen.update({k: view[k] for k in keys if k in view and k != "card"}, heads={**seen.get("heads", {}), **heads})
         write(f, json.dumps(seen))
         if new:
@@ -407,8 +415,13 @@ class Ctx:
         s.F, s.cfg = facts or Facts(), c or cfg()
         defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
-        join(s.changes)
         s.runs, s.memo, s.alerts, s.docker = runs(), {}, [], True
+        for c in s.changes.values():  # R4: a PR the carry opened is named in its queue PR (`<!-- hd pr N -->`)
+            if upstream(c) and not c.get("pr"):
+                if (n := next((int(m[1]) for b, q in (s.queues(c) or {}).items() if b.startswith(f"queue/{c['slug']}/")
+                               and (m := re.search(r"<!-- hd pr (\d+) -->", q.get("body") or ""))), None)):
+                    c["pr"], c["opened"] = n, True
+        join(s.changes, lambda d: s.done(d, s.head(d)) is True)
 
     def _m(s, k, f):
         if k not in s.memo:
@@ -426,7 +439,11 @@ class Ctx:
         t = TRACK[ch["track"]]
         def f():
             h = s.F.rev(s.clone(ch), t["base"] if ch["kind"] == "release" else t["dev"].format(slug=ch["slug"])) if s.fetched(ch) else None
-            return (rec(ch["slug"], "swept") or {}).get("head", h) if h == "" else h  # a dev ref removed once done: the head it held
+            h = (rec(ch["slug"], "swept") or {}).get("head", h) if h == "" else h  # a dev ref removed once done: the head it held
+            if h == "" and ch.get("finding") and not isinstance(ch["finding"], list):  # R6: an answer with no commit of its own: its PR's tip head
+                d = next((s.changes[d] for d in ch["deps"] if d in s.changes and s.changes[d]["track"] == ch["track"]), None)
+                return s.head(d) if d else h
+            return h
         return s._m(("head", ch["slug"]), f)
 
     def base(s, ch):
@@ -489,27 +506,22 @@ class Ctx:
         if TRACK[ch["track"]]["public"] == "upstream" and ch["kind"] != "local":
             if not head:
                 return False
-            if s.reply(ch, head):
-                return s.replied(ch)
             return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
         return s.live(ch, head)
-
-    def reply(s, ch, head):
-        """R4: a change on a PR answering one inline finding whose head adds no commit to a same-track dependency's head:
-        its outcome is a reply in that finding's review thread."""
-        f = ch.get("finding")
-        if not head or not ch.get("pr") or not f or isinstance(f, list):
-            return False
-        return any(d in s.changes and s.changes[d]["track"] == ch["track"] and s.F.contains(s.clone(ch), s.head(s.changes[d]), head) for d in ch["deps"])
 
     def comments(s, track, pr):
         """The PR's inline review comments, read once per pass; None when GitHub cannot be read."""
         return s._m(("comments", track, pr), lambda: s.F.review_comments(s.cfg["repos"][TRACK[track]["repo"]].get("upstream"), pr))
 
-    def replied(s, ch):
-        """R4: our reply is in the finding's thread: True | False | None (unknown)."""
-        cs, owner = s.comments(ch["track"], ch["pr"]), s.cfg["repos"][TRACK[ch["track"]]["repo"]]["name"].split("/")[0].lower()
-        return None if cs is None else any(str(c["reply"]) == str(ch["finding"]) and str(c["author"]).lower() == owner for c in cs)
+    def queues(s, ch):
+        """R4: the queue PRs on the change's own repo (the fork of its upstream; the client repo for a release); None unknown."""
+        repo = s.cfg["repos"][TRACK[ch["track"]]["repo"]]["name"]
+        return s._m(("queue", repo), lambda: s.F.queue(repo))
+
+    def queued(s, ch, head):
+        """R4: the queue PR showing head: {} when none, None unknown."""
+        qs = s.queues(ch)
+        return None if qs is None else qs.get(f"queue/{ch['slug']}/{head[:12]}", {})
 
     def T(s, ch, head):
         """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
@@ -590,10 +602,6 @@ class Ctx:
         """CENTRAL for a server track script: `<Central clone>:<commit>`, '' without one."""
         return f"{P(s.cfg['repos']['central']['path'])}:{commit}" if commit else ""
 
-    def public(s, *args):
-        """R4: a public act is hd-public, run as the user with the user's token."""
-        return [str(ROOT / "hd-public"), *args]
-
     def dockerless(s, ch, mode):
         """R5: while docker does not answer, a step that builds, brings up or tests (a code or judge step off the harness track) waits."""
         return not s.docker and ch["track"] != "harness" and mode in ("code", "judge")
@@ -633,11 +641,6 @@ def step(state, actor, **k):
     return {"state": state, "actor": actor, **k}
 
 
-def texts(slug):
-    d = EVID / slug
-    return {n: (d / f).read_text().strip() if (d / f).exists() else "" for n, f in (("title", "pr-title.txt"), ("body", "pr-body.md"), ("comment", "pr-comment.md"))}
-
-
 def digest(t):
     return hashlib.sha256(t.strip().encode()).hexdigest()[:16]
 
@@ -665,14 +668,13 @@ def one_pr(a, b):
     return a["track"] == b["track"] and (bool(a.get("pr")) and a.get("pr") == b.get("pr") or br(a) == br(b))
 
 
-def join(changes):
-    """R8: an upstream change with no PR or branch of its own whose open same-track dependency goes upstream joins that
-    dependency's PR (its branch and pr), so a chain of dependents is one PR whose tip ships every change of it.
-    shortcut: a dependent whose joined PR merged before it ships keeps that PR's number; give it its own when that happens."""
+def join(changes, merged):
+    """R8: an upstream change with no PR or branch of its own whose open, unmerged same-track dependency goes upstream
+    joins that dependency's PR (its branch and pr), so a chain of dependents is one PR whose tip carries every change of it."""
     def root(c, seen):
         if c.get("pr") or c.get("branch") or c["slug"] in seen or not upstream(c):
             return c
-        d = next((changes[d] for d in c["deps"] if d in changes and not changes[d].get("closed") and changes[d]["track"] == c["track"] and upstream(changes[d])), None)
+        d = next((changes[d] for d in c["deps"] if d in changes and not changes[d].get("closed") and changes[d]["track"] == c["track"] and upstream(changes[d]) and not merged(changes[d])), None)
         return root(d, seen | {c["slug"]}) if d else c
     for c in changes.values():
         r = root(c, set())
@@ -682,15 +684,27 @@ def join(changes):
                 c["pr"] = r["pr"]
 
 
+def group(ctx, ch):
+    """R4: the open changes of the change's PR not yet carried, itself included: one queue PR carries them all."""
+    return [o for o in ctx.changes.values() if (o is ch or not o.get("closed") and one_pr(o, ch)) and not carried(ctx, o, ctx.head(o))]
+
+
+def carried(ctx, ch, head):
+    """R4: its head went upstream: its own queue PR, or that of a same-PR change built on it, is marked carried."""
+    def on(o, seen=()):
+        return ch["slug"] in o["deps"] or any(d in ctx.changes and d not in seen and on(ctx.changes[d], (*seen, d)) for d in o["deps"])
+    return bool(head) and any(CARRIED in ((ctx.queued(o, h) or {}).get("body") or "") for o in ctx.changes.values()
+                              if (o is ch or not o.get("closed") and one_pr(o, ch) and on(o)) and (h := head if o is ch else ctx.head(o)))
+
+
 def outside(ctx, ch, head):
-    """R8: the open changes of the same PR (its findings, its joined dependents) whose head this head does not hold: the
-    card is a complete PR, so it waits for them. A reply-only change adds no commit; a done one is upstream."""
+    """R8: the open changes of the same PR it waits for: one whose head this head does not hold, or one built on it (its
+    findings, its joined dependents): the queue PR is a complete PR, shown once, at its tip."""
     out = []
-    for o in ctx.changes.values():
-        if o["slug"] != ch["slug"] and not o.get("closed") and one_pr(o, ch):
-            oh = ctx.head(o)
-            if not (oh and (ctx.reply(o, oh) or ctx.done(o, oh) or ctx.F.contains(ctx.clone(ch), head, oh))):
-                out.append(o["slug"])
+    for o in group(ctx, ch):
+        oh = ctx.head(o)
+        if o is not ch and not (oh and ctx.done(o, oh)) and (not oh or ch["slug"] in o["deps"] or not ctx.F.contains(ctx.clone(ch), head, oh)):
+            out.append(o["slug"])
     return out
 
 
@@ -776,17 +790,16 @@ def nxt(ctx, ch):
                 f"The head {head[:9]} holds unmerged commits of {', '.join(on)}, another PR. A PR is based on upstream main "
                 f"({ctx.base(ch)[:9]}) and holds only its own commits: rebase them onto it, or, when this change needs that one, "
                 "add it to deps with no pr or branch of this change's own (it joins that PR)."))
-        if not ctx.reply(ch, head):  # R8: a joined PR's tip ships every change of it: its head holds each one's head
-            for d in ch["deps"]:
-                dep = ctx.changes.get(d)
-                if dep and not dep.get("closed") and one_pr(ch, dep) and (dh := ctx.head(dep)) and not ctx.done(dep, dh):
-                    c = ctx.F.contains(ctx.clone(ch), head, dh)
-                    if c is None:
-                        return step("tree unknown", "unknown")
-                    if not c:
-                        return step(f"joins {d}'s PR without its head: dev", "dev", mode="code", input=["joined", head, dh, con["hash"]], detail=(
-                            f"This change ships in {d}'s PR ({ch.get('branch') or '#' + str(ch['pr'])}): its head {head[:9]} must hold {d}'s head {dh[:9]}; "
-                            "rebase its commits onto it. The PR's title, body and comment cover both changes."))
+        for d in ch["deps"]:  # R8: a joined PR's tip carries every change of it: its head holds each one's head
+            dep = ctx.changes.get(d)
+            if dep and not dep.get("closed") and one_pr(ch, dep) and (dh := ctx.head(dep)) and not ctx.done(dep, dh):
+                c = ctx.F.contains(ctx.clone(ch), head, dh)
+                if c is None:
+                    return step("tree unknown", "unknown")
+                if not c:
+                    return step(f"joins {d}'s PR without its head: dev", "dev", mode="code", input=["joined", head, dh, con["hash"]], detail=(
+                        f"This change ships in {d}'s PR ({ch.get('branch') or '#' + str(ch['pr'])}): its head {head[:9]} must hold {d}'s head {dh[:9]}; "
+                        "rebase its commits onto it. The PR's title, body and comment cover both changes."))
     tree = ctx.key(ch, ctx.tree(ch, tc))
     if tree is None:
         return step("tree unknown", "unknown")
@@ -819,24 +832,31 @@ def nxt(ctx, ch):
         live = ctx.live(ch, head)
         if ch["kind"] == "local":  # the test server is its target
             return step("live on the test server", "done") if live else step("gated; test server deploy pending", "ship-test")
-        a = rec(slug, "approval")  # R4: the card and the ship follow the change's own gate; the test server deploy runs beside them (tick)
-        if (out := outside(ctx, ch, head)):  # R8: a card is a complete PR: one card and one ship, for the head holding every change of it
-            st = step(f"gated; the PR waits for {', '.join(out)} in the head", "wait")
-        elif not a or a["head"] != head:
-            st = step("gated; waiting for the user's yes", "user", input=head)
-        elif (r := rec(slug, "ship")) and r.get("T") == head and r.get("ok"):  # hd-public's last step: the acts are done, never repeated
-            st = step(f"shipped upstream at {head[:9]}: {r.get('detail', '')}; waiting on the maintainers", "wait")
-        else:
-            reply = ctx.reply(ch, head)  # no commit of its own: the reply in the finding's thread is the act
-            st = step(f"shipping upstream: the reply to {ch['finding']} on #{ch['pr']}" if reply else "shipping upstream", "script",
-                      act=lambda: ctx.start(slug, "ship", ctx.public("reply" if reply else "upstream", slug, head), env))
+        st = public(ctx, ch, head)
         return {**st, "deploy": True} if live is False else st
     if ch["kind"] == "release":
-        a = rec(slug, "approval")
-        if not a or a["head"] != head:
-            return step(f"release v{ch['version']} at {head[:9]} waits for the user's yes", "user", input=head)
-        return step(f"publishing v{ch['version']}", "script", act=lambda: ctx.start(slug, "ship", ctx.public("release", slug, head, f"v{ch['version']}"), env))
+        return public(ctx, ch, head)
     return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
+
+
+def public(ctx, ch, head):
+    """R4: the queue PR on our repo shows the complete PR (or release) at head; the user's label `approved` on it, bound
+    to its head and texts, is the yes; the carry does the upstream act and closes it, marked carried."""
+    slug, q = ch["slug"], ctx.queued(ch, head)
+    if q is None:
+        return step("queue PR unknown", "unknown")
+    act = lambda: ctx.start(slug, "ship", [str(ROOT / "hd.py"), "ship", slug, head])
+    if carried(ctx, ch, head):
+        return step(f"carried at {head[:9]}; waiting on the maintainers", "wait")
+    if (out := outside(ctx, ch, head)):
+        return step(f"gated; the PR waits for {', '.join(out)}", "wait")
+    if q and q["state"] != "OPEN":
+        return step(f"the queue PR at {head[:9]} was closed unapproved", "wait")
+    if mark(head, public_texts(ctx, ch)) not in (q.get("body") or ""):
+        return step(f"queueing {head[:9]}", "script", act=act)
+    if not q["approved"]:
+        return step(f"queued: waiting for the user's approval", "user", input=head, url=q["url"])
+    return step(f"publishing v{ch['version']}" if ch["kind"] == "release" else "carrying upstream", "script", act=act)
 
 
 def stacked(ctx, ch, head):
@@ -1347,8 +1367,8 @@ def tick(ctx=None, act=True):
                     st["act"]()
                 except RuntimeError as e:
                     view["alert"].append(f"{ch['slug']}: {e}")
-            elif st["actor"] == "user" and (rec(ch["slug"], "decline") or {}).get("head") != st["input"]:
-                view["card"].append(card(ctx, ch, st))  # a declined card stays hidden until its head moves
+            elif st["actor"] == "user":
+                view["card"].append(f"{ch['slug']}: approve with the label `approved`, or close: {st['url']} (head {st['input'][:9]})")
             elif st["actor"] == "alert":
                 view["alert"].append(f"{ch['slug']}: {st['state']}")
             if (a := rec(ch["slug"], "ask")):
@@ -1386,22 +1406,193 @@ def tick(ctx=None, act=True):
     return view
 
 
-def card(ctx, ch, st):
-    head, t = st["input"], texts(ch["slug"])
-    v = [x for x in verdicts(ch["slug"]) if x["head"] == head]
-    lines = [f"## {ch['slug']}: {ch.get('title', '')}", f"head {head}  track {ch['track']}  evidence {EVID / ch['slug']}",
-             f"verdict: {len(v[-1]['rows']) if v else 0} rows pass (run {v[-1].get('run', '?') if v else '?'})"]
+# ---------------------------------------------------------------- the public act (R4): the queue PR shows it, the user's label approves it, the carry does it
+CARRIED = "<!-- hd carried -->"
+ATTRIBUTION = "\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+EXPOSED = re.compile(r"#\d|@[A-Za-z0-9-]|github\.com/\S+/(?:commit|pull|issues)/|[\w.-]+/[\w.-]+#\d")  # what GitHub links to an upstream PR, commit or user
+
+
+def text(slug, name):
+    f = EVID / slug / name
+    return f.read_text().strip() if f.exists() else ""
+
+
+def public_texts(ctx, ch):
+    """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
+    carry opens it, the tip's comment naming the head, and each finding's reply (pr-comment.md of a change with a `finding`)."""
+    slug = ch["slug"]
     if ch["kind"] == "release":
-        lines += [f"release v{ch['version']}: the APK in the evidence dir"]
-    elif ctx.reply(ch, head):
-        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} PR #{ch['pr']}: a reply in the thread of review comment {ch['finding']}, no push",
-                  f"### reply\n{t['comment']}"]
+        return [["release notes", None, text(slug, "release-notes.md")]]
+    out = [["title", None, text(slug, "pr-title.txt")], ["body", None, text(slug, "pr-body.md")]] if not ch.get("pr") or ch.get("opened") else []
+    if not ch.get("finding") and text(slug, "pr-comment.md"):
+        out.append(["comment", None, text(slug, "pr-comment.md")])
+    return out + [[f"reply in the thread of review comment {o['finding']}", o["finding"], text(o["slug"], "pr-comment.md")]
+                  for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and text(o["slug"], "pr-comment.md")]
+
+
+def mark(head, txt):
+    """The queue PR's binding: its head and the digest of its texts; a yes holds only while both match."""
+    return f"<!-- hd {head[:12]} {digest(json.dumps(txt))} -->"
+
+
+def fence(t):
+    n = max([3] + [len(m) + 1 for m in re.findall(r"`+", t)])
+    return f"{'`' * n}text\n{t}\n{'`' * n}"
+
+
+def exposed(t):
+    """R4: what a queue PR text would link upstream outside its code: the fenced texts and inline code link nothing."""
+    t = re.sub(r"`[^`\n]*`", "", re.sub(r"(?ms)^(`{3,})text\n.*?\n\1$", "", t))
+    return [m.group(0) for m in EXPOSED.finditer(t)]
+
+
+def render(ctx, ch, head, txt):
+    """R4: the queue PR body: what the carry does, the exact texts fenced, the verdict and evidence, the binding."""
+    r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
+    up = r.get("upstream") or r["name"]
+    if ch["kind"] == "release":
+        what = f"Publishes release `v{ch['version']}` of `{up}` at the head below, with the APK, the notices and the repack log of the evidence dir."
+    elif ch.get("pr") and not ch.get("opened"):
+        what = (f"Updates upstream PR `{ch['pr']}` of `{up}`: pushes the head below to its branch (no force), comments naming it once CI is "
+                "green, posts each reply below in its thread and marks it ready.")
     else:
-        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR")
-                  + f"; base main {(ctx.base(ch) or '?')[:9]}, holding this PR's commits alone",
-                  f"### title\n{t['title']}", f"### body\n{t['body']}", f"### comment\n{t['comment']}"]
-    lines += [f"the user types: ! python3 {ROOT}/hd.py approve {ch['slug']} {head}"]
-    return "\n".join(lines)
+        what = (f"Opens a draft PR on `{up}` from branch `{ch.get('branch') or 'content/' + ch['slug']}` with the title and body below; once CI "
+                "is green, comments naming the head and marks it ready.")
+    v = [x for x in verdicts(ch["slug"]) if x["head"] == head]
+    verdict = f"Verdict at `{head[:12]}`: {len(v[-1]['rows'])} rows pass (run `{v[-1].get('run', '')}`)." if v else "Gate passed; no judged rows."
+    body = "\n\n".join(["Approve with the label `approved`; close to decline. A new head or new texts withdraw the label.", what,
+                        f"Head: `{head}`. Changes: {', '.join(f'`{o}`' for o in sorted(o['slug'] for o in group(ctx, ch)))}.",
+                        *(f"### {w}\n{fence(t)}" for w, _, t in txt), f"{verdict} Evidence: `{EVID / ch['slug']}`.",
+                        mark(head, txt) + (f"\n<!-- hd pr {ch['pr']} -->" if ch.get("opened") else "")])
+    if (bad := exposed(body)):
+        raise RuntimeError(f"the queue PR would link upstream: {bad}")
+    return body
+
+
+def gh(*args):
+    """A read or write of GitHub or a remote, with the shared token: (rc, out, err)."""
+    r = subprocess.run(args, capture_output=True, text=True)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def must(*args):
+    rc, out, err = gh(*args)
+    if rc:
+        raise RuntimeError(f"{' '.join(args[:3])} failed: {(err or out)[-1500:]}")
+    return out
+
+
+def remote(path, name):
+    """The remote of a clone that pushes to repo `name` (the fork's is never origin: that is upstream)."""
+    for l in must("git", "-C", path, "remote", "-v").splitlines():
+        p = l.split()
+        if len(p) == 3 and p[2] == "(push)" and re.search(rf"[:/]{re.escape(name)}(\.git)?$", p[1]):
+            return p[0]
+    raise RuntimeError(f"{path} has no remote for {name}")
+
+
+def queue(ctx, ch, head, q, txt):
+    """R4: show head on our repo as a draft queue PR, base a branch at upstream main (a release: at the last tag); a
+    queue PR of another head is withdrawn; new texts at the same head are shown again with the label removed."""
+    r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
+    repo, path, slug, b = r["name"], str(P(r["path"])), ch["slug"], f"queue/{ch['slug']}/{head[:12]}"
+    body = render(ctx, ch, head, txt)
+    for br, o in (ctx.queues(ch) or {}).items():
+        if br.startswith(f"queue/{slug}/") and br != b and o["state"] == "OPEN" and CARRIED not in (o.get("body") or ""):
+            must("gh", "pr", "comment", str(o["number"]), "-R", repo, "--body", f"Withdrawn: the head moved to `{head[:12]}`.")
+            must("gh", "pr", "close", str(o["number"]), "-R", repo, "--delete-branch")
+            log(f"withdrew queue PR {o['number']}")
+    base = ctx.base(ch) if upstream(ch) else (gh("git", "-C", path, "describe", "--tags", "--abbrev=0", f"{head}^")[1] or f"{head}^")
+    must("git", "-C", path, "push", "-q", remote(path, repo), f"{base}^{{commit}}:refs/heads/{b}-base", f"{head}:refs/heads/{b}")
+    must("gh", "label", "create", "approved", "-R", repo, "--color", "0e8a16", "--description", "the user's yes: carry this upstream", "--force")
+    if q:
+        must("gh", "pr", "edit", str(q["number"]), "-R", repo, "--body", body, "--remove-label", "approved")
+    else:
+        must("gh", "pr", "create", "-R", repo, "--draft", "--base", f"{b}-base", "--head", b, "--title", f"{slug} at {head[:9]}", "--body", body)
+    log(f"queued {head[:9]} on {repo}")
+
+
+def log(msg):
+    """ship.log is the act's progress, a line as each step starts and ends, written at once."""
+    print(time.strftime("%H:%M:%SZ", time.gmtime()), msg, flush=True)
+
+
+def checks(up, number, head):
+    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at);
+    a failed read ends the wait."""
+    v = json.loads(must("gh", "pr", "view", str(number), "-R", up, "--json", "headRefOid,statusCheckRollup") or "{}")
+    if v.get("headRefOid") != head:
+        return "none", f"PR {number} head at {(v.get('headRefOid') or '')[:9]}, not yet {head[:9]}"
+    by = {}
+    for c in v.get("statusCheckRollup") or []:
+        k = (c.get("conclusion") or c.get("state") or "").upper()
+        st = ("pending" if c.get("status", "COMPLETED") != "COMPLETED" or k in ("", "PENDING", "EXPECTED")
+              else "success" if k in ("SUCCESS", "NEUTRAL", "SKIPPED") else "failure")
+        by.setdefault(st, []).append(f"{c.get('name') or c.get('context') or ''} {c.get('detailsUrl') or c.get('targetUrl') or ''}".strip())
+    state = next((k for k in ("failure", "pending", "success") if k in by), "none")
+    return state, ", ".join(by.get(state, [])) or f"no check reported at {head[:9]}"
+
+
+def reply(up, owner, pr, finding, body):
+    """R4: the reply in the finding's thread, quoting it and naming only its author; nothing when ours is there."""
+    author = must("gh", "api", f"repos/{up}/pulls/comments/{finding}", "--jq", ".user.login")
+    named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", re.sub(r"`[^`]*`", "", body))}
+    if not re.search(r"(?m)^> ", body) or named != {author.lower()}:
+        raise RuntimeError(f"the reply to {finding} must quote it and name only {author} (it names {sorted(named)})")
+    if not must("gh", "api", "--paginate", f"repos/{up}/pulls/{pr}/comments", "--jq",
+                f'.[] | select(.in_reply_to_id == {finding} and (.user.login | ascii_downcase) == "{owner.lower()}") | .id'):
+        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{finding}/replies", "-f", f"body={body}{ATTRIBUTION}")
+        log(f"replied on {finding}")
+
+
+def carry(ctx, ch, head, q, txt):
+    """R4 R5: the upstream act exactly as the queue PR shows it, each step logged and rerunnable: a release; or push
+    (no force), open the draft, CI green, comment naming the head, each reply, ready, the review requests read back."""
+    r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
+    up, owner, path, t = r.get("upstream"), r["name"].split("/")[0], str(P(r["path"])), {w: x for w, _, x in txt}
+    if ch["kind"] == "release":
+        ev = EVID / ch["slug"]
+        assets = [str(ev / n) for n in ("osrs-runelite.apk", "THIRD_PARTY_NOTICES.md") if (ev / n).exists()] + [str(f) for f in ev.glob("repack*.log")]
+        if len(assets) < 2:
+            raise RuntimeError(f"{ev} lacks the APK or the notices")
+        return must("gh", "release", "create", f"v{ch['version']}", "-R", r["name"], "--target", head, "--title", f"v{ch['version']}",
+                    "--notes", t["release notes"] + ATTRIBUTION, *assets)
+    pr = ch.get("pr")
+    v = json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "headRefName,headRefOid,isDraft")) if pr else {"isDraft": True}
+    branch = v.get("headRefName") or ch.get("branch") or f"content/{ch['slug']}"
+    if v.get("headRefOid") != head:
+        must("git", "-C", path, "push", "-q", remote(path, r["name"]), f"{head}:refs/heads/{branch}")
+        log(f"pushed {head[:9]} to {branch}")
+    if not pr:
+        pr = int(must("gh", "pr", "create", "-R", up, "--draft", "--base", "main", "--head", f"{owner}:{branch}", "--title", t["title"],
+                      "--body", t["body"] + ATTRIBUTION).rstrip("/").rsplit("/", 1)[1])
+        q["body"] += f"\n<!-- hd pr {pr} -->"  # a rerun updates this PR, never opens a second
+        must("gh", "pr", "edit", str(q["number"]), "-R", r["name"], "--body", q["body"])
+        log(f"opened the draft PR {pr}")
+    log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
+    seen = None
+    while (cur := checks(up, pr, head))[0] in ("pending", "none"):
+        if cur != seen:  # each new fact the wait stands on, once
+            log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
+        time.sleep(30)  # the fact decides; the sleep only spaces the reads
+    if cur[0] != "success":
+        raise RuntimeError(f"CI {cur[0]} at {head[:9]}: {cur[1]}: the PR stays as it is")
+    log(f"CI green at {head[:9]}: {cur[1]}")
+    m = f"<!-- hd:{head[:12]} -->"
+    if v.get("headRefOid") != head and not any(m in c.get("body", "") for c in json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "comments"))["comments"]):
+        c = t.get("comment", "")
+        must("gh", "pr", "comment", str(pr), "-R", up, "--body", (c if head[:9] in c else f"Updated to {head[:9]}.") + ATTRIBUTION + f"\n{m}")
+        log(f"commented, naming {head[:9]}")
+    for _, finding, body in txt:
+        if finding:
+            reply(up, owner, pr, finding, body)
+    if v.get("isDraft"):
+        must("gh", "pr", "ready", str(pr), "-R", up)
+        log("marked ready")
+    asked = json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "reviewRequests") or "{}").get("reviewRequests") or []
+    log(f"review requested from {', '.join(r.get('login') or r.get('name') or r.get('slug') or '' for r in asked)}" if asked
+        else "review request: none listed (GitHub refuses the fork author's own request; upstream's CODEOWNERS asks on ready)")
+    return f"upstream PR {pr} at {head[:9]}, ready for review"
 
 
 # ---------------------------------------------------------------- commands (a refusal lists every reason at once)
@@ -1418,7 +1609,7 @@ def cmd_show(a):
     for n in ("build", "gate"):
         if (r := result(slug, n)):
             print("\n" + r)
-    for n in ("handover", "approval", "ask", "state"):
+    for n in ("handover", "ask", "state"):
         if (r := rec(slug, n)):
             print(f"\n## {n}\n" + json.dumps(r, indent=1))
     for v in verdicts(slug):
@@ -1577,27 +1768,42 @@ def cmd_close(a):
 
 
 def cmd_approve(a):
-    """R4: only at the change's user step, bound to that head and the digests of the PR body and the comment."""
+    """R4: the user's yes typed in chat: the label `approved` on the queue PR at that head (the pass then carries it)."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     st = nxt(ctx, ch)
     if st["actor"] != "user" or st["input"] != a[1]:
         refuse(f"nothing to approve at {a[1]}: {st['state']}")
-    put(ch["slug"], "approval", {"head": a[1], "body": digest(texts(ch["slug"])["body"]), "comment": digest(texts(ch["slug"])["comment"])})
+    must("gh", "pr", "edit", st["url"], "--add-label", "approved")
     event(change=ch["slug"], record="approval", head=a[1])
-    print(f"approved {a[1]}")
+    print(f"approved {a[1]}: {st['url']}")
 
 
-def cmd_decline(a):
-    """R4: the user's no to a card: hidden from `hd` until the change's head moves."""
+def cmd_ship(a):
+    """R4: the pass's one public step: queue the head (new texts: shown again, the yes withdrawn), or, approved, carry it;
+    on success the queue PR is marked carried and closed, on failure it is told why and stays open."""
     ctx = Ctx()
-    ch = ctx.changes.get(a[0] if a else "") or refuse("hd decline <slug>")
-    st = nxt(ctx, ch)
-    if st["actor"] != "user":
-        refuse(f"no card for {ch['slug']}: {st['state']}")
-    put(ch["slug"], "decline", {"head": st["input"]})
-    event(change=ch["slug"], record="decline", head=st["input"])
-    print(f"declined {st['input']}")
+    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
+    head, repo = a[1], ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]["name"]
+    if ctx.head(ch) != head:
+        refuse(f"head is {ctx.head(ch)}, not {head}")
+    q, txt = ctx.queued(ch, head), public_texts(ctx, ch)
+    if q is None:
+        refuse("queue PRs cannot be read")
+    if not q or q["state"] == "OPEN" and CARRIED not in q["body"] and mark(head, txt) not in q["body"]:
+        return queue(ctx, ch, head, q, txt)
+    if q["state"] != "OPEN" or not q["approved"] or CARRIED in q["body"]:
+        refuse(f"nothing to carry at {head[:9]}")
+    n = str(q["number"])
+    try:
+        res = carry(ctx, ch, head, q, txt)
+    except RuntimeError as e:
+        gh("gh", "pr", "comment", n, "-R", repo, "--body", "The carry stopped; the queue PR stays open:\n\n" + fence(str(e)))
+        sys.exit(f"carry failed: {e}")
+    must("gh", "pr", "edit", n, "-R", repo, "--body", q["body"] + "\n" + CARRIED)  # the result: the pass reads it, never carries again
+    gh("gh", "pr", "comment", n, "-R", repo, "--body", f"Carried at `{head[:12]}`:\n\n" + fence(res))
+    gh("gh", "pr", "close", n, "-R", repo, "--delete-branch")
+    log(f"carried: {res}")
 
 
 def cmd_tree(a):
@@ -1661,7 +1867,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "decline": cmd_decline}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

@@ -19,7 +19,7 @@
  },
  {
   "id": "R4",
-  "requirement": "Authority: only the harness writes to OpenRune or releases, with the user's token, only at the approved head",
+  "requirement": "Authority: only the carry writes to OpenRune or releases, only at the head and texts the user approved on the queue PR",
   "check": "python3 -m unittest tests.test_hd.R4",
   "passes": false
  },

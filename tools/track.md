@@ -1,6 +1,6 @@
 # Harness track
 
-Changes to this repo (hd.py, hook.py, hd-public, tools/, roles, the drive skill, docs, tests). Branch `harness/<slug>` from the live checkout's branch (the brief's Base) in
+Changes to this repo (hd.py, hook.py, tools/, roles, the drive skill, docs, tests). Branch `harness/<slug>` from the live checkout's branch (the brief's Base) in
 the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); a game client is named mobile or desktop, by that word alone (a new slug about one is `harness-mobile-*` or `harness-desktop-*`); docs state current
 truth only; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's

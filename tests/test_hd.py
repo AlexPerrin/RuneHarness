@@ -868,6 +868,12 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_a_game_client_is_named_mobile_or_desktop(s):  # the three source docs, the track rules and the roles
+        import re
+        root = Path(__file__).parent.parent
+        for f in ["docs/PROBLEM.md", "docs/PRD.md", "docs/ARCHITECTURE.md", "tools/track.md", "CLAUDE.md", *map(str, root.glob(".claude/agents/*.md"))]:
+            s.assertIsNone(re.search(r"(?i)\bdevices?\b|device_login|\bclient windows?\b|\b(?:desktop|logged-in|N) clients\b", (root / f).read_text()), f)
+
     def test_ship_fast_forwards_the_live_branch_or_regates(s):
         import subprocess
         tmp = Path(tempfile.mkdtemp()); origin, repo = tmp / "origin.git", tmp / "live"

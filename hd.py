@@ -745,7 +745,7 @@ def brief(ctx, ch, st, name, role):
 def dispatch(ctx, ch, st, act):
     """R2 R6: list a run for an unmet agent step once per input: no run of the change alive, no question open, no
     ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The orchestrator is outside
-    the count (one at most, no product code, no device): the run that files remedies never waits behind the blocked work."""
+    the count (one at most, no product code, no mobile or desktop): the run that files remedies never waits behind the blocked work."""
     role, slug = st["actor"], ch["slug"]
     if ctx.alive_run(ch) or rec(slug, "ask"):
         return

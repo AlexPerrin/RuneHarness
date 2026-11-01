@@ -7,6 +7,7 @@ kind: change
 priority: P0
 deps: []
 created: '2026-11-01T01:14:14Z'
+closed: 'answer-1: The head merged the duplicate deps keys in its own commit; nothing left to fix.'
 ---
 Commit 475b18e (client changes wait on harness-device-network-block) prepended a second 'deps:' line to definitions that already had a block 'deps:'. hd.py:170 _frontmatter reads them with yaml.safe_load, which keeps the last key silently, so the added dep is dropped.
 

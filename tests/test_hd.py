@@ -749,6 +749,30 @@ class R2(Sandbox):
                  {"ended": hd.now(), "reason": "stopped"})
         s.assertEqual((r["reason"], r.get("play_mark")), ("stopped", None))       # no desktop count written over an ended run
 
+    def test_an_agent_spawned_for_an_ended_run_is_stopped_at_once(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        r = hd.runs()[0]
+        hd.save_run({**r, "ended": hd.now(), "reason": "no longer due"})   # the pass ended it before the spawn
+        def run(ev, **kw):
+            with mock.patch("sys.stdin", io.StringIO(json.dumps({**payload(r, "agL", ev, s.root), **kw}))), \
+                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.main()
+            return json.loads(out.getvalue() or "{}")
+        start = run("SubagentStart")
+        s.assertFalse(start["continue"]); s.assertIn("s1-1", start["stopReason"]); s.assertIn("no longer due", start["stopReason"])
+        pre = run("PreToolUse", tool_name="Bash", tool_input={"command": "ls"})
+        s.assertEqual((pre["continue"], pre["hookSpecificOutput"]["permissionDecision"]), (False, "deny"))
+        s.assertEqual(run("PreToolUse", tool_name="SubagentHandback", tool_input={"message": "x"}), {})   # its hand-back goes
+        x = hd.runs()[0]
+        s.assertEqual((x["reason"], x.get("started"), x.get("agent_id")), ("no longer due", None, None))   # the run stays ended
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(r, "agL", "SubagentStop", s.root, handback="x"))
+        s.assertEqual(hd.runs()[0]["reason"], "no longer due")
+        hd.save_run({**hd.runs()[0], "ended": None, "reason": None})   # a live run: its own agent binds
+        hook.bind(payload(r, "agB", "SubagentStart", s.root))
+        s.assertEqual(run("PreToolUse", agent_id="agB", tool_name="Bash", tool_input={"command": "ls"}), {})
+
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
         for c in ("s1", "s2", "s3"):

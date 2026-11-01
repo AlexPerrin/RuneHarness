@@ -5,6 +5,9 @@ title: 'Loading screen: click View full screen; rotate left for landscape, right
   to portrait'
 kind: change
 priority: P2
+goal: client-launch
+units:
+- launch:loading-fullscreen
 deps: []
 created: '2026-11-01T00:55:42Z'
 ---

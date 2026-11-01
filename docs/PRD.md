@@ -24,7 +24,7 @@ Each check is a command. `python3 -m unittest tests.test_hd.<R>` runs the requir
 gh, docker and the process table; a live check reads the real state.
 
 1. **R1** `tests.test_hd.R1`: a target move lists the measure step once; the measurement is bound to the target's tree;
-   a server head live on the test server unblocks the client changes depending on it; below target with nothing open an orchestrator run is listed. Live: `hd` shows each goal's
+   a server head live on the test server unblocks the client changes depending on it; a passing verdict on a live change marks the units it names, and only then; below target with nothing open an orchestrator run is listed. Live: `hd` shows each goal's
    number with a tree equal to its target's current tree.
 2. **R2** `tests.test_hd.R2`: a change with a live dependency goes from defined to live with no `approve`, `answer` or
    console call; a closed change lists no run, ends its unspawned ones and leaves T_int, and a closed dependency holds nothing; a fresh dev ref the base contains is neither live nor done until handed over; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input.

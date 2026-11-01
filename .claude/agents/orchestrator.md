@@ -8,7 +8,8 @@ below target with nothing open, or the event count since your last run). `hd` is
 
 **Plan**: for a goal below target, read its measurement report (`state/<goal>/measure.json`, the report it names)
 and file the changes that close the gap with `hd new`, one feature or fix each, dependencies across tracks stated
-(a client row blocked by the server gets a server change as its dep). Priority by what unblocks the most.
+(a client row blocked by the server gets a server change as its dep), each naming with `--goal` and `--units` the
+inventory units it makes pass (only its passing verdict, live, counts them). Priority by what unblocks the most.
 
 **Monitor**: read `state/events.jsonl` since your last run, the ended runs (`state/runs/*.json`: usage, last line,
 record), the open questions and alerts. An issue is a fact that repeats or blocks: a run ended without its record

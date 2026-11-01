@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerates server-content.json: one row per content unit, read from the files osrs-mcp serves (the decoded LIVE
 cache and gamevals.dat under $SERVER_TOOLS/src/.data). The unit kinds are the dbtables in KINDS, defined in
-server-content.md. Rows already in the inventory keep their `passes`; a new row starts false.
+server-content.md.
 usage: harness/goals/server-content.py [out.json]"""
 import bz2, json, os, struct, sys, zlib
 from pathlib import Path
@@ -102,9 +102,9 @@ def dbrow_table(b):
     return table
 
 
-def inventory(old):
+def inventory():
     tables = {v: k for k, v in gamevals("dbtable").items()}
-    names, passes = gamevals("dbrow"), {r["unit"]: r["passes"] for r in old}
+    names = gamevals("dbrow")
     kind = {tables[t]: k for k, (t, _) in KINDS.items()}
     rows = []
     for rid, b in sorted(Cache(DATA / "cache" / "LIVE").files(2, 38).items()):
@@ -113,13 +113,13 @@ def inventory(old):
             name = names.get(rid, str(rid))
             table, prefix = KINDS[kind[t]]
             unit = f"{kind[t]}:{name.removeprefix(prefix)}"
-            rows.append({"unit": unit, "source": f"dbrow.{name}={rid} dbtable.{table}={t}", "passes": passes.get(unit, False)})
+            rows.append({"unit": unit, "source": f"dbrow.{name}={rid} dbtable.{table}={t}"})
     assert rows and len({r["unit"] for r in rows}) == len(rows), "empty inventory or duplicate units"
     return rows
 
 
 if __name__ == "__main__":
     out = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).with_suffix(".json"))
-    rows = inventory(json.loads(out.read_text()) if out.exists() else [])
+    rows = inventory()
     out.write_text(json.dumps(rows, indent=1) + "\n")
     print(f"{out}: {len(rows)} rows, " + ", ".join(f"{k} {sum(r['unit'].startswith(k + ':') for r in rows)}" for k in KINDS))

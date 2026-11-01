@@ -167,13 +167,27 @@ class R1(Sandbox):
         s.assertNotIn("planning due", hd.tick(s.ctx(F))["goal"][0])   # met: measured, nothing planned
 
 
+    def test_a_passing_verdict_on_a_live_change_marks_the_units_it_names(s):
+        s.goal("server-content", "server")
+        s.change("s1", goal="server-content", units=["quest:cooksassistant"]); s.agreed("s1")
+        F = Fake(**FACTS)
+        measured = lambda: [e["PASSES"] for x, e in zip(F.spawned, F.envs) if x[1] == "measure"]
+        s.gated("s1", F)
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live, no verdict yet: nothing passes
+        hd.tick(s.ctx(F)); s.assertEqual(measured(), [""])
+        hd.put("server-content", "measure", {"tree": TB, "value": 0, "report": "r"})
+        s.verdict("s1", A, {"ok": "fail: no", "j1": "pass"}, F)
+        hd.tick(s.ctx(F)); s.assertEqual(measured(), [""])                         # a failing verdict marks nothing
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.tick(s.ctx(F)); s.assertEqual(measured(), ["", "quest:cooksassistant"])  # the key moved: measured once more, with the unit
+
     def test_server_content_inventory_rows_are_kinds_of_its_goal(s):
         g = Path(__file__).parent.parent / "harness" / "goals"
         rows = json.loads((g / "server-content.json").read_text())
         kinds = re.findall(r"^\| (\w+) \| \w+", (g / "server-content.md").read_text(), re.M)[1:]   # past the header
         s.assertTrue(rows); s.assertEqual(len({r["unit"] for r in rows}), len(rows))
         s.assertEqual(sorted({r["unit"].split(":")[0] for r in rows}), sorted(kinds))
-        s.assertTrue(all(set(r) == {"unit", "source", "passes"} and r["source"].startswith("dbrow.") for r in rows))
+        s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
     def test_defined_to_live_with_no_person(s):

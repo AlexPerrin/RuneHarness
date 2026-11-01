@@ -737,8 +737,8 @@ def orchestrate(ctx, view, act):
 
 def measure(ctx, g, act):
     """R1: the goal's measure script runs when its target's tree differs from measure.json's (the client's target is master
-    plus the live test-server tree, so a server change live there re-measures the client); below target with no open
-    change serving the goal, the orchestrator plans."""
+    plus the live test-server tree, so a server change live there re-measures the client; the units passing() names join
+    the key and go to the script as PASSES); below target with no open change serving the goal, the orchestrator plans."""
     ch = {"slug": g["slug"], "track": g["track"], "kind": "goal", "deps": []}
     target = ctx.base(ch)
     tree = ctx.F.tree(ctx.clone(ch), target) if target else None
@@ -746,9 +746,15 @@ def measure(ctx, g, act):
         return "target unknown"
     if g["track"] == "client":
         tree += "+" + ((rec("live", "tree") or {}).get("tree") or "none")[:12]
+    units = passing(ctx, g["slug"])
+    if units is None:
+        return "passing units unknown"
+    if units:  # a verdict that marks a unit re-measures the goal
+        tree += "+" + digest(" ".join(units))[:12]
     m = rec(g["slug"], "measure")
     if not m or m["tree"] != tree:
-        ctx.start(g["slug"], "measure", [ctx.script(ch), "measure", g["slug"], target], {"TREE": tree, "GOAL": g["slug"], "EVIDENCE": str(EVID / g["slug"]), "HD_ROOT": str(ROOT)}, act)
+        ctx.start(g["slug"], "measure", [ctx.script(ch), "measure", g["slug"], target], {"TREE": tree, "GOAL": g["slug"], "EVIDENCE": str(EVID / g["slug"]),
+                                                                                     "HD_ROOT": str(ROOT), "PASSES": " ".join(units)}, act)
         return f"measuring on {tree[:12]}"
     try:
         value = float(m["value"])
@@ -759,6 +765,23 @@ def measure(ctx, g, act):
     if value < g["target"] and not any(c.get("goal") == g["slug"] and nxt(ctx, c)["actor"] != "done" for c in ctx.changes.values()):
         s += "; planning due"
     return s
+
+
+def passing(ctx, goal):
+    """R1: the units named (`units`) by the goal's changes that are live at a head whose last verdict passes every row;
+    None while a head or its liveness is unknown."""
+    out = set()
+    for c in ctx.changes.values():
+        if c.get("goal") != goal or not c.get("units"):
+            continue
+        head = ctx.head(c)
+        live = ctx.live(c, head) if head else False
+        if head is None or live is None:
+            return None
+        vs = [v for v in verdicts(c["slug"]) if v["head"] == head]
+        if live and vs and all(r == "pass" for r in vs[-1]["rows"].values()):
+            out.update(c["units"])
+    return sorted(out)
 
 
 def repair(ctx, slug, name, args, check, act):
@@ -1056,11 +1079,14 @@ def cmd_new(a):
     p.add_argument("--kind", default="change", choices=["change", "release", "local"]); p.add_argument("--priority", default="P2")
     p.add_argument("--deps", default=""); p.add_argument("--goal"); p.add_argument("--branch"); p.add_argument("--pr", type=int)
     p.add_argument("--version"); p.add_argument("--network", action="store_true"); p.add_argument("--body", default="")
+    p.add_argument("--units", default="", help="the goal's content units the change makes pass, comma-separated")
     o = p.parse_args(a)
     if (DEFS / "changes" / f"{o.slug}.md").exists():
         refuse(f"{DEFS / 'changes' / o.slug}.md exists")
     meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k != "body"}
     meta["deps"] = [d for d in o.deps.split(",") if d]
+    if o.units:
+        meta["units"] = o.units.split(",")
     print(new_def(meta, o.body))
 
 

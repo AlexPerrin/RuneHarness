@@ -697,7 +697,7 @@ def brief(ctx, ch, st, name, role):
     if con:
         lines += ["## Contract", con["text"], ""]
     lines += ["## Hand back", "One line: `run <name>: handed over <sha>` | `run <name>: PASS` | `run <name>: FAIL n rows` | "
-              "`run <name>: contract agreed` | `run <name>: ask <text>` | `run <name>: handoff`."]
+              "`run <name>: contract agreed` | `run <name>: ask <text>` | `run <name>: filed <slug>` | `run <name>: handoff`."]
     f = STATE / "briefs" / f"{name}.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))
@@ -1113,14 +1113,24 @@ def cmd_new(a):
     p.add_argument("--deps", default=""); p.add_argument("--goal"); p.add_argument("--branch"); p.add_argument("--pr", type=int)
     p.add_argument("--version"); p.add_argument("--network", action="store_true"); p.add_argument("--body", default="")
     p.add_argument("--units", default="", help="the goal's content units the change makes pass, comma-separated")
+    p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
     o = p.parse_args(a)
     if (DEFS / "changes" / f"{o.slug}.md").exists():
         refuse(f"{DEFS / 'changes' / o.slug}.md exists")
-    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k != "body"}
+    blocked = DEFS / "changes" / f"{o.blocks}.md"
+    if o.blocks and not blocked.exists():
+        refuse(f"{blocked} does not exist")
+    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks")}
     meta["deps"] = [d for d in o.deps.split(",") if d]
     if o.units:
         meta["units"] = o.units.split(",")
     print(new_def(meta, o.body))
+    if o.blocks:  # the blocked change waits on the new one, uncommitted like the definition
+        bm, body = _frontmatter(blocked.read_text())
+        if o.slug not in bm.setdefault("deps", []):
+            bm["deps"].append(o.slug)
+            blocked.write_text("---\n" + yaml.safe_dump(bm, sort_keys=False) + "---\n" + body)
+            event(change=o.blocks, action="dep", dep=o.slug)
 
 
 def new_def(meta, body, **ev):

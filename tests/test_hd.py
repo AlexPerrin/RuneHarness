@@ -547,6 +547,17 @@ class R5(Sandbox):
         with s.assertRaises(SystemExit):
             hd.cmd_stop([run["name"]])                                          # an ended run is not stopped twice
 
+    def test_dev_files_fix_outside_its_track_without_asking(s):
+        s.change("c1", track="client"); s.agreed("c1", "client")
+        hd.cmd_new(["h9", "--track", "harness", "--title", "tools fix", "--blocks", "c1"])
+        hd.cmd_new(["h8", "--track", "harness", "--title", "another", "--blocks", "c1"])
+        s.assertEqual(hd.defs("changes")["c1"]["deps"], ["h9", "h8"])
+        s.assertEqual(hd.defs("changes")["c1"]["body"], "do it")
+        s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on h9")      # held, no question raised
+        with s.assertRaises(SystemExit):
+            hd.cmd_new(["h7", "--track", "harness", "--title", "x", "--blocks", "nope"])
+        s.assertNotIn("h7", hd.defs("changes"))
+
     def test_repair_logged_only_on_observed_effect_and_raised_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS, containers={"server-s1": "running"}, down_works=False)

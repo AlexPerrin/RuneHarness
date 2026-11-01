@@ -529,6 +529,17 @@ class R2(Sandbox):
         s.assertIn("s1: which one?", w.read_text())                             # a question wakes it too: it is the user's chat
         s.assertEqual(sorted(f.name for f in (s.root / "state").glob("wake*")), ["wake.orchestrator"])   # no other session's watch
 
+    def test_a_card_wakes_once_per_head_though_it_drops_out_of_a_pass(s):
+        w = s.root / "state" / "wake.orchestrator"
+        c1, c2 = "## s1: t\nhead a  track server\nverdict: 1 rows", "## s1: t\nhead b  track server\nverdict: 1 rows"
+        hd.wake({"card": [c1]})
+        s.assertIn("## s1: t", w.read_text())
+        os.utime(w, ns=(1, 1))
+        hd.wake({"card": []}); hd.wake({"card": [c1.replace("1 rows", "2 rows")]})   # absent one pass, back at the same head
+        s.assertEqual(w.stat().st_mtime_ns, 1)
+        hd.wake({"card": [c2]})                                                     # its head moved
+        s.assertNotEqual(w.stat().st_mtime_ns, 1)
+
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
         for c in ("s1", "s2", "s3"):

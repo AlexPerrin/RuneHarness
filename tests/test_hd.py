@@ -524,9 +524,9 @@ class R2(Sandbox):
         s.change("h1", track="harness", deps=["s2"], body="s2: dependency lost has no definition")   # an open change carries the alert
         hd.tick(s.ctx(F))
         s.assertEqual(len([r for r in hd.runs() if r["role"] == "planner"]), 2)
-        s.change("h0", track="harness", closed="answer-1: done")               # a change closes with s1's alert still raised
+        s.change("h0", track="harness", closed="answer-1: done")               # a close leaves s1's answered alert answered
         hd.tick(s.ctx(F))
-        s.assertEqual(json.loads([r for r in hd.runs() if r["role"] == "planner"][2]["input"])[0:1], ["s1: dependency gone has no definition"])
+        s.assertEqual(len([r for r in hd.runs() if r["role"] == "planner"]), 2)
 
     def test_planner_listed_on_significant_facts_only(s):
         s.change("s1"); s.agreed("s1")
@@ -536,11 +536,23 @@ class R2(Sandbox):
             hd.event(change="s1", action="noise")
         hd.tick(s.ctx(F))
         s.assertEqual([r for r in hd.runs() if r["role"] == "planner"], [])
-        hd.put("s1", "gate", {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: tests"})   # a gate failure
+        g = {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: tests"}
+        hd.put("s1", "gate", g)                                                 # a gate failure goes back to its dev run
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        s.assertEqual([r for r in hd.runs() if r["role"] == "planner"], [])   # while it is the dev's, no planner
+        dev = [r for r in hd.runs() if r["change"] == "s1"][-1]
+        s.assertEqual(dev["role"], "dev")
+        dev.update(started=hd.now(), ended=hd.now(), record=True)
+        hd.save_run(dev)                                                        # its dev handed back and the gate still fails
         hd.tick(s.ctx(F))
         orc = [r for r in hd.runs() if r["role"] == "planner"]
         s.assertEqual(len(orc), 1)
-        s.assertIn("s1 [server P2]: gate failed: dev", json.loads(orc[0]["input"]))
+        s.assertIn(f"s1 [server P2]: gate failed: dev at {g['T'][:9]}", json.loads(orc[0]["input"]))
+        orc[0].update(started=hd.now(), ended=hd.now(), record=True)
+        hd.save_run(orc[0])                                                     # the planner hands back on it
+        s.change("h0", track="harness", closed="answer-1: done")               # a close does not re-raise it
+        hd.tick(s.ctx(F))
+        s.assertEqual(len([r for r in hd.runs() if r["role"] == "planner"]), 1)
 
     def test_a_run_reads_its_change_once(s):
         s.change("s1"); s.agreed("s1")

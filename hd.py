@@ -837,20 +837,24 @@ def dispatch(ctx, ch, st, act):
 def plan(ctx, view, act):
     """The planner run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
     event count): an alert (a run ended without its record twice, a script died or cannot start, a ship that died), a gate
-    failure, a goal below target with nothing open. A line is left out while an open change's body carries it or a
-    planner run handed back on it since the last change closed."""
-    orc = [r for r in ctx.runs if r["role"] == "planner"]
-    st = {k: rec(k, "state") or {} for k in ctx.changes}
-    shut = {k: v.get("ts", "") for k, v in st.items() if ctx.changes[k].get("closed") or v.get("state", "").startswith(("done", "closed"))}
-    closed = max(shut.values(), default="")
-    handled = {a for r in orc if r.get("record") and (r.get("ended") or "") > closed for a in json.loads(r.get("input") or "[]")}
+    failure, a goal below target with nothing open. A trigger is left out while an open change's body carries it or once a
+    planner run handed back on it: it lists the planner again only when it changes (a gate failure at a new T, an alert
+    with a new count). A gate failure is its dev's to fix: it lists the planner only once a dev run handed back on that T
+    and no run of the change is alive."""
+    shut = {k for k, c in ctx.changes.items() if c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed"))}
+    handled = {a for r in ctx.runs if r["role"] == "planner" and r.get("record") for a in json.loads(r.get("input") or "[]")}
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
-    why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + [c for c in view["change"] if ": gate failed" in c]
+    gates = []
+    for c in view["change"]:
+        slug, T = c.split(" ", 1)[0], (rec(c.split(" ", 1)[0], "gate") or {}).get("T") or ""
+        if ": gate failed" in c and slug in ctx.changes and not ctx.alive_run(ctx.changes[slug]) and any(
+                r["change"] == slug and r["role"] == "dev" and r.get("record") and T in (r.get("input") or "") for r in ctx.runs):
+            gates.append(f"{c} at {T[:9]}")
+    why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
                   if not a.startswith(("planner:", "user:")) and a not in handled and a not in carried})
     if why:
         pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
-        dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan",
-                                      input=why + [f"last change closed {closed}"]), act)  # a close re-examines what it left raised
+        dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan", input=why), act)
 
 
 def measure(ctx, g, act):

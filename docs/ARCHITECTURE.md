@@ -117,7 +117,7 @@ re-arms the watch (an expiry is a wake too). Its runs bind to its process as the
 the chat interface: woken by the same watch, it shows cards, questions and alerts, records the user's word (`hd
 approve`, `hd answer`, `hd close`) and relays every other message with `hd tell`; it spawns nothing. **The planner** is a run
 listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;
-an alert or goal line an open change's body carries, or a planner hand-back since the last change closed answered, is left out;
+a line an open change's body carries, or a planner hand-back answered, is left out until it changes (a gate failure at a new T, an alert with a new count); a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;
 an alert for the user lists none), outside the agent count (one at most); a planning request from the user reaches it as a goal. It
 files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
 operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness

@@ -777,7 +777,7 @@ def brief(ctx, ch, st, name, role):
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
-        lines += ["## Hand-off from your predecessor", hoff.read_text(), ""]
+        lines += [f"## Hand-off from your predecessor (its work in progress: {ctx.head(ch) or 'no commit on the dev ref'})", hoff.read_text(), ""]
     if v and st.get("mode") == "code":
         lines += ["## Last verdict at this head", json.dumps(v[-1]["rows"], indent=1), ""]
     lines += ["## Definition", f"title: {ch.get('title', '')}  priority: {ch.get('priority', '')}  deps: {ch.get('deps', [])}  pr: {ch.get('pr', '')}", ch.get("body", ""), ""]
@@ -792,10 +792,13 @@ def brief(ctx, ch, st, name, role):
 
 
 def dispatch(ctx, ch, st, act):
-    """R2 R6: list a run for an unmet agent step once per input: no run of the change alive, no question open, no
+    """R2 R6: a change whose runs reached the context limit three times since its last handover is raised. List a run for an unmet agent step once per input: no run of the change alive, no question open, no
     ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The planner is outside
     the count (one at most, no product code, no mobile or desktop): the run that files remedies never waits behind the blocked work."""
     role, slug = st["actor"], ch["slug"]
+    since = (rec(slug, "handover") or {}).get("ts", "")
+    if role == "dev" and (n := len([r for r in ctx.runs if r["change"] == slug and r.get("handoff_told") and (r.get("listed") or "") > since])) >= 3:
+        ctx.alerts.append(f"{slug}: {n} runs reached the context limit without a handover: the change is too large for one run, or its brief spends context on reading")
     if ctx.alive_run(ch) or rec(slug, "ask"):
         return
     inp = json.dumps(st.get("input"), sort_keys=True)

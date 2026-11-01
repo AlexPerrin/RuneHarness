@@ -958,6 +958,7 @@ class R6(Sandbox):
             hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=3, context=160000))
             hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=4, context=170000))
         s.assertEqual(out.getvalue().count("handoff.md"), 1)           # told once
+        s.assertIn("push it to fork dev/s1", out.getvalue())           # its work in progress committed and pushed first
         s.assertTrue(hd.runs()[0]["handoff_told"])
         (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half; next: the rest")
         with mock.patch.object(hook, "start_pass"):
@@ -967,6 +968,18 @@ class R6(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual(len(v["spawn"]), 1)                              # the successor, with the hand-off in its brief
         s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
+        s.assertIn(f"its work in progress: {A}", open(hd.runs()[1]["brief"]).read())   # the brief names the commit
+
+    def test_three_context_limits_without_a_handover_are_raised(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        for i in range(3):
+            s.assertFalse(any("context limit" in a for a in hd.tick(s.ctx(F))["alert"]))
+            r = hd.runs()[-1]
+            r.update(started=hd.now(), ended=hd.now(), handoff_told=160000)
+            hd.save_run(r)
+            (s.root / "evidence" / "s1" / "handoff.md").write_text(f"part {i}")
+        s.assertTrue(any(a.startswith("s1: 3 runs reached the context limit") for a in hd.tick(s.ctx(F))["alert"]))
 
 
     def test_main_past_context_limit_is_told_once_to_hand_off(s):

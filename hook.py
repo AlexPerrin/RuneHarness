@@ -5,7 +5,7 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
 PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
-                write evidence/<slug>/handoff.md and hand back; tell main (no agent) once per session to start nothing
+                commit (and, off the harness track, push) its work in progress on the dev ref, write evidence/<slug>/handoff.md and hand back; tell main (no agent) once per session to start nothing
                 new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn.                    R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
                 role's record newer than the start and the change's last answer). Any other stop leaves the run live,
@@ -216,9 +216,15 @@ def context_limit(p):
     r["handoff_told"] = size
     hd.save_run(r)
     hd.event(change=r["change"], run=r["name"], action="context-limit", tokens=size)
+    ch = hd.defs("changes").get(r["change"]) or {}
+    dev = hd.TRACK.get(ch.get("track"), {}).get("dev", "").format(slug=r["change"])
+    save = ("" if not dev or r["role"] != "dev" else "first save your work in progress, built or not: " +
+            (f"commit it on {dev} in your clone (a local ref, never pushed). " if ch.get("track") == "harness"
+             else f"commit it in your clone and push it to {dev.replace('/', ' ', 1)}. "))   # fork/dev/<slug> → `fork dev/<slug>`
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-          f"Context limit reached ({size} tokens): write evidence/{r['change']}/handoff.md (what is done, what is next, the facts you rely on), "
-          "stop every process you started, and hand back now with `run " + r["name"] + ": handoff`. A fresh run continues from your file."}}))
+          f"Context limit reached ({size} tokens): {save}"
+          f"Write evidence/{r['change']}/handoff.md (that commit, what is done, what is next, the facts you rely on), "
+          "stop every process you started, and hand back now with `run " + r["name"] + ": handoff`. A fresh run continues from your commit and file."}}))
 
 
 def main():

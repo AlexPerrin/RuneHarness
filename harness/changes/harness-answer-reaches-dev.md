@@ -4,6 +4,7 @@ track: harness
 title: The user's fix-first answer on any change reaches its dev step
 kind: change
 priority: P0
+mechanism: contract
 deps: []
 created: '2026-11-01T22:02:33Z'
 ---

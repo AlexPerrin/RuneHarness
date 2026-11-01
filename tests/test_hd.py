@@ -2547,6 +2547,20 @@ class R3(Sandbox):
         F.f["anc"].add(("local/harness", C))
         s.assertEqual(s.state(F, "h1")["state"], "done")
 
+    def test_a_seed_row_added_later_is_a_row_of_an_agreed_contract(s):  # spotless joined the server seed rows after contracts were agreed
+        s.change("s1"); s.agreed("s1")
+        before = hd.contract("s1")["hash"]
+        t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
+        t.write_text(t.read_text() + "- lint | spotless passes | check: false\n- ok | redefined | check: false\n")
+        con = hd.contract("s1")
+        s.assertEqual([r["id"] for r in con["rows"]], ["ok", "j1", "lint"])   # by id: the file's own row stands
+        s.assertNotEqual(con["hash"], before)                                 # verdicts on the old rows are void
+        s.assertNotIn("lint", (s.root / "evidence" / "s1" / "contract.md").read_text())
+        F = Fake(**FACTS, rows={"false": (1, "nope")})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["s1"])
+        s.assertIn("row lint failed", str(e.exception))
+
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")
         F = Fake(**FACTS, rows={"false": (1, "nope")})

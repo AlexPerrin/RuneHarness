@@ -19,7 +19,7 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
-Every write is a fact appended to state/facts.jsonl (hd.fact), folded into the run records by the pass under its lock:
+Every write is a fact, a file of its own in state/facts/ (hd.fact), folded into the run records by the pass under its lock:
 a hook never takes the lock, never waits on a pass. The deny rules run first and read only definitions and the command.
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
 """
@@ -78,7 +78,7 @@ def find_run(p):
 
 
 def bind(p):
-    """R2: the binding is a fact appended to state/facts.jsonl (the pass folds it under its lock): never a wait on the pass."""
+    """R2: the binding is a fact file in state/facts/ (the pass folds it under its lock): never a wait on the pass."""
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
     r = find_run(p)

@@ -624,6 +624,65 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertTrue(json.loads((s.root / "state" / "runs" / f"{r['name']}.json").read_text())["ended"])   # the end folded in
 
+    def test_a_runs_own_dev_ref_never_moves_its_input(s):
+        """harness-pass-lock-short-1..4: the agent of a listed run creates its dev ref before its bind is folded; the
+        run stays and no second run is listed for the change."""
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {"origin/HEAD": B}})                    # no dev ref yet: "dev run due"
+        hd.tick(s.ctx(F))
+        F.f["refs"]["fork/dev/s1"] = A                                     # its agent commits, unbound
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["s1-1"]); s.assertFalse(hd.runs()[0]["ended"])
+        hook.bind(payload(hd.runs()[0], "ag1", "SubagentStart", s.root))
+        F.f["refs"]["fork/dev/s1"] = C                                     # and commits again, bound
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(([x.split(" ")[0] for x in v["run"]], v["spawn"], len(hd.runs())), (["s1-1"], [], 1))
+
+    def test_fold_deletes_the_facts_it_folded_and_a_fact_applies_once(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        held = hd.pending_facts()                                          # a reader that read the facts before the fold
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, handback="run s1-1: handoff"))
+        hd.fact(fact="resumed", run=run["name"], agent_id="ag1")
+        with hd.lock():
+            hd.fold()
+        s.assertEqual(list((s.root / "state" / "facts").iterdir()), [])  # the facts held are only those not yet folded
+        r = hd.runs()[0]
+        s.assertEqual((r["agent_id"], r["ended"]), ("ag1", None))         # bind, end, resumed: applied in order
+        for fid, e in held:
+            hd.apply_fact(r, fid, e)
+        s.assertEqual((r["agent_id"], r["ended"]), ("ag1", None))         # the bind again: already in the record, skipped
+        s.change("s2"); s.agreed("s2")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        old, r2 = s.root / "state" / "facts.jsonl", next(r for r in hd.runs() if r["change"] == "s2")   # the appended file of before: folded once, then gone
+        old.write_text(json.dumps({"ts": hd.now(), "fact": "end", "run": r2["name"], "usage": {}, "last": "x", "handed": True, "record": True}) + "\n")
+        with hd.lock():
+            hd.fold()
+        s.assertEqual((old.exists(), bool(hd.runs(r2["name"])[0]["ended"])), (False, True))
+
+    def test_a_fetch_in_flight_is_waited_on_and_its_result_taken(s):
+        import threading, time
+        (s.root / "state").mkdir(exist_ok=True)
+        go, calls = threading.Event(), []
+        class Git(hd.Facts):
+            def sh(s_, args, cwd=None, env=None, timeout=600):
+                if "fetch" in args:
+                    calls.append(args); go.wait(5)
+                return 0, "", ""
+        a, b, got = Git(), Git(), {}
+        t = threading.Thread(target=lambda: got.update(a=a.fetch("/c", "origin"))); t.start()
+        while not calls:
+            time.sleep(0.01)
+        u = threading.Thread(target=lambda: got.update(b=b.fetch("/c", "origin"))); u.start()
+        time.sleep(0.1)
+        s.assertNotIn("b", got)                                            # the second pass waits on the fetch in flight
+        go.set(); t.join(); u.join()
+        s.assertEqual((got, len(calls)), ({"a": True, "b": True}, 1))     # and takes its result: one fetch
+        s.assertTrue(Git().fetch("/c", "origin")); s.assertEqual(len(calls), 2)   # none in flight: a pass fetches
+
     def test_a_pass_reads_the_world_outside_the_lock_and_holds_it_for_milliseconds(s):
         import fcntl, threading, time
         s.change("s1"); s.agreed("s1")

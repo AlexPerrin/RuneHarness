@@ -8,7 +8,7 @@ it. `next(change)` is the first unmet of a fixed list; everything shown or acted
 hd.py             the loop: next(change), facts, records, the pass, the public act (console card and carry); commands below
 hd.yaml           repos (each fork with its upstream), paths, the agent count, the context limit, the fork's permanent pins, `hold` (the user's held band, e.g. P1; the orchestrator sets and removes it on the user's word)
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
-                  <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, each a fact appended to state/facts.jsonl (a hook never takes the state lock), then the pass
+                  <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, each a fact file in state/facts/ (a hook never takes the state lock), then the pass
                   started without waiting; a stop fires at each idle turn and leaves the run live (usage, last line),
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
@@ -44,7 +44,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
-| `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
+| `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised; a fetch another pass has in flight is waited on and its result taken) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
 
 ## Data
 
@@ -59,7 +59,8 @@ state/<slug>/ask.json          {text}
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
-state/facts.jsonl              the hooks' facts {fact: bind|resumed|end|context-limit, run, ...}, O_APPEND; facts.offset: the byte the pass folded to (a reader applies the facts past it)
+state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|context-limit, run, ...}, one file each; the fold deletes each it applied, a run record keeps the last applied id (`fact`) so a reader applies the rest once
+state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB; read streamed, each byte once per process); state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges

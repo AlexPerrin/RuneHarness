@@ -66,11 +66,23 @@ class Facts:
             return None
 
     def fetch(s, clone, remote):
+        """R5: one fetch of a clone's remote at a time: a pass that finds one in flight waits for it and takes its result."""
         def f():
-            ok = (s.sh(["git", "-C", clone, "fetch", "-q", "--prune", remote]) or [1])[0] == 0
-            if ok:
-                s.sh(["git", "-C", clone, "remote", "set-head", remote, "--auto"])  # <remote>/HEAD names the default branch
-            return ok
+            lk = STATE / "fetch" / hashlib.sha1(f"{clone}\0{remote}".encode()).hexdigest()[:16]
+            lk.parent.mkdir(parents=True, exist_ok=True)
+            with open(lk, "a+") as h:
+                try:
+                    fcntl.flock(h, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    fcntl.flock(h, fcntl.LOCK_EX)   # released only once the fetch in flight wrote its result
+                    h.seek(0)
+                    return h.read() == "ok"
+                ok = (s.sh(["git", "-C", clone, "fetch", "-q", "--prune", remote]) or [1])[0] == 0
+                if ok:
+                    s.sh(["git", "-C", clone, "remote", "set-head", remote, "--auto"])  # <remote>/HEAD names the default branch
+                h.truncate(0)
+                h.write("ok" if ok else "failed")
+                return ok
         return s._m(("fetch", clone, remote), f)
 
     @_read
@@ -434,9 +446,9 @@ def verdicts(slug):
 
 
 def runs(only=None, pending=True):
-    """R5: the run records with the hooks' facts not yet folded applied: the offset is read before the records, which
-    the fold writes before it, so a fact is never missed (one applied twice sets what it set)."""
-    off, d = fact_offset(), STATE / "runs"   # the offset first
+    """R5: the run records with the hooks' facts not yet folded applied: the facts are read before the records, which
+    the fold writes before it deletes them, so a fact is never missed; one already in its run's record is skipped."""
+    facts, d = pending_facts() if pending else [], STATE / "runs"   # the facts first
     fs = [d / f"{only}.json"] if only else sorted(d.glob("[!.]*.json")) if d.exists() else []
     rs = {}
     for f in fs:
@@ -445,52 +457,33 @@ def runs(only=None, pending=True):
         except (OSError, ValueError):
             continue
         rs[r["name"]] = r
-    for e in facts_since(off)[0] if pending else []:
-        apply_fact(rs.get(e.get("run")), e)
+    for fid, e in facts:
+        apply_fact(rs.get(e.get("run")), fid, e)
     return list(rs.values())
 
 
 def fact(**e):
-    """R2: a hook's fact (bind, resumed, end, context-limit), one O_APPEND write: a hook never waits on the pass."""
-    STATE.mkdir(parents=True, exist_ok=True)
-    fd = os.open(STATE / "facts.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        os.write(fd, (json.dumps({"ts": now(), **e}, sort_keys=True) + "\n").encode())
-    finally:
-        os.close(fd)
+    """R2: a hook's fact (bind, resumed, end, context-limit), a file of its own named by the time it was written: a hook
+    never waits on the pass, and the pass deletes each one it folded, so the facts held are only those not yet folded."""
+    write(STATE / "facts" / f"{time.time_ns():020d}-{os.getpid()}.json", json.dumps({"ts": now(), **e}, sort_keys=True))
 
 
-def fact_offset():
-    try:
-        return int((STATE / "facts.offset").read_text())
-    except (OSError, ValueError):
-        return 0
+def pending_facts():
+    """[(id, fact)] not yet folded, in the order written."""
+    d, out = STATE / "facts", []
+    for f in sorted(d.glob("[!.]*.json")) if d.exists() else []:
+        try:
+            out.append((f.stem, json.loads(f.read_text())))
+        except (OSError, ValueError):
+            pass
+    return out
 
 
-def facts_since(off):
-    """The complete fact lines past off, and the offset after them."""
-    # shortcut: facts.jsonl is never rotated (a few lines per run, read from the offset); rotate under the lock if it ever grows large
-    out = []
-    try:
-        with open(STATE / "facts.jsonl", "rb") as f:
-            f.seek(off)
-            for l in f:
-                if not l.endswith(b"\n"):
-                    break
-                off += len(l)
-                try:
-                    out.append(json.loads(l))
-                except ValueError:
-                    pass
-    except OSError:
-        pass
-    return out, off
-
-
-def apply_fact(r, e):
-    """A fact sets what it states on its run, in the order the facts were written."""
-    if r is None:
+def apply_fact(r, fid, e):
+    """A fact sets what it states on its run, in the order the facts were written; the run keeps the last one's id."""
+    if r is None or fid <= r.get("fact", ""):
         return
+    r["fact"] = fid
     k = e["fact"]
     if k == "bind" and not r.get("started"):  # a bound run is a run: a pass that dropped it unstarted is overruled by its agent
         r.update({x: e[x] for x in ("agent_id", "transcript", "console_pid", "console_start")}, started=e["ts"], started_at=e["at"], ended=None, reason=None)
@@ -505,15 +498,21 @@ def apply_fact(r, e):
 
 
 def fold():
-    """R5: under the lock, the hooks' facts become the run records, then the offset moves past them."""
+    """R5: under the lock, the hooks' facts become the run records, then each fact folded is deleted."""
+    old = STATE / "facts.jsonl"   # shortcut: the one appended file the facts were before; drop once no state holds it
+    if old.exists():
+        off = int((STATE / "facts.offset").read_text()) if (STATE / "facts.offset").exists() else 0
+        for i, l in enumerate(old.read_bytes()[off:].splitlines()):
+            write(STATE / "facts" / f"{0:020d}-{i:09d}.json", l.decode())
+        old.unlink(); (STATE / "facts.offset").unlink(missing_ok=True)
+    facts = pending_facts()
     rs = {r["name"]: r for r in runs(pending=False)}
-    facts, off = facts_since(fact_offset())
-    for e in facts:
-        apply_fact(rs.get(e.get("run")), e)
-    for name in {e.get("run") for e in facts} & set(rs):
+    for fid, e in facts:
+        apply_fact(rs.get(e.get("run")), fid, e)
+    for name in {e.get("run") for _, e in facts} & set(rs):
         save_run(rs[name])
-    if facts:
-        write(STATE / "facts.offset", str(off))
+    for fid, _ in facts:
+        (STATE / "facts" / f"{fid}.json").unlink(missing_ok=True)
 
 
 def save_run(r):
@@ -1050,7 +1049,7 @@ def nxt(ctx, ch):
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
                     else f"dev run due: the user answered after the hand-over ({', '.join(r['id'] for r in late)})", "dev", mode="code",
-                    input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
+                    input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; a conflict is the dev's step
     for n, h in tools.items():
         r = ctx.cfg["repos"][n]

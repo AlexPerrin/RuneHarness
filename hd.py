@@ -358,12 +358,15 @@ WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
 
 def wake(view):
     """R2: state/wake.<session> is rewritten, with the head line of each, only when a line that session acts on appears;
-    a line that stays or goes wakes nobody."""
+    a line that stays or goes wakes nobody. A card is known by its change and head, remembered while it is absent,
+    so it wakes again only when its head moves."""
     for who, keys in WATCH.items():
         f = STATE / f"seen.{who}.json"
         seen = json.loads(f.read_text()) if f.exists() else {}
-        new = [l.splitlines()[0] for k in keys if k in view for l in view[k] if l not in seen.get(k, [])]
-        seen.update({k: view[k] for k in keys if k in view})
+        heads = {l.split(":")[0]: l.splitlines()[1] for l in view.get("card", []) if "card" in keys}
+        new = [l.splitlines()[0] for k in keys if k in view for l in view[k]
+               if (seen.get("heads", {}).get(l.split(":")[0]) != l.splitlines()[1] if k == "card" else l not in seen.get(k, []))]
+        seen.update({k: view[k] for k in keys if k in view and k != "card"}, heads={**seen.get("heads", {}), **heads})
         write(f, json.dumps(seen))
         if new:
             (STATE / f"wake.{who}").write_text("\n".join(new) + "\n")   # in place: the watch fires on its close_write, not a rename

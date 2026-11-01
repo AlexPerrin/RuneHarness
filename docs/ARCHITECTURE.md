@@ -58,7 +58,7 @@ state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note | not
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
-state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen
+state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
 ```
@@ -122,7 +122,7 @@ time; write an event only when `next` differs from the last event; end the runs 
 they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity). **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
 user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
-on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, card, question or alert line appears; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
+on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card at a head not shown before; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
 harness change for a fault a hand-back reports, commits definitions,
 re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
 `user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it shows cards, questions and alerts, records answers (`hd answer`) and the user's no (`hd decline` hides a card until its head moves), and

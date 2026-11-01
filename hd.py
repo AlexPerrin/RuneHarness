@@ -378,11 +378,22 @@ def seed_rows(c, track):
 def contract(slug):
     """evidence/<slug>/contract.md → {hash, rules, agreed, rows, text} | None.
     Rows `- id | text | check: <cmd>` (hand-over and gate) | `gate: <cmd>` (gate only) | `judge: <skill>` (qa);
-    an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run."""
+    an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run.
+    The track's seed rows are read now, not when the file was written: one the file lacks (by id) is a row of it."""
     f = EVID / slug / "contract.md"
     if not f.exists():
         return None
     text = f.read_text()
+    d = next((g for g in (DEFS / "changes" / f"{slug}.md", DEFS / "goals" / f"{slug}.md") if g.exists()), None)
+    try:
+        track = d and _frontmatter(d.read_text())[0].get("track")
+    except (yaml.YAMLError, AttributeError):  # a definition that does not parse (defs.bad names it): the file's rows alone
+        track = None
+    if track in TRACK:
+        ids = {l[2:].split("|", 1)[0].strip() for l in text.splitlines() if l.startswith("- ")}
+        new = [l for l in seed_rows(cfg(), track).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
+        if new:
+            text = text.rstrip("\n") + "".join("\n" + l for l in new) + "\n"
     c = {"hash": hashlib.sha1(text.encode()).hexdigest()[:12], "rules": {}, "agreed": None, "rows": [], "text": text}
     for l in text.splitlines():
         if l.startswith("rules:"):

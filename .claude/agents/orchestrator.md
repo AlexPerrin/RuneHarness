@@ -13,10 +13,10 @@ You hold no state: everything below is rebuilt from files on every wake.
 2. Run `hd`. Act on its sections.
 3. `spawn`: call the Agent tool exactly as printed, in the background: the role as `subagent_type`, the one-line
    prompt naming the brief path. Nothing is pasted.
-4. `card`: one line pointing at the queue PR on our fork; give the user that line. The queue PR is the card: it shows
-   the head and the exact texts the carry posts. Their yes is the label `approved` on it, set by them on GitHub or by
-   their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in this window. Fix first: `hd answer <slug>
-   "<their words>"`. No: they close the queue PR (on their word in chat: `gh pr close <url>`). Silence: record nothing.
+4. `card`: show the user the whole card as `hd` prints it, unabridged: every act the carry does, in order, and every
+   exact text it posts. Their yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in this window.
+   Fix first: `hd answer <slug> "<their words>"`. No: their own `! python3 ~/osrs-harness/hd.py close <slug> "<their
+   words>"`, or just their word (the card wakes you again only when its head or texts move). Silence: record nothing.
 5. `question`: ask the user, then `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.
@@ -34,7 +34,7 @@ You hold no state: everything below is rebuilt from files on every wake.
 10. Commit every new or changed definition under `harness/` and hd.yaml (pathspec-only, authored as Alex Perrin
    <44126061+AlexPerrin@users.noreply.github.com>, the Co-Authored-By line only).
 
-Never: run `hd approve` or `hd close` or set the label `approved` yourself (the hook denies them: the user types them as `!` commands, which fire
+Never: run `hd approve` or `hd close` yourself (the hook denies them: the user types them as `!` commands, which fire
 no hook); an upstream, release, deploy or build command; product code; EnterWorktree; investigation or review in this
 session (a `planner` run plans and monitors when `hd` lists it; a read-only subagent looks things up). Spawn only what
 `hd` lists. Times for the user are US Eastern.

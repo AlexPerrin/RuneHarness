@@ -59,7 +59,8 @@ class Fake(hd.Facts):
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
-    def queue(s, repo): return None if s.f.get("queue", {}) is None else s.f.get("queue", {}).get(repo, {})  # {head branch: queue PR}; None in f = GitHub unreadable
+    def pr_comments(s, repo, pr): return s.f.get("talk", {}).get(pr, [])
+    def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
 
 
 class Sandbox(unittest.TestCase):
@@ -111,14 +112,10 @@ class Sandbox(unittest.TestCase):
         hd.put(slug, "gate", {"T": ho["T"], "ok": True})
         return ho
 
-    def queued(s, F, slug, head, approved=False, state="OPEN", extra=""):
-        """The queue PR at head on the change's repo, showing its current texts (the mark), labelled approved or not."""
-        ctx = s.ctx(F); ch = ctx.changes[slug]
-        repo = ctx.cfg["repos"][hd.TRACK[ch["track"]]["repo"]]["name"]
-        q = {"number": 50 + s.seq, "url": f"https://github.com/{repo}/pull/{50 + s.seq}", "state": state, "approved": approved,
-             "body": "x\n" + hd.mark(head, hd.public_texts(ctx, ch)) + extra}
-        F.f.setdefault("queue", {}).setdefault(repo, {})[f"queue/{slug}/{head[:12]}"] = q
-        return q
+    def approve(s, F, slug, head):
+        """The user's yes at head and the card's current texts (as `hd approve` records it at the user step)."""
+        ctx = s.ctx(F)
+        hd.put(slug, "approval", {"head": head, "texts": hd.digest(json.dumps(hd.public_texts(ctx, ctx.changes[slug])))})
 
     def verdict(s, slug, head, rows, F):
         f = s.root / "rows.json"
@@ -547,13 +544,13 @@ class R2(Sandbox):
 
     def test_a_card_wakes_once_per_head_though_it_drops_out_of_a_pass(s):
         w = s.root / "state" / "wake.orchestrator"
-        c1, c2 = "s1: approve with the label `approved`, or close: u/pull/5 (head aaaaaaaaa)", "s1: approve with the label `approved`, or close: u/pull/6 (head bbbbbbbbb)"
+        c1, c2 = "s1: x\nhead aaaaaaaaa\n### body\nb", "s1: x\nhead bbbbbbbbb\n### body\nb"
         hd.wake({"card": [c1]})
-        s.assertIn(c1, w.read_text())
+        s.assertEqual(w.read_text(), "s1: x\n")                                    # its first line wakes the orchestrator
         os.utime(w, ns=(1, 1))
         hd.wake({"card": []}); hd.wake({"card": [c1]})                             # absent one pass, back at the same head
         s.assertEqual(w.stat().st_mtime_ns, 1)
-        hd.wake({"card": [c2]})                                                     # its head moved: a new queue PR
+        hd.wake({"card": [c2]})                                                     # its head moved: a new card
         s.assertNotEqual(w.stat().st_mtime_ns, 1)
 
     def test_runs_spawned_together_each_bind_their_own_brief(s):
@@ -702,82 +699,86 @@ class R4(Sandbox):
             hd.cmd_ship([slug, head])
         return out.getvalue()
 
-    def test_the_queue_pr_then_the_carry_only_after_the_label_at_that_head_and_texts(s):
+    def test_the_card_then_the_carry_only_after_the_yes_at_that_head_and_texts(s):
         F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F)
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")             # gated and judged: shown on the fork
+        s.assertEqual(s.state(F, "s1")["actor"], "user")                         # gated and judged: a card, nothing queued anywhere
         v = hd.tick(s.ctx(F))
-        s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A]); s.assertEqual(v["card"], [])
-        q = s.queued(F, "s1", A)
-        v = hd.tick(s.ctx(F))
-        s.assertEqual(v["card"], [f"s1: approve with the label `approved`, or close: {q['url']} (head {A[:9]})"])   # one line, pointing at it
-        q["approved"] = True
+        s.assertEqual(F.spawned, []); s.assertEqual(len(v["card"]), 1)
+        s.approve(F, "s1", A)
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
-        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body")      # new texts: the yes is withdrawn, shown again
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
-        F.f["refs"]["fork/dev/s1"] = D                                           # a new head: its own queue PR, unapproved
+        hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A])
+        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body")      # new texts: the yes is withdrawn, the card shown again
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.approve(F, "s1", A)
+        F.f["refs"]["fork/dev/s1"] = D                                           # a new head: the yes is withdrawn
         F.f["trees"][D] = TC
         s.gated("s1", F); s.verdict("s1", D, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {D[:9]}")
-        s.queued(F, "s1", D, extra="\n" + hd.CARRIED)
+        s.assertEqual((s.state(F, "s1")["actor"], s.state(F, "s1")["input"]), ("user", D))
+        hd.put("s1", "ship", {"head": D, "ok": True, "detail": "x"})             # the carry's result
         s.assertEqual(s.state(F, "s1")["state"], f"carried at {D[:9]}; waiting on the maintainers")
-        s.queued(F, "s1", D, state="CLOSED")                                     # the user's no: closed unapproved
-        s.assertEqual(s.state(F, "s1")["actor"], "wait")
-        F.f["queue"] = None
+        F.f["prs"] = None
         s.assertEqual(s.state(F, "s1")["actor"], "unknown")
 
-    def test_a_release_is_queued_on_the_client_repo_and_published_after_the_label(s):
+    def test_a_release_card_and_its_publish_after_the_yes(s):
         s.change("rel", "client", kind="release", version="0.1.3"); hd.write_contract(hd.cfg(), "rel", "client", "derived")
+        (s.root / "evidence" / "rel").mkdir(parents=True, exist_ok=True); (s.root / "evidence" / "rel" / "release-notes.md").write_text("notes")
         F = Fake(**FACTS)
         hd.put("rel", "build", {"T": TB, "ok": True}); hd.put("rel", "gate", {"T": TB, "ok": True})
-        s.assertEqual(s.state(F, "rel")["state"], f"queueing {B[:9]}")
-        q = s.queued(F, "rel", B)
-        s.assertEqual(q["url"].split("/pull/")[0], "https://github.com/o/c")
         s.assertEqual(s.state(F, "rel")["actor"], "user")
-        q["approved"] = True
+        c = hd.tick(s.ctx(F))["card"][0]
+        s.assertIn(f"1. publish release v0.1.3 of o/c at {B}", c); s.assertIn("### release notes\nnotes", c)
+        s.approve(F, "rel", B)
         s.assertEqual(s.state(F, "rel")["state"], "publishing v0.1.3")
         F.f["releases"] = {"v0.1.3"}
         s.assertEqual(s.state(F, "rel")["state"], "done")
 
-    def test_approve_labels_the_queue_pr_and_is_refused_off_the_user_step(s):
+    def test_approve_is_recorded_locally_and_refused_off_the_user_step(s):
         F = Fake(**FACTS); s.ready(F)
         g = GH()
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), s.assertRaises(SystemExit) as e:
-            hd.cmd_approve(["s1", A])
-        s.assertIn("nothing to approve", str(e.exception)); s.assertEqual(g.calls, [])
-        q = s.queued(F, "s1", A)
+            hd.cmd_approve(["s1", D])
+        s.assertIn("nothing to approve", str(e.exception))
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO):
             hd.cmd_approve(["s1", A])
-        s.assertEqual(g.calls, [("gh", "pr", "edit", q["url"], "--add-label", "approved")])
+        s.assertEqual(g.calls, []); s.assertEqual(hd.rec("s1", "approval")["head"], A)   # no GitHub label, no fork PR
 
-    def test_the_queue_step_shows_the_exact_texts_isolated_and_withdraws_an_older_head(s):
+    def test_the_card_shows_every_act_and_exact_text_and_finds_an_open_pr_by_its_branch(s):
         F = Fake(**FACTS); s.ready(F)
         ev = s.root / "evidence" / "s1"
-        (ev / "pr-title.txt").write_text("feat: x for #12")
-        (ev / "pr-body.md").write_text("Fixes OpenRune/OpenRune-Server#354 thanks @rev, see https://github.com/u/f/commit/abc and ``` code ```")
-        old = s.queued(F, "s1", D)                                               # a queue PR of an older head
-        g = GH()
-        s.ship(F, g)
-        push = g.did("push")[0]
-        s.assertEqual(push[-2:], (f"{B}^{{commit}}:refs/heads/queue/s1/{A[:12]}-base", f"{A}:refs/heads/queue/s1/{A[:12]}"))   # base: upstream main
-        s.assertEqual(push[5], "fork")
-        s.assertEqual([c[3] for c in g.did("pr close")], [str(old["number"])])
-        cr = g.did("pr create")[0]
-        s.assertEqual(cr[cr.index("--base") + 1], f"queue/s1/{A[:12]}-base"); s.assertIn("--draft", cr); s.assertEqual(cr[cr.index("-R") + 1], "o/f")
-        body = cr[cr.index("--body") + 1]
-        s.assertIn("Fixes OpenRune/OpenRune-Server#354 thanks @rev", body)     # the exact text, fenced
-        s.assertIn("````text\nFixes", body)                                     # a fence longer than the text's own
-        s.assertEqual(hd.exposed(body), [])
-        s.assertIn(hd.mark(A, hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])), body)
-        for bad in ("#354", "u/f#3", "@rev", "https://github.com/u/f/commit/abc", "https://github.com/u/f/pull/9"):   # each form GitHub links
-            s.assertTrue(hd.exposed(f"see {bad} here"), bad)
-        q = s.queued(F, "s1", A); q["body"] = "stale"; q["approved"] = True
-        g = GH(); s.ship(F, g)                                                   # its texts moved: shown again, the label removed
-        ed = g.did("pr edit")[0]
-        s.assertEqual((ed[3], ed[-2:]), (str(q["number"]), ("--remove-label", "approved"))); s.assertEqual(g.did("pr create"), [])
+        (ev / "pr-title.txt").write_text("feat: x"); (ev / "pr-body.md").write_text("Fixes #354 thanks @rev")
+        c = hd.tick(s.ctx(F), act=False)["card"][0]
+        for want in (f"head {A}", f"1. push {A} to o:content/s1 (no force)", f"2. open a draft PR on u/f from content/s1 into main (base {B[:9]})",
+                     "### title\nfeat: x", "### body\nFixes #354 thanks @rev", f"### comment\nUpdated to {A[:9]}.", "rows pass",
+                     f"evidence {s.root / 'evidence' / 's1'}", f"yes: ! python3 {hd.ROOT}/hd.py approve s1 {A}"):
+            s.assertIn(want, c)
+        F.f["prs"] = {"u/f": [{"number": 445, "branch": "content/s1", "owner": "other", "head": D, "draft": False}]}
+        s.assertIn("2. open a draft PR", hd.tick(s.ctx(F), act=False)["card"][0])           # another owner's branch of that name: not ours
+        F.f["prs"]["u/f"].append({"number": 446, "branch": "content/s1", "owner": "o", "head": D, "draft": False})
+        c = hd.tick(s.ctx(F), act=False)["card"][0]
+        s.assertIn("2. update upstream PR 446 of u/f", c); s.assertNotIn("### title", c)     # found by its head branch, no owner prefix: no second PR
+        s.assertIn(f"upstream PR 446 is at {D[:9]}", c)
 
-    def test_the_carry_opens_the_draft_waits_for_green_ci_comments_readies_and_closes_the_queue_pr(s):
+    def test_no_card_when_the_upstream_pr_is_at_the_head_with_nothing_left_to_post(s):
+        s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
+        com = {"id": 99, "author": "rev", "bot": False, "reply": None, "path": "N.kt", "line": 3, "body": "reset it?"}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "comments": {7: [com]},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        for k in ("s0", "s1"):
+            s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        c = hd.tick(s.ctx(F), act=False)["card"]                                  # the reply is left to post: a card
+        s.assertEqual(len(c), 1); s.assertIn("### reply in the thread of review comment 99\n(finding by rev on N.kt:3: reset it?)\n> reset it", c[0])
+        s.assertNotIn("push", c[0]); s.assertNotIn("### comment", c[0])          # at the head already, a reply-only change: no push, no comment
+        F.f["comments"][7].append({"id": 100, "author": "O", "bot": False, "reply": 99, "path": "N.kt", "line": 3, "body": "ours"})
+        s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])                   # ours is in its thread: nothing left, no card
+        s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
+        F.f["prs"]["u/f"][0]["draft"] = True
+        s.assertEqual(len(hd.tick(s.ctx(F), act=False)["card"]), 1)              # still draft: left to mark ready
+
+    def test_the_carry_opens_the_draft_waits_for_green_ci_comments_readies_and_records_it(s):
         F = Fake(**FACTS); s.ready(F)
-        q = s.queued(F, "s1", A, approved=True)
+        s.approve(F, "s1", A)
         ci = ["pending", "success"]
         def view(a):
             if "headRefOid,statusCheckRollup" in a:
@@ -787,25 +788,23 @@ class R4(Sandbox):
         g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", ""), "pr view": view})
         log = s.ship(F, g)
         order = [c[3] if c[0] == "git" else " ".join(c[1:3]) for c in g.calls if c[0] == "gh" or c[3] == "push"]
-        s.assertEqual(order, ["push", "pr create", "pr edit", "pr view", "pr view", "pr view", "pr comment", "pr ready", "pr view", "pr edit", "pr comment", "pr close"])
+        s.assertEqual(order, ["push", "pr create", "pr view", "pr view", "pr view", "pr comment", "pr ready", "pr view"])
         steps = [l.split(" ", 1)[1] for l in log.splitlines()]                   # ship.log: each step as it goes, the CI wait naming its checks
         s.assertEqual([x.split(":")[0].split(" ")[0] for x in steps[:4]], ["pushed", "opened", "CI", "CI"]); s.assertIn("CI wait: pending: build https://ci/1", steps)
         s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertTrue(steps[-2].startswith("review request: none listed")); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
         s.assertEqual(g.did("push")[0][-1], f"{A}:refs/heads/content/s1")       # no force
         s.assertEqual(g.did("pr create")[0][g.did("pr create")[0].index("-R") + 1], "u/f")
-        s.assertIn("<!-- hd pr 42 -->", g.did("pr edit")[0][-1])                  # a rerun updates PR 42, never opens a second
-        s.assertTrue(g.did("pr edit")[1][-1].endswith(hd.CARRIED))               # the result, on the queue PR
-        s.assertEqual([c[3] for c in g.did("pr close")], [str(q["number"])])
-        s.assertEqual(hd.exposed(g.did("pr comment")[1][-1]), [])
-        q["body"] += "\n<!-- hd pr 42 -->"                                        # the pass names the PR the carry opened
-        ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, True))
-        s.assertEqual(hd.mark(A, hd.public_texts(ctx, ctx.changes["s1"])), hd.mark(A, hd.public_texts(s.ctx(Fake(**FACTS)), ctx.changes["s1"] | {"pr": None})))   # the yes still holds
+        s.assertTrue(g.did("pr comment")[0][-1].startswith(f"Updated to {A[:9]}."))
+        s.assertEqual((hd.rec("s1", "opened")["pr"], hd.rec("s1", "ship")["head"]), (42, A))   # a rerun updates PR 42; the pass never carries again
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
+        ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, A))
+        s.assertTrue(hd.approved(ctx, ctx.changes["s1"], A))                    # the PR it opened: the yes still holds on a rerun
         ci[:] = ["failure"]; g = GH(**{"pr view": lambda a: view(a) if "statusCheckRollup" in " ".join(a) else (0, json.dumps({"headRefName": "content/s1", "headRefOid": A, "isDraft": True, "reviews": []}), "")})
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("CI failure", str(e.exception))
-        s.assertEqual(g.did("pr ready") + g.did("pr close") + g.did("pr create"), [])   # stays draft, the queue PR open
-        s.assertIn("The carry stopped", g.did("pr comment")[0][-1]); s.assertIn("build https://ci/1", str(e.exception))
+        s.assertEqual(g.did("pr ready") + g.did("pr create"), [])               # stays draft, no second PR
+        s.assertIn("build https://ci/1", str(e.exception))
         g = GH(**{"pr view": lambda a, v=g.a["pr view"]: (1, "", "HTTP 502") if "statusCheckRollup" in " ".join(a) else v(a)})
         with s.assertRaises(SystemExit) as e:                                    # a CI read that fails ends the wait, never loops on it
             s.ship(F, g)
@@ -814,42 +813,58 @@ class R4(Sandbox):
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}})
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "prs": {"u/f": [{"number": 7, "branch": "fix/x", "owner": "o", "head": A, "draft": False}]}})
         s.assertEqual(s.ctx(F).head(s.ctx(F).changes["s1"]), A)                 # no commit of its own: its PR tip's head
         s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         ctx = s.ctx(F)
-        s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one queue PR, at the PR's tip
+        s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
         s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["reply in the thread of review comment 99", 99, "> reset it\n\n@rev the official server keeps it."]])
-        q = s.queued(F, "s1", A, approved=True)
+        s.approve(F, "s1", A)
         g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "fix/x", "headRefOid": A, "isDraft": False, "reviews": [], "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), ""),
                   "api repos/u/f/pulls/comments/99": (0, "rev", "")})
         s.ship(F, g)
-        s.assertEqual(g.did("push") + g.did("pr comment")[:-1] + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
+        s.assertEqual(g.did("push") + g.did("pr comment") + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
         post = [c for c in g.calls if "POST" in c][0]
         s.assertEqual(post[4], "repos/u/f/pulls/7/comments/99/replies"); s.assertTrue(post[6].startswith("body=> reset it"))
-        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other")
-        q["body"] = "x\n" + hd.mark(A, hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"]))
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other"); hd.drop("s1", "ship")
+        s.approve(F, "s1", A)
         g = GH(**{"pr view": g.a["pr view"], "api repos/u/f/pulls/comments/99": (0, "rev", "")})
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
 
-    def test_a_central_change_is_queued_on_its_fork_and_carried_to_centrals_upstream(s):
+    def test_a_central_change_is_carried_to_centrals_upstream(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D}, "trees": {**FACTS["trees"], D: TC}, "merges": {(B, D): ("ok", D)}})
         s.assertEqual(s.state(F, "s1")["state"], "waiting on z1")
         s.gated("z1", F)                                                         # its test target is its gate: live, the server change goes on
         s.assertNotEqual(s.state(F, "s1")["actor"], "wait")
         s.verdict("z1", D, {"ok": "pass", "j1": "pass"}, F)
-        q = s.queued(F, "z1", D, approved=True)
-        s.assertTrue(q["url"].startswith("https://github.com/o/z/"))
+        s.approve(F, "z1", D)
         g = GH(**{"pr create": (0, "https://github.com/u/z/pull/3", ""), "pr view": (0, json.dumps({"headRefOid": D, "statusCheckRollup": [{"conclusion": "SUCCESS"}], "comments": []}), "")})
         s.ship(F, g, "z1", D)
         s.assertEqual(g.did("push")[0][2], str(s.root / "central"))
         cr = g.did("pr create")[0]; s.assertEqual(cr[cr.index("-R") + 1], "u/z")
 
-    def test_hook_denies_approve_close_and_the_label_in_subagent_only(s):
+    def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
+        s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> get the cutscene in\n\n@rev it is in.")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "talk": {7: [{"id": "IC_x", "author": "rev", "body": "get the cutscene in"}]},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        for k in ("s0", "s1"):
+            s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
+        c = hd.tick(s.ctx(F), act=False)["card"]
+        s.assertEqual(len(c), 1); s.assertIn("### reply to PR comment IC_x\n(finding by rev on the PR: get the cutscene in)", c[0])
+        s.approve(F, "s1", A)
+        g = GH(**{"pr view": (0, json.dumps({"headRefName": "content/s0", "headRefOid": A, "isDraft": False, "reviewRequests": []}), "")})
+        s.ship(F, g)
+        s.assertEqual(g.did("pr comment")[0][-1], "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION)
+        F.f["talk"][7].append({"id": "IC_y", "author": "O", "body": "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION})
+        hd.drop("s1", "ship")
+        s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])                   # ours is on the PR: nothing left, no card
+
+    def test_hook_denies_approve_and_close_in_subagent_only(s):
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -857,14 +872,13 @@ class R4(Sandbox):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
                 hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # no agent: allowed (the user's `!` fires no hook at all)
                 hook.deny_users_word({"agent_type": "orchestrator", "tool_input": {"command": "hd " + verb}})      # the orchestrator session: denied
-            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done", "bash -c 'hd.py approve s1'",      # runs it: denied
-                      "gh pr edit 5 -R o/f --add-label approved", "gh api repos/o/f/issues/5/labels -f 'labels[]=approved'"):
+            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done", "bash -c 'hd.py approve s1'"):      # runs it: denied
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
             for c in ("grep approve notes.md; git push fork HEAD:dev/s1", "grep -n 'hd approve' hook.py",   # only quotes it: allowed
                       "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc",
                       "grep -nE 'x|hd.py approve|y' hook.py", "grep -c \"(hd close|z)\" f", "gh pr view 5 --json labels"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
-        s.assertEqual(out.getvalue().count('"deny"'), 9)
+        s.assertEqual(out.getvalue().count('"deny"'), 7)
 
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
@@ -1026,7 +1040,7 @@ class R5(Sandbox):
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
-        s.queued(F, "s1", A, approved=True)                                     # the user's label on the queue PR
+        s.approve(F, "s1", A)                                                   # the user's yes in the console
         F.f["procs"] = set()                                                    # the orchestrator is gone after the yes
         hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A])
@@ -1519,19 +1533,42 @@ class R8(Sandbox):
         F.f["anc"] = {(C, A)}                                                    # s2's commits on top of s1's head: not a stack
         s.verdict("s2", C, {"ok": "pass", "j1": "pass"}, F)
         s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s2")
-        s.assertEqual(s.state(F, "s2")["state"], f"queueing {C[:9]}")             # one queue PR, at the PR's tip
-        g = GH()
-        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_ship(["s2", C])
-        body = g.did("pr create")[0][-1]
-        s.assertIn("from branch `content/s1`", body); s.assertIn("Changes: `s1`, `s2`.", body)
-        q = s.queued(F, "s2", C, approved=True)
+        s.assertEqual(s.state(F, "s2")["actor"], "user")                         # one card, at the PR's tip
+        c = hd.tick(s.ctx(F), act=False)["card"]
+        s.assertEqual(len(c), 1); s.assertIn("from content/s1 into main", c[0]); s.assertIn("changes s1, s2", c[0])
+        s.approve(F, "s2", C)
         g = GH(**{"pr create": (1, "", "stop")})
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO), s.assertRaises(SystemExit):
             hd.cmd_ship(["s2", C])
         s.assertEqual(g.did("push")[0][-1], f"{C}:refs/heads/content/s1")       # one new PR on s1's branch holds both
-        q["body"] += "\n" + hd.CARRIED                                          # carried at s2's head: s1 went with it
+        hd.put("s2", "ship", {"head": C, "ok": True, "detail": "x"})            # carried at s2's head: s1 went with it
         s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
+
+    def test_main_moving_never_regates_a_shipped_pr_and_its_pending_reply_shows_at_once(s):
+        s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev kept.")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "trees": dict(FACTS["trees"]), "merges": dict(FACTS["merges"]),
+                    "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "N.kt", "line": 3, "body": "reset it?"}]},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        for k in ("s0", "s1"):
+            s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        F.f["refs"]["origin/HEAD"] = D; F.f["trees"].update({D: TC, C: "te" * 20}); F.f["merges"][(D, A)] = ("ok", C)   # upstream main moved: a new T
+        s.assertEqual(s.state(F, "s0")["state"], "gated; the PR waits for s1")   # no rebuild, no re-gate of the PR's live head
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertEqual(len(hd.tick(s.ctx(F), act=False)["card"]), 1)             # the reply's card at once
+
+    def test_a_reply_only_change_gets_its_card_with_no_gate_run(s):
+        s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev kept.")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_handover(["s1"])
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)                    # its QA verdict alone: no build, no gate
+        c = hd.tick(s.ctx(F))["card"]
+        s.assertEqual(len(c), 1); s.assertTrue(c[0].startswith("s1: ")); s.assertNotIn("CI", c[0])
+        s.assertEqual([x for x in F.spawned if x[1] in ("build", "gate")], []); s.assertIsNone(hd.rec("s1", "gate"))
 
     def test_a_dependent_joins_its_dependencys_open_pr(s):
         s.change("s1", pr=9, branch="content/x"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2"); s.change("s3", deps=["s2"])
@@ -1731,15 +1768,14 @@ class R8(Sandbox):
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         t = hd.integration(s.ctx(F))
         s.assertEqual((t["commit"], t["names"]), (R, ["local/x", "s1"]))
-        q = s.queued(F, "s1", A)
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["ship", "integration", R])
         s.assertEqual(F.envs[-1]["T"], "tr" * 20)
-        s.assertIn("s1 [server P2]: queued: waiting for the user's approval; test server: deploying trtrtrtrt", v["change"])
+        s.assertIn("s1 [server P2]: gated; waiting for the user's yes; test server: deploying trtrtrtrt", v["change"])
         F.f["procs"] = {(7, "1"), (4242, "99")}                                      # the deploy is running: not started again
         hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
         hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
-        s.assertEqual(s.state(F, "s1")["state"], "queued: waiting for the user's approval")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 
     def test_conflict_without_a_resolution_is_the_younger_change_s(s):
         F, R = s.integration_fixture(with_ref=False)
@@ -1751,11 +1787,11 @@ class R8(Sandbox):
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
         s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([x for x in F.spawned if x[1:3] == ["ship", "integration"]], [])
-        s.assertEqual([x[1:] for x in F.spawned if x[1] == "ship"], [["ship", "s1", A]])   # the queue step waits on its own gate alone
+        s.assertTrue(hd.rec("s1", "state")["state"].startswith("gated; waiting for the user's yes"))   # the card waits on its own gate alone
         s.assertIn("conflicts with the integration tree", hd.rec("s1", "state")["state"])
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))                 # the conflict's dev run stays listed beside the card
-        s.queued(F, "s1", A, approved=True)
+        s.approve(F, "s1", A)
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")              # nor does the conflict hold the carry
 
     def test_a_lower_priority_conflict_leaves_the_higher_priority_tree_to_deploy(s):
@@ -2075,10 +2111,10 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.queued(F, "s1", A, approved=True)
+        s.approve(F, "s1", A)
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
         (s.root / "evidence" / "s1" / "pr-body.md").write_text("fixed body")  # qa fixed the text in place: the verdict holds, the yes does not
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 
     def test_gate_bound_to_tree(s):
         s.change("s1"); s.agreed("s1")
@@ -2093,7 +2129,7 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_answer(["s1", "also do X"])  # the contract grew: the verdict no longer covers it
         s.assertEqual(s.state(F, "s1")["state"], "review due")
@@ -2107,12 +2143,12 @@ class R3(Sandbox):
         F = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b1"})
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
         F2 = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b2"})
         st = s.state(F2, "s1")
         s.assertEqual((st["actor"], st["input"][2]), ("qa", ["AGENTS.md"]))
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
-        s.assertEqual(s.state(F2, "s1")["state"], f"queueing {A[:9]}")
+        s.assertEqual(s.state(F2, "s1")["state"], "gated; waiting for the user's yes")
         s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
 
     def test_no_reviewer_without_judge_rows_and_no_arbitrary_check(s):

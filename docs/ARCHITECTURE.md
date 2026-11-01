@@ -5,7 +5,7 @@ contract), its **tree** T, the **judgments** bound to T or to the head, its **ta
 it. `next(change)` is the first unmet of a fixed list; everything shown or acted on is read off it.
 
 ```
-hd.py             the loop: next(change), facts, records, the pass, the public act (queue PR and carry); commands below
+hd.py             the loop: next(change), facts, records, the pass, the public act (console card and carry); commands below
 hd.yaml           repos (each fork with its upstream), paths, the agent count, the context limit, the fork's permanent pins, `hold` (the user's held band, e.g. P1; the orchestrator sets and removes it on the user's word)
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
@@ -30,9 +30,9 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 | Command | Who | Does |
 |---|---|---|
-| `hd` | the orchestrator | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards (one line pointing at a queue PR), questions, runs, goals, change facts (R7) |
-| `hd approve <slug> <head>` | the user, as a `!` command in the orchestrator's window | at the user step only: the label `approved` on the queue PR at that head (the same as the user setting it on GitHub) |
-| `hd ship <slug> <head>` | the pass (the public step's script) | queues the head (draft queue PR; new texts re-shown, the label removed), or, approved, carries it upstream (R4) |
+| `hd` | the orchestrator | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards (each act the carry does and each exact text, the yes and no commands), questions, runs, goals, change facts (R7) |
+| `hd approve <slug> <head>` | the user, as a `!` command in the orchestrator's window | at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts} |
+| `hd ship <slug> <head>` | the pass (the public step's script) | carries the approved head upstream or publishes the release, re-checking the yes; records `ship.json` (R4) |
 | `hd answer <slug> [--waive <row>] <text>` | the orchestrator, with the user's words | an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
@@ -55,9 +55,7 @@ evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
 state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
 state/<slug>/ask.json          {text}
-queue PR (GitHub, our repo)    draft, head branch queue/<slug>/<head12>, base queue/<slug>/<head12>-base (upstream main; a release: the last tag);
-                               body: what the carry does, each text fenced, the verdict, `<!-- hd <head12> <digest of the texts> -->`,
-                               `<!-- hd pr N -->` once the carry opened PR N, `<!-- hd carried -->` once carried; label `approved` = the yes
+state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card
@@ -102,23 +100,30 @@ next(change):
                                     permanent pin, the base or a union, push local/merge/<a>-<b>; every conflicting head is left out
                                     and the rest merged on (pins first, then heads by priority, then creation), so one dev step lists them all with the merge
                                     order; only a pin's conflict holds the deploy, the tree without a conflicting head deploys
-  public (upstream, release)       one fact read per pass: the queue PRs on the change's own repo (`gh pr list`)
-    carried (its queue PR's, or a   yes → wait on the maintainers (a release: until its tag exists)
-    same-PR change's built on it)?
-    an open change of the PR it     yes → wait: a queue PR is a complete PR, shown once, at its tip, its texts covering
-    waits for (head not in this       every change of it; a finding with no dev ref has its tip's head (no commit of its own)
+  shipped (upstream)?               the open upstream PR (found by its head branch, no owner prefix) is at head, or the change
+                                    is a finding with no commit of its own (reply-only): no build, no gate (only a commit is gated;
+                                    a PR's live head is never re-gated because main moved); a same-PR dependent counts it gated
+  public (upstream, release)       one fact read per pass: the open PRs of the upstream (`gh pr list`), the review and conversation comments of a PR
+    carried (its own ship.json, or  yes → wait on the maintainers (a release: until its tag exists)
+    a same-PR change's built on it;
+    or the PR at head, ready, ours
+    in every finding's thread)?
+    an open change of the PR it     yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips),
+    waits for (head not in this       its texts covering every change of it; a finding with no dev ref has its tip's head
     head, or built on it)?
-    queue PR closed unapproved?     yes → wait (the user's no, at that head)
-    queue PR shows head and texts?  no → `hd ship`: queue it (a new head: a new queue PR, the old one withdrawn; new texts:
-                                    the body rewritten, the label removed)
-    label `approved`?               no → card: one line, the queue PR's URL and head
+    approval.json at head, texts?   no → card in the console: the acts in order (push when the PR is not at head, open the draft
+                                    or update PR N, CI when it pushes or the PR is draft, the comment when it pushes, each reply,
+                                    ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes
+                                    (`hd approve`) and no (`hd close`) commands; it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)       release: gh release with the APK, notices and log. Upstream: push head to the PR's branch
-                                    (no force), open the draft when none (its number written to the queue PR at once, so a
-                                    rerun updates it), CI green at head, a comment naming the head, each finding's reply in its
-                                    thread (quoting it, @ only its author; ours there: none), ready, the review requests read back (upstream's CODEOWNERS asks on ready);
-                                    each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped. Success: `<!-- hd carried -->`,
-                                    a result comment, the queue PR closed. Failure: the reason fenced on the queue PR, left open;
-                                    the pass reruns it, a second death on the same args an alert
+                                    (no force), open the draft when none (opened.json at once, so a rerun updates it), CI green
+                                    at head when it pushed or the PR is draft, the comment naming the head (once: its marker), each
+                                    finding's reply in its thread (a conversation finding: a PR comment; quoting it, @ only its
+                                    author; ours there: none), ready, the review requests read back (upstream's CODEOWNERS asks on
+                                    ready); each step a ship.log line as it starts and ends, the CI wait naming the checks it waits
+                                    on and ending on their result or a failed read, a step observed done skipped. Success: ship.json.
+                                    Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
+                                    args an alert
   ship (other tracks)               merge and push
   wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no
                                     definition's `finding` carries files a P1 change on the pr with deps [the pr's tip changes],
@@ -139,12 +144,12 @@ time; write an event only when `next` differs from the last event; end the runs 
 they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity). **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
 user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
-on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card (a queue PR at a head) not shown before; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
+on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card (a change at a head and texts) not shown before; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
 harness change for a fault a hand-back reports, commits definitions,
 re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
-`user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it gives each card (one line, the queue PR's URL) and shows questions and alerts, records answers (`hd answer`), closes a queue PR on the user's no, and
-acts on the user's other words at once; the user's yes is the label `approved` on the queue PR (on GitHub, or their own `!
-python3 ~/osrs-harness/hd.py approve <slug> <head>`) and their close is their own `! ... close <slug> <text>`, neither firing a hook. **The planner** is a run
+`user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it shows each card in full and shows questions and alerts, records answers (`hd answer`), and
+acts on the user's other words at once; the user's yes is their own `!
+python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook. **The planner** is a run
 listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;
 a line an open change's body carries, or a planner hand-back answered, is left out until it changes (a gate failure at a new T, an alert with a new count); a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;
 an alert for the user lists none), outside the agent count (one at most); a planning request from the user with a measurable target reaches it as a goal, any other as a change. It
@@ -169,9 +174,9 @@ and the file to resume from. Three runs of a change past the limit since its
 last handover are an alert (the change too large for one run, or its brief spending context on reading).
 
 **Authority**: everything runs with the one shared GitHub token. The public act is the carry, `hd ship <slug> <head>`,
-started by the pass only while the queue PR at that head shows the current texts and carries the label `approved`, and
-re-checking both before it acts. The one hook rule: `hd approve`, `hd close` and a `gh` command setting the label
-`approved` (the user's word, typed by the user as a `!` command, which fires no hook, or set on GitHub) are denied inside a
+started by the pass only while approval.json holds that head and the digest of the card's current texts, and
+re-checking both before it acts. The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a
+`!` command, which fires no hook) are denied inside a
 subagent or the orchestrator session (a hook input with an agent id or type) when a command runs them (at a command's
 start); a command that only quotes them (grep, echo, a heredoc body) runs.
 
@@ -200,10 +205,9 @@ sequenceDiagram
   P->>S: ship test server: or:<T_int>
   O->>Q: Agent(qa, brief)
   Q->>P: hd verdict: every row
-  P->>P: hd ship: draft queue PR on the fork (head, texts fenced, verdict)
-  P->>U: card: the queue PR's URL
-  U->>P: the label approved on the queue PR (or ! hd approve <slug> <head>)
-  P->>P: hd ship carries: push, draft, CI, comment, replies, ready; queue PR marked carried, closed
+  P->>U: card in the console (acts, exact texts, verdict, evidence)
+  U->>P: ! hd approve <slug> <head>
+  P->>P: hd ship carries: push, draft, CI, comment, replies, ready; ship.json
 ```
 
 ## Run and test
@@ -224,7 +228,7 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 | R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the planner plans |
 | R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, `wake` and the wake file, the orchestrator session |
 | R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
-| R4 Authority | the queue PR (head, fenced texts, its binding mark), the label as the yes, `hd ship`'s carry re-checking both, the one hook rule |
+| R4 Authority | the console card (acts, exact texts), approval.json bound to head and texts as the yes, `hd ship`'s carry re-checking both, the one hook rule |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |
 | R6 Economy | artefacts keyed by T, verdicts keyed by head and contract, the agent count, events on edges, the hook's context limit, the track scripts |
 | R7 Visibility | `hd` prints facts; `hd show` |

@@ -3,7 +3,7 @@
 
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
-PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve`, `hd close` and a `gh` command setting the label `approved` (the queue PR's yes) are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
+PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
@@ -192,9 +192,8 @@ def deny_users_word(p):
     cmd = re.sub(r"(?<!-c )(?<!eval )('[^']*'|\"[^\"]*\")", "''", raw)  # a quoted argument is data, unless it is a -c or eval script
     # only a command that runs hd: hd at the start of a command (after ; & | ( newline or $( ), never a mere mention
     # a subagent carries agent_id; the orchestrator, a top-level `claude --agent orchestrator` session, agent_type alone
-    m = (p.get("agent_id") or p.get("agent_type")) and (
+    m = (p.get("agent_id") or p.get("agent_type")) and \
         re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
-        or re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*()gh\s[^;&|\n]*label[^;&|\n]*\b(approve)d\b", raw))  # the queue PR's label, quoted or not
     if m:
         hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is the user's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

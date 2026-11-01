@@ -20,9 +20,9 @@ tests/         python3 -m unittest discover -s tests   (one class per requiremen
 ```
 
 Agents are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief;
-the user chats with it directly. A write to OpenRune and a client release is shown as a draft queue PR on our own repo
-(its head and exact texts) and carried by `hd ship` only after the user's yes: the label `approved` on it, set on
-GitHub or by the user's `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
+the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
+(its head, acts and exact texts) and carried by `hd ship` only after the user's yes: their own
+`! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,

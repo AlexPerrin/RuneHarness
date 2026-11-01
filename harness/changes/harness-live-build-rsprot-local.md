@@ -3,7 +3,7 @@ slug: harness-live-build-rsprot-local
 track: harness
 title: Live build finds the locally published rsprot
 kind: change
-priority: P2
+priority: P0
 deps: []
 created: '2026-11-01T11:54:36Z'
 ---

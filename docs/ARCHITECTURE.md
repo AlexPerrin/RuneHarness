@@ -60,7 +60,7 @@ state/<slug>/approval.json     {head, body}                    state/<slug>/ask.
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/inbox.jsonl              {ts, text} the user's messages; inbox.read  the last n heard
-state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
+state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake.<main|orchestrator>  the lines new to that session's sections, state/seen.<session>.json  the lines it has seen
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
 ```
@@ -121,11 +121,11 @@ time; write an event only when `next` differs from the last event; end the runs 
 they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity). **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
 user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
-on `state/wake` wakes it; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
+on `state/wake.orchestrator` wakes it, rewritten by the pass (and `hd tell`) only when a spawn or message line appears; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
 harness change for a fault a hand-back reports, acts on each `message` and marks it `hd heard`, commits definitions,
 re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
 `user: no orchestrator session` while no `claude --agent orchestrator` process exists. **Main** (skill `head`) is
-the chat interface: woken by the same watch, it shows cards, questions and alerts, records the user's word (`hd
+the chat interface: woken by a watch on `state/wake.main` (a card, question or alert line appeared), it shows cards, questions and alerts (`hd decline` hides a card until its head moves), records the user's word (`hd
 approve`, `hd answer`, `hd close`) and relays every other message with `hd tell`; it spawns nothing. **The planner** is a run
 listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;
 a line an open change's body carries, or a planner hand-back answered, is left out until it changes (a gate failure at a new T, an alert with a new count); a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;
@@ -205,7 +205,7 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 | Requirement | Mechanism |
 |---|---|
 | R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the planner plans |
-| R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, the wake file, the orchestrator session, `hd tell` and `hd heard` |
+| R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, `wake` and the wake files, the orchestrator session, `hd tell` and `hd heard` |
 | R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
 | R4 Authority | the two credentials, `hd-public` under sudoers, the one hook rule, ship after approval at head |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |

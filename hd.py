@@ -345,10 +345,24 @@ def event(**e):
     STATE.mkdir(parents=True, exist_ok=True)
     with open(STATE / "events.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), **e}, sort_keys=True) + "\n")
-    size = (STATE / "events.jsonl").stat().st_size
-    (STATE / "wake").write_text(str(size))  # grows with every event: main's watch sees each
-    if size > 20_000_000:
+    if (STATE / "events.jsonl").stat().st_size > 20_000_000:
         os.replace(STATE / "events.jsonl", STATE / "events.1.jsonl")
+
+
+WATCH = {"main": ("card", "question", "alert"), "orchestrator": ("spawn", "message")}
+
+
+def wake(view):
+    """R2: state/wake.<session> is rewritten, with the head line of each, only when a line that session acts on appears;
+    a line that stays or goes wakes nobody. `view` may hold only some sections (hd tell: the messages)."""
+    for who, keys in WATCH.items():
+        f = STATE / f"seen.{who}.json"
+        seen = json.loads(f.read_text()) if f.exists() else {}
+        new = [l.splitlines()[0] for k in keys if k in view for l in view[k] if l not in seen.get(k, [])]
+        seen.update({k: view[k] for k in keys if k in view})
+        f.write_text(json.dumps(seen))
+        if new:
+            (STATE / f"wake.{who}").write_text("\n".join(new) + "\n")
 
 
 class lock:
@@ -1133,8 +1147,8 @@ def tick(ctx=None, act=True):
                     view["alert"].append(f"{ch['slug']}: {e}")
             elif st["actor"] in ("dev", "qa") and not held:
                 dispatch(ctx, ch, st, act)
-            elif st["actor"] == "user":
-                view["card"].append(card(ctx, ch, st))
+            elif st["actor"] == "user" and (rec(ch["slug"], "decline") or {}).get("head") != st["input"]:
+                view["card"].append(card(ctx, ch, st))  # a declined card stays hidden until its head moves
             elif st["actor"] == "alert":
                 view["alert"].append(f"{ch['slug']}: {st['state']}")
             if (a := rec(ch["slug"], "ask")):
@@ -1169,6 +1183,8 @@ def tick(ctx=None, act=True):
                 (view["spawn"] if not r.get("started") else view["run"]).append(
                     f"{r['name']}: Agent(subagent_type=\"{r['role']}\", prompt=\"Read and follow {r['brief']}\")" if not r.get("started")
                     else f"{r['name']} ({r['role']}, {r['change']}) since {r['started']}")
+        if act:
+            wake(view)
     return view
 
 
@@ -1329,7 +1345,9 @@ def cmd_tell(a):
     STATE.mkdir(parents=True, exist_ok=True)
     with open(STATE / "inbox.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), "text": text}) + "\n")
-    event(record="message", text=text[:300])  # the event wakes the orchestrator's watch
+    event(record="message", text=text[:300])
+    with lock():  # the orchestrator's watch, without a pass
+        wake({"message": [f"{n}: {m['text']}" for n, m in inbox() if n > heard()]})
     print(f"message {len(inbox())}")
 
 
@@ -1397,6 +1415,18 @@ def cmd_approve(a):
     print(f"approved {a[1]}")
 
 
+def cmd_decline(a):
+    """R4: the user's no to a card: hidden from `hd` until the change's head moves."""
+    ctx = Ctx()
+    ch = ctx.changes.get(a[0] if a else "") or refuse("hd decline <slug>")
+    st = nxt(ctx, ch)
+    if st["actor"] != "user":
+        refuse(f"no card for {ch['slug']}: {st['state']}")
+    put(ch["slug"], "decline", {"head": st["input"]})
+    event(change=ch["slug"], record="decline", head=st["input"])
+    print(f"declined {st['input']}")
+
+
 def cmd_tree(a):
     """R8: `hd tree <slug> <commit>` prints `<T commit> <T tree>` for a commit of the change (a dev's working-copy
     snapshot): base + deps + that commit, so a dev builds T, never the bare head."""
@@ -1457,7 +1487,7 @@ def cmd_tick(a):
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
             "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick,
-            "tell": cmd_tell, "heard": cmd_heard}
+            "tell": cmd_tell, "heard": cmd_heard, "decline": cmd_decline}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

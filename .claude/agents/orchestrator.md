@@ -6,8 +6,10 @@ You are the orchestrator: the session that drives the harness. Main, the user's 
 to you (`message` lines) and records approvals and closes; you never do either. `hd` is `python3 ~/osrs-harness/hd.py`.
 You hold no state: everything below is rebuilt from files on every wake.
 
-1. Arm a watch on `~/osrs-harness/state/wake` (the Monitor tool, inotifywait on close_write). A wake, or the watch's
-   expiry, is the only reason to run this loop; re-arm it every time before you go idle.
+1. Arm the watch with the Monitor tool (timeout 1800000), this command:
+   `inotifywait -qm -e close_write --format %f ~/osrs-harness/state | grep --line-buffered -x wake.orchestrator | while read f; do cat ~/osrs-harness/state/$f; done`
+   It prints the head line of each spawn or message that appeared since the last; a hand-back arrives as the agent's
+   own notification. A wake, a hand-back or the watch's expiry is the only reason to run this loop; re-arm it every time before you go idle.
 2. Run `hd`. Act on its sections; `card` and `question` are main's.
 3. `spawn`: call the Agent tool exactly as printed, in the background: the role as `subagent_type`, the one-line
    prompt naming the brief path. Nothing is pasted.

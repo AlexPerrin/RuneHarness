@@ -14,8 +14,8 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
                   PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; a run's SubagentHandback is
-                  denied while a background command, monitor or subagent it started has no task notification yet (a run
-                  cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
+                  denied while a background command, monitor or subagent it started has no task notification, TaskStop
+                  result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
                   kept as evidence/<slug>/subagent-<id>.md; PostToolUse: hand off at the context limit (a run, or main); else
                   a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since
                   that up or its last devtools call, is told once to `down` until it next plays

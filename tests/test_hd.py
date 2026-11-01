@@ -467,6 +467,14 @@ class R2(Sandbox):
             hook.end_run(p)
         s.assertEqual((out.getvalue(), hd.runs()[0]["ended"]), ("", None))   # its end reported: an idle stop, the run live
 
+    def test_a_task_stopped_with_taskstop_counts_as_ended(s):
+        stop = {"type": "user", "toolUseResult": {"message": "Successfully stopped task: b1", "task_id": "b1", "task_type": "local_bash"}}
+        gone = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "is_error": True,
+                "content": "<tool_use_error>No task found with ID: b2</tool_use_error>"}]}}
+        started = [{"type": "user", "toolUseResult": {"backgroundTaskId": i}} for i in ("b1", "b2")]
+        s.assertEqual(hook.running(started), ["b1", "b2"])
+        s.assertEqual(hook.running(started + [stop, gone]), [])            # stopped, or no longer found: both ended
+
     def test_a_hand_back_waits_for_its_subagents_and_keeps_their_answers(s):
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))

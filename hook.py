@@ -116,13 +116,15 @@ def usage_of(entries):
 
 def running(entries):
     """Background commands, monitors and subagents the agent started (a result's backgroundTaskId, taskId or async
-    agentId) with no task notification yet."""
+    agentId) with no task notification yet; one TaskStop stopped (its result's task_id) or no longer finds counts as ended."""
     started, done = set(), set()
     for e in entries:
         t = e.get("toolUseResult")
         if isinstance(t, dict) and (tid := t.get("backgroundTaskId") or t.get("taskId") or (t.get("isAsync") and t.get("agentId"))):
             started.add(tid)
-        done.update(re.findall(r"<task-id>(\w+)</task-id>", json.dumps(e)))
+        if isinstance(t, dict) and t.get("task_id"):
+            done.add(t["task_id"])
+        done.update(a or b for a, b in re.findall(r"<task-id>(\w+)</task-id>|No task found with ID: (\w+)", json.dumps(e)))
     return sorted(started - done)
 
 

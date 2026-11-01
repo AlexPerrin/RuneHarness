@@ -242,6 +242,7 @@ loginctl enable-linger alex && systemctl --user enable --now hd-tick.timer
 python3 hd.py                            # a pass, then the view
 python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
+the suite sets HD_SUITE=1 for every process it starts and refuses to load under it: a test's gate never runs the suite (a test's deliberate inner suite runs under HD_SUITE=nested, where EndToEnd skips)
 fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
 each tools branch ignores __pycache__/; no compiled cache is committed
 ```

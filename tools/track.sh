@@ -24,7 +24,7 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
-summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()'; }   # unittest's verdict and each failing test, whatever the tests print
+summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal, whatever the tests print
 check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contract at T, from the build copy (hd rows applies the hand-over's rules)
   wt=$(copy)

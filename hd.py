@@ -225,13 +225,13 @@ class Facts:
         return [{"id": c["id"], "author": (c.get("author") or {}).get("login", ""), "body": c.get("body") or ""} for c in json.loads(r[1] or "{}").get("comments") or []]
 
     def open_prs(s, repo):
-        """R4: the open PRs of an upstream repo [{number, branch, owner, head, draft}], None unknown."""
+        """R4: the open PRs of an upstream repo [{number, branch, owner, head, draft, title, body}], None unknown."""
         r = s.sh(["gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json",
-                  "number,headRefName,headRefOid,isDraft,headRepositoryOwner"], timeout=120)
+                  "number,headRefName,headRefOid,isDraft,headRepositoryOwner,title,body"], timeout=120)
         if r is None or r[0]:
             return None
         return [{"number": p["number"], "branch": p["headRefName"], "owner": (p.get("headRepositoryOwner") or {}).get("login", ""),
-                 "head": p["headRefOid"], "draft": p["isDraft"]} for p in json.loads(r[1] or "[]")]
+                 "head": p["headRefOid"], "draft": p["isDraft"], "title": p.get("title"), "body": p.get("body")} for p in json.loads(r[1] or "[]")]
 
     def containers(s):
         """{name: state} of every docker container, or None when docker cannot be reached."""
@@ -756,7 +756,7 @@ def upstream_at(ctx, ch, head):
     if not p or p["head"] != head or p["draft"]:
         return None if p is None else False
     done = [answered(ctx, ch, o["finding"], t) for o in ctx.changes.values() if not o.get("closed") and one_pr(o, ch) and o.get("finding")
-            and not isinstance(o["finding"], list) and (t := text(o["slug"], "pr-comment.md"))]
+            and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
     return None if None in done else all(done)
 
 
@@ -1483,7 +1483,7 @@ ATTRIBUTION = "\n\n🤖 Generated with [Claude Code](https://claude.com/claude-c
 
 def text(slug, name):
     f = EVID / slug / name
-    return f.read_text().strip() if f.exists() else ""
+    return unsigned(f.read_text()) if f.exists() else ""
 
 
 def opens(ctx, ch):
@@ -1491,19 +1491,35 @@ def opens(ctx, ch):
     return not ch.get("pr") or ch.get("opened") == ctx.head(ch)
 
 
+def reply_text(ctx, o):
+    """R4: the reply to o's finding: pr-reply-<finding>.md, else a reply-only change's pr-comment.md (a change with a
+    commit posts its pr-comment.md as the push comment, never as a reply)."""
+    return text(o["slug"], f"pr-reply-{o['finding']}.md") or (text(o["slug"], "pr-comment.md") if reply_only(ctx, o) else "")
+
+
+def unsigned(s):
+    """A text without the attribution line every post ends with (the carry adds it once)."""
+    return (s or "").replace("\r\n", "\n").strip().removesuffix(ATTRIBUTION.strip()).strip()
+
+
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
-    carry opens it, the comment naming the head when the push moves the PR (pr-comment.md when it names
-    the head, else `Updated to <head>.`), and each finding's reply (pr-comment.md of a change with a `finding`)."""
+    carry opens it, or each that differs from the open PR's live one; the comment naming the head when the push moves
+    the PR (pr-comment.md, the push summary, when it names the head, else `Updated to <head>.`), and each finding's reply."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":
         return [["release notes", None, text(slug, "release-notes.md")]]
-    out = [["title", None, text(slug, "pr-title.txt")], ["body", None, text(slug, "pr-body.md")]] if opens(ctx, ch) else []
+    p = ctx.upstream_pr(ch) or {}
+    out = []
+    for w, f in (("title", "pr-title.txt"), ("body", "pr-body.md")):
+        t = text(slug, f)
+        if opens(ctx, ch) or t and p.get(w) is not None and unsigned(p[w]) != t:  # no text, or the live one unread: kept as it is
+            out.append([w, None, t])
     if pushes(ctx, ch, head) or opens(ctx, ch):  # a PR already at the head (a reply-only change) gets no comment
-        c = "" if ch.get("finding") else text(slug, "pr-comment.md")
+        c = text(slug, "pr-comment.md")
         out.append(["comment", None, c if head[:9] and head[:9] in c else f"Updated to {head[:9]}."])
-    return out + [[f"reply {'to PR comment' if conversation(o['finding']) else 'in the thread of review comment'} {o['finding']}", o["finding"], text(o["slug"], "pr-comment.md")]
-                  for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and text(o["slug"], "pr-comment.md")]
+    return out + [[f"reply {'to PR comment' if conversation(o['finding']) else 'in the thread of review comment'} {o['finding']}", o["finding"], t]
+                  for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
 
 
 def card(ctx, ch, head):
@@ -1518,7 +1534,8 @@ def card(ctx, ch, head):
         acts = [*([] if p.get("head") == head else [f"push {head} to {r['name'].split('/')[0]}:{p.get('branch') or branch} (no force)"
                    + (f"; upstream PR {ch['pr']} is at {p['head'][:9]}" if p else "")]),
                 f"open a draft PR on {up} from {branch} into main (base {(ctx.base(ch) or '?')[:9]}), with the title and body below"
-                if opens(ctx, ch) else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})",
+                if opens(ctx, ch) else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
+                + "".join(f", replacing its {w} with the one below" for w, _, _ in txt if w in ("title", "body")),
                 *(["wait for every CI check to pass at the head"] if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
                 *(f"post the {w} below" for w, f, _ in txt if f), "mark it ready for review"]
     by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \
@@ -1603,7 +1620,8 @@ def reply(ctx, ch, up, pr, finding, body):
 
 def carry(ctx, ch, head, txt):
     """R4 R5: the upstream act exactly as its card shows it, each step logged and rerunnable: a release; or push
-    (no force), open the draft, CI green, comment naming the head, each reply, ready, the review requests read back."""
+    (no force), open the draft or update the open PR's title and body that differ, CI green, comment naming the head,
+    each reply, ready, the review requests read back."""
     r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
     up, owner, path, t = r.get("upstream"), r["name"].split("/")[0], str(P(r["path"])), {w: x for w, _, x in txt}
     if ch["kind"] == "release":
@@ -1624,6 +1642,9 @@ def carry(ctx, ch, head, txt):
                       "--body", t["body"] + ATTRIBUTION).rstrip("/").rsplit("/", 1)[1])
         put(ch["slug"], "opened", {"pr": pr, "head": head})  # a rerun updates this PR, never opens a second
         log(f"opened the draft PR {pr}")
+    elif (edit := [x for w in ("title", "body") if w in t for x in (f"--{w}", t[w] + (ATTRIBUTION if w == "body" else ""))]):
+        must("gh", "pr", "edit", str(pr), "-R", up, *edit)
+        log(f"updated the {' and '.join(w for w in ('title', 'body') if w in t)} of PR {pr}")
     if pushed or v.get("isDraft"):  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
         log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
         seen = None

@@ -36,11 +36,13 @@ gh, docker and the process table; a live check reads the real state.
    it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.
 4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in
    the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch
-   without the owner prefix, CI, the comment, each reply, ready), each exact text, the finding each reply quotes, the
+   without the owner prefix, replacing its title and body where they differ from the live ones, CI, the comment, each
+   reply, ready), each exact text, the finding each reply quotes, the
    verdict and evidence, and the yes and no commands; the same-head tips of one PR show one card; `hd approve` records
    the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw
    it; the carry runs only while the yes holds; a release card is published after the yes; the carry pushes (no force),
-   opens the draft, waits for green CI only when it pushes, comments naming the head, posts each finding's reply in its
+   opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with
+   the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its
    thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its
    result, and on red CI stops with the PR as it is; a PR the carry opened keeps the yes on a rerun; a PR already at the
    head, ready, with every reply posted, gets no card; a finding with no dev ref has its PR tip's head and no gate; a

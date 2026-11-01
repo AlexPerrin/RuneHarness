@@ -10,6 +10,7 @@ import hd, hook  # noqa: E402  (both read HD_ROOT at import)
 
 A, B, C, D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 TA, TB, TC = "ta" * 20, "tb" * 20, "tc" * 20
+PUSHED = f"Pushed {A[:9]}, {B[:9]}, {C[:9]} and {D[:9]}."
 
 
 class Fake(hd.Facts):
@@ -34,7 +35,7 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def orchestrator(s): return s.f.get("orchestrator", 1)  # None in f = no orchestrator session
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
-    def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
+    def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
         if ref.split("/")[0] in s.f.get("unknown", ()): return None
         if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
@@ -96,6 +97,7 @@ class Sandbox(unittest.TestCase):
         with open(s.root / "evidence" / slug / "contract.md", "a") as f:
             f.write(extra)
         (s.root / "evidence" / slug / "pr-body.md").write_text("body")
+        (s.root / "evidence" / slug / "pr-comment.md").write_text(PUSHED)       # names every head a test pushes
 
     def ctx(s, F):
         return hd.Ctx(F, hd.cfg())
@@ -967,7 +969,7 @@ class R4(Sandbox):
         (ev / "pr-title.txt").write_text("feat: x"); (ev / "pr-body.md").write_text("Fixes #354 thanks @rev")
         c = hd.tick(s.ctx(F), act=False)["card"][0]
         for want in (f"head {A}", f"1. push {A} to o:content/s1 (no force)", f"2. open a draft PR on u/f from content/s1 into main (base {B[:9]})",
-                     "### title\nfeat: x", "### body\nFixes #354 thanks @rev", f"### comment\nUpdated to {A[:9]}.", "rows pass",
+                     "### title\nfeat: x", "### body\nFixes #354 thanks @rev", f"### comment\n{PUSHED}", "rows pass",
                      f"evidence {s.root / 'evidence' / 's1'}", f"yes: ! python3 {hd.ROOT}/hd.py approve s1 {A}"):
             s.assertIn(want, c)
         F.f["prs"] = {"u/f": [{"number": 445, "branch": "content/s1", "owner": "other", "head": D, "draft": False}]}
@@ -1013,7 +1015,7 @@ class R4(Sandbox):
         s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertTrue(steps[-2].startswith("review request: none listed")); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
         s.assertEqual(g.did("push")[0][-1], f"{A}:refs/heads/content/s1")       # no force
         s.assertEqual(g.did("pr create")[0][g.did("pr create")[0].index("-R") + 1], "u/f")
-        s.assertTrue(g.did("pr comment")[0][-1].startswith(f"Updated to {A[:9]}."))
+        s.assertTrue(g.did("pr comment")[0][-1].startswith(PUSHED))
         s.assertEqual((hd.rec("s1", "opened")["pr"], hd.rec("s1", "ship")["head"]), (42, A))   # a rerun updates PR 42; the pass never carries again
         F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
         ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, A))
@@ -1095,6 +1097,30 @@ class R4(Sandbox):
         s.assertEqual([c[6] for c in g.calls if "POST" in c], ["body=> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION])
         F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
         s.assertNotIn("body", [w for w, _, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])])
+
+    def test_a_comment_not_naming_every_pushed_commit_goes_back_to_dev_with_no_card(s):
+        F = Fake(**{**FACTS, "commits": {A: {C, A}}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
+        s.ready(F, pr=7)                                                         # the push adds C and A on top of the live head D
+        ev = s.root / "evidence" / "s1" / "pr-comment.md"
+        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}.")                      # stale: written before the head moved to A
+        st = s.state(F, "s1")
+        s.assertEqual((st["actor"], st["input"]), ("dev", ["comment", A, [A]])); s.assertIn(A[:9], st["detail"])
+        s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])
+        ev.write_text("")                                                        # no comment: no generic text, back to dev
+        s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A, C]])
+        ev.write_text(f"Pushed {C[:9]} and {A[:9]}.")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertIn(f"### comment\nPushed {C[:9]} and {A[:9]}.", hd.tick(s.ctx(F), act=False)["card"][0])
+        s.assertIn(["fetch", "origin", "pull/7/head"], F.ran)                   # the live head D, absent from the clone, is fetched by the PR
+
+    def test_a_new_prs_comment_names_only_its_head(s):
+        F = Fake(**{**FACTS, "commits": {A: {C, A}}})                            # main..head holds C and A: a new PR names only A
+        s.ready(F)
+        ev = s.root / "evidence" / "s1" / "pr-comment.md"
+        ev.write_text(f"Opens the PR at {C[:9]}.")
+        s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A]])
+        ev.write_text(f"Opens the PR at {A[:9]}.")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
 
     def test_a_central_change_is_carried_to_centrals_upstream(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")

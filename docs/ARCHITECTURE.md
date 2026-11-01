@@ -119,6 +119,12 @@ next(change):
     an open change of the PR it     yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips),
     waits for (head not in this       its texts covering every change of it; a finding with no dev ref has its tip's head
     head, or built on it)?
+    pr-comment.md names the head    no → dev (input comment, head, the commits it misses): no card, no generic text
+    (a new PR) or every commit
+    since the live head (git
+    rev-list live-head..head, the
+    head fetched by pull/N/head
+    when the clone lacks it)?
     approval.json at head, texts?   no → card in the console: the acts in order (push when the PR is not at head, open the draft
                                     or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the
                                     comment (pr-comment.md) when it pushes, each reply (pr-reply-<finding>.md),

@@ -1,5 +1,6 @@
 ---
 slug: server-clan-channels
+deps: [harness-no-powershell]
 track: server
 kind: change
 title: 'Clans: the server sends no clan channel or clan settings state'

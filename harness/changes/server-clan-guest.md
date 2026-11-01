@@ -1,5 +1,6 @@
 ---
 slug: server-clan-guest
+deps: [harness-no-powershell]
 track: server
 kind: change
 title: 'Clans: guest clans (join, chat and leave another clan''s channel as a guest)'

@@ -1,5 +1,6 @@
 ---
 slug: server-clan-broadcasts
+deps: [harness-no-powershell]
 track: server
 kind: change
 title: 'Clans: clan broadcasts'

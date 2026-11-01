@@ -1,5 +1,6 @@
 ---
 slug: cannon-354-reset-mcannonmulti
+deps: [harness-no-powershell]
 finding: 4433254921
 track: server
 title: '#354: reset mcannonmulti (DwarfMulticannon.kt:463)'

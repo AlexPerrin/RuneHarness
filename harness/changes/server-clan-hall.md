@@ -1,5 +1,6 @@
 ---
 slug: server-clan-hall
+deps: [harness-no-powershell]
 track: server
 kind: change
 title: 'Clans: Clan Hall, coffer, vexillum, cloak, events and recruitment board'

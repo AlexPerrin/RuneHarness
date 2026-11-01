@@ -134,6 +134,13 @@ class R1(Sandbox):
     def goal(s, slug="client-api", track="client", target=100, deps=()):
         (s.root / "harness" / "goals" / f"{slug}.md").write_text(f"---\nslug: {slug}\ntrack: {track}\ntarget: {target}\ndeps: {list(deps)}\n---\nthe goal")
 
+    def test_a_goal_without_target_is_skipped_not_a_crash(s):
+        (s.root / "harness" / "goals" / "ask.md").write_text("---\nslug: ask\ntrack: harness\n---\nthe user's words")
+        hd.defs.bad.clear()
+        v = hd.tick(s.ctx(Fake(**FACTS)))
+        s.assertEqual(v["goal"], [])
+        s.assertTrue(any("ask.md: a goal needs a track and a numeric target" in a for a in v["alert"]))
+
     def test_a_goal_dep_not_live_holds_its_measure(s):
         s.change("s1"); s.agreed("s1"); s.goal(deps=["s1"])
         F = Fake(**FACTS)
@@ -371,7 +378,7 @@ class R2(Sandbox):
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
         s.assertEqual(list(new), ["s1-c8"])                                # one change, once: replies, ours, bots, carried skipped
         c = new["s1-c8"]
-        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1"], 354, 8, "P0", "content/cannon"))
+        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1"], 354, 8, "P1", "content/cannon"))
         con = hd.contract("s1-c8")
         s.assertIsNone(con["agreed"])                                      # the inherited contract is agreed again by qa
         s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
@@ -992,6 +999,20 @@ class R6(Sandbox):
         s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")
         c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
         s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(Fake(**FACTS)))["spawn"]], ["h1-1"])
+
+    def test_pr_changes_before_new_content_and_blockers_raised(s):
+        for slug, k in (("q0", {"priority": "P0"}), ("p1", {"priority": "P1", "pr": 354}), ("q3", {"priority": "P3"}), ("q2", {"priority": "P2"})):
+            s.change(slug, **k); s.agreed(slug)
+        s.change("c3", track="client", priority="P3", deps=["q2"]); s.agreed("c3", track="client")
+        c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
+        F = Fake(**FACTS)
+        first = lambda: [x.split(" ")[0] for x in hd.tick(s.ctx(F), act=False)["change"]]
+        s.assertEqual(first(), ["p1", "q2", "c3", "q0", "q3"])          # a PR's change, or a blocker (q2 holds c3), before new content, whatever its priority
+        hd.put("p1", "state", {"state": "test server deploy blocked by q3's conflict"})
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x.split(" ")[0] for x in v["change"]][:2], ["p1", "q3"])   # the blocker rises to its blocked change's P1
+        s.assertIn("q3 [server P1]", " ".join(v["change"]))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["p1-1"])
 
     def test_same_tree_never_builds_or_gates_twice(s):
         s.change("s1"); s.agreed("s1")

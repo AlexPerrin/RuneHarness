@@ -3,7 +3,8 @@
 
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
-PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
+PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
+                A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
@@ -200,6 +201,16 @@ def deny_users_word(p):
                                                  "permissionDecisionReason": f"hd {m[2]} is the user's own word, typed by the user as a `!` command, never run by an agent. Report it; do not work around it."}}))
 
 
+def deny_dep_cycle(p):
+    """R5: a definition commit (a git commit naming harness/) is denied while the definitions hold a dependency cycle."""
+    cmd = (p.get("tool_input") or {}).get("command") or ""
+    if re.search(r"\bgit\b[^;&|\n]*\bcommit\b", cmd) and "harness/" in cmd and (cy := hd.cycles(hd.defs("changes"))):
+        why = "; ".join(" -> ".join(c) for c in cy)
+        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"dependency cycle {why}")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                                 "permissionDecisionReason": f"the definitions hold a dependency cycle ({why}): remove one of its deps, then commit."}}))
+
+
 def context_of(path):
     """The last assistant message's context size, from the transcript's tail (never the whole file)."""
     try:
@@ -281,7 +292,7 @@ def idle_desktops(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), hold_handback(p)),"PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), deny_dep_cycle(p), hold_handback(p)),"PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

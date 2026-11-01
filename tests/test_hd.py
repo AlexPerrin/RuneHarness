@@ -988,6 +988,29 @@ class R5(Sandbox):
             hd.cmd_new(["h7", "--track", "harness", "--title", "x", "--blocks", "nope"])
         s.assertNotIn("h7", hd.defs("changes"))
 
+    def test_a_dependency_cycle_is_one_alert_and_refused_by_hd_new_and_a_definition_commit(s):
+        import io, contextlib
+        s.change("c1", deps=["c2"]); s.change("c2", deps=["c3"]); s.change("c3", deps=["c1"]); s.change("c4", deps=["c1"])
+        s.change("c5", deps=["c6"]); s.change("c6", deps=["c5"], closed="answer-1: no")   # through a closed change: no cycle
+        F = Fake(**FACTS)
+        alerts = [a for a in hd.tick(s.ctx(F), act=False)["alert"] if "cycle" in a]
+        s.assertEqual(alerts, ["dependency cycle c1 -> c2 -> c3 -> c1: no change in it can move; remove one of its deps"])
+        s.assertEqual(s.state(F, "c2")["state"], "in dependency cycle c1 -> c2 -> c3 -> c1")
+        s.assertEqual(s.state(F, "c4")["state"], "waiting on c1")                          # outside the cycle: a plain wait
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            for c in ("git commit -m x -- harness/changes/c1.md", "git add harness/changes/c3.md && git commit -m y"):
+                hook.deny_dep_cycle({"agent_type": "orchestrator", "tool_input": {"command": c}})
+            hook.deny_dep_cycle({"agent_type": "dev", "tool_input": {"command": "git commit -m z -- hd.py"}})   # no definition: allowed
+        s.assertEqual(out.getvalue().count('"deny"'), 2)
+        s.change("c3", deps=[])
+        s.assertEqual(hd.cycles(hd.defs("changes")), [])
+        for a in (["n1", "--deps", "c4", "--blocks", "c3"], ["n2", "--blocks", "n2"]):   # closes c1 -> c2 -> c3 -> n1 -> c4 -> c1; a self-dep
+            with s.assertRaises(SystemExit):
+                hd.cmd_new([a[0], "--track", "harness", "--title", "x", *a[1:]])
+            s.assertNotIn(a[0], hd.defs("changes"))
+        s.assertEqual(hd.defs("changes")["c3"]["deps"], [])
+
     def test_repair_logged_only_on_observed_effect_and_raised_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS, containers={"server-s1": "running"}, down_works=False)

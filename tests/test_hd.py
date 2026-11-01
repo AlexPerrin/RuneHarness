@@ -952,13 +952,18 @@ class R4(Sandbox):
             with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
                 hd.cmd_hold(["s1", *a])
         hold("not", "yet")
-        s.assertEqual(hd.defs("changes")["s1"]["held"], f"{A}: not yet")
+        s.assertNotIn("held", hd.defs("changes")["s1"])                         # a no at a head is state, bound to it as the yes is
+        s.assertEqual(hd.rec("s1", "hold")["held"], f"{A}: not yet")
         s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("held by the user: not yet", "wait"))
         s.assertEqual(hd.tick(s.ctx(F))["card"], [])
+        s.assertTrue(hd.rec("s1", "hold"))                                       # at its head the pass keeps it
         F.f["refs"]["fork/dev/s1"] = D; F.f["trees"][D] = TC                     # a new head: the hold lapses, the card shows
         s.gated("s1", F); s.verdict("s1", D, {"ok": "pass", "j1": "pass"}, F)
         s.assertEqual((s.state(F, "s1")["actor"], s.state(F, "s1")["input"]), ("user", D))
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.rec("s1", "hold"))                                     # the pass removes the no of a head that is gone
         hold("--all", "after the auth changes")                                  # held at every head until the lift
+        s.assertEqual(hd.defs("changes")["s1"]["held"], "all: after the auth changes")
         s.assertEqual(s.state(F, "s1")["actor"], "wait")
         hold("--lift")
         s.assertNotIn("held", (s.root / "harness" / "changes" / "s1.md").read_text())

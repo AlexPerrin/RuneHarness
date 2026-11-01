@@ -1152,7 +1152,7 @@ def public(ctx, ch, head):
     if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
         return step("carrying upstream", "script", act=lambda: None)
     if not approved(ctx, ch, head):
-        at, _, why = str(ch.get("held") or "").partition(": ")
+        at, _, why = str(ch.get("held") or (rec(slug, "hold") or {}).get("held") or "").partition(": ")
         if at in ("all", head):  # the user's no or word: no card until a new head or their lift (`hd hold`)
             return step("held by the user" + (f": {why}" if why else ""), "wait")
         miss = unnamed(ctx, ch, head)
@@ -1746,6 +1746,8 @@ def _pass(ctx, act):
             view["card"].append(card(ctx, ch, st["input"]))
         elif st["actor"] == "alert":
             view["alert"].append(f"{ch['slug']}: {st['state']}")
+        if act and (h := rec(ch["slug"], "hold")) and h["head"] != ctx.head(ch):  # R4: a no lapses with its head
+            drop(ch["slug"], "hold")
         if (a := rec(ch["slug"], "ask")):
             view["question"].append(f"{ch['slug']}: {a['text']}")
         last = rec(ch["slug"], "state")
@@ -2154,21 +2156,26 @@ def cmd_close(a):
 
 
 def cmd_hold(a):
-    """R4: `hd hold <slug> [--all|--lift] [<why>]`, the user's no or word: `held: <head|all>` in the definition (the
-    orchestrator commits it); a hold at a head lapses at a new head, --all holds until --lift."""
+    """R4: `hd hold <slug> [--all|--lift] [<why>]`, the user's no or word. A no at a head is bound to it as the yes is,
+    `state/<slug>/hold.json` (the pass drops it once the head moves); --all is `held: all` in the definition (the
+    orchestrator commits it) until --lift, which removes both."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     flag = a[1] if len(a) > 1 and a[1] in ("--all", "--lift") else None
     why = " ".join(a[2:] if flag else a[1:])
+    at = None if flag == "--lift" else "all" if flag else ctx.head(ch) or refuse("no head to hold")
+    held = at and (f"{at}: {why}" if why else at)
     f = P(ch["path"])
     m, body = _frontmatter(f.read_text())
-    m.pop("held", None)
-    if flag != "--lift":
-        at = "all" if flag else ctx.head(ch) or refuse("no head to hold")
-        m["held"] = f"{at}: {why}" if why else at
-    f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False, width=10**6) + "---\n" + body)
-    event(change=ch["slug"], record="hold", held=m.get("held", ""))
-    print(f"{ch['slug']} " + (f"held: {m['held']}" if "held" in m else "lifted"))
+    if m.pop("held", None) or flag:
+        if flag:
+            m.update({"held": held} if held else {})
+        f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False, width=10**6) + "---\n" + body)
+    drop(ch["slug"], "hold")
+    if held and not flag:
+        put(ch["slug"], "hold", {"head": at, "held": held})
+    event(change=ch["slug"], record="hold", held=held or "")
+    print(f"{ch['slug']} " + (f"held: {held}" if held else "lifted"))
 
 
 def cmd_approve(a):

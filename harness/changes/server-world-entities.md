@@ -5,7 +5,7 @@ kind: local
 title: 'World entities: the server never creates one (no boat or other world entity
   in any scene)'
 priority: P2
-deps: []
+deps: [harness-server-build-tree]
 created: '2026-10-25T20:31:36Z'
 goal: client-api
 ---

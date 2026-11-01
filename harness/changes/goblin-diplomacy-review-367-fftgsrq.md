@@ -10,7 +10,7 @@ folded:
 - IC_kwDOQBbPT88AAAABhguqsg
 created: '2026-10-25T12:42:01Z'
 title: 'goblin-diplomacy-review-367: finding by a-thoren on PR #367'
-deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository]
+deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]
 ---
 ## Change
 Answer the maintainer's comment on PR #367 with a commit on top of the PR head and a reply in pr-comment.md.

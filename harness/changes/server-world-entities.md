@@ -7,7 +7,7 @@ title: 'World entities: the server never creates one (no boat or other world ent
 priority: P2
 created: '2026-10-25T20:31:36Z'
 goal: client-api
-deps: [harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository]
+deps: [harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]
 ---
 Blocks the client-api probe's WorldEntity (9) and WorldEntityConfig (6) rows (client change client-api-probe-reach): WorldView.worldEntities() is always empty in the Android host, so they stay unreached.
 

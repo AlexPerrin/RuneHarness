@@ -2477,6 +2477,16 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, run("rev-parse", "local/harness"), run("ls-remote", "fork")), (0, before, ""), r.stdout + r.stderr)
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_a_carried_heads_tests_run_without_the_gates_env(s):  # the fork's tests read T: the gate's T named their logs
+        tmp = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, tmp, True); fork = tmp / "fork"
+        run = lambda *a: subprocess.run(["git", "-C", str(fork), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "local/harness", str(fork)], check=True); (fork / "tools").mkdir()
+        (fork / "tools/test_env.py").write_text("import os, unittest\nclass E(unittest.TestCase):\n    def test(s): s.assertNotIn('T', os.environ)\n")
+        run("add", "-A"); run("commit", "-qm", "t"); C = run("rev-parse", "HEAD")
+        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tools"], capture_output=True, text=True,
+                           env={**os.environ, "SLUG": "s1", "T": "t", "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server"})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("OK", r.stdout)
+
     def test_ship_moves_nothing_when_a_tools_branch_moved(s):
         import subprocess
         tmp = Path(tempfile.mkdtemp()); origin, repo, fork = tmp / "origin.git", tmp / "live", tmp / "fork"

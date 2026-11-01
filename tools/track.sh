@@ -44,13 +44,13 @@ check_docs() {  # every requirement has its test class and its acceptance row; t
   [ "$(grep -cE '^class R[1-8]\(' "$BUILD/tests/test_hd.py")" = 8 ] && [ "$(grep -c '"id": "R' "$BUILD/docs/ACCEPTANCE.json")" = 8 ] || { echo "a requirement lacks its test class or acceptance row"; exit 1; }
   (cd "$BUILD" && python3 tools/docfmt.py --check docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md)   # one fact per line: siblings merge (R8)
 }
-check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head
+check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head (with HOME and PATH alone: the gate's T, TCOMMIT and SLUG are not the product tests')
   for t in ${TOOLS:-}; do
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/$SLUG-build
     git -C "$path" merge-base --is-ancestor "$branch" "$sha" || { echo "$path: $sha is not a fast-forward of $branch"; exit 1; }
     if [ -d "$wt" ]; then git -C "$wt" checkout -q --detach "$sha"; else git -C "$path" worktree add -q --detach "$wt" "$sha"; fi
     tests=$(git -C "$wt" ls-files tools | grep -E '(^|/)test_[^/]*\.py$' || true)
-    [ -z "$tests" ] || (cd "$wt" && python3 -m unittest $tests 2>&1 | summary) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
+    [ -z "$tests" ] || (cd "$wt" && env -i HOME="$HOME" PATH="$PATH" python3 -m unittest $tests 2>&1 | summary) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
   done
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)

@@ -33,6 +33,7 @@ gate() {  # every check: and gate: row of the contract at T, from the build copy
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute)
   mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'shipping upstream|publishing v' | sort || true)
   theirs=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run | grep -E 'shipping upstream|publishing v' | sort || true)
+  mine=$( (echo "$mine"; python3 "$repo/hd.py" tick --dry-run | grep -E 'shipping upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
   extra=$(comm -13 <(echo "$mine") <(echo "$theirs")); [ -z "$extra" ] || { echo "plans a public act main does not: $extra"; exit 1; }
 }
 check_docs() {  # every requirement has its test class and its acceptance row

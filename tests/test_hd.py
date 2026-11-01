@@ -175,6 +175,7 @@ class R2(Sandbox):
         s.assertEqual((run["role"], run["started"]), ("dev", None))
         s.assertIn("Read and follow", spawn[0])
         s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in main's context
+        s.assertIn(f"Base: origin/HEAD at {B[:9]}", open(run["brief"]).read())   # the dev branches from the base tip the brief names
         with mock.patch.object(hook, "start_pass") as sp:
             hook.bind(payload(run, "ag1", "SubagentStart", s.root))
             F.f["refs"]["origin/client/c1"] = A                       # the dev pushes and hands over
@@ -333,14 +334,15 @@ class R4(Sandbox):
         s.assertIn("nothing to approve", str(e.exception))
         s.assertIsNone(hd.rec("s1", "approval"))
 
-    def test_hook_denies_approve_in_subagent_only(s):
+    def test_hook_denies_approve_and_close_in_subagent_only(s):
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})
-            hook.deny_approve({"tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})          # main: allowed
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
-        s.assertEqual(out.getvalue().count('"deny"'), 1)
+            for verb in ("approve s1 " + A, "close s1 done"):
+                hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
+                hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
+            hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
+        s.assertEqual(out.getvalue().count('"deny"'), 2)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))

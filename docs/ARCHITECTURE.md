@@ -10,7 +10,7 @@ hd.yaml           repos, paths, the agent count, the context limit, the fork's p
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
                   started without waiting;
-                  PreToolUse: a subagent may not `hd approve`; PostToolUse: hand off at the context limit
+                  PreToolUse: a subagent may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
@@ -103,7 +103,7 @@ the context limit to write `handoff.md` and hand back; the successor is listed w
 **Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
 no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>
 <head>`, the one program sudoers allows, which holds the full token and acts only when `approval.json` names that
-head. The one hook rule: `hd approve` is denied inside a subagent.
+head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent.
 
 | | Client | Server | Harness |
 |---|---|---|---|

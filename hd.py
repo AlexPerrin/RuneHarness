@@ -556,12 +556,16 @@ def ship_test(ctx, ch, st, tint, act):
 def brief(ctx, ch, st, name, role):
     con, hoff = contract(ch["slug"]), EVID / ch["slug"] / "handoff.md"
     root = track_root(ctx.cfg, ch["track"])
+    base = TRACK[ch["track"]]["base"]
+    if base == "HEAD":  # the harness base: name the live checkout's branch, not a ref every clone reads as its own
+        r = ctx.F.sh(["git", "-C", ctx.clone(ch), "branch", "--show-current"])
+        base = (r and r[0] == 0 and r[1].strip()) or base
     v = [x for x in verdicts(ch["slug"]) if x["head"] == ctx.head(ch)] if ch.get("path") else []
     lines = [f"# {role} run {name}: {ch['slug']} ({ch['track']}, {st.get('mode', role)})", "",
              f"Read {root}/tools/track.md, then run `python3 {ROOT}/hd.py show {ch['slug']}`.",
              f"Change: {ch.get('path', '')}  Evidence: {EVID / ch['slug']}  Contract: {EVID / ch['slug'] / 'contract.md'}",
              f"Clone: {ctx.clone(ch)}/.worktrees/{ch['slug']}  Build copy: {ctx.clone(ch)}/.worktrees/{ch['slug']}-build  Script: {root}/tools/track.sh",
-             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {TRACK[ch['track']]['base']}  Head now: {ctx.head(ch) or 'none'}",
+             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {base} at {(ctx.base(ch) or 'unknown')[:9]}  Head now: {ctx.head(ch) or 'none'}",
              f"State: {st['state']}", ""]
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]

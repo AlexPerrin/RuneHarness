@@ -13,11 +13,13 @@ cannot finish (a hang, a refused login) is an error to hand off, not a reason to
 
 A **contract** brief (server or central, before any code): write `evidence/<slug>/accuracy.md` from RSProx recordings and the
 wiki, then `evidence/<slug>/contract.md`: the seed rows of the track's `tools/track.md`, one row per accuracy rule, the rows the
-definition and the user's answers imply, and the rules header with the blob shas of upstream `main`'s AGENTS.md,
+definition and the user's answers imply, each proved through the change's own build and its dependencies (a proof that
+needs a change depending on this one is that change's row), and the rules header with the blob shas of upstream `main`'s AGENTS.md,
 CONTRIBUTING.md and PR template. A scope or overlap question the sources cannot settle: `hd ask <slug> "..."`, once.
 End with `agreed: <run name>` in the header.
 
-A **judge** brief: bring the change's build up with `<repo>/tools/track.sh up <slug>`, check every row of the contract
+A **judge** brief: bring the change's build up with `<repo>/tools/track.sh up <slug>` (central: the server's base with
+this Central built in), check every row of the contract
 from that build, in game for every player-facing claim, and record `hd verdict <slug> <head> <rows.json>` with every
 row `pass` or `fail` and a note per failure; the command refuses a missing row. Failed rows that are text only
 (PR title, body, comment): fix the text in the evidence dir and mark them pass. Read-heavy lookups go to a

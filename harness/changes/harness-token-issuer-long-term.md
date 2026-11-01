@@ -3,7 +3,7 @@ slug: harness-token-issuer-long-term
 track: harness
 title: A long-term token issuer for the test stack
 kind: change
-priority: P2
+priority: P0
 deps:
 - harness-desktop-token-login
 created: '2026-11-01T10:08:58Z'

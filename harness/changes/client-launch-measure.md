@@ -3,7 +3,7 @@ slug: client-launch-measure
 track: harness
 title: 'measure client-launch: launch-to-gameplay timeline from logcat and devtools'
 kind: change
-priority: P1
+priority: P0
 goal: client-launch
 created: '2026-11-01T01:01:19Z'
 deps: [harness-device-network-block, harness-no-powershell, client-devtools-login]

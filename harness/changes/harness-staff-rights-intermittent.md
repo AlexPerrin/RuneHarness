@@ -3,7 +3,7 @@ slug: harness-staff-rights-intermittent
 track: harness
 title: STAFF rights hold on every up, not on a retry
 kind: change
-priority: P1
+priority: P0
 deps: []
 created: '2026-11-01T07:43:08Z'
 ---

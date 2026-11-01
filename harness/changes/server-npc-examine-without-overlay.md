@@ -3,7 +3,7 @@ slug: server-npc-examine-without-overlay
 track: server
 title: 'NPC examine: cache examines for NPCs without a TOML overlay'
 kind: change
-priority: P2
+priority: P3
 deps: []
 created: '2026-11-01T06:40:45Z'
 ---

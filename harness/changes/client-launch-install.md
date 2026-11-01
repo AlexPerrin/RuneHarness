@@ -3,7 +3,7 @@ slug: client-launch-install
 track: harness
 title: 'up: install the APK only when the device''s copy differs'
 kind: change
-priority: P2
+priority: P0
 goal: client-launch
 units:
 - launch:install

@@ -3,7 +3,7 @@ slug: quest-impcatcher
 track: server
 title: 'Imp Catcher: 1:1 with the official game'
 kind: change
-priority: P2
+priority: P3
 goal: server-content
 units:
 - quest:impcatcher

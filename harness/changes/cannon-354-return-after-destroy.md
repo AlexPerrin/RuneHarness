@@ -4,7 +4,7 @@ finding: 4433259172
 track: server
 title: '#354: return after a shot that destroys the cannon (DwarfMulticannon.kt:396)'
 kind: change
-priority: P0
+priority: P1
 pr: 354
 created: '2026-10-31T23:42:50Z'
 deps: [harness-no-powershell, cannon-review-354, harness-server-build-musicrepository, harness-desktop-first-login]

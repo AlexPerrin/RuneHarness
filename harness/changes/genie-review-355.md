@@ -4,7 +4,7 @@ pr: 355
 track: server
 kind: change
 title: 'Genie #355: address maintainer review and our gate findings'
-priority: P0
+priority: P1
 created: '2026-10-24T19:31:52Z'
 branch: content/genie
 network: true

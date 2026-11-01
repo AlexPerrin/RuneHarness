@@ -3,7 +3,7 @@ slug: quest-restlessghost
 track: server
 title: 'The Restless Ghost: 1:1 with the official game'
 kind: change
-priority: P2
+priority: P3
 goal: server-content
 units:
 - quest:restlessghost

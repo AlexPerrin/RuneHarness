@@ -3,7 +3,7 @@ slug: harness-no-runs-without-docker
 track: harness
 title: The pass lists no run that needs Docker while Docker is down; it alerts once
 kind: change
-priority: P1
+priority: P0
 deps: []
 created: '2026-11-01T10:06:35Z'
 ---

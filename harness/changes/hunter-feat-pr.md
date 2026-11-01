@@ -4,7 +4,7 @@ track: server
 kind: change
 title: 'Hunter #408: the entire Hunter skill'
 pr: 408
-priority: P3
+priority: P2
 created: '2026-10-25T02:32:09Z'
 branch: feat/hunter
 deps: [harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]

@@ -5,7 +5,7 @@ finding: [4345861694]
 track: server
 kind: change
 title: 'Cannon #354: address maintainer review'
-priority: P0
+priority: P1
 created: '2026-10-24T19:31:52Z'
 branch: content/cannon
 network: true

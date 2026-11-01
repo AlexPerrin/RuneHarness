@@ -108,6 +108,8 @@ next(change):
     a same-PR change's built on it;
     or the PR at head, ready, ours
     in every finding's thread)?
+    a dependency upstream in        yes → wait on its upstream merge (it is in no PR of this repo)
+    another repo, not merged there?
     an open change of the PR it     yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips),
     waits for (head not in this       its texts covering every change of it; a finding with no dev ref has its tip's head
     head, or built on it)?

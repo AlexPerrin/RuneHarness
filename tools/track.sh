@@ -3,7 +3,8 @@
 # EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
-# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push).
+# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push). hd runs
+# gate and ship for the harness batch, slug ship-harness, NAMES its changes.
 set -euo pipefail
 verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
 repo=$(cd "$(dirname "$0")/.." && pwd)   # the harness code; root: where state and evidence live
@@ -26,9 +27,10 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
 }
 summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal, whatever the tests print
 check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | summary); }
-gate() {  # every check: and gate: row of the contract at T, from the build copy (hd rows applies the hand-over's rules)
+gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; kept by T as gate-<T>
   wt=$(copy)
-  if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "$slug" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
+  if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
+  cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute)
   mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
@@ -57,7 +59,7 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"
   done
   if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass rebases a carried head onto its moved branch (a conflict: the dev) and re-gates
-    rm -f "$state/proc-ship.json" "$state/gate.json"; echo "$moved moved past T's base; re-gate"; exit 0
+    rm -f "$state/proc-ship.json"; echo "$moved moved past T's base; the next pass merges the batch again"; exit 0
   fi
   for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}
@@ -66,6 +68,7 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     git -C "$wt" merge -q --ff-only "$sha"; git -C "$path" push -q "$remote" "$branch"; echo "$branch at ${sha:0:9}, pushed to $remote"
   done
   git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
+  rm -f "$state"/gate-*.json   # every kept gate was of a tree on the old base
 }
 
 case $verb in build|gate|check-tests|check-dry-run|check-docs|check-tools|ship) "${verb//-/_}" ;; *) echo "verbs: build gate check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac

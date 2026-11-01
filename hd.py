@@ -595,6 +595,7 @@ class Ctx:
         defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
         s.runs, s.memo, s.alerts, s.docker = runs(), {}, [], True
+        s.batching, s.batched = False, None  # R8: the harness batch, computed once per pass
         for c in s.changes.values():  # R4: an open upstream PR is found by its head branch (no owner prefix), from our fork
             if upstream(c) and not c.get("pr"):
                 if (p := next((p for p in s.upstream_prs(c) or [] if p["branch"] == (c.get("branch") or f"content/{c['slug']}")
@@ -1065,7 +1066,7 @@ def nxt(ctx, ch):
             behind[n] = path
     if behind:
         return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
-    if not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated: the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
+    if track != "harness" and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a harness head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
         T = ctx.T(ch, head)
         if T is None:
             return step("tree unknown", "unknown")
@@ -1127,7 +1128,74 @@ def nxt(ctx, ch):
         return {**st, "deploy": True} if live is False else st
     if ch["kind"] == "release":
         return public(ctx, ch, head)
+    if track == "harness":
+        return step("ready", "batch") if ctx.batching else batch(ctx).get(slug) or step("ready: the next pass batches it", "wait")
     return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
+
+
+def batch(ctx):
+    """R8: the harness ship → {slug: step}. Every harness change at its ship step, in hand-over order, merges onto the live
+    branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member, or carrying a repo's
+    tools another member carries, waits for the next batch. Each prefix of the batch is a tree, its gate keyed by that tree
+    (state/ship-harness/gate-<key>.json): the longest prefix whose gate passed ships; with none, the whole batch is gated, and
+    after a failure the first half of the failing prefix, down to the first member alone, whose failure is its dev's and which
+    leaves the batch. All passing: one gate, one ship; a failure costs log2 of the batch's gates."""
+    if ctx.batched is not None:
+        return ctx.batched
+    ctx.batching = True
+    try:
+        members = sorted((c for c in ctx.changes.values() if c["track"] == "harness" and nxt(ctx, c)["actor"] == "batch"),
+                         key=lambda c: ((rec(c["slug"], "handover") or {}).get("ts", ""), c["slug"]))
+    finally:
+        ctx.batching = False
+    me = {"slug": "ship-harness", "track": "harness", "deps": []}
+    clone, base, failed, script = ctx.clone(me), ctx.base(me), {}, ctx.script(me)
+    repos = ctx.cfg["repos"]
+    while True:
+        out, pre, cur, tools = dict(failed), [], base, {}  # pre: [(change, T commit, key, tools)], one per prefix
+        for c in members:
+            slug, h, t = c["slug"], ctx.head(c), ctx.tools(c)
+            alone = base and ctx.F.merge(clone, base, h, f"T: {slug} {h[:9]} onto {base[:9]}")
+            if not alone:
+                out[slug] = step("tree unknown", "unknown")
+                continue
+            if alone[0] == "conflict":
+                out[slug] = step("tree conflict: dev", "dev", mode="code", input=["conflict", h, contract(slug)["hash"]], detail=alone[1])
+                continue
+            if (o := next((p[0]["slug"] for p in pre if set(ctx.tools(p[0])) & set(t)), None)):
+                out[slug] = step(f"waiting for the batch ahead: {o} carries tools of {', '.join(sorted(set(t) & set(tools)))}", "wait")
+                continue
+            r = alone if cur == base else ctx.F.merge(clone, cur, h, f"T: {slug} {h[:9]}")
+            if r is None or r[0] != "ok":
+                out[slug] = step("tree unknown", "unknown") if r is None else step(f"waiting for the batch ahead: conflicts with {', '.join(p[0]['slug'] for p in pre)}", "wait")
+                continue
+            tr = ctx.F.tree(clone, r[1], "harness")
+            if tr is None:
+                out[slug] = step("tree unknown", "unknown")
+                continue
+            cur, tools = r[1], {**tools, **t}
+            pre.append((c, cur, tr + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), dict(tools)))
+        res = [rec("ship-harness", f"gate-{p[2]}") for p in pre]
+        if res and res[0] and not res[0]["ok"]:  # the first member alone fails: its dev's step (shortcut: a live branch that fails its own gate is blamed on it)
+            c = pre[0][0]
+            failed[c["slug"]] = step("gate failed: dev", "dev", mode="code", input=["gate", pre[0][2], contract(c["slug"])["hash"]], detail=res[0].get("detail", ""))
+            members = [m for m in members if m is not c]
+            continue
+        break
+    ctx.batched = out
+    if not pre:
+        return out
+    ok = [i for i, g in enumerate(res) if g and g["ok"]]
+    bad = [i for i, g in enumerate(res) if g and not g["ok"]]
+    i = ok[-1] if ok else (bad[0] + 1) // 2 - 1 if bad else len(pre) - 1
+    _, tc, key, tl = pre[i]
+    env = {"SLUG": "ship-harness", "T": key, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
+           "TOOLS": " ".join(f"{P(repos[n]['path'])}:{repos[n]['tools']}:{h}:{repos[n]['name']}" for n, h in sorted(tl.items()))}
+    verb, what = ("ship", "shipping") if ok else ("gate", f"gate on {key[:9]}")
+    act = lambda: ctx._m(("batch", verb, tc), lambda: ctx.start("ship-harness", verb, [script, verb, "ship-harness", tc], env))
+    for j, p in enumerate(pre):
+        out[p[0]["slug"]] = step(what, "script", act=act) if j <= i else step(f"waiting for the batch ahead ({what})", "wait")
+    return out
 
 
 def public(ctx, ch, head):
@@ -2048,16 +2116,20 @@ def cmd_handover(a):
     print(f"handed over {head} (tree {tree[:9]})")
 
 
-def rows(ctx, ch, con, head, tc, tree, build, gate):
-    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root."""
-    env, why = ctx.env(ch, head, tc, tree, build), []
+def rows(ctx, ch, con, head, tc, tree, build, gate, seen=None):
+    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root; a
+    command in `seen` already ran on this tree (shortcut: one naming $SLUG or $EVIDENCE runs for its first change alone, a
+    row of its own when it needs each)."""
+    env, why, seen = ctx.env(ch, head, tc, tree, build), [], set() if seen is None else seen
+    env.update({k: os.environ[k] for k in ("TOOLS",) if k in os.environ and gate})  # the gate's: a batch's, every member's tools
     waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
     for row in con["rows"]:
         if row["id"] in waived:
             print(f"waived: {row['id']} by {waived[row['id']]}")
             continue
         for cmd in ([row["check"]] + ([row["gate"]] if gate else [])):
-            if cmd:
+            if cmd and cmd not in seen:
+                seen.add(cmd)
                 rc, out = ctx.F.run(cmd, str(track_root(ctx.cfg, ch["track"])), env)
                 print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {cmd}" + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
@@ -2066,11 +2138,13 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
 
 
 def cmd_rows(a):
-    """`hd rows <slug> <tcommit> <build copy>`: the gate's row run at T; exit 1 names every failing row."""
-    ctx = Ctx()
-    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
-    con = contract(ch["slug"]) or refuse("no contract")
-    why = rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True)
+    """`hd rows <slug>[,<slug>...] <tcommit> <build copy>`: the gate's row run at T (a harness batch: each distinct command of
+    its changes' rows once, with the batch's TOOLS); exit 1 names every failing row."""
+    ctx, why, seen = Ctx(), [], set()
+    for slug in a[0].split(","):
+        ch = ctx.changes.get(slug) or refuse(f"no change {slug}")
+        con = contract(ch["slug"]) or refuse("no contract")
+        why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True, seen=seen)
     sys.exit(1 if why else 0)
 
 

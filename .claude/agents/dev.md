@@ -14,8 +14,9 @@ evidence dir, handed over with `hd handover <slug>`; it refuses while a script r
 changes filed with `hd new`, no code. Build with `<repo>/tools/track.sh build <slug>`, bring up with `up`, read logs
 with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with
 `python3 -m unittest discover -s tests` in your worktree. Read-heavy lookups (recordings, cache dumps, decompiled code, CI logs)
-go to a read-only subagent that returns the conclusion. When the hook tells you the context limit is reached, write
-`evidence/<slug>/handoff.md` (what is done, what is next, the facts you rely on) and hand back at once.
+go to a read-only subagent that returns the conclusion. When the hook tells you the context limit is reached, start no new
+work and follow its hand-off steps in order: commit, stop your subagents and processes, write `evidence/<slug>/handoff.md`
+(what is done, what is next, the facts you rely on), hand back.
 
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that

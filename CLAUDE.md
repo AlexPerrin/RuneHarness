@@ -13,13 +13,14 @@ hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the conte
 hd-public      the one program that acts on OpenRune or publishes a release, after the user's yes
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
-.claude/       agents/ dev, qa, orchestrator; skills/ head (main's loop); product repos hold the judgment skills
+.claude/       agents/ orchestrator (the driver session), dev, qa, planner; skills/ head (main's relay); product repos hold the judgment skills
 harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
 docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
 tests/         python3 -m unittest discover -s tests   (one class per requirement)
 ```
 
-Agents are spawned by main only (skill `head`), each by the path of its brief. A write to OpenRune and a client release
+Agents are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief;
+main (skill `head`) is the chat interface that relays the user's word to it. A write to OpenRune and a client release
 happen only after the user's yes in chat, recorded with `hd approve` and done by `hd-public`.
 
 ## Iteration protocol

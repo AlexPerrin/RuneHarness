@@ -13,12 +13,13 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
-                  PreToolUse: a subagent may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
+                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
-.claude/agents/   dev.md, qa.md, orchestrator.md (cross-track planning and monitoring); .claude/skills/head/  main's loop
+.claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring);
+                  .claude/skills/head/  main's relay
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, a tool's `port` picks it; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
@@ -26,11 +27,13 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 | Command | Who | Does |
 |---|---|---|
-| `hd` | main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, runs, goals, change facts (R7) |
+| `hd` | the orchestrator, main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, messages, runs, goals, change facts (R7) |
 | `hd approve <slug> <head>`, `hd answer <slug> [--waive <row>] <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
-| `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
-| `hd stop <run>` | main, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
-| `hd new <slug> ... [--blocks <change>]` | a planning run, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track) |
+| `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
+| `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
+| `hd tell <text>` | main, with the user's message | appends it to `state/inbox.jsonl`; `hd` lists it under `message` |
+| `hd heard <n>` | the orchestrator, once it acted on the message | messages up to n leave the view |
+| `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track) |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
 | `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass or fail, appended; refused if a row is missing |
@@ -51,6 +54,7 @@ state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note}, rul
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
+state/inbox.jsonl              {ts, text} the user's messages; inbox.read  the last n heard
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
@@ -97,17 +101,23 @@ A head counts as live or done only as the change's own work: handed over, or off
 hand-over at the same head after a verdict re-marks only the failed rows. A goal's `measure` is a step of the goal, held by its deps as a change is:
 unmet when its target's tree (client: master and the live T_int; plus the digest of the passing units) is not the tree
 of `measure.json`. A passing unit is one a change of the goal names in `units` while it is live at a head whose last
-verdict passes every row; the script gets them as PASSES. Below target, the orchestrator files changes.
+verdict passes every row; the script gets them as PASSES. Below target, the planner files changes.
 
 **The pass** (`hd tick`, a systemd user timer and after every run end): fetch each remote once; for every change
 compute `next`; start the script step of each change whose process is not alive (pid with start time), one ship at a
 time; write an event only when `next` differs from the last event; end the runs whose console is gone and remove what
-they own; repair what is observed broken, once. **Main** (skill `head`) is the chat head: a watch on `state/wake` wakes it; it runs `hd`, spawns each listed run by
-path, shows each card, records the user's word, dispatches the user's other messages to the run or the orchestrator
-they concern, re-arms the watch (an expiry is a wake too) and returns to the user. **The orchestrator** is a run
+they own; repair what is observed broken, once. **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
+the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
+user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
+on `state/wake` wakes it; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
+harness change for a fault a hand-back reports, acts on each `message` and marks it `hd heard`, commits definitions,
+re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
+`user: no orchestrator session` while no `claude --agent orchestrator` process exists. **Main** (skill `head`) is
+the chat interface: woken by the same watch, it shows cards, questions and alerts, records the user's word (`hd
+approve`, `hd answer`, `hd close`) and relays every other message with `hd tell`; it spawns nothing. **The planner** is a run
 listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;
-an alert or goal line an open change's body carries, or an orchestrator hand-back since the last change closed answered, is left out),
-outside the agent count (one at most); a planning request from the user reaches it as a goal. It
+an alert or goal line an open change's body carries, or a planner hand-back since the last change closed answered, is left out;
+an alert for the user lists none), outside the agent count (one at most); a planning request from the user reaches it as a goal. It
 files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
 operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness
 change that a harness dev run remediates. Its hand-back is its record, filed or not. It writes no product code.
@@ -119,11 +129,11 @@ logged in by widget actions, blocks until every devtools endpoint answers), and 
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it.
 
-**Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
+**Authority**: main, the orchestrator, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
 no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>
 <head>`, the one program sudoers allows, which holds the full token and acts only when `approval.json` names that
-head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent
-when a command runs them (hd at a command's start); a command that only quotes them (grep, echo, a heredoc body) runs.
+head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent or the
+orchestrator session (a hook input with an agent id or type) when a command runs them (hd at a command's start); a command that only quotes them (grep, echo, a heredoc body) runs.
 
 | | Client | Server | Harness |
 |---|---|---|---|
@@ -136,19 +146,20 @@ when a command runs them (hd at a command's start); a command that only quotes t
 ```mermaid
 sequenceDiagram
   participant M as Main
+  participant O as Orchestrator
   participant D as dev
   participant S as tools/track.sh
   participant P as Pass
   participant Q as qa
   participant U as User
   P->>P: contract exists, no hand-over: brief written, event
-  M->>D: Agent(dev, "Read and follow state/briefs/<run>.md")
+  O->>D: Agent(dev, "Read and follow state/briefs/<run>.md")
   D->>S: build <slug>: T, image or:<T>
   D->>S: up <slug> 2: server, two logged-in desktops
   D->>P: hd handover <slug> (script rows pass, {head, T})
   P->>S: gate <slug> <T>: rows, fork CI
   P->>S: ship test server: or:<T_int>
-  M->>Q: Agent(qa, brief)
+  O->>Q: Agent(qa, brief)
   Q->>P: hd verdict: every row
   P->>U: card (head, rows, texts)
   U->>M: yes
@@ -172,8 +183,8 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 
 | Requirement | Mechanism |
 |---|---|
-| R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the orchestrator plans |
-| R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, the wake file |
+| R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the planner plans |
+| R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, the wake file, the orchestrator session, `hd tell` and `hd heard` |
 | R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
 | R4 Authority | the two credentials, `hd-public` under sudoers, the one hook rule, ship after approval at head |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |

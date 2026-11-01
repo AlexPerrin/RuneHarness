@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | stop | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | tell | heard | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
 import fcntl, hashlib, json, os, pwd, re, subprocess, sys
@@ -185,6 +185,17 @@ class Facts:
         """{name: state} of every docker container, or None when docker cannot be reached."""
         r = s.sh(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"], timeout=60)
         return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
+
+    def orchestrator(s):
+        """R2: the pid of the orchestrator session (a `claude --agent orchestrator` process), or None: the process table is the fact."""
+        for d in Path("/proc").glob("[0-9]*"):
+            try:
+                a = (d / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if a and Path(a[0].decode(errors="replace")).name == "claude" and b"orchestrator" in a and (b"--agent" in a):
+                return int(d.name)
+        return None
 
 
 # ---------------------------------------------------------------- what is stored (P2) and nothing else
@@ -740,7 +751,7 @@ def brief(ctx, ch, st, name, role):
 
 def dispatch(ctx, ch, st, act):
     """R2 R6: list a run for an unmet agent step once per input: no run of the change alive, no question open, no
-    ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The orchestrator is outside
+    ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The planner is outside
     the count (one at most, no product code, no mobile or desktop): the run that files remedies never waits behind the blocked work."""
     role, slug = st["actor"], ch["slug"]
     if ctx.alive_run(ch) or rec(slug, "ask"):
@@ -754,8 +765,8 @@ def dispatch(ctx, ch, st, act):
         if len(same) >= 2:  # R5: one retry, then raised once
             ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
             return
-    busy = len([r for r in ctx.runs if not r.get("ended") and r["role"] != "orchestrator"]) >= ctx.cfg.get("agents", 3)
-    if (busy and role != "orchestrator") or not act:
+    busy = len([r for r in ctx.runs if not r.get("ended") and r["role"] != "planner"]) >= ctx.cfg.get("agents", 3)
+    if (busy and role != "planner") or not act:
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
@@ -767,29 +778,29 @@ def dispatch(ctx, ch, st, act):
     event(change=slug, run=name, action="listed", role=role)
 
 
-def orchestrate(ctx, view, act):
-    """The orchestrator run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
+def plan(ctx, view, act):
+    """The planner run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
     event count): an alert (a run ended without its record twice, a script died or cannot start, a ship that died), a gate
-    failure, a goal below target with nothing open. A line is left out while an open change's body carries it or an
-    orchestrator run handed back on it since the last change closed."""
-    orc = [r for r in ctx.runs if r["role"] == "orchestrator"]
+    failure, a goal below target with nothing open. A line is left out while an open change's body carries it or a
+    planner run handed back on it since the last change closed."""
+    orc = [r for r in ctx.runs if r["role"] == "planner"]
     st = {k: rec(k, "state") or {} for k in ctx.changes}
     shut = {k: v.get("ts", "") for k, v in st.items() if ctx.changes[k].get("closed") or v.get("state", "").startswith(("done", "closed"))}
     closed = max(shut.values(), default="")
     handled = {a for r in orc if r.get("record") and (r.get("ended") or "") > closed for a in json.loads(r.get("input") or "[]")}
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + [c for c in view["change"] if ": gate failed" in c]
-                  if not a.startswith(("orchestrator:", "user:")) and a not in handled and a not in carried})
+                  if not a.startswith(("planner:", "user:")) and a not in handled and a not in carried})
     if why:
-        pseudo = {"slug": "orchestrator", "track": "harness", "deps": [], "kind": "orchestrator", "priority": "P0", "body": "\n".join(why), "title": "orchestrate"}
-        dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate",
+        pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
+        dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan",
                                       input=why + [f"last change closed {closed}"]), act)  # a close re-examines what it left raised
 
 
 def measure(ctx, g, act):
     """R1: the goal's measure script runs when its target's tree differs from measure.json's (the client's target is master
     plus the live test-server tree, so a server change live there re-measures the client; the units passing() names join
-    the key and go to the script as PASSES); below target with no open change serving the goal, the orchestrator plans."""
+    the key and go to the script as PASSES); below target with no open change serving the goal, the planner plans."""
     ch = {"slug": g["slug"], "track": g["track"], "kind": "goal", "deps": g["deps"]}
     held = deps_held(ctx, ch)  # a goal's deps hold its measure as they hold a change
     if held:
@@ -952,7 +963,7 @@ def close_branches(ctx, ch, act):
 def tick(ctx=None, act=True):
     """One pass under the state lock → the view for `hd`."""
     ctx = ctx or Ctx()
-    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
+    view = {"spawn": [], "card": [], "question": [], "message": [], "run": [], "goal": [], "change": [], "alert": []}
     with lock():
         ctx.__init__(ctx.F, ctx.cfg)  # R2: decide on the state read under the lock, never on what was read while waiting for it
         repairs(ctx, act)
@@ -999,7 +1010,10 @@ def tick(ctx=None, act=True):
                 event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
         findings(ctx, open_prs, act)
         view["alert"] += ctx.alerts
-        orchestrate(ctx, view, act)
+        plan(ctx, view, act)
+        view["message"] = [f"{n}: {m['text']}" for n, m in inbox() if n > heard()]
+        if not ctx.F.orchestrator():
+            view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
         for r in ctx.runs:
             if not r.get("ended"):
                 (view["spawn"] if not r.get("started") else view["run"]).append(
@@ -1143,6 +1157,33 @@ def cmd_ask(a):
     print("asked")
 
 
+def inbox():
+    f = STATE / "inbox.jsonl"
+    return list(enumerate((json.loads(l) for l in f.read_text().splitlines() if l.strip()), 1)) if f.exists() else []
+
+
+def heard():
+    f = STATE / "inbox.read"
+    return int(f.read_text()) if f.exists() else 0
+
+
+def cmd_tell(a):
+    """R2: main relays the user's message to the orchestrator: listed under `message` until the orchestrator has handled it."""
+    text = " ".join(a) or refuse("empty message")
+    STATE.mkdir(parents=True, exist_ok=True)
+    with open(STATE / "inbox.jsonl", "a") as f:
+        f.write(json.dumps({"ts": now(), "text": text}) + "\n")
+    event(record="message", text=text[:300])  # the event wakes the orchestrator's watch
+    print(f"message {len(inbox())}")
+
+
+def cmd_heard(a):
+    """R2: the orchestrator has handled every message up to n."""
+    n = int(a[0]) if a and a[0].isdigit() else refuse("hd heard <n>")
+    (STATE / "inbox.read").write_text(str(max(n, heard())))
+    print(f"heard {n}")
+
+
 def cmd_stop(a):
     """R5: a run main stops (TaskStop fires no SubagentStop) ends here, or it would hold an agent slot for good."""
     r = next((r for r in runs() if a and r["name"] == a[0]), None) or refuse(f"no run {a[0] if a else ''}")
@@ -1259,7 +1300,8 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick,
+            "tell": cmd_tell, "heard": cmd_heard}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

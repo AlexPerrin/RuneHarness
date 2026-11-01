@@ -54,7 +54,7 @@ def brief_in(entries):
     return None
 
 
-ROLES = ("dev", "qa", "orchestrator")
+ROLES = ("dev", "qa", "planner")
 
 
 def find_run(p):
@@ -144,7 +144,7 @@ def end_run(p):
             "finish (a hang, a refused login) is an error: stop it and hand back."}))
     r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
     if handed:   # an idle stop leaves the run live
-        rec = hd.produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not
+        rec = hd.produced(r) or r["role"] == "planner"  # the planner's hand-back is its record, filed or not
         r.update(ended=hd.now(), record=rec)
     hd.save_run(r)
     if handed:
@@ -156,9 +156,10 @@ def deny_users_word(p):
     """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is recorded by main alone."""
     cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", (p.get("tool_input") or {}).get("command") or "", flags=re.S)  # heredoc bodies are data
     # only a command that runs hd: hd at the start of a command (after ; & | ( newline or $( ), never a mere mention
-    m = p.get("agent_id") and re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
+    # a subagent carries agent_id; the orchestrator, a top-level `claude --agent orchestrator` session, agent_type alone
+    m = (p.get("agent_id") or p.get("agent_type")) and re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
     if m:
-        hd.event(action="denied", agent=p["agent_id"], role=p.get("agent_type"), rule=f"hd {m[2]} is main's")
+        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is main's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": f"hd {m[2]} is recorded by main after the user's word, never by an agent. Report it; do not work around it."}}))
 

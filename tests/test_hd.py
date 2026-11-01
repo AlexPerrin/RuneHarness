@@ -28,6 +28,7 @@ class Fake(hd.Facts):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
         return 0, "", ""
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
+    def orchestrator(s): return s.f.get("orchestrator", 1)  # None in f = no orchestrator session
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
@@ -168,13 +169,13 @@ class R1(Sandbox):
         hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live on the test server, not merged upstream
         s.assertNotEqual(s.state(F, "c1")["actor"], "wait")
 
-    def test_below_target_with_nothing_open_lists_the_orchestrator(s):
+    def test_below_target_with_nothing_open_lists_the_planner(s):
         s.goal()
         F = Fake(**FACTS)
         hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
         v = hd.tick(s.ctx(F))
         s.assertIn("planning due", v["goal"][0])
-        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))
+        s.assertTrue(any(x.startswith("planner-") for x in v["spawn"]))
         s.change("c1", "client", goal="client-api")                    # a change serves the goal: no planning
         hd.tick(s.ctx(F))
         hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
@@ -207,6 +208,20 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
+    def test_main_relays_to_the_orchestrator_session(s):
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            hd.cmd_tell(["also", "measure", "the", "client"]); hd.cmd_tell(["second"])
+        v = hd.tick(s.ctx(Fake(**FACTS)))
+        s.assertEqual(v["message"], ["1: also measure the client", "2: second"])       # listed until handled
+        s.assertFalse(any("orchestrator session" in a for a in v["alert"]))
+        with contextlib.redirect_stdout(io.StringIO()):
+            hd.cmd_heard(["1"])
+        v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrator": None})))
+        s.assertEqual(v["message"], ["2: second"])
+        s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))   # main tells the user to start it
+        s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))                       # the user's to fix, no planner
+
     def test_defined_to_live_with_no_person(s):
         s.change("s1"); hd.put("live", "tree", {"tree": TB, "commit": B, "heads": [A]})  # the dependency is live on the test server
         s.change("c1", "client", deps=["s1"])
@@ -376,7 +391,7 @@ class R2(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])   # then raised once, never a third
         s.assertTrue(any("ended without a record" in a for a in v["alert"]))
-        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))  # the alert lists the orchestrator, not the user
+        s.assertTrue(any(x.startswith("planner-") for x in v["spawn"]))  # the alert lists the planner, not the user
 
     def test_two_passes_list_a_run_once(s):
         s.change("s1"); s.agreed("s1")
@@ -469,55 +484,55 @@ class R2(Sandbox):
             hook.end_run(p(runs[2], "a3", "SubagentStop", prompt=False))   # the first to stop ends its own run only
         s.assertEqual([bool(r["ended"]) for r in sorted(hd.runs(), key=lambda r: r["name"])], [False, False, True])
 
-    def test_orchestrator_listed_once_per_unanswered_alert(s):
+    def test_planner_listed_once_per_unanswered_alert(s):
         s.change("s1", deps=["gone"])                                            # an alert: s1's dependency has no definition
         F = Fake(**FACTS)
         hd.tick(s.ctx(F))
-        orc = [r for r in hd.runs() if r["role"] == "orchestrator"][0]
+        orc = [r for r in hd.runs() if r["role"] == "planner"][0]
         hook.bind(payload(orc, "agO", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run orchestrator-1: nothing to file"))
+            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run planner-1: nothing to file"))
         s.change("s2", deps=["lost"])                                            # a second alert: the first is answered
         hd.tick(s.ctx(F))
-        orc2 = [r for r in hd.runs() if r["role"] == "orchestrator"][1]
+        orc2 = [r for r in hd.runs() if r["role"] == "planner"][1]
         s.assertEqual(json.loads(orc2["input"])[0:1], ["s2: dependency lost has no definition"])
         hook.bind(payload(orc2, "agO2", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
             hook.end_run(payload(orc2, "agO2", "SubagentStop", s.root))           # an idle stop: still live
             s.assertIsNone(hd.runs()[-1]["ended"])
             hd.cmd_stop([orc2["name"]])                                           # stopped without a hand-back: no record
-        s.assertEqual([r["record"] for r in hd.runs() if r["role"] == "orchestrator"], [True, False])   # the hand-back is the record
+        s.assertEqual([r["record"] for r in hd.runs() if r["role"] == "planner"], [True, False])   # the hand-back is the record
         s.change("h1", track="harness", deps=["s2"], body="s2: dependency lost has no definition")   # an open change carries the alert
         hd.tick(s.ctx(F))
-        s.assertEqual(len([r for r in hd.runs() if r["role"] == "orchestrator"]), 2)
+        s.assertEqual(len([r for r in hd.runs() if r["role"] == "planner"]), 2)
         s.change("h0", track="harness", closed="answer-1: done")               # a change closes with s1's alert still raised
         hd.tick(s.ctx(F))
-        s.assertEqual(json.loads([r for r in hd.runs() if r["role"] == "orchestrator"][2]["input"])[0:1], ["s1: dependency gone has no definition"])
+        s.assertEqual(json.loads([r for r in hd.runs() if r["role"] == "planner"][2]["input"])[0:1], ["s1: dependency gone has no definition"])
 
-    def test_orchestrator_listed_on_significant_facts_only(s):
+    def test_planner_listed_on_significant_facts_only(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         s.gated("s1", F)
         for _ in range(60):                                                     # many events, nothing significant
             hd.event(change="s1", action="noise")
         hd.tick(s.ctx(F))
-        s.assertEqual([r for r in hd.runs() if r["role"] == "orchestrator"], [])
+        s.assertEqual([r for r in hd.runs() if r["role"] == "planner"], [])
         hd.put("s1", "gate", {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: tests"})   # a gate failure
         hd.tick(s.ctx(F))
-        orc = [r for r in hd.runs() if r["role"] == "orchestrator"]
+        orc = [r for r in hd.runs() if r["role"] == "planner"]
         s.assertEqual(len(orc), 1)
         s.assertIn("s1 [server P2]: gate failed: dev", json.loads(orc[0]["input"]))
 
-    def test_orchestrator_record_and_unmatched_stop(s):
-        s.change("s1"); s.agreed("s1"); s.change("s0", deps=["gone"])       # an alert lists the orchestrator
+    def test_planner_record_and_unmatched_stop(s):
+        s.change("s1"); s.agreed("s1"); s.change("s0", deps=["gone"])       # an alert lists the planner
         F = Fake(**FACTS)
         v = hd.tick(s.ctx(F))
-        orc = [r for r in hd.runs() if r["role"] == "orchestrator"][0]
+        orc = [r for r in hd.runs() if r["role"] == "planner"][0]
         hook.bind(payload(orc, "agO", "SubagentStart", s.root))
-        hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the orchestrator files a change
+        hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the planner files a change
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run orchestrator-1: filed x1"))
-            s.assertTrue([r for r in hd.runs() if r["role"] == "orchestrator"][0]["record"])
+            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run planner-1: filed x1"))
+            s.assertTrue([r for r in hd.runs() if r["role"] == "planner"][0]["record"])
             dev = [r for r in hd.runs() if r["role"] == "dev"][0]
             hook.end_run({"hook_event_name": "SubagentStop", "agent_id": "ghost", "agent_type": "dev"})  # no transcript, no id: ends nothing
         s.assertIsNone([r for r in hd.runs() if r["name"] == dev["name"]][0]["ended"])
@@ -564,12 +579,13 @@ class R4(Sandbox):
             for verb in ("approve s1 " + A, "close s1 done"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
                 hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
+                hook.deny_users_word({"agent_type": "orchestrator", "tool_input": {"command": "hd " + verb}})      # the orchestrator session: denied
             for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done"):      # runs it: denied
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
             for c in ("grep approve notes.md; git push fork HEAD:dev/s1", "grep -n 'hd approve' hook.py",   # only quotes it: allowed
                       "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
-        s.assertEqual(out.getvalue().count('"deny"'), 4)
+        s.assertEqual(out.getvalue().count('"deny"'), 6)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))
@@ -624,7 +640,7 @@ class R7(Sandbox):
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client"); hd.put("s1", "ask", {"text": "scope?"})
         v = hd.tick(s.ctx(Fake(**FACTS)))
-        s.assertEqual(list(v), ["spawn", "card", "question", "run", "goal", "change", "alert"])
+        s.assertEqual(list(v), ["spawn", "card", "question", "message", "run", "goal", "change", "alert"])
         for line in v["change"]:
             state = line.split("]: ", 1)[1]
             s.assertTrue(" " in state or state == "done", line)                 # a sentence of facts, never a bare step name
@@ -851,15 +867,15 @@ class R6(Sandbox):
         s.assertEqual(len(v["spawn"]), 3)
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 3)
 
-    def test_orchestrator_listed_when_every_slot_is_taken(s):
+    def test_planner_listed_when_every_slot_is_taken(s):
         for i in range(3):
             s.change(f"s{i}"); s.agreed(f"s{i}")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], **{f"fork/dev/s{i}": A for i in range(3)}}})
         hd.tick(s.ctx(F))                                              # three dev runs fill the three slots
         s.change("s9", deps=["gone"])                                  # an alert
         v = hd.tick(s.ctx(F))
-        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))
-        s.assertEqual(len([r for r in hd.runs() if not r.get("ended") and r["role"] != "orchestrator"]), 3)
+        s.assertTrue(any(x.startswith("planner-") for x in v["spawn"]))
+        s.assertEqual(len([r for r in hd.runs() if not r.get("ended") and r["role"] != "planner"]), 3)
 
     def test_unchanged_facts_append_no_event(s):
         s.change("s1"); s.agreed("s1")
@@ -901,7 +917,7 @@ class R6(Sandbox):
         (s.root / "harness" / "changes" / "bad.md").write_text("---\ntitle: [unclosed\n---\n")
         v = hd.tick(s.ctx(Fake(**FACTS)))
         s.assertTrue(any(a.startswith("definition skipped: bad.md") for a in v["alert"]))
-        s.assertEqual(len([x for x in v["spawn"] if x.startswith("s1-")]), 1)   # the pass went on for the others (the alert also lists the orchestrator)
+        s.assertEqual(len([x for x in v["spawn"] if x.startswith("s1-")]), 1)   # the pass went on for the others (the alert also lists the planner)
         v = hd.tick(s.ctx(Fake(**FACTS)))
         s.assertEqual(sum(a.startswith("definition skipped") for a in v["alert"]), 1)   # once per pass, not growing
 

@@ -16,7 +16,9 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; a run's SubagentHandback is
                   denied while a background command, monitor or subagent it started has no task notification yet (a run
                   cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
-                  kept as evidence/<slug>/subagent-<id>.md; PostToolUse: hand off at the context limit (a run, or main)
+                  kept as evidence/<slug>/subagent-<id>.md; PostToolUse: hand off at the context limit (a run, or main); else
+                  a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since
+                  that up or its last devtools call, is told once to `down` until it next plays
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/

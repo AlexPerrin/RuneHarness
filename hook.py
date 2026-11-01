@@ -9,7 +9,9 @@ PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd ap
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 start no new work and hand off cleanly: commit (and, off the harness track, push) its work in progress on the
                 dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; tell main (no agent) once per session to start nothing
-                new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn.                    R6
+                new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn; else, while the
+                change's up.json lists desktops, IDLE_CALLS tool calls in a row with no desktop devtools call since that up
+                → tell the run once to `down` until it next plays (a devtools call or a new up starts the count again).   R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
                 role's record newer than the start and the change's last answer; each subagent's hand-back is kept as
                 evidence/<slug>/subagent-<id>.md). Any other stop leaves the run live,
@@ -229,6 +231,7 @@ def main_context_limit(p):
           f"Context limit reached ({size} tokens): start nothing new. Tell the user to start a fresh session in ~/osrs-harness "
           "with docs/HANDOFF.md's start prompt (read CLAUDE.md, docs/HANDOFF.md and docs/ISSUES.md, then follow skill head), "
           "and end your turn now. Everything you hold is in files."}}))
+    return True
 
 
 def context_limit(p):
@@ -260,12 +263,42 @@ def context_limit(p):
           "notification; TaskStop cannot stop it) and stop every process you started (TaskStop, your track script's `down "
           f"{r['change']}`); write evidence/{r['change']}/handoff.md (your commit, what is done, what is next, the facts you "
           "rely on); then hand back with `run " + r["name"] + ": handoff`. A fresh run continues from your commit and file."}}))
+    return True
+
+
+IDLE_CALLS = 10   # tool calls with desktops up and none played in them: the run is building, reading or writing
+
+
+def idle_desktops(p):
+    """R6: a run keeps desktops up only while it plays in them; a stretch of other tool calls is told once."""
+    if p.get("agent_type") not in ROLES or not (r := find_run(p)) or r.get("ended"):
+        return
+    up = hd.STATE / r["change"] / "up.json"
+    try:
+        mark, desktops = up.stat().st_mtime_ns, json.loads(up.read_text()).get("desktops")
+    except (OSError, ValueError):
+        return
+    if not desktops:
+        return
+    if r.get("play_mark") != mark or (p.get("tool_name") or "").startswith("mcp__osrs-devtools-desktop__"):
+        r.update(play_mark=mark, idle_calls=0, idle_told=False)
+    else:
+        r["idle_calls"] = r.get("idle_calls", 0) + 1
+    tell = r["idle_calls"] >= IDLE_CALLS and not r["idle_told"]
+    r["idle_told"] = r["idle_told"] or tell
+    hd.save_run(r)
+    if tell:
+        hd.event(change=r["change"], run=r["name"], action="desktops-idle", desktops=desktops)
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+              f"Your desktops ({desktops}) have had no devtools call in your last {IDLE_CALLS} tool calls. A desktop is up only "
+              f"while you play in it: run your track script's `down {r['change']}` now, and `RESUME=1 ... up {r['change']} [N]` "
+              "(the accounts as down saved them) when you next act in game."}}))
 
 
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), hold_handback(p)),"PostToolUse": context_limit, "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), hold_handback(p)),"PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

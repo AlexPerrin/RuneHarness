@@ -20,7 +20,10 @@ work and follow its hand-off steps in order: commit, collect your subagents and 
 
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that
-cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle.
+cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle. A desktop is up only while you play
+in it: `up` when you are about to act in game, `down <slug>` as soon as you stop playing (to build, read or write), and
+`RESUME=1 up` brings the accounts back as down saved them; the hook tells you once when your desktops sit through a
+stretch of tool calls with no devtools call. Any number of desktops may be up at once.
 
 Never: a public act (PR, release, upstream comment); a push to any ref but your dev ref; a forced push; Jagex;
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied

@@ -1127,6 +1127,33 @@ class R6(Sandbox):
         s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
         s.assertIn(f"its work in progress: {A}", open(hd.runs()[1]["brief"]).read())   # the brief names the commit
 
+    def test_idle_desktops_are_told_once_until_played_again(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        import io, contextlib
+        call = lambda tool="Bash": hook.idle_desktops({**payload(run, "ag1", "PostToolUse", s.root), "tool_name": tool})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            for _ in range(20):
+                call()
+        s.assertEqual(out.getvalue(), "")                              # no desktops up: silent
+        (s.root / "state" / "s1").mkdir(exist_ok=True)
+        (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop1:7780"}')
+        with contextlib.redirect_stdout(out):
+            for _ in range(hook.IDLE_CALLS + 5):
+                call()
+        s.assertEqual(out.getvalue().count("`down s1`"), 1)            # a stretch without play: told once
+        with contextlib.redirect_stdout(out):
+            call("mcp__osrs-devtools-desktop__get_inventory")          # playing again starts the count again
+            for _ in range(hook.IDLE_CALLS - 1):
+                call()
+        s.assertEqual(out.getvalue().count("`down s1`"), 1)
+        with contextlib.redirect_stdout(out):
+            call()
+        s.assertEqual(out.getvalue().count("`down s1`"), 2)
+
     def test_three_context_limits_without_a_handover_are_raised(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

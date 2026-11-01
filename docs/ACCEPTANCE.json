@@ -31,7 +31,7 @@
  },
  {
   "id": "R6",
-  "requirement": "Economy: script before agent before user; nothing checked twice per input; agent count; events on edges; hand-off at the context limit; bring-up as a script",
+  "requirement": "Economy: script before agent before user; nothing checked twice per input; agent count; events on edges; hand-off at the context limit; a desktop up only while played; bring-up as a script",
   "check": "python3 -m unittest tests.test_hd.R6 && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh up ${SLUG:?} 2 | grep -c LOGGED_IN | grep -qx 2",
   "passes": false
  },

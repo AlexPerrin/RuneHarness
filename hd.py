@@ -65,10 +65,11 @@ class Facts:
         except (OSError, subprocess.TimeoutExpired):
             return None
 
-    def fetch(s, clone, remote):
-        """R5: one fetch of a clone's remote at a time: a pass that finds one in flight waits for it and takes its result."""
+    def fetch(s, clone, remote, ref=""):
+        """R5: one fetch of a clone's remote (with ref: that one ref's objects, an upstream PR's pull/N/head) at a time: a pass
+        that finds one in flight waits for it and takes its result."""
         def f():
-            lk = STATE / "fetch" / hashlib.sha1(f"{clone}\0{remote}".encode()).hexdigest()[:16]
+            lk = STATE / "fetch" / hashlib.sha1(f"{clone}\0{remote}\0{ref}".encode()).hexdigest()[:16]
             lk.parent.mkdir(parents=True, exist_ok=True)
             with open(lk, "a+") as h:
                 try:
@@ -77,13 +78,13 @@ class Facts:
                     fcntl.flock(h, fcntl.LOCK_EX)   # released only once the fetch in flight wrote its result
                     h.seek(0)
                     return h.read() == "ok"
-                ok = (s.sh(["git", "-C", clone, "fetch", "-q", "--prune", remote]) or [1])[0] == 0
-                if ok:
+                ok = (s.sh(["git", "-C", clone, "fetch", "-q", *([remote, ref] if ref else ["--prune", remote])]) or [1])[0] == 0
+                if ok and not ref:
                     s.sh(["git", "-C", clone, "remote", "set-head", remote, "--auto"])  # <remote>/HEAD names the default branch
                 h.truncate(0)
                 h.write("ok" if ok else "failed")
                 return ok
-        return s._m(("fetch", clone, remote), f)
+        return s._m(("fetch", clone, remote, ref), f)
 
     @_read
     def rev(s, clone, ref):
@@ -1154,9 +1155,37 @@ def public(ctx, ch, head):
         at, _, why = str(ch.get("held") or "").partition(": ")
         if at in ("all", head):  # the user's no or word: no card until a new head or their lift (`hd hold`)
             return step("held by the user" + (f": {why}" if why else ""), "wait")
+        miss = unnamed(ctx, ch, head)
+        if miss is None:
+            return step("pushed commits unknown", "unknown")
+        if miss:
+            return step(f"the comment misses {', '.join(c[:9] for c in miss)}: dev", "dev", mode="code", input=["comment", head, miss], detail=(
+                f"The push adds {', '.join(c[:9] for c in miss)}, which {EVID / slug / 'pr-comment.md'} does not name: the comment the carry "
+                "posts names every commit the push adds and summarises each; write it."))
         return step("gated; waiting for the user's yes", "user", input=head)
     return step(f"publishing v{ch['version']}" if ch["kind"] == "release" else "carrying upstream", "script",
                 act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd.py"), "ship", slug, head]))
+
+
+def unnamed(ctx, ch, head):
+    """R4: the commits pr-comment.md must name and does not, sorted: a new PR's head; an open PR's update each commit
+    since its live head (fetched from the PR when the clone lacks it); [] when the carry posts no comment (a release, a PR at
+    head); None unknown."""
+    if not upstream(ch):  # a release posts its notes, no comment
+        return []
+    if opens(ctx, ch):
+        new = {head}
+    elif not pushes(ctx, ch, head):
+        return []
+    elif not (p := ctx.upstream_pr(ch)):
+        return None
+    else:
+        clone = ctx.clone(ch)
+        if ctx.F.rev(clone, p["head"]) == "":  # the live head is the PR's, wherever it was pushed from: fetch it by the PR
+            ctx.F.fetch(clone, "origin", f"pull/{p['number']}/head")
+        new = ctx.F.unmerged(clone, p["head"], head)
+    c = text(ch["slug"], "pr-comment.md")
+    return None if new is None else sorted(x for x in new if x[:7] not in c)
 
 
 def approved(ctx, ch, head):
@@ -1780,7 +1809,8 @@ def unsigned(s):
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
     carry opens it, or each that differs from the open PR's live one; the comment naming the head when the push moves
-    the PR (pr-comment.md, the push summary, when it names the head, else `Updated to <head>.`), and each finding's reply."""
+    the PR (pr-comment.md, the push summary naming every commit the push adds: unnamed() keeps the card back until it does),
+    and each finding's reply."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":
         return [["release notes", None, text(slug, "release-notes.md")]]
@@ -1791,8 +1821,7 @@ def public_texts(ctx, ch):
         if opens(ctx, ch) or t and p.get(w) is not None and unsigned(p[w]) != t:  # no text, or the live one unread: kept as it is
             out.append([w, None, t])
     if pushes(ctx, ch, head) or opens(ctx, ch):  # a PR already at the head (a reply-only change) gets no comment
-        c = text(slug, "pr-comment.md")
-        out.append(["comment", None, c if head[:9] and head[:9] in c else f"Updated to {head[:9]}."])
+        out.append(["comment", None, text(slug, "pr-comment.md")])
     return out + [[f"reply {'to PR comment' if conversation(o['finding']) else 'in the thread of review comment'} {o['finding']}", o["finding"], t]
                   for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
 

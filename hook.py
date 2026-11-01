@@ -7,6 +7,9 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
                 ended, at the start or its first tool call; the run stays ended.                                          R2
 PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
+                A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
+                none of these, starts with `hd scope <run>`: its shell joins the run's systemd slice, which the pass stops
+                once the run ended (hd stop stops it at once).                                                           R5
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
@@ -22,7 +25,8 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
 An agent a run spawned (its meta file names a parentAgentId: a reader, a fork) is part of that run: only the deny rules
-apply to it, and it stops (continue: false) at its next tool call once that run has ended. A `reader`'s Bash command
+and the run's slice apply to it, and it stops (continue: false) at its next tool call once that run has ended (the
+slice's stop ends the command it waits on, so that call returns at once). A `reader`'s Bash command
 that writes (a redirection to a file, rm/mv/cp, git that moves a ref, track.sh up/build/gate/down, docker run, a gh or
 hd write) is denied.                                                                                         R5
 Every write is a fact, a file of its own in state/facts/ (hd.fact), folded into the run records by the pass under its lock:
@@ -195,6 +199,32 @@ def hold_handback(p):
           f"Not yet: {', '.join(ids)} you started have not reported their end. A subagent: SendMessage it to return its answer "
           "now (you cannot TaskStop it), then block until its task notification; a background command or monitor: TaskStop it. "
           "Then hand back; each subagent's answer is kept in the change's evidence."}}))
+    return True
+
+
+def owner_run(p):
+    """R5: the run whose processes an agent's are: its own, or, for an agent a run spawned (a reader, a fork, at any depth),
+    the run of the nearest ancestor bound to one (parent_of, step by step)."""
+    q, seen = p, set()
+    while (aid := q.get("agent_id")) and aid not in seen:
+        seen.add(aid)
+        if (idx := hd.STATE / "runs" / "by-agent" / str(aid)).exists() and (r := hd.runs(idx.read_text())):
+            return r[0]
+        if not (parent := parent_of(q)):
+            break
+        q = {"agent_id": parent, "agent_transcript_path": str(Path(agent_transcript(q)).parent / f"agent-{parent}.jsonl")}
+    return find_run(p) if is_run(p) else None   # a run's agent before its binding is folded
+
+
+def in_run_slice(p):
+    """R5: a run's Bash command, and each of the agents it spawned, starts with `hd scope <run>` on a line of its own: its
+    shell moves into the run's slice, so every process it starts ends with the run (the permission rules still judge the
+    command's own lines)."""
+    if p.get("tool_name") != "Bash" or not (r := owner_run(p)):
+        return
+    ti = p.get("tool_input") or {}
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput":
+          {**ti, "command": f"python3 {Path(__file__).resolve().parent / 'hd.py'} scope {r['name']}\n{ti.get('command') or ''}"}}}))
 
 
 def start_pass():
@@ -248,6 +278,7 @@ def deny_users_word(p):
         hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is the user's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": f"hd {m[2]} is the user's own word, typed by the user as a `!` command, never run by an agent. Report it; do not work around it."}}))
+        return True
 
 
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
@@ -273,6 +304,7 @@ def deny_reader_write(p):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           f"a reader only reads ({m[0].strip()!r} writes or acts): read with cat, grep, sed -n, jq, git log/show/diff, gh api GET; "
           "if the answer needs a write, say so in your answer and let your run do it."}}))
+    return True
 
 
 def stop_orphan(p):
@@ -301,6 +333,7 @@ def deny_dep_cycle(p):
         hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"dependency cycle {why}")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": f"the definitions hold a dependency cycle ({why}): remove one of its deps, then commit."}}))
+        return True
 
 
 def context_of(path):
@@ -387,7 +420,7 @@ def idle_desktops(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_users_word(p), deny_dep_cycle(p), deny_reader_write(p), hold_handback(p), bind(p)), "PostToolUse": lambda p: stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

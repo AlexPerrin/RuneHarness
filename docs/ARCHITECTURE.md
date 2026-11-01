@@ -17,6 +17,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   its record is newer than its start and the change's last answer;
                   PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close` (the user's `!` command fires no hook);
                   a git commit naming harness/ is denied while the definitions hold a dependency cycle;
+                  a run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by none of these starts with a line `hd scope <run>`;
                   a run's SubagentHandback is denied while a background command, monitor or subagent it started has no task notification, TaskStop result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is kept as evidence/<slug>/subagent-<id>.md;
                   PostToolUse: a run hands off at the context limit;
                   else a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since that up or its last devtools call, is told once to `down` until it next plays.
@@ -52,7 +53,10 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd close <slug> <text>`, by the user, as a `!` command in the orchestrator's window: the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent
 
-- `hd stop <run>`, by the orchestrator, with TaskStop (which fires no SubagentStop): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call)
+- `hd stop <run>`, by the orchestrator, with TaskStop (which fires no SubagentStop): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`
+
+- `hd scope <run>`, by the hook, as the first line of each Bash command of a run: moves the command's shell (its parent) into a scope of the run's systemd user slice `hd-<run>.slice` (each `-` of the name a `_`) and returns once the shell is in it: every process the command starts, reparented or not, is the run's;
+  a failure is one stderr line, the command runs on
 
 - `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
@@ -256,6 +260,7 @@ list no run for a change whose priority is below `hold` or below the best priori
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
+stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity).
 

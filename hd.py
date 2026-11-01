@@ -233,6 +233,24 @@ class Facts:
     def alive(s, pid, start):
         return bool(pid) and s.proc_start(pid) == str(start)
 
+    @_read
+    def slices(s):
+        """R5: the active run slices (systemd user units hd-*.slice), or None when systemd cannot be read."""
+        r = s.sh(["systemctl", "--user", "list-units", "--plain", "--no-legend", "hd-*.slice"], timeout=60)
+        return None if r is None or r[0] else {l.split()[0] for l in r[1].splitlines() if l.strip()}
+
+    def end_procs(s, name):
+        """R5: every process the run started is stopped: its slice (systemctl returns once they are gone), then each Windows
+        process a track script started in it through WSL interop (its Windows pid and image, recorded in state/winpids/<slice>/),
+        which no Linux signal reaches."""
+        r = s.sh(["systemctl", "--user", "stop", run_slice(name)], timeout=120)
+        for f in sorted((d := STATE / "winpids" / run_slice(name)).glob("*")):
+            s.sh([os.environ.get("WINDOWS_SYSTEM32", "/mnt/c/Windows/System32") + "/taskkill.exe", "/F", "/PID", f.name, "/FI", f"IMAGENAME eq {f.read_text().strip()}"], timeout=60)
+            f.unlink(missing_ok=True)
+        if d.exists():
+            d.rmdir()
+        return r
+
     def console(s):
         """The Claude session this process runs in (the hook binds it to a run): the nearest ancestor named claude, else the top one."""
         pid = os.getppid()
@@ -615,6 +633,29 @@ def fold():
         save_run(rs[name])
     for fid, _ in facts:
         (STATE / "facts" / f"{fid}.json").unlink(missing_ok=True)
+
+
+def run_slice(name):
+    """R5: the systemd user slice a run's processes live in (a '-' in a slice name means its parent slice)."""
+    return f"hd-{name.replace('-', '_')}.slice"
+
+
+def cmd_scope(a):
+    """R5: the hook starts each Bash command of a run with `hd scope <run>`: the command's shell (this process's parent)
+    moves into a scope of the run's slice before it starts anything, so all it starts, reparented or not, ends with the run.
+    Never fails the command: a failure is one stderr line and the command runs where it is."""
+    if not a:
+        return print("hd scope: no run named", file=sys.stderr)
+    pid = os.getppid()
+    unit = f"{run_slice(a[0])[:-6]}-{pid}.scope"
+    r = Facts().sh(["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit",
+                    "ssa(sv)a(sa(sv))", unit, "fail", "2", "PIDs", "au", "1", str(pid), "Slice", "s", run_slice(a[0]), "0"], timeout=60)
+    err = None if r and r[0] == 0 else (r[2].strip()[-200:] if r else "busctl not run")
+    while not err and unit not in Path(f"/proc/{pid}/cgroup").read_text():   # the move is asynchronous: the scope is active before it holds the shell
+        if subprocess.run(["systemctl", "--user", "is-active", "-q", unit]).returncode:
+            err = f"{unit} ended before it held {pid}"
+    if err:
+        print(f"hd scope: the command runs outside its run's slice: {err}", file=sys.stderr)
 
 
 def save_run(r):
@@ -1964,6 +2005,11 @@ def _pass(ctx, act):
         if act and (not last or last["state"] != st["state"]):
             put(ch["slug"], "state", {"state": st["state"]})
             event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
+    if act and ((live := ctx.F.slices() or set()) or (STATE / "winpids").exists()):   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes
+        for r in ctx.runs:
+            if r.get("ended") and (run_slice(r["name"]) in live or (STATE / "winpids" / run_slice(r["name"])).exists()):
+                ctx.F.end_procs(r["name"])
+                event(change=r["change"], run=r["name"], action="processes-ended")
     findings(ctx, open_prs, act)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
@@ -2330,6 +2376,7 @@ def cmd_stop(a):
         refuse(f"{r['name']} already ended")
     r["ended"], r["reason"] = now(), "stopped by the head"
     save_run(r)
+    Facts().end_procs(r["name"])
     event(change=r["change"], run=r["name"], action="ended", reason=r["reason"])
     print(f"{r['name']} ended")
 
@@ -2547,7 +2594,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

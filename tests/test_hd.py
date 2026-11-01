@@ -588,6 +588,37 @@ class R2(Sandbox):
         t.join()
         s.assertEqual([(x.get("started"), x["reason"]) for x in hd.runs()], [(None, "no longer due")])   # the bind wrote nothing over it
 
+    def test_each_hook_write_racing_a_pass_decides_on_the_run_read_under_the_lock(s):
+        import io, contextlib
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        (s.root / "state" / "s1").mkdir(exist_ok=True)
+        (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop1:7780"}')
+        bound = hd.runs()[0]
+        real = hd.lock
+        class passed(real):                       # the pass saves after the hook's first read, before the hook gets the lock
+            def __enter__(x):
+                hd.save_run({**bound, **x.write})
+                return real.__enter__(x)
+        def race(call, write):
+            hd.save_run(bound)
+            with mock.patch.object(hd, "lock", type("p", (passed,), {"write": write})), mock.patch.object(hook, "start_pass"), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                call()
+            return hd.runs()[0]
+        r = race(lambda: hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=2, handback="run s1-1: handoff")),
+                 {"ended": hd.now(), "reason": "stopped"})
+        s.assertEqual((r["reason"], r.get("usage")), ("stopped", None))          # the stop wrote nothing over the pass's end
+        r = race(lambda: hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=2, context=170000)), {"note": "pass"})
+        s.assertEqual((r["note"], bool(r.get("handoff_told"))), ("pass", True))  # told, over the pass's write, not a stale copy
+        r = race(lambda: hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=2, context=170000)), {"handoff_told": 1})
+        s.assertEqual(r["handoff_told"], 1)                                       # already told by the time the lock was held
+        r = race(lambda: hook.idle_desktops({**payload(run, "ag1", "PostToolUse", s.root), "tool_name": "Bash"}),
+                 {"ended": hd.now(), "reason": "stopped"})
+        s.assertEqual((r["reason"], r.get("play_mark")), ("stopped", None))       # no desktop count written over an ended run
+
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
         for c in ("s1", "s2", "s3"):

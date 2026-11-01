@@ -922,6 +922,7 @@ def tick(ctx=None, act=True):
     ctx = ctx or Ctx()
     view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     with lock():
+        ctx.__init__(ctx.F, ctx.cfg)  # R2: decide on the state read under the lock, never on what was read while waiting for it
         repairs(ctx, act)
         view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
         for g in ctx.goals.values():

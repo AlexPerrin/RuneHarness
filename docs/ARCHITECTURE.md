@@ -35,7 +35,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
-| `hd tick` | the timer, the hook | one pass |
+| `hd tick` | the timer, the hook | one pass, deciding on the state it reads under the state lock |
 
 ## Data
 

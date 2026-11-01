@@ -344,6 +344,15 @@ class R2(Sandbox):
         s.assertTrue(any("ended without a record" in a for a in v["alert"]))
         s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))  # the alert lists the orchestrator, not the user
 
+    def test_two_passes_list_a_run_once(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        waited = s.ctx(F)                       # a pass that read the state, then waited on the lock
+        hd.tick(s.ctx(F))                       # the pass holding the lock lists s1-1
+        hd.tick(waited)
+        s.assertEqual([r["name"] for r in hd.runs() if r["change"] == "s1"], ["s1-1"])
+        s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"listed"' in l and '"s1-1"' in l), 1)
+
     def test_a_run_ends_at_its_last_stop_and_is_alive_while_resumed(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

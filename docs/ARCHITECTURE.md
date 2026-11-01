@@ -51,7 +51,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
 | `hd commit <path>... -m <msg>` | the orchestrator | commits those paths of the live checkout alone, authored as Alex Perrin with the co-author line, under `state/ship.lock`: never at once with a ship's merge |
-| `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised; a fetch another pass has in flight is waited on and its result taken) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
+| `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised; a fetch another pass has in flight is waited on and its result taken; every GitHub read goes through state/gh, each page conditional on its ETag) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
 
 ## Data
 
@@ -69,6 +69,7 @@ state/<goal>/measure.json      {tree, value, report}           state/live/tree.j
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
 state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|context-limit, run, ...}, one file each; the fold deletes each it applied, a run record keeps the last applied id (`fact`) so a reader applies the rest once
 state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
+state/gh/<hash>.json          {url, code, etag, body, next}: the one cache of GitHub REST reads, keyed by URL, shared by passes, gates, dry-runs and the carry (its PR, CI and comment reads, the CI wait polling them afresh); each read sends If-None-Match (a 304 costs no quota); HD_GH=cache (check-dry-run) reads it alone, never the network; gh/quota.json {reset, at, url}: GitHub refused on its quota, every GitHub read is unknown (its steps hold, an alert) until GitHub's reset
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB; read streamed, each byte once per process); state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges

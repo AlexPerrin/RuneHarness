@@ -129,6 +129,7 @@ fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be 
 ```
 Every `state/` JSON record is written to a temp file beside it and renamed over it (`hd.write`, each track script's writers), so a reader sees the old record or the new one, never a partial one.
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;
+a merge-tree conflict only in content of the source docs is merged line by line (`hd.merge_lines`: each side's changed lines kept, a conflict only where both change overlapping lines differently), so neighbouring facts never conflict;
 the integration tree T_int is the same over every gated open server head plus the permanent pins.
 Build and gate are keyed by T's tree joined with `-<hash12>` of the tools they run when the track has a tools branch: at its tip, every file under `tools/gate/` (the code a build or gate runs: `tools/gate/gate.sh` holds build, gate and every verb a contract row runs, and tools/track.sh only dispatches those verbs to it) and each other tools file a row's command names, with the contract's script rows (`hd.tools_run`);
 a tools fix re-builds and re-gates, a tools commit outside them (docs, tests, up's code) neither;

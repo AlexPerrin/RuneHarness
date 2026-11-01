@@ -12,6 +12,29 @@ import yaml
 ROOT = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parent)
 STATE, EVID, DEFS = ROOT / "state", ROOT / "evidence", ROOT / "harness"
 AUTHOR = ("Alex Perrin", "44126061+AlexPerrin@users.noreply.github.com")
+SOURCE_DOCS = ("docs/PROBLEM.md", "docs/PRD.md", "docs/ARCHITECTURE.md")  # one fact per line (tools/docfmt.py)
+
+
+def merge_lines(base, a, b):
+    """R8: a three-way merge of line lists in which each side's edit of base lines is kept unless both sides change
+    overlapping base lines differently (or one inserts inside the other's changed lines); insertions at one point keep
+    both, a's first. → the merged lines | None on a conflict."""
+    import difflib
+    hunks = lambda x: [(i1, i2, x[j1:j2]) for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, base, x, autojunk=False).get_opcodes() if op != "equal"]
+    ha, hb = hunks(a), hunks(b)
+    for x in ha:
+        for y in hb:
+            if x == y:
+                continue
+            (s1, e1, _), (s2, e2, _) = x, y
+            if (s1 < e2 and s2 < e1) or (s1 == e1 and s2 < s1 < e2) or (s2 == e2 and s1 < s2 < e1):
+                return None
+    out, i = [], 0
+    for s1, e1, rep in sorted(ha + [y for y in hb if y not in ha], key=lambda h: (h[0], h[1] > h[0])):
+        out += base[i:s1] + rep; i = max(i, e1)
+    return out + base[i:]
+
+
 TRAILER = "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 GIT_ENV = {"GIT_AUTHOR_NAME": AUTHOR[0], "GIT_AUTHOR_EMAIL": AUTHOR[1], "GIT_COMMITTER_NAME": AUTHOR[0],
            "GIT_COMMITTER_EMAIL": AUTHOR[1]}
@@ -191,6 +214,8 @@ class Facts:
             r = s.sh(["git", "-C", clone, "merge-tree", "--write-tree", base, head])
             if r is None or r[0] > 1:
                 return None
+            if r[0] == 1 and not (r := s.fact_merge(clone, r[1])):
+                return None
             if r[0] == 1:
                 return "conflict", "\n".join(l for l in r[1].splitlines() if l.startswith("CONFLICT"))[:2000]
             d = s.sh(["git", "-C", clone, "show", "-s", "--format=%ct", base, head])
@@ -201,6 +226,36 @@ class Facts:
                      env={**GIT_ENV, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date})
             return ("ok", r[1].strip()) if r and r[0] == 0 else None
         return s._m(("merge", clone, base, head), f)
+
+    def fact_merge(s, clone, out):
+        """R8: merge-tree's conflicted output whose only conflicts are content ones in the source docs, merged line by line
+        (one fact per line): (0, tree) when no fact line is changed two ways, else the output as it was; None unknown."""
+        tree, *info = out.split("\n\n", 1)[0].splitlines()
+        stages = {}
+        for l in info:
+            m = re.match(r"(\d+) ([0-9a-f]+) ([123])\t(.+)", l)
+            if not m:
+                return 1, out
+            stages.setdefault(m[4], {})[m[3]] = (m[1], m[2])
+        if not stages or any(p not in SOURCE_DOCS or len(st) < 3 for p, st in stages.items()):
+            return 1, out
+        with tempfile.TemporaryDirectory() as d:
+            env = {"GIT_INDEX_FILE": f"{d}/index"}
+            if (s.sh(["git", "-C", clone, "read-tree", tree], env=env) or [1])[0]:
+                return None
+            for p, st in stages.items():
+                text = [s.sh(["git", "-C", clone, "cat-file", "blob", st[k][1]]) for k in "123"]
+                if any(t is None or t[0] for t in text):
+                    return None
+                merged = merge_lines(*(t[1].split("\n") for t in text))
+                if merged is None:
+                    return 1, out
+                Path(f"{d}/blob").write_text("\n".join(merged))
+                h = s.sh(["git", "-C", clone, "hash-object", "-w", f"{d}/blob"])
+                if not h or h[0] or (s.sh(["git", "-C", clone, "update-index", "--cacheinfo", f"{st['2'][0]},{h[1].strip()},{p}"], env=env) or [1])[0]:
+                    return None
+            w = s.sh(["git", "-C", clone, "write-tree"], env=env)
+            return (0, w[1]) if w and w[0] == 0 else None
 
     def rebase(s, repo, branch, onto, wt):
         """Rebase branch onto onto in the worktree holding it (wt, added when none does): ('ok', sha) | ('conflict', detail) | None."""

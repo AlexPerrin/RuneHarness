@@ -2456,6 +2456,40 @@ class R8(Sandbox):
         c, d = sibling("c", 2, fact("A defined change reaches its target")), sibling("d", 2, fact("A change reaches its live target"))
         s.assertEqual(F.merge(str(tmp), c, d, "T same fact")[0], "conflict")   # the same fact changed two ways is the dev's
 
+    def test_neighbouring_doc_fact_lines_merge_line_by_line(s):
+        # the PRD.md:164 case: one change edits the 'hd stop' fact, another inserts a fact on the line before it
+        root, tmp = Path(__file__).parent.parent, Path(tempfile.mkdtemp())
+        s.addCleanup(shutil.rmtree, tmp, True)
+        git = lambda *a: subprocess.run(["git", "-C", str(tmp), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q", "-b", "live"); (tmp / "docs").mkdir(); shutil.copy(root / "docs/PRD.md", tmp / "docs/PRD.md")
+        (tmp / "x.kt").write_text("x\n")
+        git("add", "."); git("commit", "-qm", "base"); base = git("rev-parse", "HEAD")
+        L = (tmp / "docs/PRD.md").read_text().split("\n")
+        stop = next(i for i, l in enumerate(L) if "(`hd stop`)" in l)
+
+        def side(name, edit, kt=None):
+            git("checkout", "-q", "-b", name, base)
+            (tmp / "docs/PRD.md").write_text("\n".join(edit(list(L))))
+            if kt:
+                (tmp / "x.kt").write_text(kt)
+            git("commit", "-qam", name); return git("rev-parse", "HEAD")
+        at = lambda i, f: lambda M: M[:i] + f(M[i]) + M[i + 1:]
+        run_stop = side("run-stop", at(stop, lambda l: [l.replace("ends and frees its slot", "ends, frees its slot and its worktree")]))
+        pinned = side("pinned", at(stop - 1, lambda l: [l, "   a tools head is pinned per process;"]))
+        F = hd.Facts()
+        for a, b in [(run_stop, pinned), (pinned, run_stop)]:
+            r = F.merge(str(tmp), a, b, "T")
+            s.assertEqual(r[0], "ok")
+            both = L[:stop] + ["   a tools head is pinned per process;", L[stop].replace("ends and frees its slot", "ends, frees its slot and its worktree")] + L[stop + 1:]
+            s.assertEqual(git("show", f"{r[1]}:docs/PRD.md"), "\n".join(both).strip())
+        other = side("other", at(stop, lambda l: [l.replace("ends and frees its slot", "ends")]))
+        s.assertEqual(F.merge(str(tmp), run_stop, other, "T")[0], "conflict")                  # the same fact changed two ways
+        code = side("code", at(stop - 1, lambda l: [l, "   a code fact;"]), "y\n")
+        kt = side("kt", lambda M: M, "z\n")
+        s.assertEqual(F.merge(str(tmp), code, kt, "T")[0], "conflict")                         # a conflict outside the docs stays the dev's
+        s.assertIsNone(hd.merge_lines(["a", "b"], ["x"], ["a", "n", "b"]))                       # an insertion inside the other's changed lines
+        s.assertEqual(hd.merge_lines(["a", "b"], ["x", "a", "b"], ["y", "a", "b"]), ["x", "y", "a", "b"])   # two insertions at one point: both
+
     def integration_fixture(s, with_ref):
         P_, Q, M, R = "p" * 40, "q" * 40, "m" * 40, "r" * 40
         s.change("s1"); s.agreed("s1")

@@ -468,6 +468,24 @@ class Facts:
         return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
 
     @_read
+    def tools_used(s):
+        """R5: the names under state/tools/ (the track scripts' copies of their tools) a live process names in its command
+        line or cwd, or a docker container mounts from; None when docker cannot be read."""
+        r = s.sh(["docker", "ps", "-aq"], timeout=60)
+        if r is None or r[0]:
+            return None
+        m = s.sh(["docker", "inspect", "--format", "{{range .Mounts}}{{.Source}} {{end}}", *r[1].split()], timeout=60) if r[1].split() else (0, "", "")
+        if m is None or m[0]:
+            return None
+        text = [m[1]]
+        for d in Path("/proc").glob("[0-9]*"):
+            try:
+                text += [(d / "cmdline").read_bytes().decode(errors="replace"), os.readlink(d / "cwd")]
+            except OSError:
+                continue
+        return set(re.findall(re.escape(str(STATE / "tools")) + r"/([^/\s\0]+)", "\n".join(text)))
+
+    @_read
     def orchestrators(s):
         """R2: [(pid, start)] of each orchestrator session (a `claude --agent orchestrator` process): the process table is the fact."""
         out = []
@@ -1953,7 +1971,8 @@ def repair(ctx, slug, name, args, check, act):
 
 def repairs(ctx, act):
     """R5: end the runs whose console is gone (their agents died with it); bring down a server no run uses; make a
-    missing tools worktree; give a repo without the noreply identity that identity (its worktrees share it)."""
+    missing tools worktree; remove a copy under state/tools/ no process or container uses (a partial one once its writer's
+    pid is gone); give a repo without the noreply identity that identity (its worktrees share it)."""
     for name, r in ctx.cfg["repos"].items():
         p = str(P(r["path"]))
         if (ctx.F.git(p, "config", "user.email") or [1, ""])[1].strip() != AUTHOR[1] and act:
@@ -1967,6 +1986,11 @@ def repairs(ctx, act):
                 event(action="worktree", repo=name)
             else:
                 ctx.alerts.append(f"{name}: cannot add the worktree {wt} for {r['tools']}: {(ok or ['', '', 'git not run'])[2].strip()[-200:]}")
+    used = ctx.F.tools_used() if act and (STATE / "tools").is_dir() else None
+    for d in (STATE / "tools").iterdir() if used is not None else []:  # a copy no one runs from, a partial copy whose writer is gone
+        pid = d.name.rsplit(".", 1)[-1]
+        if d.name not in used and not (d.name.startswith(".") and pid.isdigit() and ctx.F.proc_start(int(pid))):
+            shutil.rmtree(d, ignore_errors=True)  # shortcut: a script that found this copy and has not yet exec'd into it dies once (hd re-runs it); a lock if it ever happens
     for r in ctx.runs:
         if r.get("started") and not r.get("ended") and not ctx.F.alive(r.get("console_pid"), r.get("console_start")) and act:
             r["ended"], r["reason"] = now(), "console died"
@@ -2482,12 +2506,13 @@ def cmd_handover(a):
 
 
 def rows(ctx, ch, con, head, tc, tree, build, gate):
-    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root, each
+    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root (TOOLS_ROOT in a gate), each
     with the change's own env (a track script keeps a check of the tree alone once per gate).
     Cheap and local first, whatever the file's order: every `check:` row, then the `gate:` rows (fork CI among them) only
     when every check passed."""
     env, why = ctx.env(ch, head, tc, tree, build), []
     env.update({k: os.environ[k] for k in ("TOOLS",) if k in os.environ and gate})  # the gate's: a batch's, every member's tools
+    root = os.environ.get("TOOLS_ROOT") or str(track_root(ctx.cfg, ch["track"]))  # in a gate, its track script's copy of the tools: a ship never moves it
     waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
     for row in con["rows"]:
         if row["id"] in waived:
@@ -2498,7 +2523,7 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
             break
         for row in con["rows"]:
             if row[kind] and row["id"] not in waived:
-                rc, out = ctx.F.run(row[kind], str(track_root(ctx.cfg, ch["track"])), env)
+                rc, out = ctx.F.run(row[kind], root, env)
                 print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} failed: {out.strip()[-400:]}")

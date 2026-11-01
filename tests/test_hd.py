@@ -3,7 +3,7 @@ import hashlib, io, json, os, re, shutil, subprocess, sys, tempfile, time, unitt
 from pathlib import Path
 from unittest import mock
 
-for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS"):
+for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS", "TOOLS_ROOT"):
     os.environ.pop(k, None)                                                   # hd's loop env (Hd.env): the gate's own change never reaches a test's track.sh
 NESTED = os.environ.get("HD_SUITE")                                           # "1" for every process this suite starts; "nested" for a test's deliberate inner suite
 if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse
@@ -39,6 +39,7 @@ class Fake(hd.Facts):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
         return 0, "", ""
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
+    def tools_used(s): return s.f.get("tools_used", set())  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
     def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
     def supervised(s, pid): return s.f.get("supervised", False)
@@ -1760,6 +1761,25 @@ class R5(Sandbox):
                   {"tools/server/test_tools.py": "u2"}):
             s.assertEqual((b({}), k({})), (b(g), k(g)), g)                     # up's code in track.sh (a row's verb runs in gate/), other files
         s.assertNotEqual(k({}), k({}, ["tools/server/text.py texts"]))         # the rows themselves
+
+    def test_a_tools_copy_goes_once_nothing_runs_from_it(s):
+        d = s.root / "state" / "tools"
+        for n in ("aaa", "bbb", ".ccc.111", ".ddd.222"):
+            (d / n / "tools").mkdir(parents=True)
+        F = Fake(**FACTS, tools_used={"aaa"}); F.proc_start = lambda pid: "1" if pid == 111 else None   # 111 still copying, 222 died mid-copy
+        hd.repairs(s.ctx(F), False); s.assertEqual(len(list(d.iterdir())), 4)                         # a dry run removes nothing
+        F.f["tools_used"] = None; hd.repairs(s.ctx(F), True); s.assertEqual(len(list(d.iterdir())), 4)  # docker unreadable: a container's mounts unknown
+        F.f["tools_used"] = {"aaa"}; hd.repairs(s.ctx(F), True)
+        s.assertEqual(sorted(p.name for p in d.iterdir()), [".ccc.111", "aaa"])
+
+    def test_a_gate_runs_its_rows_from_its_own_tools_copy(s):
+        s.change("s1"); s.agreed("s1"); ran = []
+        F = Fake(**FACTS); F.run = lambda cmd, cwd, env: (ran.append(cwd), (0, ""))[1]
+        ctx = s.ctx(F); con = hd.contract("s1")
+        hd.rows(ctx, ctx.changes["s1"], con, A, A, TA, "", gate=True)
+        with mock.patch.dict(os.environ, {"TOOLS_ROOT": "/copy"}):
+            hd.rows(ctx, ctx.changes["s1"], con, A, A, TA, "", gate=True)
+        s.assertEqual(ran, [str(hd.track_root(hd.cfg(), "server"))] * (len(ran) // 2) + ["/copy"] * (len(ran) // 2))   # the hand-over at the checkout; the gate at the copy its script runs from
 
     def test_track_root_and_repair_on_the_tools_branch_worktree(s):
         c = hd.cfg()

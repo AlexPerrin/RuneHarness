@@ -172,6 +172,7 @@ a live check reads the real state.
    two passes and a gate over the same state read each GitHub resource once, then only revalidate (304s), a dry-run (the gate's included) from the cache and the local refs alone, never the network, the carry's CI wait through the same cache (no GitHub read bypasses it), and an exhausted quota is an alert that holds every GitHub read;
    a pass on the live state peaks under 200 MB;
    console gone → its runs end and their artefacts are removed in one pass;
+   a tools ship never changes the tools a running track script reads (each runs from its copy, removed once nothing uses it);
    a run the orchestrator stops (`hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;
    a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
    a failing test, a test suite and a gate leave no temp dir behind;

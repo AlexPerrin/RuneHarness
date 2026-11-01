@@ -149,6 +149,8 @@ A server build holds its slug's `state/<slug>/build.lock` while it builds alone,
 The game cache is keyed by the hash of its inputs (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned).
 The build copy is `<repo>/.worktrees/<slug>-build`, the dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo;
 a track's `tools/` sit on its repo's `tools` branch (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing.
+A product track script run from that checkout (or any other) first copies its `tools/` to `state/tools/<content hash>/tools` and execs itself there, exporting `TOOLS_ROOT` (the copy's parent, where `hd rows` runs a gate's rows) and `TOOLS_SRC` (the checkout): a ship fast-forwards the checkout, never a running build, gate, deploy or up;
+the pass removes a copy no process names in its command line or cwd and no container mounts from.
 A harness change carries a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless it descends from the tools branch;
 once handed over, a head the branch moved past is rebased onto it by the pass in `<repo>/.worktrees/<slug>`, recorded in the hand-over and re-gated, a conflict being the dev's step), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change is live once the live branch and every such branch hold their heads.
 A done or closed change leaves nothing behind: the pass ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`, `dev/<slug>`;
@@ -275,7 +277,8 @@ write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
-repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity).
+repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
+remove a tools copy nothing uses.
 
 **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session the user starts once with its supervisor `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` in the user's terminal, and again each time a session ends with the restart mark), so it and every agent it spawns show in the user's console with their transcripts (an agent a run spawns, its `reader`, shows under it;
 a headless session's agents are not shown).

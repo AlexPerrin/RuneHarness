@@ -7,10 +7,12 @@
 time (the Android bridge takes it), or are POSTed to the desktop client's devtools endpoint (the bring-up's ports 7780+;
 a tool's optional `port` argument picks the client, default the URL's), so a client started after the session is used
 on its next call.
+A desktop walk_to walks to its tile at any distance in minimap clicks of at most STEP tiles (walk below).
 A live tools list is cached in ~/.cache/osrs-devtools/tools-<name>.json; without a live client the cache, else
 mcp/devtools-snapshot.json, answers it. A call with no client returns the backend's error, not a dead server.
 """
 import json
+import math
 import os
 import re
 import subprocess
@@ -34,10 +36,10 @@ def post(url, method, params):
     # mirrored WSL drops a connect to a closed Windows port instead of refusing it: ask netstat, as the bring-up does
     port = re.search(r":(\d+)/", url).group(1)
     try:
-        ports = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True).stdout
+        ns = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True)
     except OSError:
-        ports = ""
-    if not re.search(rf":{port}\s+\S+\s+LISTENING", ports):
+        ns = None
+    if ns and ns.returncode == 0 and not re.search(rf":{port}\s+\S+\s+LISTENING", ns.stdout):   # a failed netstat (now and then) says nothing: connect
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
     req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
                                  {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
@@ -61,6 +63,67 @@ def backend(cmd, method, params):
     return {"error": {"code": -32000, "message": (p.stderr.strip() or "no reply from the client bridge")[-300:]}}
 
 
+STEP = 12   # tiles per click: inside the minimap circle (48 px from its centre) clear of its orbs
+TOPLEVELS = (161, 164, 548)   # resizable classic, resizable modern, fixed: the interface holding the minimap
+
+
+def text(r):
+    """The JSON a devtools tool result carries; its error raised."""
+    if "result" not in r or r["result"].get("isError"):
+        raise RuntimeError(json.dumps(r.get("result") or r.get("error")))
+    t = r["result"]["content"][0]["text"]
+    return json.loads(t) if t[:1] in "{[" else t
+
+
+def minimap(call):
+    """The centre of the minimap's draw area: the visible component of content type 1338 (the client draws the map in it)."""
+    for i in TOPLEVELS:
+        try:
+            cs = text(call("dump_interface", {"interfaceId": i}))["components"]
+        except RuntimeError:
+            continue
+        for c in cs:
+            if c.get("contentType") == 1338 and not c.get("hidden"):
+                b = c["bounds"]
+                return b["x"] + b["width"] // 2, b["y"] + b["height"] // 2
+    raise RuntimeError("no minimap on screen")
+
+
+def walk(cmd, params):
+    """walk_to over any distance: clicks on the minimap of at most STEP tiles toward the tile, each until the player has
+    moved closer to the clicked tile and is idle again. The client's own walk_to clicks the viewport, where a far tile lies
+    under the chatbox or the side panels, or a minimap point the client cannot find; a minimap click reaches every direction."""
+    a = params.get("arguments") or {}
+    port = {"port": a["port"]} if "port" in a else {}
+    call = lambda tool, args: backend(cmd, "tools/call", {"name": tool, "arguments": {**args, **port}})
+    x, y, stuck, seen = a["x"], a["y"], False, []
+    try:
+        cx, cy = minimap(call)
+        while True:
+            st = text(call("get_client_state", {}))
+            px, py = st["worldX"], st["worldY"]
+            d = max(abs(x - px), abs(y - py))
+            stuck = stuck or (px, py) in seen   # back on a tile the walk clicked from: going round in circles
+            seen.append((px, py))
+            if d == 0 or stuck:
+                break
+            k = min(1, STEP / d)
+            sx, sy = px + round((x - px) * k), py + round((y - py) * k)
+            # the tile's offset on the minimap: 4 px a tile (shortcut: the default minimap zoom; read the client's zoom
+            # once a session changes it), turned by the camera yaw as the client turns the map (2048 units a turn)
+            t = (st.get("cameraYaw") or 0) * math.pi / 1024
+            dx, dy = (sx - px) * 4, (sy - py) * 4
+            text(call("click", {"x": round(cx + dx * math.cos(t) + dy * math.sin(t)), "y": round(cy - (dy * math.cos(t) - dx * math.sin(t)))}))
+            sd = max(abs(sx - px), abs(sy - py))
+            stuck = not text(call("wait_for", {"condition": "at_tile", "x": sx, "y": sy, "range": sd - 1, "timeoutMs": 60000}))["met"]
+            if not stuck:
+                text(call("wait_for", {"condition": "idle", "timeoutMs": 60000}))
+    except RuntimeError as e:
+        return {"result": {"content": [{"type": "text", "text": f"walk_to {x},{y}: {e}"}], "isError": True}}
+    msg = f"walk_to {x},{y}: at {px},{py}, {d} tiles away; clicked from " + " ".join(f"{p[0]},{p[1]}" for p in seen[:-1]) + (" (stuck: no closer, or back where it clicked before)" if stuck else "")
+    return {"result": {"content": [{"type": "text", "text": msg}], **({"isError": True} if stuck else {})}}
+
+
 def tools(name, cmd):
     cache = os.path.expanduser(f"~/.cache/osrs-devtools/tools-{name}.json")
     live = backend(cmd, "tools/list", {})
@@ -82,6 +145,9 @@ def listed(name, cmd):
         for x in t.get("tools", []):
             x.setdefault("inputSchema", {"type": "object"}).setdefault("properties", {})["port"] = {
                 "type": "integer", "description": "devtools port of the desktop (up.json desktops), default " + re.search(r":(\d+)/", cmd[0]).group(1)}
+            if x["name"] == "walk_to":
+                x["description"] = ("Walk to the tile at world x,y on the current plane, at any distance: minimap clicks of at most "
+                                    f"{STEP} tiles until the player stands on it; an error names where it stopped when a click moves it no closer.")
     return t
 
 
@@ -101,7 +167,8 @@ def handle(name, cmd, line):
     elif method == "ping":
         reply(msg["id"], result={})
     else:
-        r = backend(cmd, method, params)
+        far = cmd[0].startswith("http") and method == "tools/call" and params.get("name") == "walk_to"
+        r = walk(cmd, params) if far else backend(cmd, method, params)
         reply(msg["id"], **({"result": r["result"]} if "result" in r else {"error": r.get("error")}))
 
 

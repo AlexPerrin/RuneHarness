@@ -890,6 +890,35 @@ class R6(Sandbox):
             s.assertIn("get_client_state", [t["name"] for t in out[1]["result"]["tools"]])
         shutil.rmtree(home, ignore_errors=True)
 
+    def test_desktop_walk_to_reaches_a_far_tile_in_minimap_clicks(s):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        pos, water, clicks = [3222, 3218], {(3100, 3200)}, []
+        ok = lambda v: {"result": {"content": [{"type": "text", "text": json.dumps(v)}]}}
+        def backend(cmd, method, params):                              # a desktop at camera yaw 0, its minimap centred at 689,84
+            n, a = params["name"], params["arguments"]
+            if n == "dump_interface":
+                return ok({"components": [{"contentType": 1338, "hidden": False, "bounds": {"x": 613, "y": 8, "width": 152, "height": 152}}]})
+            if n == "get_client_state":
+                return ok({"worldX": pos[0], "worldY": pos[1], "cameraYaw": 0})
+            if n == "click":
+                t = (pos[0] + round((a["x"] - 689) / 4), pos[1] - round((a["y"] - 84) / 4))
+                s.assertLessEqual(max(abs(t[0] - pos[0]), abs(t[1] - pos[1])), b.STEP)   # every click on the minimap
+                clicks.append(t)
+                if t not in water:
+                    pos[:] = t
+                return ok("Clicked")
+            if n == "wait_for":
+                return ok({"met": a["condition"] == "idle" or max(abs(a["x"] - pos[0]), abs(a["y"] - pos[1])) <= a["range"]})
+        with mock.patch.object(b, "backend", backend):
+            r = b.walk(["http://127.0.0.1:7781/mcp"], {"name": "walk_to", "arguments": {"x": 3147, "y": 3178, "port": 7781}})
+            s.assertEqual((pos, r["result"].get("isError")), ([3147, 3178], None), r)
+            s.assertEqual(len(clicks), 7)                              # 75 tiles, 12 a click
+            r = b.walk(["http://127.0.0.1:7781/mcp"], {"name": "walk_to", "arguments": {"x": 3100, "y": 3200}})
+            s.assertTrue(r["result"]["isError"])                      # a tile it cannot reach: stops where it stood, says so
+            s.assertIn("stuck", r["result"]["content"][0]["text"])
+
     def test_harness_changes_dispatch_before_product_changes(s):
         s.change("s1", priority="P0"); s.agreed("s1")
         s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")

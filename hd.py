@@ -641,7 +641,8 @@ def findings(ctx, open_prs, act):
 def integration(ctx):
     """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in order of
     creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
-    heads; else the conflict belongs to the younger side. → {commit, tree, heads, names} | {conflict, change, detail, with} | None."""
+    heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the younger side, and a pin's
+    to the oldest gated change. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with} | None."""
     srv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}
     clone, base = ctx.clone(srv), ctx.base(srv)
     if not base:
@@ -664,14 +665,15 @@ def integration(ctx):
         if r is None:
             return None
         if r[0] == "conflict":
-            for _, o, _ in included:
+            for o in [base] + [o for _, o, _ in included]:  # the base is a partner too: a pin can conflict with it alone
                 for ref in (f"fork/local/merge/{h[:7]}-{o[:7]}", f"fork/local/merge/{o[:7]}-{h[:7]}"):
                     if (m := ctx.F.rev(clone, ref)):
                         r = ctx.F.merge(clone, cur, m, f"T_int: resolution {ref}")
                 if r and r[0] == "ok":
                     break
             if r is None or r[0] != "ok":
-                return {"conflict": name, "change": ch, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
+                owner = ch or next((c for _, _, c in heads if c), None)  # a pin's conflict is owned by the oldest gated change
+                return {"conflict": name, "change": owner, "head": h, "base": base, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
         cur = r[1]
         included.append((name, h, ch))
     tree = ctx.F.tree(clone, cur)
@@ -679,15 +681,21 @@ def integration(ctx):
 
 
 def ship_test(ctx, ch, st, tint, act):
-    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's."""
+    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's, a pin's the oldest gated change's."""
     if tint is None:
         st["state"] = "integration tree unknown"
     elif "conflict" in tint:
         if tint["change"] and tint["change"]["slug"] == ch["slug"]:
-            st.update(step(f"conflicts with the integration tree ({', '.join(tint['with'][-3:])}): dev", "dev", mode="code",
-                           input=["integration", ctx.head(ch), tint["detail"][:200]], detail=tint["detail"] +
-                           "\nAgainst a change: add it to your deps or resolve in your branch. Against a permanent pin or a union: "
-                           "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only."))
+            h7, b7, mine = tint["head"][:7], tint["base"][:7], tint["conflict"] == ch["slug"]
+            how = ("\nAgainst a change: add it to your deps or resolve in your branch. Against a permanent pin or a union: "
+                   "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only.") if mine else (
+                  f"\nThe permanent pin {tint['conflict']} ({h7}) conflicts on base {b7}; you own its resolution, your head stays as it is. "
+                  f"Merge the pin into the base (or the head it conflicts with) and push the merge to the fork as local/merge/{h7}-{b7} "
+                  f"(or local/merge/{h7}-<that head7>); it serves the integration tree only, bound to those two commits. "
+                  "Report whether the base supersedes the pin; the pin list is the user's.")
+            st.update(step(f"{'conflicts' if mine else 'pin ' + tint['conflict'] + ' conflicts'} with the integration tree "
+                           f"({', '.join(tint['with'][-3:]) or 'the base'}): dev", "dev", mode="code",
+                           input=["integration", ctx.head(ch), tint["head"], tint["base"], tint["detail"][:200]], detail=tint["detail"] + how))
             dispatch(ctx, ch, st, act)
         else:
             st["state"] = f"test server deploy blocked by {tint['conflict']}'s conflict"

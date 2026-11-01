@@ -991,15 +991,27 @@ class R8(Sandbox):
             hd.cmd_tree(["s1", C])                                                   # a working-copy snapshot, not the dev ref
         s.assertEqual(out.getvalue().split(), [D, "td" * 20])
 
-    def test_pin_conflict_is_an_alert_not_a_dev(s):
+    def test_pin_conflict_is_the_oldest_gated_change_s_dev(s):
         F, R = s.integration_fixture(with_ref=False)
         c = json.loads((s.root / "hd.yaml").read_text()); c["pins"] = ["local/x", "local/y"]; (s.root / "hd.yaml").write_text(json.dumps(c))
         F.f["refs"]["fork/local/y"] = "y" * 40; F.f["merges"][("q" * 40, "y" * 40)] = ("conflict", "CONFLICT (content): z.kt")
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         v = hd.tick(s.ctx(F))
-        s.assertIn("s1 [server P2]: test server deploy blocked by local/y's conflict", v["change"])
-        s.assertTrue(any(a.startswith("pin local/y conflicts") for a in v["alert"]))
-        s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])
+        s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
+        s.assertIn(f"local/merge/{'y' * 7}-{B[:7]}", open(hd.runs()[0]["brief"]).read())
+        s.assertEqual([a for a in v["alert"] if a.startswith("pin ")], [])
+
+    def test_pin_base_conflict_resolved_by_its_merge_ref(s):
+        F, R = s.integration_fixture(with_ref=False)
+        P_, M2 = "p" * 40, "n" * 40
+        F.f["merges"][(B, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["conflict"], t["change"]["slug"], t["with"]), ("local/x", "s1", []))  # the base alone: owned, not an alert
+        F.f["refs"][f"fork/local/merge/{P_[:7]}-{B[:7]}"] = M2; F.f["merges"][(B, M2)] = ("ok", "q" * 40); F.f["merges"][("q" * 40, A)] = ("ok", R)
+        s.assertEqual(hd.integration(s.ctx(F))["names"], ["local/x", "s1"])
+        F.f["refs"]["origin/HEAD"] = C                                               # the base moves: the resolution no longer binds
+        F.f["merges"][(C, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
+        s.assertEqual(hd.integration(s.ctx(F))["conflict"], "local/x")
 
     def test_artefacts_named_by_change(s):
         s.change("s1"); s.agreed("s1")

@@ -51,7 +51,7 @@ state/<goal>/measure.json      {tree, value, report}           state/live/tree.j
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, events_at, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
-fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T_int while both are current
+fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit),
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
@@ -81,8 +81,9 @@ next(change):
   build(T)                          not built → tools/track.sh build; failed → dev
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
-  server: live.json ⊇ head?         no → ship test server (T_int built once, deployed); a pin conflict → the younger change's dev:
-                                    against a change, resolve in its own branch; against a permanent pin or a union, push local/merge/<a>-<b>
+  server: live.json ⊇ head?         no → ship test server (T_int built once, deployed); a conflict → the younger change's dev
+                                    (a pin's: the oldest gated change's): against a change, resolve in its own branch; against a
+                                    permanent pin, the base or a union, push local/merge/<a>-<b>
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push
   wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no

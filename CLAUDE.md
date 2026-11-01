@@ -14,13 +14,13 @@ hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the conte
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
-.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner; product repos hold the judgment skills
+.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner, reader (a run's read-only lookup); product repos hold the judgment skills
 harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
 docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
 tests/         python3 -m unittest discover -s tests   (one class per requirement)
 ```
 
-Agents are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief;
+Runs are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
 the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
 (its head, acts and exact texts) and carried by `hd ship` only after the user's yes: their own
 `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.

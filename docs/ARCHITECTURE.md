@@ -19,11 +19,16 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
                   kept as evidence/<slug>/subagent-<id>.md; PostToolUse: a run hands off at the context limit; else
                   a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since
-                  that up or its last devtools call, is told once to `down` until it next plays
+                  that up or its last devtools call, is told once to `down` until it next plays. An agent whose
+                  <session>/subagents/agent-<id>.meta.json names a parentAgentId (a `reader` a run spawned) is part of
+                  its parent's run, not a run: none of the above binds, holds, refuses or ends it (the deny rules still apply);
+                  once that run has ended it stops (`continue: false`) at its next tool call, since neither the run nor the
+                  orchestrator's TaskStop of the run stops it; a `reader`'s Bash command that writes (a redirection to a file,
+                  rm/mv/cp, git that moves a ref, track.sh up/build/gate/down, docker run, a gh or hd write) is denied
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts, build, gate and the contract rows' verbs in its tools/gate/gate.sh; its judgment skills under its .claude/skills/
-.claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring)
+.claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring), reader.md (a run's read-only lookup, returning its conclusion)
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, and an exception is an error answer; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
@@ -37,7 +42,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd answer <slug> [--waive <row>] <text>` | the orchestrator, with the user's words | an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
 | `hd hold <slug> [--all\|--lift] [<why>]` | the orchestrator, on the user's no or word | `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves; --all: `held: all[: <why>]` in the definition (the orchestrator commits it), no card at any head; --lift removes both |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
-| `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
+| `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call) |
 | `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle. A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug); a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>`, so a change already handed over gets a dev run for it; `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes'); `--supersedes` closes those open harness changes as `superseded by <slug>` |
 | `hd show <slug>` | the orchestrator | the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead) |
 | `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir or a `limit:<slug>` argument (a filed limit the hand-back names) that is no change or is in the change's scope, records {head, T} |
@@ -163,7 +168,7 @@ as holding its test server deploy), compute `next`; list no run for a change who
 time; write an event only when `next` differs from the last event; end the runs whose console is gone and remove what
 they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity). **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
-user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
+user's console with their transcripts (an agent a run spawns, its `reader`, shows under it; a headless session's agents are not shown). A watch
 on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card (a change at a head and texts) not shown before; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
 harness change for a fault a hand-back reports, commits definitions, keeps one read-only monitor sweep running (a
 general-purpose agent that edits nothing and validates that the harness changes shipped since the last sweep landed and finds harness bugs;

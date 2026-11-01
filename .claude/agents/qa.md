@@ -32,7 +32,9 @@ from that build, in game for every player-facing claim, and record `hd verdict <
 row `pass`, `fail: <note>` or `not-judged` (a row you did not check at that head: never `pass`); the command refuses a
 missing row, and a verdict with no failing row that leaves a row not judged. The next brief lists the open rows. Failed rows that are text only
 (PR title, body, comment): fix the text in the evidence dir and mark them pass. Read-heavy lookups go to a
-read-only subagent that returns the conclusion. At the context limit start no new work and follow the hook's
+`reader` (`Agent(subagent_type="reader")`, read-only, part of your run) with one question, and you keep only its
+conclusion: RSProx transcripts and recordings, cache and gameval dumps, decompiled code, CI and server logs, wiki
+transcripts. At the context limit start no new work and follow the hook's
 hand-off steps in order: record what you judged, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`, hand
 back.
 

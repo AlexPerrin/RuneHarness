@@ -7,7 +7,7 @@
       {"matcher": "Bash|SubagentHandback", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"matcher": "Bash|Read|Edit|Write|Agent|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|Read|Edit|Write|Agent|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "SubagentStop": [
       {"matcher": "dev|qa|planner", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 30}]}

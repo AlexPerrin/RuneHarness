@@ -1316,6 +1316,53 @@ class R5(Sandbox):
         with s.assertRaises(SystemExit):
             hd.cmd_stop([run["name"]])                                          # an ended run is not stopped twice
 
+    def test_a_reader_a_run_spawns_is_part_of_it_and_stops_with_it(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        sub = s.root / "state" / "session" / "subagents"
+        sub.mkdir(parents=True)
+        def agent(aid, kind, prompt, parent=None, **meta):
+            (sub / f"agent-{aid}.jsonl").write_text(json.dumps({"type": "user", "message": {"role": "user", "content": prompt}}) + "\n")
+            (sub / f"agent-{aid}.meta.json").write_text(json.dumps({"agentType": kind, **({"parentAgentId": parent} if parent else {}), **meta}))
+            return lambda ev, **x: {"hook_event_name": ev, "agent_id": aid, "agent_type": kind, "agent_transcript_path": str(sub / f"agent-{aid}.jsonl"), **x}
+        dev = agent("d1", "dev", f"Read and follow {run['brief']}")
+        hook.bind(dev("SubagentStart"))
+        reader = agent("r1", "reader", "Which packets open the clan chat?", parent="d1")
+        fork = agent("f1", "dev", f"Read and follow {run['brief']}", parent="d1")   # a fork carries its parent's brief
+        agent("r0", "reader", "done already", parent="d1", finished=True)
+        with mock.patch.object(hook, "start_pass") as tick, mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            for a in (reader, fork):
+                hook.bind(a("SubagentStart")); hook.bind(a("PreToolUse", tool_name="Bash"))
+                hook.hold_handback(a("PreToolUse", tool_name="SubagentHandback"))
+                with open(sub / f"agent-{a('x')['agent_id']}.jsonl", "a") as f:   # a background command still runs: no refusal
+                    f.write(json.dumps({"type": "user", "toolUseResult": {"backgroundTaskId": "b9"}}) + "\n")
+                hook.end_run(a("SubagentStop"))
+        s.assertEqual((out.getvalue(), tick.called), ("", False))                    # not held, not refused, no pass
+        s.assertEqual([(r["agent_id"], r["ended"]) for r in hd.runs()], [("d1", None)])   # not bound as a run; the parent's run not ended
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            s.assertFalse(hook.stop_orphan(reader("PostToolUse", tool_name="Grep")))  # its run lives: it carries on
+            hd.cmd_stop([run["name"]])
+            out.truncate(0); out.seek(0)
+            s.assertTrue(hook.stop_orphan(reader("PostToolUse", tool_name="Grep")))   # its run ended: it stops at its next call
+        s.assertEqual(json.loads(out.getvalue())["continue"], False)
+        s.assertFalse(hook.stop_orphan(dev("PreToolUse", tool_name="Bash")))           # a run itself is never stopped here
+
+    def test_a_reader_bash_command_that_writes_is_denied(s):
+        def denied(c, kind="reader"):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_reader_write({"agent_id": "r1", "agent_type": kind, "tool_input": {"command": c}})
+            return '"deny"' in out.getvalue()
+        for c in ("echo x > f", "grep x f 2>err.txt", "rm -rf d", "git -C r commit -m x", "git push", "git checkout main",
+                  "RESUME=1 tools/track.sh up s", "tools/track.sh build s", "~/r/tools/track.sh gate s", "tools/track.sh down s",
+                  "docker run img", "cat f | tee out", "ls | xargs rm", "sed -i s/a/b/ f", "gh api -X POST repos/x",
+                  "gh api repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'"):
+            s.assertTrue(denied(c), c)
+        for c in ("cat f", "grep -n 'a > b' f", "sed -n 1,20p f", "jq . f 2>/dev/null", "git log 2>&1 | head", "git show HEAD:x",
+                  "gh api repos/x/pulls", "gh api -X GET repos/x", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f"):
+            s.assertFalse(denied(c), c)
+        s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
+
     def test_dev_files_fix_outside_its_track_without_asking(s):
         s.change("c1", track="client"); s.agreed("c1", "client")
         hd.cmd_new(["h9", "--track", "harness", "--title", "tools fix", "--blocks", "c1", "--mechanism", "runs"])

@@ -23,5 +23,5 @@ Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md
 branch); changes that patch the same mechanism become one root-cause change: `hd new <slug> --track harness --mechanism <m>
 --supersedes <a>,<b>` with their acceptance in its body, which closes each as superseded.
 
-Read-heavy lookups (transcripts, logs) go to a read-only subagent that returns the conclusion. Hand back one line:
+Read-heavy lookups (transcripts, logs) go to a `reader` subagent that returns the conclusion. Hand back one line:
 `run <name>: filed <n> changes` or `run <name>: nothing to file`.

@@ -729,11 +729,12 @@ def findings(ctx, open_prs, act):
 
 
 def integration(ctx):
-    """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in order of
-    creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
-    heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the younger side, and a pin's
+    """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in priority
+    order, then creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
+    heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the later side, and a pin's
     to the oldest gated change at the test server deploy step. A conflicting head is left out and the merge goes on, so
-    one pass names every conflict. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with, conflicts, order} | None."""
+    one pass names every conflict; only a pin's conflict holds the tree, a change's leaves the rest to deploy.
+    → {commit, tree, heads, names, conflicts, base, order} | {conflict, change, head, base, detail, with, conflicts, order} | None."""
     srv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}
     clone, base = ctx.clone(srv), ctx.base(srv)
     if not base:
@@ -745,7 +746,7 @@ def integration(ctx):
             return None
         if h and not ctx.F.contains(clone, base, h):
             heads.append((pin, h, None))
-    for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
+    for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: (PRIO.get(c["priority"], 9), c.get("created", ""))):
         head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
         if head and ho and ho["head"] == head and g and g["ok"] and (g["T"] + "-").startswith(ho["T"] + "-") and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
@@ -769,19 +770,21 @@ def integration(ctx):
                 continue  # every conflict in one pass: the rest merge without this head
         cur = r[1]
         included.append((name, h, ch))
-    if conflicts:
-        return {**conflicts[0], "base": base, "conflicts": conflicts, "order": [(n, h) for n, h, _ in heads]}
+    more = {"base": base, "conflicts": conflicts, "order": [(n, h) for n, h, _ in heads]}
+    if pinned := [c for c in conflicts if c["conflict"] in (ctx.cfg.get("pins") or [])]:
+        return {**pinned[0], **more}
     tree, cen = ctx.F.tree(clone, cur), ctx.central(srv, [d for _, _, c in included if c for d in c["deps"]])
     return {"commit": cur, "tree": tree + (f"-c{cen[:12]}" if cen else ""), "central": cen, "heads": [h for _, h, _ in included],
-            "names": [n for n, _, _ in included]} if tree and cen is not None else None
+            "names": [n for n, _, _ in included], **more} if tree and cen is not None else None
 
 
 def ship_test(ctx, ch, st, tint, act):
-    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the younger change's, a pin's the oldest gated change's at this step."""
+    """The test server step of a gated server change: deploy T_int once per tree; a conflict is the later change's, a pin's the oldest gated change's at this step."""
+    mine = [c for c in (tint or {}).get("conflicts", []) if c["change"] and c["change"]["slug"] == ch["slug"]]
     if tint is None:
         st["state"] = "integration tree unknown"
-    elif "conflict" in tint:
-        mine, b7 = [c for c in tint["conflicts"] if c["change"] and c["change"]["slug"] == ch["slug"]], tint["base"][:7]
+    elif mine or "conflict" in tint:
+        b7 = tint["base"][:7]
         if mine:
             def how(c):
                 h7 = c["head"][:7]

@@ -1348,13 +1348,27 @@ class R8(Sandbox):
 
     def test_conflict_without_a_resolution_is_the_younger_change_s(s):
         F, R = s.integration_fixture(with_ref=False)
+        F.f["trees"]["q" * 40] = "tq" * 20                                          # the base and the pin merge on without s1
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         t = hd.integration(s.ctx(F))
-        s.assertEqual((t["conflict"], t["with"]), ("s1", ["local/x"]))
+        s.assertEqual((t["conflicts"][0]["conflict"], t["conflicts"][0]["with"]), ("s1", ["local/x"]))
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
         s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([x for x in F.spawned if x[1] == "ship"], [])
+
+    def test_a_lower_priority_conflict_leaves_the_higher_priority_tree_to_deploy(s):
+        s.change("lo", priority="P3"); s.agreed("lo"); s.change("hi", priority="P1"); s.agreed("hi")   # the P3 is the older
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/lo": C, "fork/dev/hi": A}, trees={A: TA, B: TB, C: TC},
+                 merges={(B, A): ("ok", A), (B, C): ("ok", C), (A, C): ("conflict", "CONFLICT (content): q.kt"), (C, A): ("conflict", "CONFLICT (content): q.kt")})
+        for slug, h in (("lo", C), ("hi", A)):
+            s.gated(slug, F)
+            (s.root / "state" / slug / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": h, "contract": hd.contract(slug)["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["names"], [(c["conflict"], c["with"]) for c in t["conflicts"]]), (["hi"], [("lo", ["hi"])]))   # priority first, the P3 left out
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1:], ["ship", "integration", A])              # the P1 deploys
+        s.assertTrue(any(x.startswith("lo-") for x in v["spawn"]))                 # the P3 resolves its own conflict
 
     def test_tree_of_a_snapshot(s):
         s.change("s1"); s.agreed("s1")

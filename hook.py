@@ -171,12 +171,19 @@ def start_pass():
 
 
 def end_run(p):
+    entries = transcript(p)
+    with hd.lock():   # R5: every hook write of a run decides on the run read under the pass's lock
+        ended = end_locked(p, entries)
+    if ended:
+        start_pass()
+
+
+def end_locked(p, entries):
     r = find_run(p)
     if not r:
         return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
     if r.get("reason"):   # ended by the pass or the head, not by a stop
         return
-    entries = transcript(p)
     u, last, handed = usage_of(entries)
     if not handed and (ids := running(entries)):   # R2: never idle on its own work
         hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
@@ -192,7 +199,7 @@ def end_run(p):
     hd.save_run(r)
     if handed:
         hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
-    start_pass()
+    return True
 
 
 def deny_users_word(p):
@@ -242,13 +249,16 @@ def context_limit(p):
     if p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
-    if not r or r.get("handoff_told"):
+    if not r or r.get("handoff_told"):   # nothing to write: no lock on each tool call
         return
     size = context_of(agent_transcript(p))
     if size < hd.cfg().get("context_limit", 150000):
         return
-    r["handoff_told"] = size
-    hd.save_run(r)
+    with hd.lock():
+        if not (r := find_run(p)) or r.get("handoff_told"):
+            return
+        r["handoff_told"] = size
+        hd.save_run(r)
     hd.event(change=r["change"], run=r["name"], action="context-limit", tokens=size)
     ch = hd.defs("changes").get(r["change"]) or {}
     dev = hd.TRACK.get(ch.get("track"), {}).get("dev", "").format(slug=r["change"])
@@ -273,7 +283,14 @@ IDLE_CALLS = 10   # tool calls with desktops up and none played in them: the run
 
 def idle_desktops(p):
     """R6: a run keeps desktops up only while it plays in them; a stretch of other tool calls is told once."""
-    if p.get("agent_type") not in ROLES or not (r := find_run(p)) or r.get("ended"):
+    if p.get("agent_type") not in ROLES or not (r := find_run(p)) or r.get("ended") or not (hd.STATE / r["change"] / "up.json").exists():
+        return   # nothing to write: no lock on each tool call
+    with hd.lock():
+        return idle_locked(p)
+
+
+def idle_locked(p):
+    if not (r := find_run(p)) or r.get("ended"):
         return
     up = hd.STATE / r["change"] / "up.json"
     try:

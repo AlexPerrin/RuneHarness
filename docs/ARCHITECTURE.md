@@ -7,8 +7,9 @@ it. `next(change)` is the first unmet of a fixed list; everything shown or acted
 ```
 hd.py             the loop: next(change), facts, records, the pass, the public act (console card and carry); commands below
 hd.yaml           repos (each fork with its upstream), paths, the agent count, the context limit, the fork's permanent pins, `hold` (the user's held band, e.g. P1; the orchestrator sets and removes it on the user's word)
-hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
-                  <session>/subagents/agent-<id>.jsonl; else its first tool call binds it; the start is written under the state lock) and end, then the pass
+hook.py           every write of a run record re-reads the run under the state lock, as the pass does;
+                  SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
+                  <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
                   started without waiting; a stop fires at each idle turn and leaves the run live (usage, last line),
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's

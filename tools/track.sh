@@ -29,7 +29,7 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
 summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal, whatever the tests print
 check_tests() { (cd "$BUILD" && env -u ROWS python3 -m unittest discover -s tests 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; kept by T as gate-<T>
-  wt=$(copy); mkdir -p "$state"; ROWS=$(mktemp -d "$state/.rows.XXXXXX"); export ROWS; trap 'rm -rf "$ROWS"' EXIT   # each member runs its rows; a check of the tree alone runs once (rowmemo)
+  wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
   if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
   cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }

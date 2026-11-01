@@ -9,6 +9,8 @@ NESTED = os.environ.get("HD_SUITE")                                           # 
 if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse
     raise ImportError("refused: the test suite runs inside itself (HD_SUITE=1); a test's gate never runs the suite")
 os.environ["HD_SUITE"] = "1"
+SUITE_TMP = tempfile.TemporaryDirectory(prefix="hd-suite-", ignore_cleanup_errors=True)   # R5: every temp dir of the suite (HD_ROOT, each test's, each
+tempfile.tempdir = os.environ["TMPDIR"] = SUITE_TMP.name                     # process's) is under it, removed at the suite's end, a failed test's too
 os.environ["HD_ROOT"] = tempfile.mkdtemp()
 import hd, hook  # noqa: E402  (both read HD_ROOT at import)
 
@@ -61,6 +63,7 @@ class Fake(hd.Facts):
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
     def proc_start(s, pid): return "1"
+    def slices(s): return s.f.get("slices", set())                       # the active run slices
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
@@ -783,7 +786,7 @@ class R2(Sandbox):
         s.assertEqual(hd.runs()[0]["reason"], "no longer due")
         hd.save_run({**hd.runs()[0], "ended": None, "reason": None})   # a live run: its own agent binds
         hook.bind(payload(r, "agB", "SubagentStart", s.root))
-        s.assertEqual(run("PreToolUse", agent_id="agB", tool_name="Bash", tool_input={"command": "ls"}), {})
+        s.assertNotIn("permissionDecision", run("PreToolUse", agent_id="agB", tool_name="Bash", tool_input={"command": "ls"})["hookSpecificOutput"])   # runs, in its slice
 
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
@@ -1417,6 +1420,79 @@ class R5(Sandbox):
                   "gh api repos/x/pulls", "gh api -X GET repos/x", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
+
+    def test_a_run_s_bash_commands_run_in_its_slice(s):
+        s.change("s1"); s.agreed("s1")
+        run = s.started(Fake(**FACTS), "s1")
+        p = {**payload(run, "ag-" + run["name"], "PreToolUse", s.root), "tool_name": "Bash", "tool_input": {"command": "make\nmake test", "timeout": 5}}
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            s.hook(p)
+        o = json.loads(out.getvalue())["hookSpecificOutput"]
+        s.assertNotIn("permissionDecision", o)                                  # the permission rules still judge the command
+        s.assertEqual(o["updatedInput"], {"command": f"python3 {Path(hook.__file__).resolve().parent / 'hd.py'} scope {run['name']}\nmake\nmake test", "timeout": 5})
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            s.hook({**p, "tool_input": {"command": "hd approve s1"}})
+        s.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")   # one answer: the deny alone
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            s.hook({**p, "agent_id": "main", "agent_type": None})
+        s.assertEqual(out.getvalue(), "")                                       # no run, no slice
+        sub = s.root / "state" / "subagents"; sub.mkdir()                       # a reader the run spawned, and a fork that reader spawned
+        tp = Path(p["agent_transcript_path"]); (sub / f"agent-{p['agent_id']}.meta.json").write_text(json.dumps({"agentType": "dev"}))
+        (sub / "agent-rd.meta.json").write_text(json.dumps({"agentType": "Explore", "parentAgentId": p["agent_id"]}))
+        (sub / "agent-fk.meta.json").write_text(json.dumps({"agentType": "fork", "parentAgentId": "rd"}))
+        for aid, kind in (("rd", "Explore"), ("fk", "fork")):
+            (sub / f"agent-{aid}.jsonl").write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "find X"}}) + "\n")
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                s.hook({**p, "agent_id": aid, "agent_type": kind, "agent_transcript_path": str(sub / f"agent-{aid}.jsonl")})
+            s.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["updatedInput"]["command"].split("\n")[0].split()[-2:], ["scope", run["name"]])
+        (sub / "agent-ot.jsonl").write_text(tp.read_text().splitlines()[0].replace(run["brief"], "x") + "\n")
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            s.hook({**p, "agent_id": "ot", "agent_type": "Explore", "agent_transcript_path": str(sub / "agent-ot.jsonl")})
+        s.assertEqual(out.getvalue(), "")                                       # an agent no run spawned has no slice
+
+    def hook(s, p):
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(p))):
+            hook.main()
+
+    def test_a_failing_test_leaves_no_temp_dir(s):
+        with tempfile.TemporaryDirectory() as t:
+            r = subprocess.run([sys.executable, "-c", "import sys, tempfile, pathlib; sys.path.insert(0, sys.argv[1]); import test_hd\n"
+                                "pathlib.Path(tempfile.mkdtemp(), 'f').write_text('x'); raise AssertionError('a failing test')", str(Path(__file__).parent)],
+                               env={**os.environ, "TMPDIR": t, "HD_SUITE": "nested"}, capture_output=True, text=True)
+            s.assertIn("a failing test", r.stderr); s.assertEqual(os.listdir(t), [])
+
+    def test_an_ended_run_s_processes_end_in_the_pass(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
+        F = Fake(**FACTS)
+        a, b = s.started(F, "s1"), s.started(F, "s2")
+        hd.write(hd.STATE / "runs" / f"{a['name']}.json", json.dumps({**hd.runs(a["name"])[0], "ended": hd.now(), "reason": "stopped by the head"}))
+        F.f["slices"] = {hd.run_slice(a["name"]), hd.run_slice(b["name"])}
+        w = hd.STATE / "winpids"
+        for r, pid in ((a, "4812"), (b, "5120")):                              # a Windows process a track script started in each slice
+            (w / hd.run_slice(r["name"])).mkdir(parents=True); (w / hd.run_slice(r["name"]) / pid).write_text("java.exe\n")
+        hd.tick(s.ctx(F))
+        s.assertEqual([x for x in F.ran if x[:3] == ["systemctl", "--user", "stop"]], [["systemctl", "--user", "stop", hd.run_slice(a["name"])]])
+        s.assertEqual([x[1:] for x in F.ran if x[0].endswith("taskkill.exe")], [["/F", "/PID", "4812", "/FI", "IMAGENAME eq java.exe"]])
+        s.assertFalse((w / hd.run_slice(a["name"])).exists()); s.assertTrue((w / hd.run_slice(b["name"]) / "5120").exists())
+        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"])}; hd.tick(s.ctx(F))
+        s.assertEqual([x for x in F.ran if "stop" in x or x[0].endswith("taskkill.exe")], [])   # ended once, stopped once
+
+    @unittest.skipUnless(shutil.which("busctl") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
+    def test_hd_stop_ends_a_process_its_run_started_even_reparented(s):
+        slug = f"p{os.getpid()}"                                                # concurrent suites never share a slice
+        s.change(slug); s.agreed(slug)
+        run = s.started(Fake(**FACTS), slug)
+        pidf = s.root / "child.pid"
+        subprocess.run(["bash", "-c", f'{sys.executable} {Path(hd.__file__).resolve()} scope {run["name"]}\n(setsid sleep 600 >/dev/null 2>&1 & echo $! > {pidf})'], check=True)
+        pid = int(pidf.read_text())
+        s.assertIn(hd.run_slice(run["name"]), Path(f"/proc/{pid}/cgroup").read_text())
+        hd.cmd_stop([run["name"]])
+        s.assertFalse(Path(f"/proc/{pid}").exists() and Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z")
 
     def test_dev_files_fix_outside_its_track_without_asking(s):
         s.change("c1", track="client"); s.agreed("c1", "client")

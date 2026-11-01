@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # tools/track.sh <verb> <slug> [TCOMMIT]: the harness track (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT
-# EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha> per product tools branch the change carries). Verbs: build
+# EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
-# past its gated base: fast-forward each carried tools branch, then the live checkout's branch to T, push).
+# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push).
 set -euo pipefail
 verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
 repo=$(cd "$(dirname "$0")/.." && pwd)   # the harness code; root: where state and evidence live
@@ -39,7 +39,7 @@ check_docs() {  # every requirement has its test class and its acceptance row
 }
 check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head
   for t in ${TOOLS:-}; do
-    IFS=: read -r path branch sha <<< "$t"; wt=$path/.worktrees/$SLUG-build
+    IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/$SLUG-build
     git -C "$path" merge-base --is-ancestor "$branch" "$sha" || { echo "$path: $sha is not a fast-forward of $branch"; exit 1; }
     if [ -d "$wt" ]; then git -C "$wt" checkout -q --detach "$sha"; else git -C "$path" worktree add -q --detach "$wt" "$sha"; fi
     tests=$(git -C "$wt" ls-files tools | grep -E '(^|/)test_[^/]*\.py$' || true)
@@ -50,16 +50,18 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
   [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
   moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch")
   for t in ${TOOLS:-}; do  # nothing moves unless every branch fast-forwards to its gated head
-    IFS=: read -r path branch sha <<< "$t"; wt=$path/.worktrees/${branch##*/}
+    IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}
     [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || { echo "refused: $wt has uncommitted edits"; exit 1; }
     git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"
   done
   if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass re-gates (check-tools then sends the dev to merge it)
     rm -f "$state/proc-ship.json" "$state/gate.json"; echo "$moved moved past T's base; re-gate"; exit 0
   fi
-  for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree (local branches: no push)
-    IFS=: read -r path branch sha <<< "$t"; wt=$path/.worktrees/${branch##*/}
-    git -C "$wt" merge -q --ff-only "$sha"; echo "$branch at ${sha:0:9}"
+  for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)
+    IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}
+    remote=$(git -C "$path" remote -v | awk -v n="$name" '!r && $3 == "(push)" && $2 ~ ("[:/]" n "(\\.git)?$") { print $1; r = 1 }')
+    [ -n "$remote" ] || { echo "refused: $path has no remote for $name"; exit 1; }
+    git -C "$wt" merge -q --ff-only "$sha"; git -C "$path" push -q "$remote" "$branch"; echo "$branch at ${sha:0:9}, pushed to $remote"
   done
   git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
 }

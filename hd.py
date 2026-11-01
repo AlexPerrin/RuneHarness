@@ -460,7 +460,7 @@ class Ctx:
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
                 "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT),
-                "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}" for n, h in (s.tools(ch) or {}).items())}
+                "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}:{s.cfg['repos'][n]['name']}" for n, h in (s.tools(ch) or {}).items())}
 
     def public(s, *args):
         """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""

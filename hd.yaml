@@ -54,4 +54,4 @@ pins:                     # fork branches every integration tree carries besides
   - local/treasure-trails
   - local/integration-tools
   - local/spotless-241
-hold: P2                  # no P3 or P4 runs: the user's word (2026-11-01) "Just hold off on P3 work"
+hold: P2                  # P3 (new quests, stretch goals) held: the user's word (2026-11-01) "Work on P2s. Exclude P3s"

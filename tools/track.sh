@@ -40,8 +40,9 @@ check_dry_run() {  # the candidate plans no public act main's pass does not (an 
   mine=$( (echo "$mine"; python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
   extra=$(comm -13 <(echo "$mine") <(echo "$theirs")); [ -z "$extra" ] || { echo "plans a public act main does not: $extra"; exit 1; }
 }
-check_docs() {  # every requirement has its test class and its acceptance row
+check_docs() {  # every requirement has its test class and its acceptance row; the source docs one fact per line
   [ "$(grep -cE '^class R[1-8]\(' "$BUILD/tests/test_hd.py")" = 8 ] && [ "$(grep -c '"id": "R' "$BUILD/docs/ACCEPTANCE.json")" = 8 ] || { echo "a requirement lacks its test class or acceptance row"; exit 1; }
+  (cd "$BUILD" && python3 tools/docfmt.py --check docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md)   # one fact per line: siblings merge (R8)
 }
 check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head
   for t in ${TOOLS:-}; do

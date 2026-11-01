@@ -9,9 +9,8 @@ OpenRune/OpenRune-Server and OpenRune/OpenRune-Central-Server). It is neither pr
 docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.
 
 ```
-hd.py          the loop: next(change), the pass, the commands (hd | new | show | handover | verdict | ask | answer | approve | tick)
+hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | verdict | ask | answer | approve | ship | tick)
 hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the context limit)
-hd-public      the one program that acts on OpenRune or publishes a release, after the user's yes
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
 .claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner; product repos hold the judgment skills
@@ -21,8 +20,9 @@ tests/         python3 -m unittest discover -s tests   (one class per requiremen
 ```
 
 Agents are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief;
-the user chats with it directly. A write to OpenRune and a client release happen only after the user's yes, typed by
-the user in the orchestrator's window as `! python3 ~/osrs-harness/hd.py approve <slug> <head>`, and done by `hd-public`.
+the user chats with it directly. A write to OpenRune and a client release is shown as a draft queue PR on our own repo
+(its head and exact texts) and carried by `hd ship` only after the user's yes: the label `approved` on it, set on
+GitHub or by the user's `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,

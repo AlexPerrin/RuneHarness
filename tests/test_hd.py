@@ -59,6 +59,7 @@ class Fake(hd.Facts):
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
+    def queue(s, repo): return None if s.f.get("queue", {}) is None else s.f.get("queue", {}).get(repo, {})  # {head branch: queue PR}; None in f = GitHub unreadable
 
 
 class Sandbox(unittest.TestCase):
@@ -109,6 +110,15 @@ class Sandbox(unittest.TestCase):
         hd.put(slug, "build", {"T": ho["T"], "ok": True})
         hd.put(slug, "gate", {"T": ho["T"], "ok": True})
         return ho
+
+    def queued(s, F, slug, head, approved=False, state="OPEN", extra=""):
+        """The queue PR at head on the change's repo, showing its current texts (the mark), labelled approved or not."""
+        ctx = s.ctx(F); ch = ctx.changes[slug]
+        repo = ctx.cfg["repos"][hd.TRACK[ch["track"]]["repo"]]["name"]
+        q = {"number": 50 + s.seq, "url": f"https://github.com/{repo}/pull/{50 + s.seq}", "state": state, "approved": approved,
+             "body": "x\n" + hd.mark(head, hd.public_texts(ctx, ch)) + extra}
+        F.f.setdefault("queue", {}).setdefault(repo, {})[f"queue/{slug}/{head[:12]}"] = q
+        return q
 
     def verdict(s, slug, head, rows, F):
         f = s.root / "rows.json"
@@ -237,7 +247,7 @@ class R2(Sandbox):
         root = Path(__file__).parent.parent
         s.assertFalse((root / ".claude" / "skills" / "head").exists())
         brief = (root / ".claude" / "agents" / "orchestrator.md").read_text()
-        for step in ("`card`", "`question`", "`alert`", "the `! python3", "`! python3 ~/osrs-harness/hd.py close"):   # the head skill's steps; the user types the yes and the close
+        for step in ("`card`", "`question`", "`alert`", "`! python3 ~/osrs-harness/hd.py approve", "`! python3 ~/osrs-harness/hd.py close"):   # the head skill's steps; the user types the yes and the close
             s.assertIn(step, brief)
         v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrator": None})))
         s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))
@@ -537,13 +547,13 @@ class R2(Sandbox):
 
     def test_a_card_wakes_once_per_head_though_it_drops_out_of_a_pass(s):
         w = s.root / "state" / "wake.orchestrator"
-        c1, c2 = "## s1: t\nhead a  track server\nverdict: 1 rows", "## s1: t\nhead b  track server\nverdict: 1 rows"
+        c1, c2 = "s1: approve with the label `approved`, or close: u/pull/5 (head aaaaaaaaa)", "s1: approve with the label `approved`, or close: u/pull/6 (head bbbbbbbbb)"
         hd.wake({"card": [c1]})
-        s.assertIn("## s1: t", w.read_text())
+        s.assertIn(c1, w.read_text())
         os.utime(w, ns=(1, 1))
-        hd.wake({"card": []}); hd.wake({"card": [c1.replace("1 rows", "2 rows")]})   # absent one pass, back at the same head
+        hd.wake({"card": []}); hd.wake({"card": [c1]})                             # absent one pass, back at the same head
         s.assertEqual(w.stat().st_mtime_ns, 1)
-        hd.wake({"card": [c2]})                                                     # its head moved
+        hd.wake({"card": [c2]})                                                     # its head moved: a new queue PR
         s.assertNotEqual(w.stat().st_mtime_ns, 1)
 
     def test_runs_spawned_together_each_bind_their_own_brief(s):
@@ -661,116 +671,185 @@ class R2(Sandbox):
         s.assertEqual(len(hd.runs()), 2)                                                            # nothing bound or listed for it
 
 
+class GH:
+    """A scripted gh and git for the public act: each call recorded, answered by the first rule whose key it starts with
+    (gh: its first three words; git: its words after -C <path>)."""
+
+    def __init__(s, **answers):
+        s.calls, s.a = [], {"remote": (0, "fork\tgit@github.com:o/f.git (push)\nfork\tgit@github.com:o/z.git (push)\norigin\tgit@github.com:o/c.git (push)", ""), **answers}
+
+    def __call__(s, *args):
+        s.calls.append(args)
+        key = args[3] if args[0] == "git" else " ".join(args[1:3])
+        v = s.a.get(key, (0, "", ""))
+        return v(args) if callable(v) else v
+
+    def did(s, key):
+        return [c for c in s.calls if (c[3] if c[0] == "git" else " ".join(c[1:3])) == key]
+
+
 class R4(Sandbox):
-    def test_upstream_and_release_run_only_after_approval_at_head(s):
-        s.change("s1"); s.agreed("s1"); s.change("rel", "client", kind="release", version="0.1.3")
-        hd.write_contract(hd.cfg(), "rel", "client", "derived")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": A}})
-        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+    def ready(s, F, slug="s1", head=A, **meta):
+        s.change(slug, **meta); s.agreed(slug)
+        s.gated(slug, F); s.verdict(slug, head, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [head]})
+
+    def ship(s, F, g, slug="s1", head=A):
+        """hd ship under a scripted gh; its ship.log lines."""
+        out = io.StringIO()
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch.object(hd.time, "sleep", lambda n: None), \
+                mock.patch("sys.stdout", out):
+            hd.cmd_ship([slug, head])
+        return out.getvalue()
+
+    def test_the_queue_pr_then_the_carry_only_after_the_label_at_that_head_and_texts(s):
+        F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F)
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")             # gated and judged: shown on the fork
         v = hd.tick(s.ctx(F))
-        s.assertEqual([a for a in F.spawned if "hd-public" in a[0]], [])
-        s.assertEqual(len(v["card"]), 1); s.assertIn("approve s1 " + A, v["card"][0])
-        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_decline(["s1"])
-        s.assertEqual(hd.tick(s.ctx(F))["card"], [])                              # the user's no hides the card at this head
-        hd.drop("s1", "decline")
-        hd.put("s1", "approval", {"head": C, "body": "x"})                        # a yes at another head is no yes
-        hd.tick(s.ctx(F)); s.assertEqual([a for a in F.spawned if "hd-public" in a[0]], [])
-        with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_approve(["s1", A])
-        hd.tick(s.ctx(F))
-        s.assertEqual([a[-3:] for a in F.spawned if "hd-public" in " ".join(a)], [["upstream", "s1", A]])
-        st = s.state(F, "rel")                                                   # the release: gate ok, no judge rows → its card
+        s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A]); s.assertEqual(v["card"], [])
+        q = s.queued(F, "s1", A)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(v["card"], [f"s1: approve with the label `approved`, or close: {q['url']} (head {A[:9]})"])   # one line, pointing at it
+        q["approved"] = True
+        s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
+        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body")      # new texts: the yes is withdrawn, shown again
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
+        F.f["refs"]["fork/dev/s1"] = D                                           # a new head: its own queue PR, unapproved
+        F.f["trees"][D] = TC
+        s.gated("s1", F); s.verdict("s1", D, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {D[:9]}")
+        s.queued(F, "s1", D, extra="\n" + hd.CARRIED)
+        s.assertEqual(s.state(F, "s1")["state"], f"carried at {D[:9]}; waiting on the maintainers")
+        s.queued(F, "s1", D, state="CLOSED")                                     # the user's no: closed unapproved
+        s.assertEqual(s.state(F, "s1")["actor"], "wait")
+        F.f["queue"] = None
+        s.assertEqual(s.state(F, "s1")["actor"], "unknown")
+
+    def test_a_release_is_queued_on_the_client_repo_and_published_after_the_label(s):
+        s.change("rel", "client", kind="release", version="0.1.3"); hd.write_contract(hd.cfg(), "rel", "client", "derived")
+        F = Fake(**FACTS)
         hd.put("rel", "build", {"T": TB, "ok": True}); hd.put("rel", "gate", {"T": TB, "ok": True})
+        s.assertEqual(s.state(F, "rel")["state"], f"queueing {B[:9]}")
+        q = s.queued(F, "rel", B)
+        s.assertEqual(q["url"].split("/pull/")[0], "https://github.com/o/c")
         s.assertEqual(s.state(F, "rel")["actor"], "user")
-        hd.put("rel", "approval", {"head": B, "body": "x"})
+        q["approved"] = True
         s.assertEqual(s.state(F, "rel")["state"], "publishing v0.1.3")
         F.f["releases"] = {"v0.1.3"}
         s.assertEqual(s.state(F, "rel")["state"], "done")
 
-    def test_a_central_change_goes_upstream_to_central_only_after_the_yes(s):
+    def test_approve_labels_the_queue_pr_and_is_refused_off_the_user_step(s):
+        F = Fake(**FACTS); s.ready(F)
+        g = GH()
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), s.assertRaises(SystemExit) as e:
+            hd.cmd_approve(["s1", A])
+        s.assertIn("nothing to approve", str(e.exception)); s.assertEqual(g.calls, [])
+        q = s.queued(F, "s1", A)
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_approve(["s1", A])
+        s.assertEqual(g.calls, [("gh", "pr", "edit", q["url"], "--add-label", "approved")])
+
+    def test_the_queue_step_shows_the_exact_texts_isolated_and_withdraws_an_older_head(s):
+        F = Fake(**FACTS); s.ready(F)
+        ev = s.root / "evidence" / "s1"
+        (ev / "pr-title.txt").write_text("feat: x for #12")
+        (ev / "pr-body.md").write_text("Fixes OpenRune/OpenRune-Server#354 thanks @rev, see https://github.com/u/f/commit/abc and ``` code ```")
+        old = s.queued(F, "s1", D)                                               # a queue PR of an older head
+        g = GH()
+        s.ship(F, g)
+        push = g.did("push")[0]
+        s.assertEqual(push[-2:], (f"{B}^{{commit}}:refs/heads/queue/s1/{A[:12]}-base", f"{A}:refs/heads/queue/s1/{A[:12]}"))   # base: upstream main
+        s.assertEqual(push[5], "fork")
+        s.assertEqual([c[3] for c in g.did("pr close")], [str(old["number"])])
+        cr = g.did("pr create")[0]
+        s.assertEqual(cr[cr.index("--base") + 1], f"queue/s1/{A[:12]}-base"); s.assertIn("--draft", cr); s.assertEqual(cr[cr.index("-R") + 1], "o/f")
+        body = cr[cr.index("--body") + 1]
+        s.assertIn("Fixes OpenRune/OpenRune-Server#354 thanks @rev", body)     # the exact text, fenced
+        s.assertIn("````text\nFixes", body)                                     # a fence longer than the text's own
+        s.assertEqual(hd.exposed(body), [])
+        s.assertIn(hd.mark(A, hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])), body)
+        for bad in ("#354", "u/f#3", "@rev", "https://github.com/u/f/commit/abc", "https://github.com/u/f/pull/9"):   # each form GitHub links
+            s.assertTrue(hd.exposed(f"see {bad} here"), bad)
+        q = s.queued(F, "s1", A); q["body"] = "stale"; q["approved"] = True
+        g = GH(); s.ship(F, g)                                                   # its texts moved: shown again, the label removed
+        ed = g.did("pr edit")[0]
+        s.assertEqual((ed[3], ed[-2:]), (str(q["number"]), ("--remove-label", "approved"))); s.assertEqual(g.did("pr create"), [])
+
+    def test_the_carry_opens_the_draft_waits_for_green_ci_comments_readies_and_closes_the_queue_pr(s):
+        F = Fake(**FACTS); s.ready(F)
+        q = s.queued(F, "s1", A, approved=True)
+        ci = ["pending", "success"]
+        def view(a):
+            if "headRefOid,statusCheckRollup" in a:
+                st = ci.pop(0)
+                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"name": "build", "detailsUrl": "https://ci/1", "status": "COMPLETED" if st != "pending" else "IN_PROGRESS", "conclusion": st.upper()}]}), ""
+            return 0, json.dumps({"comments": []}), ""
+        g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", ""), "pr view": view})
+        log = s.ship(F, g)
+        order = [c[3] if c[0] == "git" else " ".join(c[1:3]) for c in g.calls if c[0] == "gh" or c[3] == "push"]
+        s.assertEqual(order, ["push", "pr create", "pr edit", "pr view", "pr view", "pr view", "pr comment", "pr ready", "pr view", "pr edit", "pr comment", "pr close"])
+        steps = [l.split(" ", 1)[1] for l in log.splitlines()]                   # ship.log: each step as it goes, the CI wait naming its checks
+        s.assertEqual([x.split(":")[0].split(" ")[0] for x in steps[:4]], ["pushed", "opened", "CI", "CI"]); s.assertIn("CI wait: pending: build https://ci/1", steps)
+        s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertTrue(steps[-2].startswith("review request: none listed")); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
+        s.assertEqual(g.did("push")[0][-1], f"{A}:refs/heads/content/s1")       # no force
+        s.assertEqual(g.did("pr create")[0][g.did("pr create")[0].index("-R") + 1], "u/f")
+        s.assertIn("<!-- hd pr 42 -->", g.did("pr edit")[0][-1])                  # a rerun updates PR 42, never opens a second
+        s.assertTrue(g.did("pr edit")[1][-1].endswith(hd.CARRIED))               # the result, on the queue PR
+        s.assertEqual([c[3] for c in g.did("pr close")], [str(q["number"])])
+        s.assertEqual(hd.exposed(g.did("pr comment")[1][-1]), [])
+        q["body"] += "\n<!-- hd pr 42 -->"                                        # the pass names the PR the carry opened
+        ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, True))
+        s.assertEqual(hd.mark(A, hd.public_texts(ctx, ctx.changes["s1"])), hd.mark(A, hd.public_texts(s.ctx(Fake(**FACTS)), ctx.changes["s1"] | {"pr": None})))   # the yes still holds
+        ci[:] = ["failure"]; g = GH(**{"pr view": lambda a: view(a) if "statusCheckRollup" in " ".join(a) else (0, json.dumps({"headRefName": "content/s1", "headRefOid": A, "isDraft": True, "reviews": []}), "")})
+        with s.assertRaises(SystemExit) as e:
+            s.ship(F, g)
+        s.assertIn("CI failure", str(e.exception))
+        s.assertEqual(g.did("pr ready") + g.did("pr close") + g.did("pr create"), [])   # stays draft, the queue PR open
+        s.assertIn("The carry stopped", g.did("pr comment")[0][-1]); s.assertIn("build https://ci/1", str(e.exception))
+        g = GH(**{"pr view": lambda a, v=g.a["pr view"]: (1, "", "HTTP 502") if "statusCheckRollup" in " ".join(a) else v(a)})
+        with s.assertRaises(SystemExit) as e:                                    # a CI read that fails ends the wait, never loops on it
+            s.ship(F, g)
+        s.assertIn("HTTP 502", str(e.exception)); s.assertEqual(g.did("pr ready"), [])
+
+    def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
+        s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}})
+        s.assertEqual(s.ctx(F).head(s.ctx(F).changes["s1"]), A)                 # no commit of its own: its PR tip's head
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        ctx = s.ctx(F)
+        s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one queue PR, at the PR's tip
+        s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["reply in the thread of review comment 99", 99, "> reset it\n\n@rev the official server keeps it."]])
+        q = s.queued(F, "s1", A, approved=True)
+        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "fix/x", "headRefOid": A, "isDraft": False, "reviews": [], "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), ""),
+                  "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        s.ship(F, g)
+        s.assertEqual(g.did("push") + g.did("pr comment")[:-1] + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
+        post = [c for c in g.calls if "POST" in c][0]
+        s.assertEqual(post[4], "repos/u/f/pulls/7/comments/99/replies"); s.assertTrue(post[6].startswith("body=> reset it"))
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other")
+        q["body"] = "x\n" + hd.mark(A, hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"]))
+        g = GH(**{"pr view": g.a["pr view"], "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        with s.assertRaises(SystemExit) as e:
+            s.ship(F, g)
+        s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
+
+    def test_a_central_change_is_queued_on_its_fork_and_carried_to_centrals_upstream(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D}, "trees": {**FACTS["trees"], D: TC}, "merges": {(B, D): ("ok", D)}})
         s.assertEqual(s.state(F, "s1")["state"], "waiting on z1")
         s.gated("z1", F)                                                         # its test target is its gate: live, the server change goes on
         s.assertNotEqual(s.state(F, "s1")["actor"], "wait")
         s.verdict("z1", D, {"ok": "pass", "j1": "pass"}, F)
-        v = hd.tick(s.ctx(F))
-        s.assertEqual(s.state(F, "z1")["state"], "gated; waiting for the user's yes")
-        s.assertEqual([a for a in F.spawned if "hd-public" in " ".join(a)], [])
-        s.assertIn("u/z branch content/z1", [c for c in v["card"] if "z1" in c][0])
-        hd.put("z1", "approval", {"head": D, "body": "x"})
-        hd.tick(s.ctx(F))
-        s.assertEqual([a[-3:] for a in F.spawned if "hd-public" in " ".join(a)], [["upstream", "z1", D]])
-        import importlib.util
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        calls = []
-        def fake_sh(*args, inp=None):
-            calls.append(args)
-            return (1, "", "stop") if args[:3] == ("gh", "pr", "create") else (0, "[]", "")
-        import hashlib
-        hd.put("z1", "approval", {"head": D, "body": hashlib.sha256(b"body").hexdigest()[:16]})
-        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit):
-            pub.upstream("z1", D)
-        s.assertEqual(calls[1][:3], ("git", "-C", str(s.root / "central")))     # the Central clone pushes to its fork
-        s.assertIn("u/z", calls[0]); s.assertIn("u/z", calls[2])                 # the PR is on Central's upstream
+        q = s.queued(F, "z1", D, approved=True)
+        s.assertTrue(q["url"].startswith("https://github.com/o/z/"))
+        g = GH(**{"pr create": (0, "https://github.com/u/z/pull/3", ""), "pr view": (0, json.dumps({"headRefOid": D, "statusCheckRollup": [{"conclusion": "SUCCESS"}], "comments": []}), "")})
+        s.ship(F, g, "z1", D)
+        s.assertEqual(g.did("push")[0][2], str(s.root / "central"))
+        cr = g.did("pr create")[0]; s.assertEqual(cr[cr.index("-R") + 1], "u/z")
 
-    def test_a_reply_only_change_posts_its_reply_in_the_finding_thread_after_the_yes(s):
-        s.change("s0", pr=7, closed="x"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
-        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A}})       # s1's head is its root's head: no commit of its own
-        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
-        card = hd.tick(s.ctx(F))["card"][0]
-        s.assertIn("reply in the thread of review comment 99", card); s.assertIn("@rev", card); s.assertNotIn("### body", card)
-        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_approve(["s1", A])
-        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream: the reply to 99 on #7")
-        hd.tick(s.ctx(F))
-        s.assertEqual([a[-3:] for a in F.spawned if "hd-public" in " ".join(a)], [["reply", "s1", A]])
-        F.f["comments"] = {7: [{"id": 5, "author": "rev", "bot": False, "reply": None, "path": "x", "line": 1, "body": "reset it"}]}
-        s.assertNotEqual(s.state(F, "s1")["actor"], "done")
-        F.f["comments"][7].append({"id": 6, "author": "o", "bot": False, "reply": 99, "path": "x", "line": 1, "body": "@rev ..."})
-        s.assertEqual(s.state(F, "s1")["state"], "done")                         # done once our reply is in the thread
-        import importlib.util
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        calls, thread = [], [""]
-        def fake_sh(*args, inp=None):
-            calls.append(args)
-            return (0, "rev", "") if args[2].endswith("comments/99") else (0, thread[0], "")
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", new_callable=io.StringIO):
-            with s.assertRaises(SystemExit) as e:
-                pub.reply("s1", A)
-            s.assertEqual(e.exception.code, 0)
-            s.assertEqual(calls[-1][:4], ("gh", "api", "-X", "POST")); s.assertEqual(calls[-1][4], "repos/u/f/pulls/7/comments/99/replies")
-            s.assertTrue(calls[-1][6].startswith("body=> reset it"))
-            calls.clear(); thread[0] = "6"
-            with s.assertRaises(SystemExit):
-                pub.reply("s1", A)
-            s.assertNotIn("POST", [c[2] for c in calls])                          # our reply is there: nothing posted
-            (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other")
-            with s.assertRaises(SystemExit) as e:
-                pub.reply("s1", A)
-            s.assertIn("no approval", str(e.exception))                           # the reply changed since the yes
-            hd.put("s1", "approval", {"head": A, "comment": hd.digest("> reset it\n\n@rev and @other")})
-            with s.assertRaises(SystemExit) as e:
-                pub.reply("s1", A)
-            s.assertIn("@ only rev", str(e.exception))
-
-    def test_approve_refused_off_the_user_step(s):
-        s.change("s1"); s.agreed("s1")
-        F = Fake(**FACTS)
-        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_approve(["s1", A])
-        s.assertIn("nothing to approve", str(e.exception))
-        s.assertIsNone(hd.rec("s1", "approval"))
-
-    def test_hook_denies_approve_and_close_in_subagent_only(s):
+    def test_hook_denies_approve_close_and_the_label_in_subagent_only(s):
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -778,99 +857,14 @@ class R4(Sandbox):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
                 hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # no agent: allowed (the user's `!` fires no hook at all)
                 hook.deny_users_word({"agent_type": "orchestrator", "tool_input": {"command": "hd " + verb}})      # the orchestrator session: denied
-            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done", "bash -c 'hd.py approve s1'"):      # runs it: denied
+            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done", "bash -c 'hd.py approve s1'",      # runs it: denied
+                      "gh pr edit 5 -R o/f --add-label approved", "gh api repos/o/f/issues/5/labels -f 'labels[]=approved'"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
             for c in ("grep approve notes.md; git push fork HEAD:dev/s1", "grep -n 'hd approve' hook.py",   # only quotes it: allowed
                       "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc",
-                      "grep -nE 'x|hd.py approve|y' hook.py", "grep -c \"(hd close|z)\" f"):
+                      "grep -nE 'x|hd.py approve|y' hook.py", "grep -c \"(hd close|z)\" f", "gh pr view 5 --json labels"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
-        s.assertEqual(out.getvalue().count('"deny"'), 7)
-
-    def test_public_act_runs_as_the_user_without_an_alert(s):
-        ctx = s.ctx(Fake(**FACTS))
-        s.assertEqual(ctx.public("upstream", "s1", A), [str(hd.ROOT / "hd-public"), "upstream", "s1", A])
-        s.assertFalse(any("R4" in a for a in ctx.alerts))
-
-
-    def test_hd_public_order_and_stop_on_red_ci(s):
-        import importlib.util
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        s.change("s1"); (s.root / "evidence" / "s1").mkdir(parents=True)
-        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("Updated to " + A[:9])
-        calls, ci = [], ["pending", "success"]
-        def fake_sh(*args, inp=None):
-            calls.append(args[:3])
-            if args[:3] == ("gh", "pr", "list"): return 0, "[]", ""
-            if args[:3] == ("gh", "pr", "create"): return 0, "https://github.com/u/f/pull/42", ""
-            if args[:3] == ("gh", "pr", "view") and "headRefOid,statusCheckRollup" in args:
-                st = ci.pop(0)
-                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"name": "build", "detailsUrl": "https://ci/1", "status": "COMPLETED" if st != "pending" else "IN_PROGRESS", "conclusion": st.upper()}]}), ""
-            if args[:3] == ("gh", "pr", "view") and "reviewRequests" in args: return 0, json.dumps({"reviewRequests": [{"login": "m"}]}), ""
-            if args[:3] == ("gh", "pr", "view"): return 0, json.dumps({"comments": []}), ""
-            return 0, "", ""
-        out = io.StringIO()
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch.object(pub.time, "sleep", lambda n: None), mock.patch("sys.stdout", out):
-            with s.assertRaises(SystemExit) as e:
-                pub.upstream("s1", A)
-            s.assertIn("no approval", str(e.exception))
-            hd.put("s1", "approval", {"head": A, "body": "x"})
-            with s.assertRaises(SystemExit) as e:
-                pub.upstream("s1", A)
-            s.assertIn("no approval", str(e.exception))                       # the body changed since the yes
-            import hashlib
-            hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(b"").hexdigest()[:16]})
-            with s.assertRaises(SystemExit) as e:
-                pub.upstream("s1", A)
-        s.assertEqual(e.exception.code, 0)
-        s.assertEqual(calls[1][:3], ("git", "-C", str(s.root / "fork")))
-        s.assertEqual([c[1:] for c in calls[:1] + calls[2:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready"), ("pr", "view")])
-        s.assertEqual({k: v for k, v in hd.rec("s1", "ship").items() if k != "detail"}, {"T": A, "ok": True})   # the last step: its result
-        hd.drop("s1", "ship")
-        steps = [l.split(" ", 1)[1] for l in out.getvalue().splitlines()]          # ship.log: a line before and after each step, in order
-        want = ["PR lookup: o:content/s1", "PR lookup: none open", f"push {A[:9]}", f"pushed {A[:9]}", "opening draft PR", "opened draft PR #42",
-                "CI wait: every check", "CI wait: pending: build https://ci/1", f"CI green at {A[:9]}: build https://ci/1", f"comment on PR #42 naming {A[:9]}",
-                f"posted our comment naming {A[:9]}", "ready PR #42", "PR #42 ready", "review requested from m", "done: PR #42 ready"]
-        s.assertEqual(len(steps), len(want)); [s.assertTrue(l.startswith(w), (l, w)) for l, w in zip(steps, want)]
-        calls.clear(); ci[:] = ["failure"]
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
-            pub.upstream("s1", A)
-        s.assertIn("stays draft, no comment", str(e.exception)); s.assertIn("build https://ci/1", str(e.exception))
-        calls.clear()                                                            # a CI read that fails ends the wait, never loops on it
-        with mock.patch.object(pub, "sh", lambda *a, inp=None: (1, "", "HTTP 502") if "headRefOid,statusCheckRollup" in a else fake_sh(*a)), \
-                mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
-            pub.upstream("s1", A)
-        s.assertIn("CI unreadable on PR #42: HTTP 502", str(e.exception))
-        s.assertNotIn(("gh", "pr", "comment"), calls); s.assertNotIn(("gh", "pr", "ready"), calls)
-
-    def test_hd_public_finds_the_fork_owners_existing_pr_and_creates_none(s):
-        import importlib.util, hashlib
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        s.change("s1"); hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(b"").hexdigest()[:16]})
-        calls = []
-        def fake_sh(*args, inp=None):
-            calls.append(args)
-            if args[:3] == ("gh", "pr", "list"):     # gh filters by branch name only: another owner's PR on the same name is listed too
-                return 0, json.dumps([{"number": 9, "headRepositoryOwner": {"login": "x"}}, {"number": 354, "headRepositoryOwner": {"login": "o"}}]), ""
-            if args[:3] == ("gh", "pr", "view") and "headRefOid,statusCheckRollup" in args:
-                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}]}), ""
-            if args[:3] == ("gh", "pr", "view"): return 0, json.dumps({"comments": []}), ""
-            return 0, "", ""
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
-            pub.upstream("s1", A)
-        s.assertEqual(e.exception.code, 0)
-        lst = [c for c in calls if c[:3] == ("gh", "pr", "list")][0]
-        s.assertEqual(lst[lst.index("--head") + 1], "content/s1")
-        s.assertNotIn(("gh", "pr", "create"), [c[:3] for c in calls])
-        s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
-        calls.clear(); s.change("s1", pr=354)                                   # the change's pr: is used, no list
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit):
-            pub.upstream("s1", A)
-        s.assertEqual([c[:3] for c in calls if c[:3] in (("gh", "pr", "list"), ("gh", "pr", "create"))], [])
-        s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
+        s.assertEqual(out.getvalue().count('"deny"'), 9)
 
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
@@ -878,36 +872,12 @@ class R4(Sandbox):
         shutil.copy(Path(__file__).parent.parent / "tools" / "track.sh", repo / "tools")
         n = repo / "n"; n.write_text("0")
         (repo / "hd.py").write_text(f"import pathlib\np = pathlib.Path({str(n)!r}); k = int(p.read_text()) + 1; p.write_text(str(k))\n"
-                                    "if k > 1: print('change: a [server P2]: shipping upstream')\n")   # a's approval lands after main's first read
-        check = lambda acts: ((build / "hd.py").write_text("".join(f"print('change: {a} [server P2]: shipping upstream')\n" for a in acts)),
+                                    "if k > 1: print('change: a [server P2]: carrying upstream')\n")   # a's approval lands after main's first read
+        check = lambda acts: ((build / "hd.py").write_text("".join(f"print('change: {a} [server P2]: carrying upstream')\n" for a in acts)),
                               subprocess.run([str(repo / "tools" / "track.sh"), "check-dry-run"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True))[1]
         s.assertEqual(check(["a"]).returncode, 0)                                # the state moved mid-check: no extra act
         n.write_text("0"); r = check(["a", "b"])                                 # the candidate's code plans b
         s.assertNotEqual(r.returncode, 0); s.assertIn("change: b", r.stdout); s.assertNotIn("change: a", r.stdout)
-
-    def test_a_completed_ship_is_recorded_and_never_repeated(s):
-        import importlib.util, hashlib
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        s.change("s1", pr=354); s.agreed("s1")
-        hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(pub.text("s1", "pr-body.md").encode()).hexdigest()[:16]})
-        calls = []
-        def fake_sh(*args, inp=None):                                           # already upstream: head pushed, ready, our comment naming it
-            calls.append(args[:3])
-            return 0, json.dumps({"headRefOid": A, "isDraft": False, "comments": [{"body": f"Updated to {A[:9]}.\n<!-- hd:{A[:12]} -->"}]}), ""
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", new_callable=io.StringIO), s.assertRaises(SystemExit) as e:
-            pub.upstream("s1", A)
-        s.assertEqual(e.exception.code, 0)
-        s.assertEqual(calls, [("gh", "pr", "view")])                             # observed, nothing acted
-        s.assertEqual(hd.rec("s1", "ship")["T"], A)
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": A}})       # the pass: past shipping, no hd-public started
-        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
-        s.assertTrue(s.state(F, "s1")["state"].startswith("shipped upstream at " + A[:9]))
-        hd.tick(s.ctx(F)); s.assertEqual([a for a in F.spawned if "hd-public" in " ".join(a)], [])
-        hd.put("s1", "ship", {"T": C, "ok": True})                               # a record at another head is no result for this one
-        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream")
 
 
 class R7(Sandbox):
@@ -1056,12 +1026,10 @@ class R5(Sandbox):
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
-        with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_approve(["s1", A])
+        s.queued(F, "s1", A, approved=True)                                     # the user's label on the queue PR
         F.f["procs"] = set()                                                    # the orchestrator is gone after the yes
         hd.tick(s.ctx(F))
-        s.assertEqual(F.spawned[-1][1:], ["upstream", "s1", A])
-        s.assertTrue(F.spawned[-1][0].endswith("hd-public"))
+        s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A])
 
     def test_missing_script_is_an_alert_not_a_crash(s):
         (s.root / "harness" / "goals" / "g1.md").write_text("---\nslug: g1\ntrack: client\ntarget: 100\n---\ngoal")
@@ -1536,27 +1504,20 @@ class R8(Sandbox):
         s.assertEqual((st["actor"], st["state"]), ("dev", "joins s1's PR without its head: dev"))
         F.f["anc"] = {(C, A)}                                                    # s2's commits on top of s1's head: not a stack
         s.verdict("s2", C, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s2 in the head")
-        s.assertEqual(s.state(F, "s2")["state"], "gated; waiting for the user's yes")
-        cards = hd.tick(s.ctx(F))["card"]
-        s.assertEqual(len(cards), 1); s.assertIn("branch content/s1, new draft PR", cards[0]); s.assertIn("## s2", cards[0])
-        hd.put("s2", "approval", {"head": C, "body": "x"})
-        hd.tick(s.ctx(F))
-        i = next(i for i, a in enumerate(F.spawned) if "hd-public" in " ".join(a))
-        s.assertEqual((F.spawned[i][-3:], F.envs[i]["PUBLIC_BRANCH"], F.envs[i]["PR"]), (["upstream", "s2", C], "content/s1", ""))
-        import importlib.util
-        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
-        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
-        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        calls = []
-        def fake_sh(*args, inp=None):
-            calls.append(args)
-            return (1, "", "stop") if args[:3] == ("gh", "pr", "create") else (0, "[]", "")
-        import hashlib
-        hd.put("s2", "approval", {"head": C, "body": hashlib.sha256(b"body").hexdigest()[:16]})
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch.dict(os.environ, F.envs[i]), s.assertRaises(SystemExit):
-            pub.upstream("s2", C)
-        s.assertIn(f"{C}:refs/heads/content/s1", next(c for c in calls if "push" in c))   # one new PR on s1's branch holds both
+        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s2")
+        s.assertEqual(s.state(F, "s2")["state"], f"queueing {C[:9]}")             # one queue PR, at the PR's tip
+        g = GH()
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_ship(["s2", C])
+        body = g.did("pr create")[0][-1]
+        s.assertIn("from branch `content/s1`", body); s.assertIn("Changes: `s1`, `s2`.", body)
+        q = s.queued(F, "s2", C, approved=True)
+        g = GH(**{"pr create": (1, "", "stop")})
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "gh", g), mock.patch("sys.stdout", new_callable=io.StringIO), s.assertRaises(SystemExit):
+            hd.cmd_ship(["s2", C])
+        s.assertEqual(g.did("push")[0][-1], f"{C}:refs/heads/content/s1")       # one new PR on s1's branch holds both
+        q["body"] += "\n" + hd.CARRIED                                          # carried at s2's head: s1 went with it
+        s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
 
     def test_a_dependent_joins_its_dependencys_open_pr(s):
         s.change("s1", pr=9, branch="content/x"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2"); s.change("s3", deps=["s2"])
@@ -1569,7 +1530,7 @@ class R8(Sandbox):
         s.change("s1", pr=9); s.agreed("s1"); s.change("s1-c8", deps=["s1"], pr=9, finding=8)
         F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A}, trees={A: TA, B: TB})
         s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s1-c8 in the head")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s1-c8")
         s.assertEqual(hd.tick(s.ctx(F))["card"], [])                             # not a complete PR: not ready
 
     def test_a_stacked_head_is_refused_at_the_gate(s):
@@ -1756,14 +1717,15 @@ class R8(Sandbox):
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         t = hd.integration(s.ctx(F))
         s.assertEqual((t["commit"], t["names"]), (R, ["local/x", "s1"]))
+        q = s.queued(F, "s1", A)
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["ship", "integration", R])
         s.assertEqual(F.envs[-1]["T"], "tr" * 20)
-        s.assertIn("s1 [server P2]: gated; waiting for the user's yes; test server: deploying trtrtrtrt", v["change"])
+        s.assertIn("s1 [server P2]: queued: waiting for the user's approval; test server: deploying trtrtrtrt", v["change"])
         F.f["procs"] = {(7, "1"), (4242, "99")}                                      # the deploy is running: not started again
         hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
         hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
-        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
+        s.assertEqual(s.state(F, "s1")["state"], "queued: waiting for the user's approval")
 
     def test_conflict_without_a_resolution_is_the_younger_change_s(s):
         F, R = s.integration_fixture(with_ref=False)
@@ -1774,13 +1736,13 @@ class R8(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
         s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
-        s.assertEqual([x for x in F.spawned if x[1] == "ship"], [])
-        s.assertTrue(any(c.startswith("## s1") and f"base main {B[:9]}" in c for c in v["card"]))   # the card waits on its own gate alone, naming the base
+        s.assertEqual([x for x in F.spawned if x[1:3] == ["ship", "integration"]], [])
+        s.assertEqual([x[1:] for x in F.spawned if x[1] == "ship"], [["ship", "s1", A]])   # the queue step waits on its own gate alone
         s.assertIn("conflicts with the integration tree", hd.rec("s1", "state")["state"])
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))                 # the conflict's dev run stays listed beside the card
-        hd.put("s1", "approval", {"head": A, "body": hd.digest("body")})
-        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream")              # nor does the conflict hold the ship
+        s.queued(F, "s1", A, approved=True)
+        s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")              # nor does the conflict hold the carry
 
     def test_a_lower_priority_conflict_leaves_the_higher_priority_tree_to_deploy(s):
         s.change("lo", priority="P3"); s.agreed("lo"); s.change("hi", priority="P1"); s.agreed("hi")   # the P3 is the older
@@ -1792,7 +1754,7 @@ class R8(Sandbox):
         t = hd.integration(s.ctx(F))
         s.assertEqual((t["names"], [(c["conflict"], c["with"]) for c in t["conflicts"]]), (["hi"], [("lo", ["hi"])]))   # priority first, the P3 left out
         v = hd.tick(s.ctx(F))
-        s.assertEqual(F.spawned[-1][1:], ["ship", "integration", A])              # the P1 deploys
+        s.assertIn(["ship", "integration", A], [x[1:] for x in F.spawned])         # the P1 deploys
         s.assertTrue(any(x.startswith("lo-") for x in v["spawn"]))                 # the P1 has no run due: the P3's conflict is its dev's
 
     def test_tree_of_a_snapshot(s):
@@ -2099,9 +2061,10 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "user")
-        (s.root / "evidence" / "s1" / "pr-body.md").write_text("fixed body")  # qa fixed the text in place
-        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.queued(F, "s1", A, approved=True)
+        s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
+        (s.root / "evidence" / "s1" / "pr-body.md").write_text("fixed body")  # qa fixed the text in place: the verdict holds, the yes does not
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
 
     def test_gate_bound_to_tree(s):
         s.change("s1"); s.agreed("s1")
@@ -2116,7 +2079,7 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_answer(["s1", "also do X"])  # the contract grew: the verdict no longer covers it
         s.assertEqual(s.state(F, "s1")["state"], "review due")
@@ -2130,12 +2093,12 @@ class R3(Sandbox):
         F = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b1"})
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertEqual(s.state(F, "s1")["state"], f"queueing {A[:9]}")
         F2 = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b2"})
         st = s.state(F2, "s1")
         s.assertEqual((st["actor"], st["input"][2]), ("qa", ["AGENTS.md"]))
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
-        s.assertEqual(s.state(F2, "s1")["actor"], "user")
+        s.assertEqual(s.state(F2, "s1")["state"], f"queueing {A[:9]}")
         s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
 
     def test_no_reviewer_without_judge_rows_and_no_arbitrary_check(s):

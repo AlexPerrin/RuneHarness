@@ -834,6 +834,30 @@ class R4(Sandbox):
             s.ship(F, g)
         s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
 
+    def test_an_update_with_a_finding_replaces_the_body_comments_every_commit_and_replies_only_the_answer(s):
+        F = Fake(**{**FACTS, "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": 213, "body": "bank?"}]},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False, "title": "t", "body": "old" + hd.ATTRIBUTION}]}})
+        s.ready(F, pr=7, finding=99)                                             # two commits (C, A) pushed on top of the live head D
+        ev = s.root / "evidence" / "s1"
+        (ev / "pr-body.md").write_text("new body")
+        (ev / "pr-comment.md").write_text(f"Pushed {C[:9]} and {A[:9]} on top of {D[:9]} (head {A[:9]}).\n\n- {C[:9]}: one.\n- {A[:9]}: two.")
+        (ev / "pr-reply-99.md").write_text("> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION)   # a text already signed: signed once
+        t = {w: x for w, _, x in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])}
+        s.assertEqual(sorted(t), ["body", "comment", "reply in the thread of review comment 99"])   # the title is live already: no title step
+        s.assertTrue(C[:9] in t["comment"] and A[:9] in t["comment"])
+        s.assertEqual(t["reply in the thread of review comment 99"], "> bank?\n\n@rev it gives the lamp there now.")
+        c = hd.tick(s.ctx(F), act=False)["card"][0]
+        s.assertIn("update upstream PR 7 of u/f (base main", c); s.assertIn("replacing its body with the one below", c); s.assertIn("### body\nnew body", c)
+        s.approve(F, "s1", A)
+        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "content/s1", "headRefOid": A if g.did("push") else D, "isDraft": False, "comments": [],
+                                                       "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), ""), "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        s.ship(F, g)
+        s.assertEqual(g.did("pr edit")[0][-2:], ("--body", "new body" + hd.ATTRIBUTION))
+        s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"]))
+        s.assertEqual([c[6] for c in g.calls if "POST" in c], ["body=> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION])
+        F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
+        s.assertNotIn("body", [w for w, _, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])])
+
     def test_a_central_change_is_carried_to_centrals_upstream(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D}, "trees": {**FACTS["trees"], D: TC}, "merges": {(B, D): ("ok", D)}})

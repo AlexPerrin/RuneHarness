@@ -4,7 +4,7 @@ track: client
 title: The app dies with SIGSEGV in osclient.so (via a libosrsrl hook) before the
   login
 kind: change
-priority: P1
+priority: P2
 deps: []
 created: '2026-11-01T20:17:21Z'
 ---

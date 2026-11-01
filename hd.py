@@ -1204,8 +1204,8 @@ def tick(ctx=None, act=True):
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
         prio, key = order(ctx)
-        shut = shut_changes(ctx)  # R6: no run is listed below the best tier of an open change, waiting or not, nor below the user's held band
-        hold = "P%d" % min([PRIO.get(prio[k], 9) for k in ctx.changes if k not in shut] + [PRIO.get(ctx.cfg.get("hold"), 9)])
+        due = [prio[k] for k, c in ctx.changes.items() if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode"))]
+        hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
         for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)
             held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], st["actor"])

@@ -1199,15 +1199,17 @@ class R6(Sandbox):
         s.assertIn("q3 [server P1]", " ".join(v["change"]))
         s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["p1-1"])
 
-    def test_a_lower_tier_waits_while_a_higher_one_is_open(s):
+    def test_a_lower_tier_waits_only_while_a_higher_run_is_due(s):
         for slug, k in (("p1", {"priority": "P1", "deps": ["b4"]}), ("b4", {"priority": "P4"}), ("q3", {"priority": "P3"})):
             s.change(slug, **k); s.agreed(slug)
         F = Fake(**FACTS)
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(c.startswith("p1 ") and "waiting on b4" in c for c in v["change"]))
-        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["b4-1"])   # q3 held while p1 waits; b4, p1's dependency, runs at P1
-        s.change("p1", priority="P1", deps=["b4"], closed="answer-1: done")
-        s.assertIn("q3-1", " ".join(hd.tick(s.ctx(F))["spawn"]))          # no higher change open: q3 is listed
+        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["b4-1"])   # q3 held while b4, p1's dependency, has a run due at P1
+        s.change("b4", priority="P4", closed="answer-1: dropped"); hd.cmd_ask(["p1", "which way?"])
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(c.startswith("p1 ") and "question open" in c for c in v["change"]))
+        s.assertIn("q3-1", " ".join(v["spawn"]))                          # p1 only waits on the user: q3 is listed
 
     def test_a_hand_off_is_replaced_in_the_same_pass_past_the_tier_hold_and_the_count(s):
         s.change("p1", priority="P1"); s.agreed("p1")
@@ -1600,7 +1602,7 @@ class R8(Sandbox):
         s.assertEqual((t["names"], [(c["conflict"], c["with"]) for c in t["conflicts"]]), (["hi"], [("lo", ["hi"])]))   # priority first, the P3 left out
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["ship", "integration", A])              # the P1 deploys
-        s.assertFalse(any(x.startswith("lo-") for x in v["spawn"]))                # the P3's conflict waits while the P1 is open
+        s.assertTrue(any(x.startswith("lo-") for x in v["spawn"]))                 # the P1 has no run due: the P3's conflict is its dev's
 
     def test_tree_of_a_snapshot(s):
         s.change("s1"); s.agreed("s1")

@@ -157,7 +157,10 @@ they own; drop a listed, unspawned run once its change's `next` is no longer tha
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
 user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
 on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card (a change at a head and texts) not shown before; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a
-harness change for a fault a hand-back reports, commits definitions,
+harness change for a fault a hand-back reports, commits definitions, keeps one read-only monitor sweep running (a
+general-purpose agent that edits nothing and validates that the harness changes shipped since the last sweep landed and finds harness bugs;
+started on session start; its report kept as `evidence/monitor/sweep-<n>.md` with the v8 head it swept, its findings filed by root cause,
+the next sweep's brief naming that report, the changes shipped since and its open findings),
 re-arms the watch (an expiry is a wake too). Its runs bind to its process as their console. `hd` alerts
 `user: no orchestrator session` while no `claude --agent orchestrator` process exists. It is also the user's chat: it shows each card in full and shows questions and alerts, records answers (`hd answer`), and
 acts on the user's other words at once; the user's yes is their own `!

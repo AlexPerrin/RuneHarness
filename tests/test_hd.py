@@ -245,7 +245,7 @@ class R2(Sandbox):
         root = Path(__file__).parent.parent
         s.assertFalse((root / ".claude" / "skills" / "head").exists())
         brief = (root / ".claude" / "agents" / "orchestrator.md").read_text()
-        for step in ("`card`", "`question`", "`alert`", "`! python3 ~/osrs-harness/hd.py approve", "`! python3 ~/osrs-harness/hd.py close"):   # the head skill's steps; the user types the yes and the close
+        for step in ("`card`", "`question`", "`alert`", "`! python3 ~/osrs-harness/hd.py approve", "`! python3 ~/osrs-harness/hd.py close", "monitor sweep", "evidence/monitor/sweep-<n>.md", "On session start, also start a monitor sweep"):   # the head skill's steps; the user types the yes and the close
             s.assertIn(step, brief)
         v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrator": None})))
         s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))

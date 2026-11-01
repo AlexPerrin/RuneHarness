@@ -3,7 +3,7 @@ slug: harness-desktops-under-load
 track: harness
 title: Desktop sessions survive a loaded host
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T07:25:54Z'
 ---

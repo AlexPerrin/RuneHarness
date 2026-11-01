@@ -14,3 +14,5 @@ The loop spawned P3 quest runs (quest-childrenofthesun, quest-ernestthechicken, 
 Acceptance:
 - Five levels P0-P4, mapped to the user's order: P0 harness fixes; P1 harness improvements (the login chain: harness-desktop-login-devtools, client-devtools-login, server-token-auth, central-token-login-op, harness-live-issuer-cutover, client-launch-*, the devtools review gaps); P2 our upstream changes (PR reviews and their findings, hunter-feat-pr); P3 clans and other in-progress features; P4 new quests. The open definitions under harness/changes are retiered to match.
 - hd lists no spawn for a change while a change of a higher tier is open (not closed), waiting or not, except a change that a higher open change depends on (it already inherits that tier). A test covers: lower held while higher waits; a dependency of a higher change still spawns; lower spawns once no higher is open.
+
+The user's word: "all harness track changes are atleast P1". A harness-track change is never below P1, including one made by `hd new` without --priority.

@@ -3,7 +3,7 @@ slug: harness-check-tests-full-summary
 track: harness
 title: The tests check row keeps too little output to read a failure
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T00:46:46Z'
 ---

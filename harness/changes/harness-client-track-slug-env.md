@@ -4,7 +4,7 @@ track: harness
 title: The client track.sh reads the slug only from $2, so hd's check rows run with
   an empty slug and every client hand-over is refused
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T03:23:06Z'
 ---

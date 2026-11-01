@@ -4,7 +4,7 @@ track: harness
 title: A dev files a fix outside its track with hd new instead of asking where it
   goes
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T01:28:17Z'
 ---

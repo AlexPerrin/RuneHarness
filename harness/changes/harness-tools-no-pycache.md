@@ -3,7 +3,7 @@ slug: harness-tools-no-pycache
 track: harness
 title: Compiled Python caches are committed on the fork's tools branch
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T00:07:10Z'
 ---

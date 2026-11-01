@@ -3,7 +3,7 @@ slug: harness-test-verb-default-modules
 track: harness
 title: track.sh test with no module names the touched modules
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T07:02:33Z'
 ---

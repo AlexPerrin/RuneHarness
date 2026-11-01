@@ -3,7 +3,7 @@ slug: harness-server-track-test-verb
 track: harness
 title: The server track runs the touched modules' tests and spotless
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T05:30:57Z'
 ---

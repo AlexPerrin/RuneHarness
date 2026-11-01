@@ -3,7 +3,7 @@ slug: harness-server-log-empty
 track: harness
 title: The server track's log prints nothing, even for the pattern '.'
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T12:44:28Z'
 ---

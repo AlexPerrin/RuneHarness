@@ -3,7 +3,7 @@ slug: harness-test-central-include
 track: harness
 title: The server track's test verb builds with the change's Central, as build does
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T12:27:25Z'
 ---

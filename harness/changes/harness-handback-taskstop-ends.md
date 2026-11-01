@@ -3,7 +3,7 @@ slug: harness-handback-taskstop-ends
 track: harness
 title: A background command stopped with TaskStop counts as ended at the hand-back
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T11:55:57Z'
 ---

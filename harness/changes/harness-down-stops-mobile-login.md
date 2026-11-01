@@ -3,7 +3,7 @@ slug: harness-down-stops-mobile-login
 track: harness
 title: track.sh down stops the run's mobile_login.py
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T04:13:36Z'
 ---

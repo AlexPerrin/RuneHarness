@@ -3,7 +3,7 @@ slug: harness-up-keeps-account-state
 track: harness
 title: A run's server up can resume the tester account where the last run left it
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T04:36:58Z'
 ---

@@ -3,7 +3,7 @@ slug: harness-emulator-no-console
 track: harness
 title: The bash bring-up opens a console window per emulator
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T01:20:08Z'
 ---

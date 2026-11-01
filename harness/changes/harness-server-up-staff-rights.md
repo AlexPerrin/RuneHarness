@@ -3,7 +3,7 @@ slug: harness-server-up-staff-rights
 track: harness
 title: 'server up: STAFF=N leaves the Nth account without administrator rights'
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T06:17:48Z'
 ---

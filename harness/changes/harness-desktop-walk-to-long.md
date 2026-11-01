@@ -3,7 +3,7 @@ slug: harness-desktop-walk-to-long
 track: harness
 title: Desktop walk_to moves the player over long distances
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T04:52:53Z'
 ---

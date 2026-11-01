@@ -3,7 +3,7 @@ slug: harness-t-commit-date
 track: harness
 title: The loop's T merge commits are dated 2000-01-01
 kind: change
-priority: P2
+priority: P1
 deps: []
 created: '2026-11-01T01:55:22Z'
 ---

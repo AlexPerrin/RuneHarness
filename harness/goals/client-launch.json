@@ -1,0 +1,9 @@
+[
+ {"unit": "launch:boot", "source": "tools/up.ps1:27-31 cold emulator boot (-read-only, swiftshader), sys.boot_completed polled"},
+ {"unit": "launch:install", "source": "tools/up.ps1:32-36 uninstall and full install on every up"},
+ {"unit": "launch:files-init", "source": "tools/up.ps1:37 first app start, fixed 5 s sleep, force-stop, only to create files/"},
+ {"unit": "launch:host-start", "source": "logcat ActivityTaskManager START to osrsrl-host 'host ready' (Host.java:143-265), plugin load"},
+ {"unit": "launch:loading-fullscreen", "source": "app loading screen, View full screen prompt and orientation"},
+ {"unit": "launch:dialogs", "source": "tools/device_login.py tap_label: Got it, Stay signed out, Close, Accept, No thanks via uiautomator dump"},
+ {"unit": "launch:login", "source": "tools/device_login.py:9,43-54 SIGN_IN/ACCEPT/PLAY_NOW coordinate taps, logcat re-read every 3 s to GameStateChanged LOGGED_IN"}
+]

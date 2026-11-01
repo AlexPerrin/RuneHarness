@@ -5,6 +5,7 @@ title: A running build, gate or deploy runs from a pinned copy of the tools; a t
   ship never changes files under it
 kind: change
 priority: P1
+mechanism: build-gate
 deps: []
 created: '2026-11-01T22:49:27Z'
 ---

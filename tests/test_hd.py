@@ -103,7 +103,8 @@ class Sandbox(unittest.TestCase):
 
     def change(s, slug, track="server", body="do it", **meta):
         s.seq += 1
-        meta = {"slug": slug, "track": track, "title": slug, "priority": "P2", "deps": [], "created": f"2026-10-31T00:00:{s.seq:02d}Z", **meta}
+        meta = {"slug": slug, "track": track, "title": slug, "priority": "P2", "deps": [], "created": f"2026-10-31T00:00:{s.seq:02d}Z",
+                **({"mechanism": slug} if track == "harness" else {}), **meta}   # a harness change names its own unless told
         (s.root / "harness" / "changes" / f"{slug}.md").write_text("---\n" + "".join(f"{k}: {json.dumps(v)}\n" for k, v in meta.items()) + "---\n" + body)
 
     def agreed(s, slug, track="server", extra=""):
@@ -123,7 +124,7 @@ class Sandbox(unittest.TestCase):
     def gated(s, slug, F):
         """Hand over, build and gate at the current head and tree."""
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover([slug])
+            hd.cmd_handover([slug, "Limits:", "none"])
         ho = hd.rec(slug, "handover")
         hd.put(slug, "build", {"T": ho["T"], "ok": True})
         hd.put(slug, "gate", {"T": ho["T"], "ok": True})
@@ -308,7 +309,7 @@ class R2(Sandbox):
             F.f["refs"]["origin/client/c1"] = A                       # the dev pushes and hands over
             (s.root / "evidence" / "c1" / "log.txt").write_text("evidence")
             with mock.patch.object(hd, "Facts", lambda: F):
-                hd.cmd_handover(["c1"])
+                hd.cmd_handover(["c1", "Limits:", "none"])
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run c1-1: handed over " + A, usage=3, handback="run c1-1: handed over " + A))
             s.assertEqual(sp.call_count, 1)                           # the pass is started, never waited on
         run = [r for r in hd.runs() if r["change"] == "c1"][0]
@@ -353,7 +354,7 @@ class R2(Sandbox):
         hd.write_contract(hd.cfg(), "h1", "harness", "derived")
         (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(s.state(F, "h1")["state"], "done")                          # handed over: its own work
 
     def test_a_live_run_of_a_done_change_ends_with_its_record(s):
@@ -364,7 +365,7 @@ class R2(Sandbox):
         hook.bind(payload(run, "ag1", "SubagentStart", s.root))
         (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         with mock.patch.object(hook, "start_pass"):
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="handed over"))   # a plain-text stop: still live
         s.assertFalse(hd.runs()[0]["ended"])
@@ -383,7 +384,7 @@ class R2(Sandbox):
                             f: [(f, ""), (f"{f}/.worktrees/harness", "local/harness"), (f"{f}/.worktrees/h1", "harness/h1"), (f"{f}/.worktrees/h1-build", "")]})
         (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(s.state(F, "h1")["state"], "done")
         hd.tick(s.ctx(F))
         s.assertEqual(F.f["worktrees"], {r: [(r, "v8"), (f"{r}/.worktrees/h2", "harness/h2")], f: [(f, ""), (f"{f}/.worktrees/harness", "local/harness")]})
@@ -1128,7 +1129,7 @@ class R4(Sandbox):
         s.agreed("s1"); (s.root / "evidence" / "s1" / "pr-reply-99.md").write_text("> reset it\n\n@rev kept.")
         s.assertEqual(s.state(F, "s1")["actor"], "qa")                          # agreed, no verdict yet: still that run's
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         s.assertNotIn(s.state(F, "s1")["actor"], ("qa", "dev"))                 # its run done: no dev, no review
         s.verdict("s1", A, {"ok": "fail: needs code", "j1": "pass"}, F)         # the QA run decides code is needed
@@ -1567,7 +1568,7 @@ class R5(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))                                     # the build died without build.json: once more
         s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
         v = hd.tick(s.ctx(F))
@@ -1672,7 +1673,7 @@ class R5(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS, containers=None)
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned, [])
         s.assertEqual(sum("docker unreachable" in a for a in v["alert"]), 1)
@@ -2155,7 +2156,7 @@ class R8(Sandbox):
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""},
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)                    # its QA verdict alone: no build, no gate
         c = hd.tick(s.ctx(F))["card"]
         s.assertEqual(len(c), 1); s.assertTrue(c[0].startswith("s1: ")); s.assertNotIn("CI", c[0])
@@ -2215,7 +2216,7 @@ class R8(Sandbox):
                  merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (B, H3): ("ok", H3), (H1, H2): ("ok", M2), (M2, H3): ("ok", M3)})
         with mock.patch.object(hd, "Facts", lambda: F):
             for k in ("h1", "h2", "h3"):
-                hd.cmd_handover([k])
+                hd.cmd_handover([k, "Limits:", "none"])
         states = lambda: [s.state(F, k)["state"] for k in ("h1", "h2", "h3")]
         s.assertEqual(states(), ["gate on t123"] * 3)                             # one tree: base, then each in hand-over order
         hd.tick(s.ctx(F))
@@ -2382,7 +2383,7 @@ class R8(Sandbox):
         E = "e" * 40
         F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={E: "te" * 20}, merges={(B, A): ("ok", D), (D, C): ("ok", E)})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s2"])
+            hd.cmd_handover(["s2", "Limits:", "none"])
         s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
         s.change("h1", "harness"); s.change("s3", deps=["h1"]); s.agreed("s3")       # a harness dep is in another repo: not merged
         F.f["refs"].update({"harness/h1": "h" * 40, "fork/dev/s3": C}); F.f["merges"][(B, C)] = ("ok", E)
@@ -2405,7 +2406,7 @@ class R8(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**{**FACTS, "merges": {(B, A): ("conflict", "CONFLICT (content): Merge conflict in x.kt")}})
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("x.kt", str(e.exception))
         hd.put("s1", "handover", {"head": A, "T": "old", "commit": "old"})          # a hand-over from before the base moved
         st = s.state(F, "s1")
@@ -2607,7 +2608,7 @@ class R8(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["build", "s1", A])
         s.assertEqual((F.envs[-1]["SLUG"], F.envs[-1]["T"]), ("s1", TA))
@@ -2630,7 +2631,7 @@ class EndToEnd(unittest.TestCase):
         for d in ("harness/changes", "harness/goals", "evidence/e2e"):
             (root / d).mkdir(parents=True)
         (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
-        (root / "harness" / "changes" / "e2e.md").write_text("---\nslug: e2e\ntrack: harness\ntitle: e2e\n---\nadd a line to the README")
+        (root / "harness" / "changes" / "e2e.md").write_text("---\nslug: e2e\ntrack: harness\nmechanism: loop\ntitle: e2e\n---\nadd a line to the README")
         (root / "evidence" / "e2e" / "note.txt").write_text("evidence")
         git("worktree", "add", "-q", str(repo / ".worktrees" / "e2e"), "-b", "harness/e2e", "main")   # the dev's clone
         wt = repo / ".worktrees" / "e2e"
@@ -2642,7 +2643,7 @@ class EndToEnd(unittest.TestCase):
         s.assertIn("contract: seed rows pending", hd_("tick").stdout)
         v = hd_("tick").stdout
         s.assertIn("dev run due", v); s.assertIn("spawn: e2e-1", v)
-        r = hd_("handover", "e2e"); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = hd_("handover", "e2e", "Limits:", "none"); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         def until(state):   # each pass, then block on the scripts it started: the run's pace never fails the test
             last = None
             while True:
@@ -2693,7 +2694,7 @@ class Tools(unittest.TestCase):
             (root / d).mkdir(parents=True)
         (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
         (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
-        (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n- d | suite | gate: tools/track.sh check-tests\n")
+        (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | gate: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n- d | suite | gate: tools/track.sh check-tests\n")
         snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
         r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "NAMES": "", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
         rec = json.loads((root / "state" / "g1" / "gate.json").read_text())
@@ -2732,7 +2733,7 @@ class R3(Sandbox):
         fork = str(s.root / "fork")
         F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertIn("does not descend from local/harness", str(e.exception))      # it must land as a fast-forward
         F.f["anc"] = {(C, "local/harness")}
         ho = s.gated("h1", F)
@@ -2746,25 +2747,40 @@ class R3(Sandbox):
         F.f["anc"].add(("local/harness", C))
         s.assertEqual(s.state(F, "h1")["state"], "done")
 
-    def test_a_seed_row_added_later_is_a_row_of_an_agreed_contract(s):  # spotless joined the server seed rows after contracts were agreed
-        s.change("s1"); s.agreed("s1")
+    def test_a_seed_row_added_later_applies_at_a_head_not_carried(s):  # spotless joined the server seed rows after contracts were agreed
+        s.change("s1", pr=7); s.agreed("s1")
         before = hd.contract("s1")["hash"]
         t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
         t.write_text(t.read_text() + "- lint | spotless passes | check: false\n- ok | redefined | check: false\n")
+        s.assertEqual(hd.contract("s1")["hash"], before)                       # the file alone: its verdicts stand
+        pr = {"number": 7, "branch": "content/s1", "owner": "o", "head": A, "draft": False}
+        s.assertEqual(s.state(Fake(**FACTS, prs=None), "s1")["state"], "upstream PR unknown")
+        st = s.state(Fake(**FACTS, prs={"u/f": [pr]}), "s1")
+        s.assertNotIn("seed rows", st["state"])                                # carried at its head: no new row until it moves
+        st = s.state(Fake(**FACTS, prs={"u/f": [{**pr, "head": B}]}), "s1")
+        s.assertEqual(st["state"], "contract: seed rows lint added"); st["act"]()   # by id: the file's own ok stands
         con = hd.contract("s1")
-        s.assertEqual([r["id"] for r in con["rows"]], ["ok", "j1", "lint"])   # by id: the file's own row stands
-        s.assertNotEqual(con["hash"], before)                                 # verdicts on the old rows are void
-        s.assertNotIn("lint", (s.root / "evidence" / "s1" / "contract.md").read_text())
+        s.assertEqual([r["id"] for r in con["rows"]], ["ok", "j1", "lint"]); s.assertNotEqual(con["hash"], before)
         F = Fake(**FACTS, rows={"false": (1, "nope")})
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("row lint failed", str(e.exception))
+
+    def test_check_rows_run_before_gate_rows_which_wait_on_them(s):  # a seed spotless appended after ci ran only after a CI round
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- lint | spotless | check: false\n- late | local | check: true\n")
+        F = Fake(**FACTS)
+        ch, con = s.ctx(F).changes["s1"], hd.contract("s1")
+        s.assertEqual(hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=True), ["row lint failed: false"])
+        s.assertEqual([c.split()[0] for c in F.ran], ["true", "false", "true"])                      # every check, in file order; no CI round
+        F = Fake(**FACTS)
+        s.assertEqual(hd.rows(s.ctx(F), ch, {**con, "rows": [r for r in con["rows"] if r["id"] != "lint"]}, A, TA, TA, "", gate=True), [])
+        s.assertEqual(F.ran, ["true", "true", "tools/track.sh gate-ci"])     # the gate rows after every check passed
 
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")
         F = Fake(**FACTS, rows={"false": (1, "nope")})
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("row bad failed", str(e.exception))
         s.assertIsNone(hd.rec("s1", "handover"))
 
@@ -2775,7 +2791,7 @@ class R3(Sandbox):
         hd.cmd_answer(["s1", "--waive", "bad", "no new tests, per decision 7"])
         F = Fake(**FACTS, rows={"false": (1, "nope")})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertEqual(F.ran, ["true"])
         s.assertEqual(hd.rec("s1", "handover")["head"], A)
 
@@ -2783,19 +2799,19 @@ class R3(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertEqual(hd.rec("s1", "handover")["head"], A)
         s.assertEqual(hd.rec("s1", "handover")["T"], TA)
         s.assertEqual(F.ran, ["true"])
         with mock.patch.object(hd, "Facts", lambda: Fake(**{**FACTS, "refs": {"origin/HEAD": B}})), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["s1"])
+            hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("does not exist", str(e.exception))
 
     def test_harness_dev_ref_stays_local(s):
         s.change("h1", track="harness"); s.agreed("h1", track="harness")
         F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})  # no remote ref at all
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(hd.rec("h1", "handover")["head"], A)
         s.assertEqual(hd.TRACK["harness"]["dev"], "harness/{slug}")                 # the local branch, so a rebase needs no force push
         repo = Path(__file__).parent.parent
@@ -2817,10 +2833,15 @@ class R3(Sandbox):
             hd.cmd_new(["x3", "--track", "harness", "--title", "back again", "--mechanism", "dispatch", "--limit-of", "h2"])
         s.change("x4", track="harness", mechanism="dispatch")
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["h1", "limit:x4"])                                  # a hand-back naming an in-scope limit
+            hd.cmd_handover(["h1", "Limits:", "limit:x4"])                       # a hand-back naming an in-scope limit
         s.assertIn("in this change's scope", str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
+        for bad, says in ((["done"], "no Limits: section"), (["Limits:"], "no Limits: section"),
+                          (["Limits:", "limit:h2", "dispatch", "still", "drops", "a", "run"], "is no `limit:<slug>`")):
+            with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+                hd.cmd_handover(["h1", *bad])                                    # no section, or a limit stated in prose: refused
+            s.assertIn(says, str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1", "limit:h2"])
+            hd.cmd_handover(["h1", "fixed", "Limits:", "limit:h2"])
         s.assertEqual(hd.rec("h1", "handover")["head"], A)
 
     def test_planner_merges_changes_on_one_mechanism(s):
@@ -2829,7 +2850,9 @@ class R3(Sandbox):
             hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--mechanism", "hold", "--supersedes", "h1,s1"])   # only open harness changes
         hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1,h2"])
         g = hd.defs("changes")
-        s.assertEqual((g["h1"]["closed"], g["h2"]["closed"], g["r1"]["mechanism"]), ("superseded by r1", "superseded by r1", "hold"))
+        s.assertEqual((g["h1"]["superseded"], g["h2"]["superseded"], g["r1"]["mechanism"]), ("r1", "r1", "hold"))
+        s.assertNotIn("closed", g["h1"])                                        # closing is the user's word: held with no runs
+        s.assertEqual(s.state(Fake(refs={"HEAD": B}, trees={B: TB}), "h1"), {"state": "superseded by r1: the user's hd close", "actor": "wait"})
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # a later issue on it joins it
         g = hd.defs("changes")
         s.assertNotIn("p9", g); s.assertIn("hold drops a run", g["r1"]["body"])
@@ -2838,6 +2861,10 @@ class R3(Sandbox):
             with s.assertRaises(SystemExit) as e:
                 hd.cmd_new(["p8", "--track", "harness", "--title", "y", *bad])
             s.assertIn("one of: loop, runs", str(e.exception)); s.assertNotIn("p8", hd.defs("changes"))
+        s.change("h3", track="harness", mechanism="hold"); s.change("h4", track="harness", mechanism="")
+        alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # two open on one mechanism, one naming none
+        s.assertIn("mechanism hold: 2 open changes h3, r1: merge them into one root-cause change", alerts)
+        s.assertIn("no mechanism: h4: name each one's", alerts)
         hd.cmd_new(["s9", "--track", "server", "--title", "a quest"])           # a product change needs none
         s.assertEqual(hd.mechanism(hd.defs("changes")["s9"]), "s9")
         repo = Path(__file__).parent.parent
@@ -2851,11 +2878,40 @@ class R3(Sandbox):
         for role in ("dev", "qa", "planner"):
             s.assertIn("root cause", (Path(__file__).parent.parent / ".claude" / "agents" / f"{role}.md").read_text(), role)
 
+    def test_answer_a_verdict_judged_makes_no_dev_run(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_answer(["s1", "Fix first: the body names both commits"])
+        s.assertEqual(s.state(F, "s1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
+        with mock.patch.object(hd, "now", lambda: "3000-01-01T00:00:00Z"):
+            s.verdict("s1", A, {"ok": "pass", "j1": "pass", "answer-1": "pass"}, F)   # qa judged the answer on this head: no dev run for it
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
+
+    def test_answer_on_done_change_reopens_it_and_on_closed_is_refused(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertEqual(s.state(F, "h1")["state"], "done")
+        hd.put("h1", "swept", {"head": A})
+        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_answer(["h1", "Fix first: also cover the closed case"])
+        s.assertEqual(s.state(F, "h1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "3000-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertEqual((s.state(F, "h1")["state"], hd.rec("h1", "swept")), ("done", None))   # its new branches are swept again
+        hd.cmd_close(["h1", "dropped"])
+        with s.assertRaises(SystemExit) as e:
+            hd.cmd_answer(["h1", "one more"])
+        s.assertIn("closed: file a change", str(e.exception))
+
     def test_answer_after_handover_makes_a_dev_run(s):
         s.change("h1", track="harness"); s.agreed("h1", track="harness")
         F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))
         hd.put("h1", "handover", {**hd.rec("h1", "handover"), "ts": "2000-01-01T00:00:00Z"})   # handed over before the answer
         hd.cmd_answer(["h1", "Fix first: reuse the gradle volume"])
@@ -2865,7 +2921,7 @@ class R3(Sandbox):
         s.assertEqual(run["role"], "dev")
         s.assertIn("Fix first: reuse the gradle volume", (s.root / "state" / "briefs" / f"{run['name']}.md").read_text())
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
-            hd.cmd_handover(["h1"])                                                          # the dev's new hand-over releases the head
+            hd.cmd_handover(["h1", "Limits:", "none"])                                                          # the dev's new hand-over releases the head
         s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))
 
     def test_verdict_refused_when_row_missing(s):
@@ -2951,7 +3007,7 @@ class R3(Sandbox):
         (s.root / "evidence" / "c1" / "x.txt").write_text("evidence")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "origin/client/c1": A}})
         with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
-            hd.cmd_handover(["c1"])
+            hd.cmd_handover(["c1", "Limits:", "none"])
         s.assertIn("row evil failed", str(e.exception))
         s.assertTrue(all(c.startswith(("true", "false")) for c in F.ran), F.ran)  # the injected line never reaches the shell as a command
         (s.root / "evidence" / "c1" / "contract.md").write_text((s.root / "evidence" / "c1" / "contract.md").read_text().replace("- evil | injected | check: rm -rf /\n", ""))

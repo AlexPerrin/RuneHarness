@@ -24,15 +24,18 @@ planning across tracks belongs to a planner run listed by facts, and the orchest
 nothing depends on any session staying alive.
 
 ### R3 Contract (from P1 P2 P7 P11)
-What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows, the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over is the dev's before the head moves on) and prior findings;
+What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added later joins it at its next head not carried upstream), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
+a closed change takes none) and prior findings;
 a row is proved through the change's own tree, never through a change that depends on it.
 The hand-over passes every script row;
+the gate runs the local script rows first and fork CI only once they pass;
 the reviewer judges every row once, pass or fail, a row it did not check is not judged and never passes, and verdicts append;
 a text-only failure is fixed in place.
 A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves.
 A claim with no record counts for nothing;
 an unknown fact stops a step.
-A limit in the mechanism a change touches is fixed in that change: a hand-over naming one is refused;
+A limit in the mechanism a change touches is fixed in that change: a hand-over states its limits, each a filed change, and one naming an in-scope limit, or stating one otherwise, is refused;
+every open harness change names its mechanism, and the planner merges the open changes sharing one;
 a limit in another mechanism, and any filing on a mechanism with an open change, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges.
 
 ### R4 Authority (from P4 P5)
@@ -132,7 +135,8 @@ a live check reads the real state.
    a hand-over with a failing script row, or whose pushed ref is not the head it names, is refused;
    a harness hand-over reads its local dev ref, never a pushed one;
    a script row the user's answer waives is not run;
-   an answer recorded after a hand-over, on any track, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over;
+   an answer recorded after a hand-over and the head's last verdict, on any track and on a done change, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over, and one a verdict on the head already judged does not;
+   an answer on a closed change is refused;
    a verdict missing a row, or with a row not judged and none failing, is refused, and the next brief lists the open rows;
    a contract row needs no change depending on its own;
    verdicts append;
@@ -141,7 +145,9 @@ a live check reads the real state.
    a verdict at H does not hold at H';
    a harness change's tools commits are handed over, gated and landed with it;
    a moved upstream rule file voids only the rule rows;
-   a hand-over naming a limit in its own scope is refused, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` closes the merged changes;
+   a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
+   a seed row added later joins a contract at a head not carried upstream;
+   a contract's check rows run before its gate rows, which run only when every check passed;
    a failed fetch leaves every change where it was.
    Live: every `evidence/<slug>/contract.md` row has an id and a result.
 

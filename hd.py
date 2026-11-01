@@ -503,21 +503,11 @@ def contract(slug):
     """evidence/<slug>/contract.md → {hash, rules, agreed, rows, text} | None.
     Rows `- id | text | check: <cmd>` (hand-over and gate) | `gate: <cmd>` (gate only) | `judge: <skill>` (qa);
     an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run.
-    The track's seed rows are read now, not when the file was written: one the file lacks (by id) is a row of it."""
+    The file alone: a seed row added later is written into it by the pass (`unseeded`) at a head not carried upstream."""
     f = EVID / slug / "contract.md"
     if not f.exists():
         return None
     text = f.read_text()
-    d = next((g for g in (DEFS / "changes" / f"{slug}.md", DEFS / "goals" / f"{slug}.md") if g.exists()), None)
-    try:
-        track = d and _frontmatter(d.read_text())[0].get("track")
-    except (yaml.YAMLError, AttributeError):  # a definition that does not parse (defs.bad names it): the file's rows alone
-        track = None
-    if track in TRACK:
-        ids = {l[2:].split("|", 1)[0].strip() for l in text.splitlines() if l.startswith("- ")}
-        new = [l for l in seed_rows(cfg(), track).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
-        if new:
-            text = text.rstrip("\n") + "".join("\n" + l for l in new) + "\n"
     c = {"hash": hashlib.sha1(text.encode()).hexdigest()[:12], "rules": {}, "agreed": None, "rows": [], "text": text}
     for l in text.splitlines():
         if l.startswith("rules:"):
@@ -536,6 +526,17 @@ def contract(slug):
                     row[k] = f"false # refused: '{row[k]}' is not a tools/ script"
             c["rows"].append(row)
     return c
+
+
+def unseeded(c, slug, track):
+    """The track's seed rows the contract file lacks (by id)."""
+    ids = {l[2:].split("|", 1)[0].strip() for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- ")}
+    return [l for l in seed_rows(c, track).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
+
+
+def add_seeds(slug, new):
+    f = EVID / slug / "contract.md"
+    f.write_text(f.read_text().rstrip("\n") + "".join("\n" + l for l in new) + "\n")
 
 
 def write_contract(c, slug, track, agreed, rules=None):
@@ -1175,11 +1176,23 @@ def deps_held(ctx, ch):
     return None
 
 
+def late_answers(slug, ho, head):
+    """R3: the ids of the user's answers newer than the hand-over and than the last verdict on head (one a verdict
+    already judged is not): the dev's to act on, so the head is not built, gated or shipped until a new hand-over."""
+    con = contract(slug)
+    if not (ho and con):
+        return []
+    since = max([ho["ts"]] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
+    return [r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["text"][:20] >= since]
+
+
 def nxt(ctx, ch):
     """The first unmet step of a change (docs/ARCHITECTURE.md, The loop); its state is a fact in words (R7)."""
     slug, track = ch["slug"], ch["track"]
     if ch.get("closed"):  # the user's word: no further step, never in T_int
         return step(f"closed: {ch['closed']}", "done")
+    if ch.get("superseded"):  # a planner merge: held with no runs until the user closes it
+        return step(f"superseded by {ch['superseded']}: the user's hd close", "wait")
     held = deps_held(ctx, ch)
     if held:
         return held
@@ -1190,13 +1203,19 @@ def nxt(ctx, ch):
     if done is None:
         return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
-    if done:
+    late = late_answers(slug, ho, head)
+    if done and not late:  # R3: a late answer reopens a done change: the dev acts on it
         return step("done", "done")
     if (q := rec(slug, "ask")):  # the user's answer releases it: no run, gate, ship or upstream step until then
         return step(f"question open: {q['text'][:200]}", "wait")
     con = contract(slug)
     if con is None:
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else ""))
+    if (new := unseeded(ctx.cfg, slug, track)):  # R3: a seed row added later applies at a head not carried; a carried head keeps its verdict until it moves
+        if upstream(ch) and ctx.upstream_pr(ch) is None:
+            return step("upstream PR unknown", "unknown")
+        if not shipped(ctx, ch, head):
+            return step(f"contract: seed rows {', '.join(l[2:].split('|', 1)[0].strip() for l in new)} added", "script", act=lambda: add_seeds(slug, new))
     if reply_only(ctx, ch) and not [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]:  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
         return step("reply: qa run due", "qa", mode="contract", input=[head, con["hash"]])
     if not con["agreed"]:
@@ -1204,12 +1223,10 @@ def nxt(ctx, ch):
     tools = ctx.tools(ch)
     if tools is None:
         return step("tools refs unknown", "unknown")
-    # R3: the user's answer after the hand-over is the dev's to act on: the head is not built, gated or shipped until a new hand-over
-    late = [r for r in con["rows"] if ho and r["id"].startswith("answer-") and r["text"][:20] >= ho["ts"]]
     if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
-                    else f"dev run due: the user answered after the hand-over ({', '.join(r['id'] for r in late)})", "dev", mode="code",
+                    else f"dev run due: the user answered after the hand-over ({', '.join(late)})", "dev", mode="code",
                     input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; a conflict is the dev's step
     for n, h in tools.items():
@@ -1628,7 +1645,7 @@ def brief(ctx, ch, st, name, role):
     lines += ["## Definition", f"title: {ch.get('title', '')}  priority: {ch.get('priority', '')}  deps: {ch.get('deps', [])}  pr: {ch.get('pr', '')}", ch.get("body", ""), ""]
     if con:
         lines += ["## Contract", con["text"], ""]
-    lines += ["## Hand back", "One line: `run <name>: handed over <sha>` (each filed out-of-scope limit after it as `limit:<slug>`, as handed to `hd handover`) | `run <name>: PASS` | `run <name>: FAIL n rows` | "
+    lines += ["## Hand back", "One line: `run <name>: handed over <sha> Limits: none` (or each filed out-of-scope limit as `limit:<slug>` after `Limits:`, as handed to `hd handover`; an in-scope limit is fixed, never handed over) | `run <name>: PASS` | `run <name>: FAIL n rows` | "
               "`run <name>: contract agreed` | `run <name>: ask <text>` | `run <name>: filed <slug>` | `run <name>: handoff`."]
     f = STATE / "briefs" / f"{name}.md"
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -1698,8 +1715,8 @@ def dispatch(ctx, ch, st, act):
 
 
 def shut(k, c):
-    """A closed change, or one whose last pass found it done."""
-    return bool(c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed")))
+    """A closed or superseded change, or one whose last pass found it done."""
+    return bool(c.get("closed") or c.get("superseded") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed")))
 
 
 def shut_changes(ctx):
@@ -1959,6 +1976,12 @@ def _pass(ctx, act):
     view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     repairs(ctx, act)
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
+    per = {}  # R3: one open harness change per mechanism, each naming one; the planner merges the rest
+    for k, c in ctx.changes.items():
+        if c["track"] == "harness" and not shut(k, c):
+            per.setdefault(c.get("mechanism") or "", []).append(k)
+    view["alert"] += [f"mechanism {m}: {len(v)} open changes {', '.join(sorted(v))}: merge them into one root-cause change" if m else
+                      f"no mechanism: {', '.join(sorted(v))}: name each one's" for m, v in sorted(per.items()) if len(v) > 1 or not m]
     for g in ctx.goals.values():
         view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
     tint, open_prs = {}, set()
@@ -2317,7 +2340,13 @@ def cmd_handover(a):
     why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
            if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
     graph = defs("changes")
-    for w in a[1:]:  # each limit the hand-back names is filed outside this change's scope: `limit:<slug>`
+    at = next((i for i, w in enumerate(a) if w.lower() == "limits:"), None)  # the hand-back's required Limits: section, last
+    lim = a[at + 1:] if at else []
+    if not lim:
+        why.append("no Limits: section: end with `Limits: none` or `Limits: limit:<slug> ...` (each a change filed outside this change's scope)")
+    elif lim != ["none"] and (prose := [w for w in lim if not w.lower().startswith("limit:")]):
+        why.append(f"Limits: {' '.join(prose)[:200]!r} is no `limit:<slug>`: a limit in this change's scope is fixed here before the hand-over; one in another mechanism is filed with `hd new --limit-of {ch['slug']}`")
+    for w in lim:  # each limit the hand-back names is filed outside this change's scope: `limit:<slug>`
         if w.lower().startswith("limit:"):
             k = w.split(":", 1)[1]
             if k not in graph:
@@ -2330,6 +2359,7 @@ def cmd_handover(a):
         refuse(*why)
     put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:])})
     drop(ch["slug"], "ask")
+    drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
     print(f"handed over {head} (tree {tree[:9]})")
@@ -2337,18 +2367,23 @@ def cmd_handover(a):
 
 def rows(ctx, ch, con, head, tc, tree, build, gate):
     """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root, each
-    with the change's own env (a track script keeps a check of the tree alone once per gate)."""
+    with the change's own env (a track script keeps a check of the tree alone once per gate).
+    Cheap and local first, whatever the file's order: every `check:` row, then the `gate:` rows (fork CI among them) only
+    when every check passed."""
     env, why = ctx.env(ch, head, tc, tree, build), []
     env.update({k: os.environ[k] for k in ("TOOLS",) if k in os.environ and gate})  # the gate's: a batch's, every member's tools
     waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
     for row in con["rows"]:
         if row["id"] in waived:
             print(f"waived: {row['id']} by {waived[row['id']]}")
-            continue
-        for cmd in ([row["check"]] + ([row["gate"]] if gate else [])):
-            if cmd:
-                rc, out = ctx.F.run(cmd, str(track_root(ctx.cfg, ch["track"])), env)
-                print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {cmd}" + (f"\n{out.strip()[-800:]}" if rc else ""))
+    for kind in ("check", "gate") if gate else ("check",):
+        if why:
+            print(f"not run: {', '.join(r['id'] for r in con['rows'] if r[kind] and r['id'] not in waived)} (a check row failed)")
+            break
+        for row in con["rows"]:
+            if row[kind] and row["id"] not in waived:
+                rc, out = ctx.F.run(row[kind], str(track_root(ctx.cfg, ch["track"])), env)
+                print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} failed: {out.strip()[-400:]}")
     return why
@@ -2423,6 +2458,8 @@ def cmd_answer(a):
     waive = a[2] if len(a) > 2 and a[1] == "--waive" else None
     slug, text = a[0], " ".join(a[3:] if waive else a[1:])
     ch = defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
+    if ch.get("closed"):
+        refuse(f"closed: file a change ({ch['closed']})")
     add_answer(slug, ch, text, waive=waive)
 
 
@@ -2450,7 +2487,7 @@ def cmd_close(a):
         refuse(f"already closed: {ch['closed']}")
     cmd_answer(a)
     n = sum(1 for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- answer-"))
-    mark_closed(ch, f"answer-{n}: {' '.join(a[1:])}")
+    mark(ch, "closed", f"answer-{n}: {' '.join(a[1:])}")
     event(change=slug, record="closed")
     print(f"{slug} closed")
 
@@ -2532,7 +2569,7 @@ def cmd_new(a):
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
     p.add_argument("--mechanism", help="the mechanism the change fixes: one of hd.yaml's `mechanisms`, required on the harness track (else its slug)")
     p.add_argument("--limit-of", help="the change whose run found this limit, outside that change's scope")
-    p.add_argument("--supersedes", default="", help="open harness changes this root-cause change replaces, comma-separated: each is closed as superseded")
+    p.add_argument("--supersedes", default="", help="open harness changes this root-cause change replaces, comma-separated: each is marked superseded (held, no runs) until the user closes it")
     o = p.parse_args(a)
     if o.track == "harness" and PRIO.get(o.priority, 9) > 1:
         o.priority = "P1"  # the user's word: a harness change is never below P1
@@ -2567,9 +2604,9 @@ def cmd_new(a):
     if (cy := [c for c in cycles(graph) if o.slug in c]):
         refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))
     print(new_def(meta, o.body))
-    for k in sup:
-        mark_closed(graph[k], f"superseded by {o.slug}")
-        event(change=k, record="closed", by=o.slug)
+    for k in sup:  # closing is the user's word (hd close): a superseded change holds with no runs
+        mark(graph[k], "superseded", o.slug)
+        event(change=k, record="superseded", by=o.slug)
     if o.blocks:  # the blocked change waits on the new one, uncommitted like the definition
         bm, body = _frontmatter(blocked.read_text())
         if o.slug not in bm.setdefault("deps", []):
@@ -2591,10 +2628,10 @@ def merge_limit(c, o):
     print(f"merged into {c['slug']} ({mechanism(c)})")
 
 
-def mark_closed(ch, text):
+def mark(ch, key, text):
     f = P(ch["path"])
     head, sep, rest = f.read_text().partition("\n---\n")
-    f.write_text(head + "\n" + yaml.safe_dump({"closed": text}, width=10**6).strip() + sep + rest)
+    f.write_text(head + "\n" + yaml.safe_dump({key: text}, width=10**6).strip() + sep + rest)
 
 
 def new_def(meta, body, **ev):

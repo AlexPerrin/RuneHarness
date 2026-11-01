@@ -44,7 +44,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd ship <slug> <head>`, by the pass (the public step's script): carries the approved head upstream or publishes the release, re-checking the yes;
   records `ship.json` (R4)
 
-- `hd answer <slug> [--waive <row>] <text>`, by the orchestrator, with the user's words: an answer appends a contract row;
+- `hd answer <slug> [--waive <row>] <text>`, by the orchestrator, with the user's words: an answer appends a contract row (refused on a closed change: file a change);
   `--waive` names a script row the hand-over and gate then skip
 
 - `hd hold <slug> [--all|--lift] [<why>]`, by the orchestrator, on the user's no or word: `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves;
@@ -64,21 +64,21 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
   a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>`, so a change already handed over gets a dev run for it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
-  `--supersedes` closes those open harness changes as `superseded by <slug>`
+  `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`
 
 - `hd show <slug>`, by the orchestrator: the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead)
 
-- `hd handover <slug>`, by dev: reads the dev ref (pushed;
+- `hd handover <slug> [summary] Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
-  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir or a `limit:<slug>` argument (a filed limit the hand-back names) that is no change or is in the change's scope, records {head, T}
+  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T}
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
   refused if a row is missing, or not judged with none failing
 
 - `hd tree <slug> <commit>`, by a track script: the T commit and tree of a working-copy snapshot, so a dev builds T
 
-- `hd rows <slug> <T commit> <build copy>`, by a track script's gate: every `check:` and `gate:` row at the track root with `BUILD` set;
+- `hd rows <slug> <T commit> <build copy>`, by a track script's gate: every `check:` row, then every `gate:` row (fork CI among them) only when every check passed, whatever the file's order, at the track root with `BUILD` set;
   exit 1 names the failures
 
 - `hd ask <slug> <text>`, by agents: refused while a question is open on the change
@@ -102,7 +102,7 @@ harness/changes/<slug>.md      slug, track, kind (change|release|local), priorit
                                body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>};
                                rows `- id | text | check: <cmd> | judge`;
-                               read with the track's current seed rows: one the file lacks (by id) is a row (`hd.contract`)
+                               a track seed row the file lacks (by id) is written into it by the pass at a head not carried upstream (`hd.unseeded`)
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
@@ -167,8 +167,8 @@ next(change):
   reply-only, no verdict at head?
     yes → one qa run: contract, reply (pr-reply-<finding>.md), verdict, handover;
     a FAIL verdict → dev
-  handover at the dev ref's tip, no answer since?
-    no → dev run (a hand-off file lists its successor;
+  handover at the dev ref's tip, no answer since (newer than it and the head's last verdict)?
+    no → dev run, even on a done change (it reopens) (a hand-off file lists its successor;
     FAIL findings and gate details in the brief)
   carried tools head behind branch?
     rebase it in the pass, record it in the hand-over;
@@ -279,7 +279,8 @@ the fresh one is alerted to read the hand-off while the file exists, and deletes
 It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and acts on the user's other words at once;
 the user's yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook.
 
-**The planner** is a run listed on significant facts only (an alert, a gate failure, a goal below target with nothing open;
+**The planner** is a run listed on significant facts only (an alert, among them a mechanism with more than one open harness change or a harness change naming none, which it merges with `--supersedes`;
+a gate failure, a goal below target with nothing open;
 never time or an event count;
 a line an open change's body carries, or a planner hand-back answered, is left out until it changes (a gate failure at a new T, an alert with a new count);
 a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;

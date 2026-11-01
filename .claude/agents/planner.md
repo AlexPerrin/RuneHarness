@@ -21,7 +21,7 @@ Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md
 
 **Merge**: on every run read the open harness changes and those merged today (`git log --since=midnight` of the live
 branch); changes that patch the same mechanism become one root-cause change: `hd new <slug> --track harness --mechanism <m>
---supersedes <a>,<b>` with their acceptance in its body, which closes each as superseded.
+--supersedes <a>,<b>` with their acceptance in its body, which marks each superseded: it holds with no runs, and the user closes it (`hd close`).
 
 Read-heavy lookups (transcripts, logs) go to a `reader` subagent that returns the conclusion. Hand back one line:
 `run <name>: filed <n> changes` or `run <name>: nothing to file`.

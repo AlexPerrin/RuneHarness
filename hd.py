@@ -447,8 +447,9 @@ class Ctx:
             return
         p = rec(slug, f"proc-{name}") or {}
         res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
-        if p.get("args") != args or (res.exists() and res.stat().st_mtime_ns > pf.stat().st_mtime_ns):
-            p = {}  # new args, or the result landed after the last start: the count starts over
+        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
+        if p.get("args") != args or newer(res) or newer(Path(args[0]).expanduser()):
+            p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 2:
             s.alerts.append(f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)")
             return

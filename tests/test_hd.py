@@ -514,6 +514,14 @@ class R5(Sandbox):
         hd.put("s1", "build", {"T": "T2", "ok": True})                           # the result lands
         ctx.start("s1", "build", ["b", "T2"])
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
+        script = s.root / "track.sh"; script.write_text("")
+        ctx.start("s1", "build", [str(script), "T3"]); ctx.start("s1", "build", [str(script), "T3"])
+        n = len(F.spawned); ctx.start("s1", "build", [str(script), "T3"])
+        s.assertEqual(len(F.spawned), n)                                         # died twice on T3: raised
+        pf = hd.STATE / "s1" / "proc-build.json"
+        os.utime(script, ns=(pf.stat().st_mtime_ns + 10**9,) * 2)                # the script is fixed
+        ctx.start("s1", "build", [str(script), "T3"])
+        s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
 
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")

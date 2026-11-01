@@ -25,7 +25,8 @@ from that build, in game for every player-facing claim, and record `hd verdict <
 row `pass`, `fail: <note>` or `not-judged` (a row you did not check at that head: never `pass`); the command refuses a
 missing row, and a verdict with no failing row that leaves a row not judged. The next brief lists the open rows. Failed rows that are text only
 (PR title, body, comment): fix the text in the evidence dir and mark them pass. Read-heavy lookups go to a
-read-only subagent that returns the conclusion. At the context limit write `evidence/<slug>/handoff.md` and hand
+read-only subagent that returns the conclusion. At the context limit start no new work and follow the hook's
+hand-off steps in order: record what you judged, stop your subagents and processes, write `evidence/<slug>/handoff.md`, hand
 back.
 
 Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; a mobile unless

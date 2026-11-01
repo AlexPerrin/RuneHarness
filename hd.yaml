@@ -7,7 +7,7 @@ repos:
   central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
 agents: 6                 # runs alive at once (raised from 3 while the harness fixes run: the user's word)
-context_limit: 150000     # tokens; past it the hook tells a run to hand off
+context_limit: 130000     # tokens; past it the hook tells a run to hand off (a clean hand-off measured under 11000 tokens)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list
   - fix/06-varrock-single-juliet
   - fix/07-juliet-house-stairs

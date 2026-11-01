@@ -136,8 +136,10 @@ copy snapshotted to an anonymous commit, T computed, the build copy checked out 
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each
 loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers; a server change's quest requirements in the mode its front matter `quest-mode` names, `respect-progress` unless `assume-completed`; `restart <slug>` keeps that mode and the database; a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character; its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>` the Nth desktop's an administrator, the rights read back after the logins; a login that made an account but its own, a lost key, logged out and in again), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over. A harness dev runs the
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
-the context limit to commit its work in progress on the dev ref (pushed off the harness track), write `handoff.md` and
-hand back; the successor is listed with it, its brief naming that commit. Three runs of a change past the limit since its
+the context limit (set below the bound with room for a clean hand-off, measured under 11000 tokens) to start no new work,
+then in order: commit its work in progress on the dev ref (pushed off the harness track), record what it judged (a judge:
+`hd verdict` when a row failed, else the judged rows in `handoff.md`), stop its subagents and processes, write
+`handoff.md` and hand back; the successor is listed with it, its brief naming that commit. Three runs of a change past the limit since its
 last handover are an alert (the change too large for one run, or its brief spending context on reading). Main, which holds nothing beyond files, is
 told once per session past the same limit to start nothing new, give the user docs/HANDOFF.md's start prompt for a
 fresh session and end its turn.

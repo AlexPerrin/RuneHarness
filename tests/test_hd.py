@@ -1088,6 +1088,9 @@ class R6(Sandbox):
             hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=4, context=170000))
         s.assertEqual(out.getvalue().count("handoff.md"), 1)           # told once
         s.assertIn("push it to fork dev/s1", out.getvalue())           # its work in progress committed and pushed first
+        told = out.getvalue()
+        s.assertIn("start no new work", told)                          # the told run starts nothing new
+        s.assertTrue(told.index("push it") < told.index("TaskStop") < told.index("`down s1`") < told.index("handoff.md"))   # a clean hand-off, in order
         s.assertTrue(hd.runs()[0]["handoff_told"])
         (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half; next: the rest")
         with mock.patch.object(hook, "start_pass"):

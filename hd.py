@@ -413,11 +413,14 @@ class Ctx:
         return None if not p else "alive" if s.F.alive(p["pid"], p["start"]) else "dead"
 
     def start(s, slug, name, args, env=None, act=True):
-        """R5: start a track script once; one that died twice without its result is raised once."""
+        """R5: start a track script once; one that died twice on the same args without its result is raised once."""
         st = s.proc(slug, name)
         if st == "alive" or not s.docker:
             return
         p = rec(slug, f"proc-{name}") or {}
+        res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
+        if p.get("args") != args or (res.exists() and res.stat().st_mtime_ns > pf.stat().st_mtime_ns):
+            p = {}  # new args, or the result landed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 2:
             s.alerts.append(f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)")
             return

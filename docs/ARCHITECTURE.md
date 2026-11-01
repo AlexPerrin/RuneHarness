@@ -48,7 +48,7 @@ state/<slug>/approval.json     {head, body}                    state/<slug>/ask.
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, events_at, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
-state/<slug>/proc-<script>.json {pid, start, attempts}; repair-<name>.json {attempts}: a script or repair in flight
+state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T_int while both are current
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`

@@ -469,6 +469,18 @@ class R5(Sandbox):
         s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
         s.assertTrue(any("build died twice" in a for a in v["alert"]))
 
+    def test_attempts_reset_on_new_args_or_a_landed_result(s):
+        F = Fake(**FACTS)
+        ctx = s.ctx(F)
+        ctx.start("s1", "build", ["b", "T1"]); ctx.start("s1", "build", ["b", "T1"])
+        ctx.start("s1", "build", ["b", "T1"])                                    # died twice on T1: raised, not rerun
+        s.assertEqual(len(F.spawned), 2)
+        ctx.start("s1", "build", ["b", "T2"])                                    # a new tree: one death is not two
+        s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
+        hd.put("s1", "build", {"T": "T2", "ok": True})                           # the result lands
+        ctx.start("s1", "build", ["b", "T2"])
+        s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
+
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

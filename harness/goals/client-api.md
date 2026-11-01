@@ -2,7 +2,7 @@
 slug: client-api
 track: client
 target: 100
-deps: [harness-device-network-block]
+deps: [harness-device-network-block, harness-device-login-dialogs]
 ---
 ## Goal
 100% of the RuneLite API interface methods working in the official OSRS Android app. The metric is the share of the

@@ -3,6 +3,8 @@ import io, json, os, re, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
+for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS"):
+    os.environ.pop(k, None)                                                   # hd's loop env (Hd.env): the gate's own change never reaches a test's track.sh
 os.environ["HD_ROOT"] = tempfile.mkdtemp()
 import hd, hook  # noqa: E402  (both read HD_ROOT at import)
 
@@ -1126,6 +1128,18 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_the_suite_ignores_the_gates_tools(s):
+        tmp = Path(tempfile.mkdtemp()); fork = tmp / "fork"
+        run = lambda *a: subprocess.run(["git", "-C", str(fork), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "local/harness", str(fork)], check=True); run("commit", "-q", "--allow-empty", "-m", "base")
+        subprocess.run(["git", "init", "-q", "--bare", str(tmp / "fork.git")], check=True); run("remote", "add", "fork", str(tmp / "fork.git"))
+        run("checkout", "-q", "--orphan", "harness/s1"); run("commit", "-q", "--allow-empty", "-m", "not a fast-forward"); C = run("rev-parse", "HEAD")
+        run("checkout", "-q", "local/harness"); before = run("rev-parse", "local/harness")
+        r = subprocess.run([sys.executable, "-m", "unittest", "tests.test_hd.R8.test_ship_fast_forwards_the_live_branch_or_regates"], cwd=Path(__file__).parent.parent,
+                           env={**os.environ, "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server", "T": "t", "TCOMMIT": C}, capture_output=True, text=True)
+        s.assertEqual((r.returncode, run("rev-parse", "local/harness"), run("ls-remote", "fork")), (0, before, ""), r.stdout + r.stderr)
+        shutil.rmtree(tmp, ignore_errors=True)
+
     def test_ship_moves_nothing_when_a_tools_branch_moved(s):
         import subprocess
         tmp = Path(tempfile.mkdtemp()); origin, repo, fork = tmp / "origin.git", tmp / "live", tmp / "fork"
@@ -1156,8 +1170,7 @@ class R8(Sandbox):
     def test_harness_build_refuses_without_the_loops_env(s):
         import subprocess
         script = Path(__file__).parent.parent / "tools" / "track.sh"
-        env = {k: v for k, v in os.environ.items() if k not in ("T", "TCOMMIT")}
-        r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**env, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
+        r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**os.environ, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
         s.assertEqual((r.returncode, hd.rec("s1", "build")), (2, None), r.stdout + r.stderr)   # no record written, no copy moved
 
     def test_harness_key_leaves_out_definitions(s):

@@ -12,8 +12,8 @@ with the user's answers, last verdict, build and gate results, the hand-off of a
 Your goal is one commit at the tip of your dev ref that passes every row of the contract, with its evidence in the
 evidence dir, handed over with `hd handover <slug>`; it refuses while a script row fails. A planning brief asks for
 changes filed with `hd new`, no code. Build with `<repo>/tools/track.sh build <slug>`, bring up with `up`, read logs
-with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with
-`python3 -m unittest discover -s tests` in your worktree. Read-heavy lookups (recordings, cache dumps, decompiled code, CI logs)
+with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with the touched
+classes (`python3 -m unittest tests.test_hd.<Class>`) in your worktree; the full suite runs at the gate. Read-heavy lookups (recordings, cache dumps, decompiled code, CI logs)
 go to a read-only subagent that returns the conclusion. When the hook tells you the context limit is reached, start no new
 work and follow its hand-off steps in order: commit, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`
 (what is proven, what is left, the exact next step, whether a server or desktop is up, the facts you rely on), hand back.

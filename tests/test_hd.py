@@ -5,6 +5,10 @@ from unittest import mock
 
 for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS"):
     os.environ.pop(k, None)                                                   # hd's loop env (Hd.env): the gate's own change never reaches a test's track.sh
+NESTED = os.environ.get("HD_SUITE")                                           # "1" for every process this suite starts; "nested" for a test's deliberate inner suite
+if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse
+    raise ImportError("refused: the test suite runs inside itself (HD_SUITE=1); a test's gate never runs the suite")
+os.environ["HD_SUITE"] = "1"
 os.environ["HD_ROOT"] = tempfile.mkdtemp()
 import hd, hook  # noqa: E402  (both read HD_ROOT at import)
 
@@ -2018,7 +2022,7 @@ class R8(Sandbox):
         run("checkout", "-q", "--orphan", "harness/s1"); run("commit", "-q", "--allow-empty", "-m", "not a fast-forward"); C = run("rev-parse", "HEAD")
         run("checkout", "-q", "local/harness"); before = run("rev-parse", "local/harness")
         r = subprocess.run([sys.executable, "-m", "unittest", "tests.test_hd.R8.test_ship_fast_forwards_the_live_branch_or_regates"], cwd=Path(__file__).parent.parent,
-                           env={**os.environ, "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server", "T": "t", "TCOMMIT": C}, capture_output=True, text=True)
+                           env={**os.environ, "HD_SUITE": "nested", "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server", "T": "t", "TCOMMIT": C}, capture_output=True, text=True)
         s.assertEqual((r.returncode, run("rev-parse", "local/harness"), run("ls-remote", "fork")), (0, before, ""), r.stdout + r.stderr)
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2267,7 +2271,7 @@ class R8(Sandbox):
 class EndToEnd(unittest.TestCase):
     """A harness change through the real loop: real git, the real track script, real processes, no fakes."""
 
-    @unittest.skipIf(os.environ.get("HD_E2E"), "nested")
+    @unittest.skipIf(NESTED, "nested")
     def test_harness_change_defined_to_live(s):
         import select
         src = Path(__file__).resolve().parent.parent
@@ -2287,7 +2291,7 @@ class EndToEnd(unittest.TestCase):
         (wt / "README.md").write_text((wt / "README.md").read_text() + "\ne2e\n")
         subprocess.run(["git", "-C", str(wt), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-am", "e2e: a line"], check=True)
         head = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        env = {**os.environ, "HD_ROOT": str(root), "HD_E2E": "1"}
+        env = {**os.environ, "HD_ROOT": str(root), "HD_SUITE": "nested"}   # an inner suite: its EndToEnd skips, its gates refuse the suite
         hd_ = lambda *a: subprocess.run([sys.executable, str(src / "hd.py"), *a], env=env, capture_output=True, text=True)
         s.assertIn("contract: seed rows pending", hd_("tick").stdout)
         v = hd_("tick").stdout
@@ -2343,12 +2347,13 @@ class Tools(unittest.TestCase):
             (root / d).mkdir(parents=True)
         (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
         (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
-        (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
+        (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n- d | suite | gate: tools/track.sh check-tests\n")
         snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
         r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
         rec = json.loads((root / "state" / "g1" / "gate.json").read_text())
         s.assertEqual((r.returncode, rec["ok"]), (0, False), r.stderr)
         s.assertIn("FAIL: b: false # refused", rec["detail"]); s.assertIn("ok: a: true", rec["detail"]); s.assertIn("ok: c: tools/track.sh check-docs", rec["detail"])
+        s.assertIn("FAIL: d: tools/track.sh check-tests", rec["detail"]); s.assertIn("refused: the test suite runs inside itself", rec["detail"])   # a test's gate cannot recurse
         subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(repo / ".worktrees" / "g1-build")], capture_output=True)
         shutil.rmtree(root, ignore_errors=True)
 

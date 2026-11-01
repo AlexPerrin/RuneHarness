@@ -20,7 +20,7 @@ class Fake(hd.Facts):
 
     def sh(s, args, cwd=None, env=None, timeout=600):
         s.ran.append(args)
-        if args[3:5] == ["worktree", "remove"] and args[-1] not in s.f.get("dirty", ()):
+        if args[3:5] == ["worktree", "remove"] and args[-1] not in s.f.get("dirty", ()) and ("--force" in args or args[-1] not in s.f.get("links", ())):
             s.f["worktrees"][args[2]] = [w for w in s.f["worktrees"][args[2]] if w[0] != args[-1]]
         if args[3:5] == ["branch", "-D"]:
             s.f["refs"].pop(args[5] if args[2] == str(hd.ROOT) or not args[5].startswith("harness/") else f"{args[2]}:{args[5]}", None)
@@ -35,6 +35,7 @@ class Fake(hd.Facts):
         if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
         return s.f.get("refs", {}).get(ref, "")
     def worktrees(s, repo): return s.f.get("worktrees", {}).get(repo, [])
+    def edits(s, wt): return wt in s.f.get("dirty", ())  # "links": worktrees git refuses to remove unforced, no one's edits
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
@@ -304,6 +305,22 @@ class R2(Sandbox):
         s.assertIn("client/c1", F.f["refs"]); s.assertIn(f"{c}: client/c1 at E is held by no live branch", hd.rec("c1", "repair-close")["left"])
         F.f["dirty"] = set(); hd.tick(s.ctx(F))
         s.assertNotIn("dev/s1", F.f["refs"]); s.assertTrue(hd.rec("s1", "swept"))                # closed: removed whatever it holds
+
+    def test_a_worktree_whose_only_untracked_entry_is_a_symlink_holds_no_edits(s):
+        c = str(s.root / "client"); wt = f"{c}/.claude/worktrees/c1"
+        s.change("c1", "client")
+        F = Fake(refs={"origin/HEAD": B, "origin/client/c1": A, "client/c1": A}, anc={(B, A)}, trees={A: TA}, worktrees={c: [(c, ""), (wt, "client/c1")]}, links={wt})
+        hd.tick(s.ctx(F))
+        s.assertIn(["git", "-C", c, "worktree", "remove", "--force", wt], F.ran); s.assertTrue(hd.rec("c1", "swept"))
+        import subprocess
+        repo = s.root / "real"; repo.mkdir()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, check=True)
+        git("init", "-q"); (repo / ".gitignore").write_text("re/\n"); (repo / "re").mkdir()
+        git("add", "."); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i")
+        git("worktree", "add", "-q", "--detach", str(repo / "wt")); os.symlink(repo / "re", repo / "wt" / "re"); real = hd.Facts()
+        s.assertFalse(real.edits(str(repo / "wt")))                                    # untracked symlinks only: no one's edits
+        (repo / "wt" / "f").write_text("x"); s.assertTrue(real.edits(str(repo / "wt")))   # an untracked file is
+        (repo / "wt" / "f").unlink(); (repo / "wt" / ".gitignore").write_text("x"); s.assertTrue(real.edits(str(repo / "wt")))  # a tracked edit is
 
     def test_maintainer_inline_comment_files_a_change_once(s):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")

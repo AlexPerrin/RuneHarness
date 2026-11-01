@@ -81,6 +81,14 @@ class Facts:
                 out[-1][1] = l[18:]
         return [tuple(w) for w in out]
 
+    def edits(s, wt):
+        """True when a worktree holds someone's edits: any status entry but an untracked symlink (a link to a shared
+        dir, which a dir-only ignore rule like `re/` misses); None unknown."""
+        r = s.sh(["git", "-C", wt, "status", "--porcelain", "-z"])
+        if r is None or r[0]:
+            return None
+        return any(not (e.startswith("?? ") and os.path.islink(os.path.join(wt, e[3:]))) for e in r[1].split("\0") if e)
+
     def on_line(s, clone, tip, sha):
         """sha is a commit of tip's own first-parent line (the base itself, not work merged into it); None unknown."""
         def f():
@@ -888,7 +896,7 @@ def close_branches(ctx, ch, act):
             continue
         for wt, b in wts:
             if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path):
-                force = ["--force"] if wt.endswith("-build") else []  # a build copy is the loop's, never anyone's edits
+                force = ["--force"] if wt.endswith("-build") or ctx.F.edits(wt) is False else []  # a build copy is the loop's
                 ctx.F.sh(["git", "-C", path, "worktree", "remove", *force, wt])
         wts = ctx.F.worktrees(path) or []
         left += [f"{path}: worktree {wt}" for wt, b in wts if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path)]

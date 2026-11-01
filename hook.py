@@ -2,7 +2,9 @@
 """hook.py: the one hook program, wired in .claude/settings.json (docs/ARCHITECTURE.md). Reads the event JSON on stdin.
 
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
-                spawned together start at once); record agent_id and the agent's transcript path.                         R2
+                spawned together start at once); record agent_id and the agent's transcript path. An agent whose brief
+                names a run already ended is stopped at once (`continue: false`), its reason naming the run and why it
+                ended, at the start or its first tool call; the run stays ended.                                          R2
 PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
@@ -74,7 +76,32 @@ def find_run(p):
         if (r := hd.runs(idx.read_text())):
             return r[0]
     name = brief_in(transcript(p))
-    return next((r for r in (hd.runs(name) if name else []) if not r.get("ended") or not r.get("started")), None)
+    return next((r for r in (hd.runs(name) if name else []) if not r.get("ended")), None)   # an ended run's agent is refused first
+
+
+def refuse_ended(p):
+    """R2: an agent whose brief names a run already ended (by the pass, the head, or another agent's hand-back) stops at
+    once, the run left ended; a bound agent (its by-agent index) is its run's own and binds instead."""
+    if not p.get("agent_id") or p.get("agent_type") not in ROLES or (hd.STATE / "runs" / "by-agent" / p["agent_id"]).exists():
+        return
+    name = brief_in(transcript(p))
+    r = next(iter(hd.runs(name) if name else []), None)
+    if not r or not r.get("ended") or r.get("agent_id") == p["agent_id"]:
+        return
+    why = r.get("reason") or "handed back"
+    hd.event(change=r["change"], run=name, action="spawn-refused", agent=p["agent_id"], reason=why)
+    msg = (f"run {name}: refused, it ended at {r['ended']} ({why}) before this agent started. Orchestrator: do not respawn it; "
+           "spawn only what hd lists now.")
+    ev = p.get("hook_event_name")
+    if p.get("tool_name") == "SubagentHandback":   # its hand-back goes: the orchestrator reads the line
+        return True
+    out = {"continue": False, "stopReason": msg}
+    if ev == "PreToolUse":
+        out["hookSpecificOutput"] = {"hookEventName": ev, "permissionDecision": "deny", "permissionDecisionReason": msg + " Stop now: hand back this line."}
+    elif ev == "SubagentStart":
+        out["hookSpecificOutput"] = {"hookEventName": ev, "additionalContext": msg + " Run nothing: hand back this line."}
+    print(json.dumps(out))
+    return True
 
 
 def bind(p):
@@ -291,7 +318,7 @@ def idle_desktops(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (deny_users_word(p), deny_dep_cycle(p), hold_handback(p), bind(p)), "PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: refuse_ended(p) or (deny_users_word(p), deny_dep_cycle(p), hold_handback(p), bind(p)), "PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

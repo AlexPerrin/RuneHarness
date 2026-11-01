@@ -19,7 +19,9 @@ description: "Main as the chat head: woken by the harness, run hd, spawn each li
 6. `alert`: tell the user in one line; only they can fix it.
 7. A hand-back arrives as one line; `hd` on the next wake shows what it recorded. Return to the user.
 8. The user's other messages are dispatched, not acted on here: an instruction about a change or a run goes to that
-   run by SendMessage if it is alive, else to the orchestrator (spawn one if none is listed); a question about
+   run by SendMessage if it is alive, else to the orchestrator if one is alive; a planning request with none alive
+   becomes a goal (`harness/goals/<slug>.md`, the user's words as its body, committed), for which the pass lists the
+   orchestrator (main never spawns a run the pass did not list); a question about
    the harness's state is answered from `hd`; a yes or an answer is recorded as in 4 and 5.
 
 Never: an upstream, release, deploy or build command from here; EnterWorktree; investigation, planning, monitoring or

@@ -698,7 +698,8 @@ def brief(ctx, ch, st, name, role):
 
 def dispatch(ctx, ch, st, act):
     """R2 R6: list a run for an unmet agent step once per input: no run of the change alive, no question open, no
-    ended run on the same input without a hand-off, fewer than cfg.agents alive or listed."""
+    ended run on the same input without a hand-off, fewer than cfg.agents alive or listed. The orchestrator is outside
+    the count (one at most, no product code, no device): the run that files remedies never waits behind the blocked work."""
     role, slug = st["actor"], ch["slug"]
     if ctx.alive_run(ch) or rec(slug, "ask"):
         return
@@ -711,7 +712,8 @@ def dispatch(ctx, ch, st, act):
         if len(same) >= 2:  # R5: one retry, then raised once
             ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
             return
-    if len([r for r in ctx.runs if not r.get("ended")]) >= ctx.cfg.get("agents", 3) or not act:
+    busy = len([r for r in ctx.runs if not r.get("ended") and r["role"] != "orchestrator"]) >= ctx.cfg.get("agents", 3)
+    if (busy and role != "orchestrator") or not act:
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"

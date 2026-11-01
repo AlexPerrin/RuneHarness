@@ -669,6 +669,16 @@ class R6(Sandbox):
         s.assertEqual(len(v["spawn"]), 3)
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 3)
 
+    def test_orchestrator_listed_when_every_slot_is_taken(s):
+        for i in range(3):
+            s.change(f"s{i}"); s.agreed(f"s{i}")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], **{f"fork/dev/s{i}": A for i in range(3)}}})
+        hd.tick(s.ctx(F))                                              # three dev runs fill the three slots
+        with mock.patch.object(Fake, "events_count", lambda s: 60):
+            v = hd.tick(s.ctx(F))
+        s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))
+        s.assertEqual(len([r for r in hd.runs() if not r.get("ended") and r["role"] != "orchestrator"]), 3)
+
     def test_unchanged_facts_append_no_event(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

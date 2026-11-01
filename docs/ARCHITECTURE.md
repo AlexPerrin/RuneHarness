@@ -98,8 +98,9 @@ they own; repair what is observed broken, once. **Main** (skill `head`) is the c
 path, shows each card, records the user's word, dispatches the user's other messages to the run or the orchestrator
 they concern, re-arms the watch (an expiry is a wake too) and returns to the user. **The orchestrator** is a run
 listed when the facts call for it (an alert, a goal below target with nothing open, fifty events since its last run;
-an alert or goal line an open change's body carries, or an orchestrator hand-back since the last change closed answered, is left out):
-it files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
+an alert or goal line an open change's body carries, or an orchestrator hand-back since the last change closed answered, is left out),
+outside the agent count (one at most); a planning request from the user reaches it as a goal. It
+files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
 operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness
 change that a harness dev run remediates. Its hand-back is its record, filed or not. It writes no product code.
 **Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the

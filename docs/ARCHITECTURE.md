@@ -26,6 +26,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd` | main | prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards, questions, runs, goals, change facts (R7) |
 | `hd approve <slug> <head>`, `hd answer <slug> [--waive <row>] <text>` | main, after the user's word in chat | approval bound to head and the PR body digest; an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
 | `hd close <slug> <text>` | main, after the user's word in chat | the answer row, and `closed: answer-<n>: <text>` in the definition (main commits it): the change is done, its unspawned runs end, it leaves T_int and holds no dependent |
+| `hd stop <run>` | main, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
 | `hd new <slug> ...` | a planning run, the user | writes a definition |
 | `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
 | `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |

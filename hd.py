@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | stop | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
 import fcntl, hashlib, json, os, pwd, re, subprocess, sys
@@ -1035,6 +1035,17 @@ def cmd_ask(a):
     print("asked")
 
 
+def cmd_stop(a):
+    """R5: a run main stops (TaskStop fires no SubagentStop) ends here, or it would hold an agent slot for good."""
+    r = next((r for r in runs() if a and r["name"] == a[0]), None) or refuse(f"no run {a[0] if a else ''}")
+    if r.get("ended"):
+        refuse(f"{r['name']} already ended")
+    r["ended"], r["reason"] = now(), "stopped by the head"
+    save_run(r)
+    event(change=r["change"], run=r["name"], action="ended", reason=r["reason"])
+    print(f"{r['name']} ended")
+
+
 def cmd_answer(a):
     """R3: the user's answer is a contract row, never free text; the open question is closed.
     `hd answer <slug> --waive <row id> <text>`: the user's word that a script row does not apply to this change."""
@@ -1130,7 +1141,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

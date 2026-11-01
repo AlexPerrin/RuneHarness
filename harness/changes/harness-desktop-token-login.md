@@ -1,0 +1,10 @@
+---
+slug: harness-desktop-token-login
+track: harness
+title: A test desktop can make a token login (auth type 7) against a change's server
+kind: change
+priority: P0
+deps: []
+created: '2026-11-01T04:29:59Z'
+---
+server-token-auth's rows a1-a6 and playable need an in-game token login without a mobile and without Jagex. Research by server-token-auth-4: with JX_SESSION_ID and JX_CHARACTER_ID set, the game client fetches its token from <jav_config param 11>game-session/v1/tokens and sends a token login; RSProx's own fake-account mode does the same (ProxyService.createProcess(useFakeJagexAccount), ProxyTarget.rebuildJavConfig params 11/22). The LOCAL_AUTH sidecar (server-tools/sidecar Http.kt AUTH_PARAMS 11,20,22,28; LocalAuth.gameToken) already answers game-session/v1/tokens. Blockers: OsrsTestLauncher exits when any JX_* variable is set and launches with no character; the server track's up runs the http sidecar with LOCAL_AUTH=false; the sidecar's tokens are lu-<hex>-<random>, not RS256 JWTs, while server-token-auth verifies RS256 JWTs (iss, aud, exp, sub = account name) against token-login issuer/audience/public-key in game.yml. Needed: tools/track.sh up <slug> with a token option starts a desktop whose login is a token login for its account, with the token minted by a local RS256 issuer whose issuer/audience/public key the up writes into the run's game.yml token-login block, plus a way to supply a chosen token (forged, expired, wrong audience) for the negative rows. Unchecked: whether the game code accepts an http:// param 11 and its response format (plain text vs JSON).

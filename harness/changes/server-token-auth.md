@@ -3,7 +3,7 @@ slug: server-token-auth
 track: server
 title: Token login for the Android app, verified like the official flow
 kind: change
-priority: P2
+priority: P0
 deps:
 - central-token-login-op
 - harness-central-include-app

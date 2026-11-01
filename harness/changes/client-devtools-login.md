@@ -3,7 +3,7 @@ slug: client-devtools-login
 track: client
 title: devtools login tool; device and desktop logins act on it, not coordinates
 kind: change
-priority: P2
+priority: P0
 goal: client-launch
 units:
 - launch:login

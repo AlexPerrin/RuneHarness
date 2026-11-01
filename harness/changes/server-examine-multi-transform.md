@@ -3,7 +3,7 @@ slug: server-examine-multi-transform
 track: server
 title: 'Examine: resolve multiloc and multinpc transforms for the player'
 kind: change
-priority: P2
+priority: P3
 deps:
 - server-npc-examine-without-overlay
 created: '2026-11-01T07:14:33Z'

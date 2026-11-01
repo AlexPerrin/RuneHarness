@@ -3,7 +3,7 @@ slug: quest-cooksassistant
 track: server
 title: 'Cook''s Assistant: 1:1 with the official game'
 kind: change
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:cooksassistant

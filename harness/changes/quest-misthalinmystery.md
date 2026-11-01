@@ -3,7 +3,7 @@ slug: quest-misthalinmystery
 track: server
 title: 'Misthalin Mystery: 1:1 with the official game'
 kind: change
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:misthalinmystery

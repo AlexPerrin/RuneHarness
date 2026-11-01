@@ -3,7 +3,7 @@ slug: central-login-whitelist-binds
 track: central
 title: Login restrictions no longer close the world link
 kind: change
-priority: P2
+priority: P1
 deps: [harness-desktop-login-devtools]
 created: '2026-11-01T04:27:39Z'
 ---

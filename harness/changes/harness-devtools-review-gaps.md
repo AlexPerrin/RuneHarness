@@ -4,7 +4,7 @@ track: harness
 title: Devtools read chathead expressions and jingles, and interact_object reaches
   every loc
 kind: change
-priority: P0
+priority: P1
 deps:
 - client-devtools-review-gaps
 created: '2026-11-01T05:23:40Z'

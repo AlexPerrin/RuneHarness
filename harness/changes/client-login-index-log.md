@@ -3,7 +3,7 @@ slug: client-login-index-log
 track: client
 title: The host logs the login screen's page, so device_login can act on it
 kind: change
-priority: P0
+priority: P1
 deps:
 - harness-device-network-block
 - harness-client-track-slug-env

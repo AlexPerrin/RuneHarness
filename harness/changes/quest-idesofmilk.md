@@ -3,7 +3,7 @@ slug: quest-idesofmilk
 track: server
 title: 'The Ides of Milk: 1:1 with the official game'
 kind: change
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:idesofmilk

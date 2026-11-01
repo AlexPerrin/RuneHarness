@@ -3,7 +3,7 @@ slug: central-token-login-op
 track: central
 title: Token LOGIN op on the Central world link
 kind: change
-priority: P2
+priority: P1
 deps:
 - harness-desktop-login-devtools
 - harness-central-track

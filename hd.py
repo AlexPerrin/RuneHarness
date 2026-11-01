@@ -21,7 +21,7 @@ TRACK = {  # derived, not configured: the repo, the remotes fetched, the base, t
     "central": {"repo": "central", "fetch": ["origin", "fork"], "base": "origin/HEAD", "dev": "fork/dev/{slug}", "public": "upstream"},
     "harness": {"repo": "harness", "fetch": [], "base": "HEAD", "dev": "harness/{slug}", "public": None},  # base: the live checkout's branch
 }
-PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}  # the user's tiers: blocking harness fixes, non-blocking harness improvements, our upstream changes, features, new quests
 now = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 P = lambda s: Path(os.path.expanduser(str(s)))
 
@@ -238,6 +238,8 @@ def defs(kind):
         meta.setdefault("deps", [])
         meta.setdefault("kind", "change")
         meta.setdefault("priority", "P2")
+        if meta.get("track") == "harness" and PRIO.get(meta["priority"], 9) > 1:
+            meta["priority"] = "P1"  # the user's word: a harness change is never below P1
         meta["body"], meta["path"] = body, str(f)
         out[meta["slug"]] = meta
     return out
@@ -905,6 +907,11 @@ def dispatch(ctx, ch, st, act):
     event(change=slug, run=name, action="listed", role=role)
 
 
+def shut_changes(ctx):
+    """The closed changes and those whose last pass found them done."""
+    return {k for k, c in ctx.changes.items() if c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed"))}
+
+
 def plan(ctx, view, act):
     """The planner run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
     event count): an alert (a run ended without its record twice, a script died or cannot start, a ship that died), a gate
@@ -912,7 +919,7 @@ def plan(ctx, view, act):
     planner run handed back on it: it lists the planner again only when it changes (a gate failure at a new T, an alert
     with a new count). A gate failure is its dev's to fix: it lists the planner only once a dev run handed back on that T
     and no run of the change is alive."""
-    shut = {k for k, c in ctx.changes.items() if c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed"))}
+    shut = shut_changes(ctx)
     handled = {a for r in ctx.runs if r["role"] == "planner" and r.get("record") for a in json.loads(r.get("input") or "[]")}
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
     gates = []
@@ -1130,7 +1137,8 @@ def tick(ctx=None, act=True):
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
         prio, key = order(ctx)
-        hold = ctx.cfg.get("hold")  # R6: the user's word: no run is listed for a change below this band until it is lifted
+        shut = shut_changes(ctx)  # R6: no run is listed below the best tier of an open change, waiting or not, nor below the user's held band
+        hold = "P%d" % min([PRIO.get(prio[k], 9) for k in ctx.changes if k not in shut] + [PRIO.get(ctx.cfg.get("hold"), 9)])
         for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)
             held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9)
@@ -1420,6 +1428,8 @@ def cmd_new(a):
     p.add_argument("--units", default="", help="the goal's content units the change makes pass, comma-separated")
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
     o = p.parse_args(a)
+    if o.track == "harness" and PRIO.get(o.priority, 9) > 1:
+        o.priority = "P1"  # the user's word: a harness change is never below P1
     if (DEFS / "changes" / f"{o.slug}.md").exists():
         refuse(f"{DEFS / 'changes' / o.slug}.md exists")
     blocked = DEFS / "changes" / f"{o.blocks}.md"

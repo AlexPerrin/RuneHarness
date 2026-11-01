@@ -3,7 +3,7 @@ slug: client-launch-files-init
 track: harness
 title: 'up: no throwaway first app start and fixed sleep to create files/'
 kind: change
-priority: P0
+priority: P1
 goal: client-launch
 units:
 - launch:files-init

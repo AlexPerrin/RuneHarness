@@ -720,12 +720,13 @@ class R4(Sandbox):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
                 hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
                 hook.deny_users_word({"agent_type": "orchestrator", "tool_input": {"command": "hd " + verb}})      # the orchestrator session: denied
-            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done"):      # runs it: denied
+            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done", "bash -c 'hd.py approve s1'"):      # runs it: denied
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
             for c in ("grep approve notes.md; git push fork HEAD:dev/s1", "grep -n 'hd approve' hook.py",   # only quotes it: allowed
-                      "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc"):
+                      "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc",
+                      "grep -nE 'x|hd.py approve|y' hook.py", "grep -c \"(hd close|z)\" f"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
-        s.assertEqual(out.getvalue().count('"deny"'), 6)
+        s.assertEqual(out.getvalue().count('"deny"'), 7)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))

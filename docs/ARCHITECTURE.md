@@ -68,7 +68,8 @@ commit on the live branch re-builds, re-gates and blocks the ship of nothing; sh
 dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
 (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing. A harness change carries
 a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless
-it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's
+it descends from the tools branch; once handed over, a head the branch moved past is rebased onto it by the pass in
+`<repo>/.worktrees/<slug>`, recorded in the hand-over and re-gated, a conflict being the dev's step), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's
 `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change
 is live once the live branch and every such branch hold their heads. A done or closed change leaves nothing behind: the pass
 ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`,
@@ -83,6 +84,7 @@ next(change):
   deps live or closed?              no → wait on them
   contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
+  carried tools head behind branch? rebase it in the pass, record it in the hand-over; conflict → dev
   T                                 conflict → dev
   build(T)                          not built → tools/track.sh build; failed → dev
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev

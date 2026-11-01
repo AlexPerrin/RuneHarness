@@ -48,6 +48,7 @@ class Fake(hd.Facts):
     def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
+    def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
     def proc_start(s, pid): return "1"
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
@@ -1100,6 +1101,23 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_the_pass_rebases_a_carried_tools_head_its_branch_moved_past(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork = str(s.root / "fork")
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)}, anc={(C, "local/harness")})
+        s.gated("h1", F)
+        F.f["anc"] = set()                                                       # another change shipped: local/harness moved past C
+        F.f["merges"][("local/harness", C)] = ("conflict", "CONFLICT (content): tools/x")
+        st = s.state(F, "h1")
+        s.assertEqual((st["actor"], st["detail"]), ("dev", "CONFLICT (content): tools/x"))   # a conflict is the dev's
+        del F.f["merges"][("local/harness", C)]; F.f["rebases"] = {"harness/h1": ("ok", D)}
+        st = s.state(F, "h1")
+        s.assertEqual(st["actor"], "script"); st["act"]()                        # no conflict: the pass rebases, no dev run
+        s.assertIn(["rebase", fork, "harness/h1", "local/harness"], F.ran)
+        F.f["refs"][f"{fork}:harness/h1"] = D; F.f["anc"] = {(D, "local/harness")}
+        s.assertEqual((hd.rec("h1", "handover")["tools"], hd.rec("h1", "handover")["T"]), ({"fork": D}, TA + "+" + D[:12]))
+        s.assertEqual(s.state(F, "h1")["state"], f"building {TA[:9]}")         # the new head is recorded and re-built, re-gated
+
     def test_a_server_build_includes_its_central_dependencies(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1"); s.change("s2"); s.agreed("s2")
         E = "e" * 40

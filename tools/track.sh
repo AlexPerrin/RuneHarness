@@ -54,7 +54,7 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || { echo "refused: $wt has uncommitted edits"; exit 1; }
     git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"
   done
-  if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass re-gates (check-tools then sends the dev to merge it)
+  if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass rebases a carried head onto its moved branch (a conflict: the dev) and re-gates
     rm -f "$state/proc-ship.json" "$state/gate.json"; echo "$moved moved past T's base; re-gate"; exit 0
   fi
   for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)

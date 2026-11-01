@@ -131,6 +131,22 @@ class Facts:
             return ("ok", r[1].strip()) if r and r[0] == 0 else None
         return s._m(("merge", clone, base, head), f)
 
+    def rebase(s, repo, branch, onto, wt):
+        """Rebase branch onto onto in the worktree holding it (wt, added when none does): ('ok', sha) | ('conflict', detail) | None."""
+        held = [w for w, b in (s.worktrees(repo) or []) if b == branch]
+        if not held and (s.sh(["git", "-C", repo, "worktree", "add", "-q", wt, branch]) or [1])[0]:
+            return None
+        wt = held[0] if held else wt
+        if s.edits(wt) is not False:
+            return None  # someone's edits: never rebased under them
+        r = s.sh(["git", "-C", wt, "rebase", "-q", onto], env=GIT_ENV)
+        if r is None:
+            return None
+        if r[0]:
+            s.sh(["git", "-C", wt, "rebase", "--abort"])
+            return "conflict", (r[1] + r[2])[-2000:]
+        return "ok", s.rev(wt, "HEAD")
+
     def blob(s, clone, ref, path):
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", f"{ref}:{path}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
@@ -554,6 +570,18 @@ def digest(t):
     return hashlib.sha256(t.strip().encode()).hexdigest()[:16]
 
 
+def rebase_tools(ctx, ch, ho, behind):
+    """R8: rebase each carried tools head behind its branch and record the new heads in the hand-over, which re-gates."""
+    slug, tools, key = ch["slug"], dict(ho["tools"]), ho["T"]
+    for n, path in behind.items():
+        r = ctx.F.rebase(path, f"harness/{slug}", ctx.cfg["repos"][n]["tools"], f"{path}/.worktrees/{slug}")
+        if not r or r[0] != "ok" or not r[1]:  # shortcut: a rebase that conflicts where the merge did not is an alert; a dev step if it ever happens
+            raise RuntimeError(f"harness/{slug} in {path} did not rebase onto {ctx.cfg['repos'][n]['tools']}: {(r or ['', 'unknown'])[1][:300]}")
+        key, tools[n] = key.replace("+" + tools[n][:12], "+" + r[1][:12]), r[1]
+    put(slug, "handover", {**ho, "tools": tools, "T": key})
+    event(change=slug, action="rebased tools", tools=tools)
+
+
 def deps_held(ctx, ch):
     """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it."""
     for d in ch["deps"]:
@@ -599,6 +627,20 @@ def nxt(ctx, ch):
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
                     input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
+    behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; a conflict is the dev's step
+    for n, h in tools.items():
+        r = ctx.cfg["repos"][n]
+        path = str(P(r["path"]))
+        c = ctx.F.contains(path, h, r["tools"])
+        m = None if c is None or c else ctx.F.merge(path, r["tools"], h, "")
+        if c is None or (not c and m is None):
+            return step("tools refs unknown", "unknown")
+        if m and m[0] == "conflict":
+            return step(f"tools conflict in {path}: dev", "dev", mode="code", input=["tools", head, h, con["hash"]], detail=m[1])
+        if m:
+            behind[n] = path
+    if behind:
+        return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
     T = ctx.T(ch, head)
     if T is None:
         return step("tree unknown", "unknown")

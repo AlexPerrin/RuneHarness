@@ -342,7 +342,8 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
 **ship**
 - Client: push the batch tree to `main`;
   release after the yes
-- Server: test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only);
+- Server: test server: deploy `or:<T_int>` with the issuer's secret in its game.yml, its sidecars serving `tools/server/jav_config.ws.template` (the APK's with params 11, 20, 22 and 28 naming `issuer.py`, its sign-in and tokens;
+  `javcheck.py` after `up` and `ship`: local hosts only);
   upstream after the yes
 - Central: live at its gate (dependent server builds include it);
   upstream to Central after the yes

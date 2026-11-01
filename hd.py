@@ -938,6 +938,13 @@ def public(ctx, ch, head):
         return step("upstream PR unknown", "unknown")
     if carried(ctx, ch, head):
         return step(f"carried at {head[:9]}; waiting on the maintainers", "wait")
+    for d in ch["deps"]:  # a dependency upstream in another repo is never in this PR: it waits on that repo's merge
+        dep = ctx.changes.get(d)
+        if dep and not dep.get("closed") and upstream(dep) and TRACK[dep["track"]]["repo"] != TRACK[ch["track"]]["repo"]:
+            dh = ctx.head(dep)
+            m = ctx.done(dep, dh) if dh else False
+            if not m:
+                return step(f"waiting on {d}'s upstream merge", "unknown" if m is None else "wait")
     if (out := outside(ctx, ch, head)):
         return step(f"gated; the PR waits for {', '.join(out)}", "wait")
     if (first := min(o["slug"] for o in group(ctx, ch) if ctx.head(o) == head and not outside(ctx, o, head))) != slug:

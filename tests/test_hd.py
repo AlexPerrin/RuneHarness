@@ -900,6 +900,10 @@ class R4(Sandbox):
         s.ship(F, g, "z1", D)
         s.assertEqual(g.did("push")[0][2], str(s.root / "central"))
         cr = g.did("pr create")[0]; s.assertEqual(cr[cr.index("-R") + 1], "u/z")
+        s.ready(F, deps=["z1"])                                                  # the server PR is gated and judged: no card while Central's PR is unmerged
+        s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("waiting on z1's upstream merge", "wait"))
+        F.f["anc"] = {(B, D)}                                                    # Central's main holds z1: the hold lifts (the server rebuilds without it)
+        s.assertEqual(s.state(F, "s1")["state"], "building tatatatat")
 
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")

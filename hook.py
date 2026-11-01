@@ -132,7 +132,9 @@ def end_run(p):
 
 def deny_users_word(p):
     """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is recorded by main alone."""
-    m = p.get("agent_id") and re.search(r"\bhd(\.py)?\s+(approve|close)\b", (p.get("tool_input") or {}).get("command") or "")
+    cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", (p.get("tool_input") or {}).get("command") or "", flags=re.S)  # heredoc bodies are data
+    # only a command that runs hd: hd at the start of a command (after ; & | ( newline or $( ), never a mere mention
+    m = p.get("agent_id") and re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
     if m:
         hd.event(action="denied", agent=p["agent_id"], role=p.get("agent_type"), rule=f"hd {m[2]} is main's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",

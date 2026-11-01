@@ -108,7 +108,8 @@ the context limit to write `handoff.md` and hand back; the successor is listed w
 **Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
 no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>
 <head>`, the one program sudoers allows, which holds the full token and acts only when `approval.json` names that
-head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent.
+head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent
+when a command runs them (hd at a command's start); a command that only quotes them (grep, echo, a heredoc body) runs.
 
 | | Client | Server | Harness |
 |---|---|---|---|

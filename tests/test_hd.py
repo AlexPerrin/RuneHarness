@@ -344,8 +344,12 @@ class R4(Sandbox):
             for verb in ("approve s1 " + A, "close s1 done"):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
                 hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
-            hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
-        s.assertEqual(out.getvalue().count('"deny"'), 2)
+            for c in ("cd x && hd approve s1 " + A, "X=1 ~/osrs-harness/hd.py close s1 done"):      # runs it: denied
+                hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
+            for c in ("grep approve notes.md; git push fork HEAD:dev/s1", "grep -n 'hd approve' hook.py",   # only quotes it: allowed
+                      "cat > f.md <<'EOF'\nhd close s1 done\nEOF\ngit add f.md", "echo \"hd.py approve\" | wc"):
+                hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
+        s.assertEqual(out.getvalue().count('"deny"'), 4)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))

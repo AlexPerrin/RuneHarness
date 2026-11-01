@@ -996,6 +996,20 @@ def relay(ctx, slug, role):
     return bool(last.get("ended") and last.get("handoff_told") and last["role"] == role and (EVID / slug / "handoff.md").exists())
 
 
+def unlistable(ctx, ch, st):
+    """R5 R6: why no run can be listed for the change's due step, as its alert; None when one can (the agent count aside)."""
+    role, slug = st["actor"], ch["slug"]
+    inp = json.dumps(st.get("input"), sort_keys=True)
+    same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]
+    if not same or (EVID / slug / "handoff.md").exists():
+        return None
+    if same[-1].get("record"):  # the record exists and the facts still want this step: another run would change nothing
+        return f"{slug}: {role} run {same[-1]['name']} handed back its record, yet its step is still due on the same input: no run is listed"
+    if len(same) >= 2:  # R5: one retry, then raised once
+        return f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}"
+    return None
+
+
 def dispatch(ctx, ch, st, act):
     """R2 R6: a change whose runs reached the context limit three times since its last handover, or since the last planner
     run that handed back on that alert, is raised. List a run for an unmet agent step once per input: no run of the change alive, no
@@ -1009,15 +1023,11 @@ def dispatch(ctx, ch, st, act):
         ctx.alerts.append(f"{slug}: {n} runs reached the context limit without a handover: the change is too large for one run, or its brief spends context on reading")
     if ctx.alive_run(ch) or ctx.dockerless(ch, st.get("mode")):
         return
+    if (why := unlistable(ctx, ch, st)):
+        if why not in ctx.alerts:
+            ctx.alerts.append(why)
+        return
     inp = json.dumps(st.get("input"), sort_keys=True)
-    same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]
-    hoff = EVID / slug / "handoff.md"
-    if same and not hoff.exists():
-        if same[-1].get("record"):
-            return  # the record exists and the facts still want this step: another run would change nothing
-        if len(same) >= 2:  # R5: one retry, then raised once
-            ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
-            return
     busy = len([r for r in ctx.runs if not r.get("ended") and r["role"] != "planner"]) >= ctx.cfg.get("agents", 3)
     if (busy and role != "planner" and not relay(ctx, slug, role)) or not act:
         return
@@ -1261,7 +1271,13 @@ def tick(ctx=None, act=True):
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
         prio, key = order(ctx)
-        due = [prio[k] for k, c in ctx.changes.items() if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode"))]
+        due = []  # R6: a due run holds the tiers below only while it is alive or this pass can list it; one it cannot is an alert
+        for k, c in ctx.changes.items():
+            if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")):
+                why = None if ctx.alive_run(c) else unlistable(ctx, c, st)
+                if why and why not in ctx.alerts:
+                    ctx.alerts.append(why)
+                due += [] if why else [prio[k]]
         hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
         for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)

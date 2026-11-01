@@ -104,8 +104,9 @@ next(change):
                                     is a finding with no commit of its own (reply-only): no build, no gate (only a commit is gated;
                                     a PR's live head is never re-gated because main moved); a same-PR dependent counts it gated
   public (upstream, release)       one fact read per pass: the open PRs of the upstream (`gh pr list`), the review and conversation comments of a PR
-    carried (its own ship.json, or  yes → wait on the maintainers (a release: until its tag exists)
-    a same-PR change's built on it;
+    carried (its own ship.json, the  yes → wait on the maintainers (a release: until its tag exists)
+    PR open at it and ready, or a
+    same-PR change's built on it;
     or the PR at head, ready, ours
     in every finding's thread)?
     an open change of the PR it     yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips),
@@ -123,7 +124,7 @@ next(change):
                                     finding's reply in its thread (a conversation finding: a PR comment; quoting it, @ only its
                                     author; ours there: none), ready, the review requests read back (upstream's CODEOWNERS asks on
                                     ready); each step a ship.log line as it starts and ends, the CI wait naming the checks it waits
-                                    on and ending on their result or a failed read, a step observed done skipped. Success: ship.json.
+                                    on and ending on their result or a failed read, a step observed done skipped. Success: ship.json, approval.json removed (the yes is spent).
                                     Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
                                     args an alert
   ship (other tracks)               merge and push

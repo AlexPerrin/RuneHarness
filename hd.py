@@ -401,8 +401,8 @@ def wake(view):
         heads = {l.split(":")[0]: l for l in view.get("card", []) if "card" in keys}
         new = [l.splitlines()[0] for k in keys if k in view for l in view[k]
                if (seen.get("heads", {}).get(l.split(":")[0]) != l if k == "card" else l not in seen.get(k, []))]
-        seen.update({k: view[k] for k in keys if k in view and k != "card"}, heads={**seen.get("heads", {}), **heads})
-        write(f, json.dumps(seen))
+        seen = {**{k: view.get(k, seen.get(k, [])) for k in keys if k != "card"}, "heads": {**seen.get("heads", {}), **heads}}
+        write(f, json.dumps(seen))   # only the watched keys: a key no longer watched is dropped
         if new:
             (STATE / f"wake.{who}").write_text("\n".join(new) + "\n")   # in place: the watch fires on its close_write, not a rename
 
@@ -711,11 +711,15 @@ def group(ctx, ch):
 
 
 def carried(ctx, ch, head):
-    """R4: its head went upstream: its own carry, or that of a same-PR change built on it, succeeded at that head, or
-    its upstream PR is at the head, ready, with nothing left to post."""
+    """R4: its head went upstream: its own carry, or that of a same-PR change built on it, succeeded at that head (and
+    GitHub agrees: the open PR at that head, ready), or its upstream PR is at the head, ready, with nothing left to post."""
     def on(o, seen=()):
         return ch["slug"] in o["deps"] or any(d in ctx.changes and d not in seen and on(ctx.changes[d], (*seen, d)) for d in o["deps"])
-    return bool(head) and (any((rec(o["slug"], "ship") or {}).get("head") == h for o in ctx.changes.values()
+
+    def held(o, h):  # a ship record GitHub contradicts (the PR moved, or the user returned it to draft) is not trusted
+        p = ctx.upstream_pr(o) if upstream(o) else {"head": h, "draft": False}
+        return (rec(o["slug"], "ship") or {}).get("head") == h and bool(p) and (p["head"], p["draft"]) == (h, False)
+    return bool(head) and (any(held(o, h) for o in ctx.changes.values()
                                if (o is ch or not o.get("closed") and one_pr(o, ch) and on(o)) and (h := head if o is ch else ctx.head(o)))
                            or upstream_at(ctx, ch, head) is True)
 
@@ -1890,6 +1894,7 @@ def cmd_ship(a):
     except RuntimeError as e:
         sys.exit(f"carry failed: {e}")
     put(ch["slug"], "ship", {"head": head, "ok": True, "detail": res})
+    drop(ch["slug"], "approval")   # the yes is spent: a carry GitHub later contradicts waits for a new one
     log(f"carried: {res}")
 
 

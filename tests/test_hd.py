@@ -552,6 +552,10 @@ class R2(Sandbox):
         s.assertEqual(w.stat().st_mtime_ns, 1)
         hd.wake({"card": [c2]})                                                     # its head moved: a new card
         s.assertNotEqual(w.stat().st_mtime_ns, 1)
+        f = s.root / "state" / "seen.orchestrator.json"
+        f.write_text(json.dumps({**json.loads(f.read_text()), "message": ["old"], "card": ["old"]}))
+        hd.wake({"spawn": []})
+        s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "spawn"])   # a key no longer watched is dropped
 
     def test_a_bind_racing_a_pass_decides_on_the_run_read_under_the_lock(s):
         import threading
@@ -727,7 +731,12 @@ class R4(Sandbox):
         s.gated("s1", F); s.verdict("s1", D, {"ok": "pass", "j1": "pass"}, F)
         s.assertEqual((s.state(F, "s1")["actor"], s.state(F, "s1")["input"]), ("user", D))
         hd.put("s1", "ship", {"head": D, "ok": True, "detail": "x"})             # the carry's result
+        hd.drop("s1", "approval")                                                # spent by the carry
+        pr = {"number": 42, "branch": "content/s1", "owner": "o", "head": D, "draft": False}
+        F.f["prs"] = {"u/f": [pr]}
         s.assertEqual(s.state(F, "s1")["state"], f"carried at {D[:9]}; waiting on the maintainers")
+        pr["draft"] = True                                                       # the user returned it to draft: the record is not trusted
+        s.assertEqual((s.state(F, "s1")["actor"], s.state(F, "s1")["input"]), ("user", D))   # a new card, no carry on the old yes
         F.f["prs"] = None
         s.assertEqual(s.state(F, "s1")["actor"], "unknown")
 
@@ -790,7 +799,7 @@ class R4(Sandbox):
 
     def test_the_carry_opens_the_draft_waits_for_green_ci_comments_readies_and_records_it(s):
         F = Fake(**FACTS); s.ready(F)
-        s.approve(F, "s1", A)
+        s.approve(F, "s1", A); texts = hd.rec("s1", "approval")["texts"]
         ci = ["pending", "success"]
         def view(a):
             if "headRefOid,statusCheckRollup" in a:
@@ -810,7 +819,9 @@ class R4(Sandbox):
         s.assertEqual((hd.rec("s1", "opened")["pr"], hd.rec("s1", "ship")["head"]), (42, A))   # a rerun updates PR 42; the pass never carries again
         F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
         ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, A))
-        s.assertTrue(hd.approved(ctx, ctx.changes["s1"], A))                    # the PR it opened: the yes still holds on a rerun
+        s.assertIsNone(hd.rec("s1", "approval"))                                 # the yes is spent by the carry
+        hd.put("s1", "approval", {"head": A, "texts": texts})                    # a new yes at the same texts
+        s.assertTrue(hd.approved(ctx, ctx.changes["s1"], A))                    # the PR it opened: the yes holds on a rerun
         ci[:] = ["failure"]; g = GH(**{"pr view": lambda a: view(a) if "statusCheckRollup" in " ".join(a) else (0, json.dumps({"headRefName": "content/s1", "headRefOid": A, "isDraft": True, "reviews": []}), "")})
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
@@ -1609,6 +1620,7 @@ class R8(Sandbox):
             hd.cmd_ship(["s2", C])
         s.assertEqual(g.did("push")[0][-1], f"{C}:refs/heads/content/s1")       # one new PR on s1's branch holds both
         hd.put("s2", "ship", {"head": C, "ok": True, "detail": "x"})            # carried at s2's head: s1 went with it
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": C, "draft": False}]}
         s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
 
     def test_main_moving_never_regates_a_shipped_pr_and_its_pending_reply_shows_at_once(s):

@@ -67,6 +67,20 @@ class Facts:
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
+    def worktrees(s, repo):
+        """[(path, branch or '')] of a repo's worktrees, after pruning those whose directory is gone; None unknown."""
+        s.sh(["git", "-C", repo, "worktree", "prune"])
+        r = s.sh(["git", "-C", repo, "worktree", "list", "--porcelain"])
+        if r is None or r[0]:
+            return None
+        out = []
+        for l in r[1].splitlines():
+            if l.startswith("worktree "):
+                out.append([l[9:], ""])
+            elif l.startswith("branch refs/heads/") and out:
+                out[-1][1] = l[18:]
+        return [tuple(w) for w in out]
+
     def on_line(s, clone, tip, sha):
         """sha is a commit of tip's own first-parent line (the base itself, not work merged into it); None unknown."""
         def f():
@@ -324,7 +338,10 @@ class Ctx:
     def head(s, ch):
         """The change's commit: the tip of its dev ref (a release: the base tip). '' absent, None unknown."""
         t = TRACK[ch["track"]]
-        return s._m(("head", ch["slug"]), lambda: s.F.rev(s.clone(ch), t["base"] if ch["kind"] == "release" else t["dev"].format(slug=ch["slug"])) if s.fetched(ch) else None)
+        def f():
+            h = s.F.rev(s.clone(ch), t["base"] if ch["kind"] == "release" else t["dev"].format(slug=ch["slug"])) if s.fetched(ch) else None
+            return (rec(ch["slug"], "swept") or {}).get("head", h) if h == "" else h  # a dev ref removed once done: the head it held
+        return s._m(("head", ch["slug"]), f)
 
     def base(s, ch):
         return s._m(("base", ch["track"]), lambda: s.F.rev(s.clone(ch), TRACK[ch["track"]]["base"]) if s.fetched(ch) else None)
@@ -847,6 +864,59 @@ def repairs(ctx, act):
             repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
 
 
+def close_branches(ctx, ch, act):
+    """R2: a done or closed change leaves no worktree or local branch in any repo: its clone, build copies and any
+    worktree on its branches go, then its local branches, the dev ref last; a branch goes only once its base, its repo's
+    tools branch or the change's head holds its tip, or the change is closed. Remote branches are public: never touched.
+    `swept` records the head the dev ref held; a removal that fails twice is raised once."""
+    slug = ch["slug"]
+    if not act or rec(slug, "swept") or ctx.alive_run(ch):
+        return
+    head = "" if ch.get("closed") else ctx.head(ch)
+    if head is None:
+        return
+    left, dev = [], TRACK[ch["track"]]["dev"].format(slug=slug)
+    local = {t["repo"]: (b.split("/", 1)[1] if t["fetch"] else b) for t in TRACK.values() for b in [t["dev"].format(slug=slug)]}
+    for name, r in sorted(ctx.cfg["repos"].items(), key=lambda kv: kv[0] == TRACK[ch["track"]]["repo"]):  # the change's repo last
+        if not r.get("path"):
+            continue
+        path = str(P(r["path"]))
+        bs = sorted({f"harness/{slug}", local.get(name, f"harness/{slug}")}, key=lambda b: b == dev)  # the dev ref last
+        wts = ctx.F.worktrees(path)
+        if wts is None:
+            left.append(f"{path}: worktrees unknown")
+            continue
+        for wt, b in wts:
+            if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path):
+                force = ["--force"] if wt.endswith("-build") else []  # a build copy is the loop's, never anyone's edits
+                ctx.F.sh(["git", "-C", path, "worktree", "remove", *force, wt])
+        wts = ctx.F.worktrees(path) or []
+        left += [f"{path}: worktree {wt}" for wt, b in wts if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path)]
+        base = "HEAD" if name == "harness" else "origin/HEAD"
+        keep = [ctx.F.rev(path, k) for k in (base, r.get("tools")) if k] + ([head] if name == TRACK[ch["track"]]["repo"] else [])
+        for b in bs:
+            if left and b == dev:
+                break  # the dev ref goes last, after everything else
+            tip = ctx.F.rev(path, b)
+            if not tip:
+                continue
+            if not ch.get("closed") and not any(ctx.F.contains(path, k, tip) for k in keep if k):
+                left.append(f"{path}: {b} at {tip[:9]} is held by no live branch")
+                continue
+            ctx.F.sh(["git", "-C", path, "branch", "-D", b])
+            if ctx.F.rev(path, b):
+                left.append(f"{path}: {b} not deleted")
+    if not left:
+        put(slug, "swept", {"head": head})
+        drop(slug, "repair-close")
+        event(change=slug, action="closed branches")
+        return
+    n = (rec(slug, "repair-close") or {"attempts": 0})["attempts"] + 1
+    put(slug, "repair-close", {"attempts": n, "left": left})
+    if n == 2:
+        ctx.alerts.append(f"{slug}: cannot remove {'; '.join(left)[:300]}")
+
+
 def tick(ctx=None, act=True):
     """One pass under the state lock → the view for `hd`."""
     ctx = ctx or Ctx()
@@ -884,6 +954,8 @@ def tick(ctx=None, act=True):
                     if r["change"] == ch["slug"] and not r.get("started") and not r.get("ended"):
                         r["ended"], r["reason"] = now(), "change closed"
                         save_run(r)
+            if st["actor"] == "done":
+                close_branches(ctx, ch, act)
             if st["actor"] != "done" or not last or last["state"] != st["state"]:
                 view["change"].append(f"{ch['slug']} [{ch['track']} {ch['priority']}]: {st['state']}")
             if act and (not last or last["state"] != st["state"]):

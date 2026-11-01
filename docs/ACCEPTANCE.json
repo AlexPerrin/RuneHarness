@@ -7,7 +7,7 @@
  },
  {
   "id": "R2",
-  "requirement": "Flow: defined to live with no person once deps are live; a change the user closes takes no step; main woken only to spawn or show a card",
+  "requirement": "Flow: defined to live with no person once deps are live; a change the user closes takes no step; a done or closed change leaves no worktree or local branch; main woken only to spawn or show a card",
   "check": "python3 -m unittest tests.test_hd.R2",
   "passes": false
  },

@@ -24,7 +24,8 @@ it at will, never push it. A fix that belongs to another track or repo is filed,
 `run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change
 should do): `hd ask <slug> "..."`, once, then hand back.
 
-Before the hand-back stop every process you started (`<repo>/tools/track.sh down <slug>`), record your result, then
+Before the hand-back remove every temporary worktree and branch you made that is not the change's own (the loop removes
+the change's own once it is done), stop every process you started (`<repo>/tools/track.sh down <slug>`), record your result, then
 hand back one line: `run <name>: handed over <sha>`, `run <name>: filed <slug>`, `run <name>: ask <text>` or
 `run <name>: handoff`. Run
 nothing after it.

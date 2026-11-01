@@ -20,6 +20,10 @@ class Fake(hd.Facts):
 
     def sh(s, args, cwd=None, env=None, timeout=600):
         s.ran.append(args)
+        if args[3:5] == ["worktree", "remove"] and args[-1] not in s.f.get("dirty", ()):
+            s.f["worktrees"][args[2]] = [w for w in s.f["worktrees"][args[2]] if w[0] != args[-1]]
+        if args[3:5] == ["branch", "-D"]:
+            s.f["refs"].pop(args[5] if args[2] == str(hd.ROOT) or not args[5].startswith("harness/") else f"{args[2]}:{args[5]}", None)
         if len(args) > 2 and args[1] == "down" and s.f.get("down_works", True):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
         return 0, "", ""
@@ -30,6 +34,7 @@ class Fake(hd.Facts):
         if ref.split("/")[0] in s.f.get("unknown", ()): return None
         if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
         return s.f.get("refs", {}).get(ref, "")
+    def worktrees(s, repo): return s.f.get("worktrees", {}).get(repo, [])
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
@@ -269,6 +274,36 @@ class R2(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["h1"])
         s.assertEqual(s.state(F, "h1")["state"], "done")                          # handed over: its own work
+
+    def test_a_done_change_leaves_no_worktree_or_local_branch(s):
+        s.change("h1", "harness"); hd.write_contract(hd.cfg(), "h1", "harness", "derived")
+        r, f = str(s.root), str(s.root / "fork")
+        F = Fake(refs={"HEAD": A, "harness/h1": A, "harness/h2": B, f"{f}:harness/h1": "X", "origin/HEAD": B, "local/harness": "C"},
+                 anc={("local/harness", "X"), ("C", "X"), ("X", "local/harness")}, trees={A: TA},
+                 worktrees={r: [(r, "v8"), (f"{r}/.worktrees/h1", "harness/h1"), (f"{r}/.worktrees/h1-build", ""), (f"{r}/.claude/worktrees/ag", "harness/h1"), (f"{r}/.worktrees/h2", "harness/h2")],
+                            f: [(f, ""), (f"{f}/.worktrees/harness", "local/harness"), (f"{f}/.worktrees/h1", "harness/h1"), (f"{f}/.worktrees/h1-build", "")]})
+        (s.root / "evidence" / "h1" / "log.txt").write_text("evidence")
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        s.assertEqual(s.state(F, "h1")["state"], "done")
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.f["worktrees"], {r: [(r, "v8"), (f"{r}/.worktrees/h2", "harness/h2")], f: [(f, ""), (f"{f}/.worktrees/harness", "local/harness")]})
+        s.assertEqual(sorted(F.f["refs"]), ["HEAD", "harness/h2", "local/harness", "origin/HEAD"])   # remote refs are never touched
+        s.assertEqual([a[2] for a in F.ran if a[3:5] == ["branch", "-D"]], [f, r])                # the dev ref last
+        s.assertEqual(s.state(F, "h1")["state"], "done")                                          # the swept head stays done
+        n = len(F.ran); hd.tick(s.ctx(F)); s.assertEqual(len(F.ran), n)                          # swept once
+
+    def test_closed_change_branches_go_an_unheld_one_stays_a_failed_removal_raised_once(s):
+        s.change("s1", closed="answer-1: dropped"); s.change("c1", "client")
+        f, c = str(s.root / "fork"), str(s.root / "client")
+        F = Fake(refs={"origin/HEAD": B, "dev/s1": "D", "origin/client/c1": A, "client/c1": "E"}, anc={(B, A)}, trees={A: TA},
+                 worktrees={f: [(f, ""), (f"{f}/.worktrees/s1", "dev/s1")]}, dirty={f"{f}/.worktrees/s1"})
+        s.assertEqual(s.state(F, "c1")["state"], "done")
+        alerts = [any("cannot remove" in a for a in hd.tick(s.ctx(F))["alert"]) for _ in range(3)]
+        s.assertEqual(alerts, [False, True, False])
+        s.assertIn("client/c1", F.f["refs"]); s.assertIn(f"{c}: client/c1 at E is held by no live branch", hd.rec("c1", "repair-close")["left"])
+        F.f["dirty"] = set(); hd.tick(s.ctx(F))
+        s.assertNotIn("dev/s1", F.f["refs"]); s.assertTrue(hd.rec("s1", "swept"))                # closed: removed whatever it holds
 
     def test_maintainer_inline_comment_files_a_change_once(s):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")

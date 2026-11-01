@@ -755,6 +755,8 @@ def nxt(ctx, ch):
         a = rec(slug, "approval")
         if not a or a["head"] != head:
             return step(f"{'live on the test server' if track == 'server' else 'gated'}; waiting for the user's yes", "user", input=head)
+        if (r := rec(slug, "ship")) and r.get("T") == head and r.get("ok"):  # hd-public's last step: the acts are done, never repeated
+            return step(f"shipped upstream at {head[:9]}: {r.get('detail', '')}; waiting on the maintainers", "wait")
         reply = ctx.reply(ch, head)  # no commit of its own: the reply in the finding's thread is the act
         return step(f"shipping upstream: the reply to {ch['finding']} on #{ch['pr']}" if reply else "shipping upstream", "script",
                     act=lambda: ctx.start(slug, "ship", ctx.public("reply" if reply else "upstream", slug, head), env))

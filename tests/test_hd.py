@@ -713,8 +713,8 @@ class R4(Sandbox):
         hd.put("z1", "approval", {"head": D, "body": hashlib.sha256(b"body").hexdigest()[:16]})
         with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit):
             pub.upstream("z1", D)
-        s.assertEqual(calls[0][:3], ("git", "-C", str(s.root / "central")))     # the Central clone pushes to its fork
-        s.assertIn("u/z", calls[1]); s.assertIn("u/z", calls[2])                 # the PR is on Central's upstream
+        s.assertEqual(calls[1][:3], ("git", "-C", str(s.root / "central")))     # the Central clone pushes to its fork
+        s.assertIn("u/z", calls[0]); s.assertIn("u/z", calls[2])                 # the PR is on Central's upstream
 
     def test_a_reply_only_change_posts_its_reply_in_the_finding_thread_after_the_yes(s):
         s.change("s0", pr=7, closed="x"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
@@ -824,8 +824,10 @@ class R4(Sandbox):
             with s.assertRaises(SystemExit) as e:
                 pub.upstream("s1", A)
         s.assertEqual(e.exception.code, 0)
-        s.assertEqual(calls[0][:3], ("git", "-C", str(s.root / "fork")))
-        s.assertEqual([c[1:] for c in calls[1:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready")])
+        s.assertEqual(calls[1][:3], ("git", "-C", str(s.root / "fork")))
+        s.assertEqual([c[1:] for c in calls[:1] + calls[2:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready")])
+        s.assertEqual({k: v for k, v in hd.rec("s1", "ship").items() if k != "detail"}, {"T": A, "ok": True})   # the last step: its result
+        hd.drop("s1", "ship")
         calls.clear(); ci[:] = ["failure"]
         with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit) as e:
             pub.upstream("s1", A)
@@ -872,6 +874,30 @@ class R4(Sandbox):
         s.assertEqual(check(["a"]).returncode, 0)                                # the state moved mid-check: no extra act
         n.write_text("0"); r = check(["a", "b"])                                 # the candidate's code plans b
         s.assertNotEqual(r.returncode, 0); s.assertIn("change: b", r.stdout); s.assertNotIn("change: a", r.stdout)
+
+    def test_a_completed_ship_is_recorded_and_never_repeated(s):
+        import importlib.util, hashlib
+        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
+        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
+        s.change("s1", pr=354); s.agreed("s1")
+        hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(pub.text("s1", "pr-body.md").encode()).hexdigest()[:16]})
+        calls = []
+        def fake_sh(*args, inp=None):                                           # already upstream: head pushed, ready, our comment naming it
+            calls.append(args[:3])
+            return 0, json.dumps({"headRefOid": A, "isDraft": False, "comments": [{"body": f"Updated to {A[:9]}.\n<!-- hd:{A[:12]} -->"}]}), ""
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", new_callable=io.StringIO), s.assertRaises(SystemExit) as e:
+            pub.upstream("s1", A)
+        s.assertEqual(e.exception.code, 0)
+        s.assertEqual(calls, [("gh", "pr", "view")])                             # observed, nothing acted
+        s.assertEqual(hd.rec("s1", "ship")["T"], A)
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": A}})       # the pass: past shipping, no hd-public started
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        s.assertTrue(s.state(F, "s1")["state"].startswith("shipped upstream at " + A[:9]))
+        hd.tick(s.ctx(F)); s.assertEqual([a for a in F.spawned if "hd-public" in " ".join(a)], [])
+        hd.put("s1", "ship", {"T": C, "ok": True})                               # a record at another head is no result for this one
+        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream")
 
 
 class R7(Sandbox):

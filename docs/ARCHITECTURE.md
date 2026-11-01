@@ -102,7 +102,9 @@ next(change):
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; a reply change (one `finding`,
                                     its head a same-track dependency's: no commit of its own): pr-comment.md posted in that finding's thread,
-                                    quoting it and naming only its author; release: gh release; else merge and push
+                                    quoting it and naming only its author; release: gh release; else merge and push. hd-public's last
+                                    step on success writes ship.json at head (a PR already at head, ready, with our comment naming
+                                    it: recorded with no act); a ship.json at head → wait, never shipped again
   wait                              upstream merged (a reply change: our reply in the finding's thread); each maintainer inline review comment on the pr (no reply, no bot) that no
                                     definition's `finding` carries files a P1 change on the pr with deps [the pr's root changes],
                                     their contract unagreed plus a judged `finding` row

@@ -4,13 +4,15 @@ token (docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval
 
   hd-public upstream <slug> <head>        push head to the public branch on the change's fork (server or central); create the draft PR if none;
                                           wait for CI at head (a fact, polled); stop before anything public when it
-                                          is not green; post or edit our comment naming the head; mark ready.
+                                          is not green; post or edit our comment naming the head; mark ready. Each verb's last step on
+                                          success writes state/<slug>/ship.json {T: head, ok, detail}; a PR already at head,
+                                          ready, with our comment naming it is recorded so, with no act.
   hd-public reply <slug> <head>           post pr-comment.md as a reply in the thread of the change's finding on its PR
                                           (quoting it, @ only its author); nothing when our reply is there.
   hd-public release <slug> <head> <tag>   gh release create with the APK, the notices and the log from the evidence dir.
 Until the `hd` user exists the pass runs it as the user and `hd` shows the R4 alert.
 """
-import hashlib, json, re, subprocess, sys, time
+import hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path
 import yaml
 
@@ -22,6 +24,17 @@ ATTRIBUTION = "\n\n🤖 Generated with [Claude Code](https://claude.com/claude-c
 def sh(*args, inp=None):
     r = subprocess.run(args, capture_output=True, text=True, input=inp)
     return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def done(slug, head, detail):
+    """The last step of a public act that completed: state/<slug>/ship.json, whole or not at all (the pass reads it at any moment)."""
+    f = STATE / slug / "ship.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_name(f".ship.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"T": head, "ok": True, "detail": detail}))
+    os.replace(tmp, f)
+    print(detail)
+    sys.exit(0)
 
 
 def approved(slug, head, key="body", name="pr-body.md"):
@@ -65,15 +78,21 @@ def upstream(slug, head):
     fork = c["repos"]["central" if ch.get("track") == "central" else "fork"]  # the fork of the change's upstream: OpenRune-Server or OpenRune-Central-Server
     up, owner = fork["upstream"], fork["name"].split("/")[0]
     branch = ch.get("branch") or f"content/{slug}"
-    rc, _, err = sh("git", "-C", str(Path(fork["path"]).expanduser()), "push", "-q", "fork", f"{head}:refs/heads/{branch}")
-    if rc:
-        sys.exit(f"push failed: {err}")
-    print(f"pushed {head[:9]} to fork {branch}")
+    mark = f"<!-- hd:{head[:12]} -->"
     number = ch.get("pr")
     if not number:  # gh's --head matches the branch name only: keep the fork owner's PR
         rc, out, _ = sh("gh", "pr", "list", "-R", up, "--head", branch, "--state", "open", "--json", "number,headRepositoryOwner")
         number = next((p["number"] for p in (json.loads(out) if rc == 0 and out else [])
                        if (p.get("headRepositoryOwner") or {}).get("login") == owner), None)
+    if number:  # every act already observed upstream (head pushed, our comment naming it, ready): record, act on nothing
+        rc, out, _ = sh("gh", "pr", "view", str(number), "-R", up, "--json", "headRefOid,isDraft,comments")
+        v = json.loads(out) if rc == 0 and out else {}
+        if v.get("headRefOid") == head and v.get("isDraft") is False and any(mark in x.get("body", "") for x in v.get("comments") or []):
+            done(slug, head, f"PR #{number} ready for review at {head[:9]}")
+    rc, _, err = sh("git", "-C", str(Path(fork["path"]).expanduser()), "push", "-q", "fork", f"{head}:refs/heads/{branch}")
+    if rc:
+        sys.exit(f"push failed: {err}")
+    print(f"pushed {head[:9]} to fork {branch}")
     if not number:
         rc, out, err = sh("gh", "pr", "create", "-R", up, "--draft", "--base", "main", "--head", f"{owner}:{branch}",
                           "--title", text(slug, "pr-title.txt"), "--body", text(slug, "pr-body.md") + ATTRIBUTION)
@@ -87,17 +106,18 @@ def upstream(slug, head):
         sys.exit(f"CI {state} at {head[:9]} on PR #{number}: stays draft, no comment")
     print(f"CI green at {head[:9]}")
     comment = text(slug, "pr-comment.md")
-    body = (comment if head[:9] in comment else f"Updated to {head[:9]}.") + ATTRIBUTION + f"\n<!-- hd:{head[:12]} -->"
+    body = (comment if head[:9] in comment else f"Updated to {head[:9]}.") + ATTRIBUTION + f"\n{mark}"
     rc, out, _ = sh("gh", "pr", "view", str(number), "-R", up, "--json", "comments")
-    mine = [x for x in (json.loads(out).get("comments") if rc == 0 else []) if f"<!-- hd:{head[:12]} -->" in x.get("body", "")]
+    mine = [x for x in (json.loads(out).get("comments") if rc == 0 else []) if mark in x.get("body", "")]
     if mine:
         sh("gh", "api", "graphql", "-f", "query=mutation($id:ID!,$b:String!){updateIssueComment(input:{id:$id,body:$b}){issueComment{id}}}", "-f", f"id={mine[0]['id']}", "-f", f"b={body}")
     else:
         sh("gh", "pr", "comment", str(number), "-R", up, "--body", body)
     print("commented, naming the head")
     rc, _, err = sh("gh", "pr", "ready", str(number), "-R", up)
-    print(f"PR #{number} ready for review" if rc == 0 else f"ready failed: {err}")
-    sys.exit(rc)
+    if rc:
+        sys.exit(f"ready failed: {err}")
+    done(slug, head, f"PR #{number} ready for review at {head[:9]}")
 
 
 def reply(slug, head):
@@ -119,11 +139,11 @@ def reply(slug, head):
     if rc:
         sys.exit(f"review comments unreadable: {err}")
     if out:
-        print(f"replied already on {finding} (#{pr})")
-        sys.exit(0)
+        done(slug, head, f"replied already on {finding} (#{pr})")
     rc, _, err = sh("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{finding}/replies", "-f", f"body={body}{ATTRIBUTION}")
-    print(f"replied on {finding} (#{pr})" if rc == 0 else f"reply failed: {err}")
-    sys.exit(rc)
+    if rc:
+        sys.exit(f"reply failed: {err}")
+    done(slug, head, f"replied on {finding} (#{pr})")
 
 
 def release(slug, head, tag):
@@ -136,8 +156,9 @@ def release(slug, head, tag):
         sys.exit(f"refused: {ev} lacks the APK or the notices")
     rc, out, err = sh("gh", "release", "create", tag, "-R", c["repos"]["client"]["name"], "--target", head, "--title", tag,
                       "--notes", text(slug, "release-notes.md") + ATTRIBUTION, *assets)
-    print(out if rc == 0 else f"release failed: {err}")
-    sys.exit(rc)
+    if rc:
+        sys.exit(f"release failed: {err}")
+    done(slug, head, out)
 
 
 if __name__ == "__main__":

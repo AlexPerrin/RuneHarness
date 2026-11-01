@@ -36,7 +36,8 @@ gh, docker and the process table; a live check reads the real state.
    it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.
 4. **R4** `tests.test_hd.R4`: the upstream and release steps run only after an approval at that head; a change on a PR whose head adds no commit to its root's
    reaches a card for its reply, the yes (bound to the reply text) posts pr-comment.md in the finding's review thread, quoting it and @ only its author, and it is done once that reply exists; `hd decline` hides the card at that head; a central change goes
-   to Central's upstream through its own fork; the dry-run check fails a candidate only on a public act main plans neither before nor after it, so state moving mid-check fails nothing. Live: `gh auth
+   to Central's upstream through its own fork; the dry-run check fails a candidate only on a public act main plans neither before nor after it, so state moving mid-check fails nothing;
+   a completed ship records its result and is never repeated, and one whose acts are already observed upstream records it with no act. Live: `gh auth
    status` in an agent's shell shows the token scoped to AlexPerrin/*; `sudo -n -l` lists only the public-act helper
    under user `hd`; `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.
 5. **R5** `tests.test_hd.R5`: a state record read while hd or a track script writes it is whole; console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; a dead ship

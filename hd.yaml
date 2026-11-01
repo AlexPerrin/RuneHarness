@@ -6,6 +6,7 @@ repos:
   fork:     {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         tools: local/harness, upstream: OpenRune/OpenRune-Server}
   central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
+bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
 agents: 6                 # runs alive at once (raised from 3 while the harness fixes run: the user's word)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list

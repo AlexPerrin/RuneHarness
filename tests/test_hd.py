@@ -59,8 +59,8 @@ class Fake(hd.Facts):
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
-    def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
-    def pr_comments(s, repo, pr): return s.f.get("talk", {}).get(pr, [])
+    def review_comments(s, repo, pr): return None if s.f.get("comments", {}) is None else s.f.get("comments", {}).get(pr, [])  # None in f = GitHub unreadable
+    def pr_comments(s, repo, pr): return None if s.f.get("talk", {}) is None else s.f.get("talk", {}).get(pr, [])
     def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
 
 
@@ -387,12 +387,12 @@ class R2(Sandbox):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")
         s.change("s1-old", pr=354, deps=["s1"], finding=7)                 # filed by hand: carried
         com = lambda i, who="a-thoren", **k: {"id": i, "author": who, "bot": False, "reply": None, "path": "N.kt", "line": 265, "body": "reset | the varp?", **k}
-        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9, reply=8), com(10, "O"), com(11, "ci", bot=True)]}})
+        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9), com(10, reply=9), com(11, "O", reply=9), com(12, "ci", bot=True)]}})
         hd.tick(s.ctx(F), act=False)
         s.assertFalse((s.root / "harness" / "changes" / "s1-c8.md").exists())  # a dry run files nothing
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
-        s.assertEqual(list(new), ["s1-c8"])                                # one change, once: replies, ours, bots, carried skipped
+        s.assertEqual(list(new), ["s1-c8"])                                # one change, once: answered (9, 10), ours, bots, carried skipped
         c = new["s1-c8"]
         s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1-old"], 354, 8, "P1", "content/cannon"))  # on the PR's tip
         con = hd.contract("s1-c8")
@@ -400,23 +400,40 @@ class R2(Sandbox):
         s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
         s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
 
-    def test_a_maintainer_reply_after_ours_a_review_body_and_a_new_pr_comment_each_file_a_change(s):
+    def test_a_finding_files_until_a_reply_or_comment_of_ours_answers_it(s):
         s.change("s1", pr=354); s.agreed("s1"); s.change("s1-c8", pr=354, deps=["s1"], finding=8)
         com = lambda i, who="a-thoren", reply=8: {"id": i, "author": who, "bot": False, "reply": reply, "path": "N.kt", "line": 265, "body": "and then?"}
-        talk = lambda i, who, at, body="still wrong": {"id": i, "author": who, "body": body, "at": at}
-        F = Fake(**{**FACTS, "comments": {354: [com(8, reply=None), com(9), com(10, "O"), com(11), com(12, reply=50), com(51, "O", reply=50)]},
-                    "talk": {354: [talk("IC_a", "rev", "1"), talk("IC_b", "O", "2"), talk("IC_c", "rev", "3"),
-                                   talk("PRR_d", "rev", "0", "please split it"), talk("PRR_e", "rev", "4", ""), talk("PRR_f", "O", "5", "ours")]}})
+        talk = lambda i, who, body: {"id": i, "author": who, "body": body}
+        F = Fake(**{**FACTS, "comments": {354: [com(8, reply=None), com(9), com(10, "O"), com(11), com(12, reply=50), com(51, "O", reply=50),
+                                                {**com(52, "O", reply=50), "body": "> rename  it\n> now\n\n@rev renamed."}]},
+                    "talk": {354: [talk("IC_a", "rev", "the varp\nresets"), talk("IC_b", "O", "> the varp resets\n\n@rev fixed."), talk("IC_c", "rev", "still wrong"),
+                                   talk("PRR_d", "rev", "please split it"), talk("PRR_e", "rev", ""), talk("PRR_f", "O", "ours"), talk("PRR_g", "rev", "rename it now, please")]}})
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-c8")}
-        s.assertEqual(sorted(new), ["s1-c11", "s1-cicc", "s1-cprrd"])   # 9 precedes our reply 10; 12 is in a thread we never answered; IC_a precedes ours
+        s.assertEqual(sorted(new), ["s1-c11", "s1-cicc", "s1-cprrd"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
         s.assertEqual((new["s1-c11"]["deps"], new["s1-c11"]["finding"]), (["s1-c8"], 11))
         s.assertEqual((new["s1-cicc"]["finding"], new["s1-cicc"]["title"]), ("IC_c", "#354: rev on the PR"))
         s.assertIn("please split it", hd.contract("s1-cprrd")["rows"][-1]["text"])
         s.assertEqual(hd.root(F.f["comments"][354], 11), 8)               # its reply goes in thread 8, and answers it only after 11
         ctx = s.ctx(F); ch = {**ctx.changes["s1-c11"]}
-        s.assertFalse(hd.answered(ctx, ch, 11, "x"))
-        F.f["comments"][354].append(com(13, "O")); s.assertTrue(hd.answered(s.ctx(F), ch, 11, "x"))
+        s.assertEqual((hd.answered(ctx, ch, 11), hd.answered(ctx, ch, "IC_c"), hd.answered(ctx, ch, "IC_a"), hd.answered(ctx, ch, "IC_gone")), (False, False, True, False))
+        F.f["comments"][354].append(com(13, "O")); F.f["talk"][354].append(talk("IC_h", "O", "> still wrong\n\n@rev now right."))
+        s.assertEqual((hd.answered(s.ctx(F), ch, 11), hd.answered(s.ctx(F), ch, "IC_c")), (True, True))
+        F.f["talk"] = None; s.assertIsNone(hd.answered(s.ctx(F), ch, 11))      # GitHub unread: unknown
+
+    def test_a_bot_never_files_and_an_unanswered_comment_files_whatever_its_age(s):
+        s.change("s1", pr=354); s.agreed("s1")
+        talk = lambda i, who, bot=False: {"id": i, "author": who, "bot": bot, "body": "look here"}
+        F = Fake(**{**FACTS, "comments": {354: [{"id": 8, "author": "ci-x", "bot": False, "reply": None, "path": "N.kt", "line": 1, "body": "lint"}]},
+                    "talk": {354: [talk("IC_a", "rev"), talk("IC_b", "rev"), talk("IC_c", "coderabbitai[bot]", True), talk("IC_d", "helper", True),
+                                   talk("PRR_e", "copilot-pull-request-reviewer[bot]", True)]}})
+        ctx = s.ctx(F); ctx.cfg["bots"] = ["CI-X"]                                      # hd.yaml's bots: a bot GitHub does not mark
+        hd.tick(ctx, act=False); s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), [])
+        hd.tick(ctx)
+        s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), ["s1-cica", "s1-cicb"])  # no comment of ours, no date: both; the rest are bots
+        s.change("s2", pr=355); s.agreed("s2"); F.f["talk"][355] = [talk("IC_z", "rev")]; F.f["comments"] = None
+        hd.tick(s.ctx(F))
+        s.assertNotIn("s2-cicz", hd.defs("changes"))                                       # the inline comments unread: nothing files
 
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")
@@ -958,7 +975,8 @@ class R4(Sandbox):
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "prs": {"u/f": [{"number": 7, "branch": "fix/x", "owner": "o", "head": A, "draft": False}]}})
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""}, "prs": {"u/f": [{"number": 7, "branch": "fix/x", "owner": "o", "head": A, "draft": False}]},
+                    "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "N.kt", "line": 3, "body": "reset it?"}]}})
         s.assertEqual(s.ctx(F).head(s.ctx(F).changes["s1"]), A)                 # no commit of its own: its PR tip's head
         s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
@@ -966,15 +984,14 @@ class R4(Sandbox):
         s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
         s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["reply in the thread of review comment 99", 99, "> reset it\n\n@rev the official server keeps it."]])
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "fix/x", "headRefOid": A, "isDraft": False, "reviews": [], "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), ""),
-                  "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "fix/x", "headRefOid": A, "isDraft": False, "reviews": [], "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), "")})
         s.ship(F, g)
         s.assertEqual(g.did("push") + g.did("pr comment") + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
         post = [c for c in g.calls if "POST" in c][0]
         s.assertEqual(post[4], "repos/u/f/pulls/7/comments/99/replies"); s.assertTrue(post[6].startswith("body=> reset it"))
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other"); hd.drop("s1", "ship")
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": g.a["pr view"], "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        g = GH(**{"pr view": g.a["pr view"]})
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])

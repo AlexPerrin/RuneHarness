@@ -259,19 +259,22 @@ class Facts:
     @_read
     def review_comments(s, repo, pr):
         """R2: the PR's inline review comments [{id, author, bot, reply, path, line, body}], or None when GitHub cannot be read."""
-        jq = '.[] | {id, author: .user.login, bot: (.user.type == "Bot"), reply: .in_reply_to_id, path, line: (.line // .original_line), body}'
+        jq = '.[] | {id, author: .user.login, bot: (.user.type == "Bot" or .performed_via_github_app != null), reply: .in_reply_to_id, path, line: (.line // .original_line), body}'
         r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments", "--jq", jq], timeout=120)
         return None if r is None or r[0] else [json.loads(l) for l in r[1].splitlines() if l.strip()]
 
     @_read
     def pr_comments(s, repo, pr):
-        """R4: the PR's conversation comments and reviews [{id, author, body, at}] (a review's id is `PRR_`), or None when GitHub cannot be read."""
-        r = s.sh(["gh", "pr", "view", str(pr), "-R", repo, "--json", "comments,reviews"], timeout=120)
-        if r is None or r[0]:
-            return None
-        v = json.loads(r[1] or "{}")
-        return [{"id": c["id"], "author": (c.get("author") or {}).get("login", ""), "body": c.get("body") or "", "at": c.get("createdAt") or c.get("submittedAt") or ""}
-                for c in (v.get("comments") or []) + (v.get("reviews") or [])]
+        """R4: the PR's conversation comments and reviews [{id, author, bot, body, at}] (ids are node ids: `IC_` a comment,
+        `PRR_` a review), read with the REST API, which marks bots (user.type, performed_via_github_app); None when GitHub cannot be read."""
+        out = []
+        for path, at in ((f"issues/{pr}/comments", ".created_at"), (f"pulls/{pr}/reviews", ".submitted_at")):
+            jq = f'.[] | {{id: .node_id, author: .user.login, bot: (.user.type == "Bot" or .performed_via_github_app != null), body: (.body // ""), at: ({at} // "")}}'
+            r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/{path}", "--jq", jq], timeout=120)
+            if r is None or r[0]:
+                return None
+            out += [json.loads(l) for l in r[1].splitlines() if l.strip()]
+        return out
 
     @_read
     def open_prs(s, repo):
@@ -954,14 +957,32 @@ def root(cs, f):
     return next((c["reply"] for c in cs or [] if c["id"] == f and c["reply"]), f)
 
 
-def answered(ctx, ch, f, body):
-    """R4: ours answers finding f: a reply in its thread, or (a conversation finding) a PR comment of ours starting
-    with the reply's text; None unknown."""
-    if conversation(f):
-        cs = ctx.talk(ch["track"], ch["pr"])
-        return None if cs is None else any(c["author"].lower() == ctx.owner(ch) and c["body"].strip().startswith(body[:200].strip()) for c in cs)
-    cs = ctx.comments(ch["track"], ch["pr"])
-    return None if cs is None else any(c["reply"] == root(cs, f) and c["id"] > f and str(c["author"]).lower() == ctx.owner(ch) for c in cs)
+def quotes(body):
+    """The quoted blocks (`> ` lines) of a text, each whitespace-normalized."""
+    out, cur = [], []
+    for line in (body or "").splitlines() + [""]:
+        if line.startswith(">"):
+            cur.append(line[1:])
+        elif cur:
+            out, cur = out + [" ".join(" ".join(cur).split())], []
+    return [q for q in out if q]
+
+
+def replied(c, cs, talk, owner):
+    """R2 R4: a reply or comment of ours answers item c (inline, review or conversation alike): a reply in its review
+    thread after it, or any comment of ours quoting it."""
+    b, t = " ".join((c.get("body") or "").split()), None if conversation(c["id"]) else root(cs, c["id"])
+    return any(str(o["author"]).lower() == owner and (t is not None and o.get("reply") == t and o["id"] > c["id"] or any(q in b for q in quotes(o["body"])))
+               for o in cs + talk)
+
+
+def answered(ctx, ch, f):
+    """R4: ours answers finding f (a finding GitHub no longer shows: not); None unknown."""
+    cs, talk = ctx.comments(ch["track"], ch["pr"]), ctx.talk(ch["track"], ch["pr"])
+    if cs is None or talk is None:
+        return None
+    c = next((c for c in cs + talk if c["id"] == f), None)
+    return bool(c) and replied(c, cs, talk, ctx.owner(ch))
 
 
 def upstream_at(ctx, ch, head):
@@ -969,8 +990,8 @@ def upstream_at(ctx, ch, head):
     p = ctx.upstream_pr(ch) if upstream(ch) else {}
     if not p or p["head"] != head or p["draft"]:
         return None if p is None else False
-    done = [answered(ctx, ch, o["finding"], t) for o in ctx.changes.values() if not o.get("closed") and one_pr(o, ch) and o.get("finding")
-            and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
+    done = [answered(ctx, ch, o["finding"]) for o in ctx.changes.values() if not o.get("closed") and one_pr(o, ch) and o.get("finding")
+            and not isinstance(o["finding"], list) and reply_text(ctx, o)]
     return None if None in done else all(done)
 
 
@@ -1195,25 +1216,21 @@ def stacked(ctx, ch, head):
 
 
 def findings(ctx, open_prs, act):
-    """R2: each maintainer's word on an open PR that no definition carries (`finding`: an id or a list): an inline review
-    comment opening a thread, a reply newer than ours in a thread we answered, a review's body, a conversation comment
-    newer than our last one; each becomes a P1 change on the PR with deps [the PR's tip changes, so it builds on the whole PR] and its root's contract, unagreed, plus the finding."""
+    """R2: each maintainer's word on an open PR that no definition carries (`finding`: an id or a list) and no reply or
+    comment of ours answers (an inline review comment, a review's body, a conversation comment; not a bot's: GitHub's
+    mark or hd.yaml's `bots`); each becomes a P1 change on the PR with deps [the PR's tip changes, so it builds on the whole PR] and its root's contract, unagreed, plus the finding."""
     carried = {str(f) for c in ctx.changes.values() for f in (c["finding"] if isinstance(c.get("finding"), list) else [c.get("finding")]) if f}
     for track, pr in sorted(open_prs):
         r = ctx.cfg["repos"][TRACK[track]["repo"]]
-        owner, cs, talk = r["name"].split("/")[0].lower(), ctx.comments(track, pr), ctx.talk(track, pr) or []
-        mine = lambda c: str(c["author"]).lower() == owner
-        ours = {}  # thread → our last reply in it
-        for c in cs or []:
-            if mine(c) and c["reply"]:
-                ours[c["reply"]] = max(ours.get(c["reply"], 0), c["id"])
-        said = max((c.get("at", "") for c in talk if mine(c) and str(c["id"]).startswith("IC_")), default="")
-        new = [c for c in cs or [] if not c["bot"] and (not c["reply"] or c["id"] > ours.get(c["reply"], c["id"]))] \
-            + [c for c in talk if c["body"].strip() and (str(c["id"]).startswith("PRR_") or c.get("at", "") > said)]
+        owner, cs, talk = r["name"].split("/")[0].lower(), ctx.comments(track, pr), ctx.talk(track, pr)
+        if cs is None or talk is None:  # unknown files nothing this pass
+            continue
+        mine, bots = lambda c: str(c["author"]).lower() == owner, {b.lower() for b in ctx.cfg.get("bots") or []}
+        new = [c for c in cs + talk if not c.get("bot") and str(c["author"]).lower() not in bots and c["body"].strip() and not replied(c, cs, talk, owner)]
         on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track]
         roots = [c for c in on if not any(d in {o["slug"] for o in on} for d in c["deps"])]
         tips = [c for c in on if not any(c["slug"] in o["deps"] for o in on)]  # the finding's change builds on the whole PR
-        for c in new:  # unknown (None) files nothing this pass
+        for c in new:
             if mine(c) or str(c["id"]) in carried or not act:
                 continue
             carried.add(str(c["id"]))
@@ -1887,22 +1904,21 @@ def checks(up, number, head):
 def reply(ctx, ch, up, pr, finding, body):
     """R4: the reply in the finding's thread (a conversation finding: a PR comment), quoting it and naming only its
     author; nothing when ours is there."""
-    if conversation(finding):
-        author = next((c["author"] for c in ctx.F.pr_comments(up, pr) or [] if c["id"] == finding), "")
-    else:
-        author = must("gh", "api", f"repos/{up}/pulls/comments/{finding}", "--jq", ".user.login")
-        thread = root(ctx.F.review_comments(up, pr), finding)
+    cs, talk = ctx.F.review_comments(up, pr), ctx.F.pr_comments(up, pr)
+    c = next((c for c in (cs or []) + (talk or []) if c["id"] == finding), None)
+    if cs is None or talk is None or c is None:
+        raise RuntimeError(f"{finding} cannot be read on {up}#{pr}")
+    author = c["author"]
     named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", re.sub(r"`[^`]*`", "", body))}
     if not re.search(r"(?m)^> ", body) or named != {author.lower()}:
         raise RuntimeError(f"the reply to {finding} must quote it and name only {author} (it names {sorted(named)})")
-    owner = ctx.owner(ch)
+    if replied(c, cs, talk, ctx.owner(ch)):
+        return
     if conversation(finding):
-        if not any(c["author"].lower() == owner and c["body"].strip().startswith(body[:200].strip()) for c in ctx.F.pr_comments(up, pr) or []):
-            must("gh", "pr", "comment", str(pr), "-R", up, "--body", body + ATTRIBUTION)
-            log(f"replied to {finding}")
-    elif not must("gh", "api", "--paginate", f"repos/{up}/pulls/{pr}/comments", "--jq",
-                  f'.[] | select(.in_reply_to_id == {thread} and .id > {finding} and (.user.login | ascii_downcase) == "{owner}") | .id'):
-        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{thread}/replies", "-f", f"body={body}{ATTRIBUTION}")
+        must("gh", "pr", "comment", str(pr), "-R", up, "--body", body + ATTRIBUTION)
+        log(f"replied to {finding}")
+    else:
+        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{root(cs, finding)}/replies", "-f", f"body={body}{ATTRIBUTION}")
         log(f"replied on {finding}")
 
 

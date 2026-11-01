@@ -1342,6 +1342,7 @@ class R6(Sandbox):
         stuck = threading.Event()
         def exec_hangs(*a, **k):
             stuck.wait()                                               # netstat.exe's exec from /mnt/c blocks, before its timeout applies
+            return subprocess.CompletedProcess(a[0], 1, "", "")          # then fails: the probe thread reads a real result
         ok = mock.MagicMock(); ok.__enter__.return_value.read.return_value = json.dumps({"result": {"content": [{"type": "text", "text": "{}"}]}}).encode()
         with mock.patch.object(b, "NETSTAT_WAIT", 0.2), mock.patch.object(b.subprocess, "run", exec_hangs), mock.patch.object(b.urllib.request, "urlopen", return_value=ok):
             s.assertIn("result", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "get_timeline", "arguments": {}}))   # it connects
@@ -2059,7 +2060,7 @@ class EndToEnd(unittest.TestCase):
 
     @unittest.skipIf(os.environ.get("HD_E2E"), "nested")
     def test_harness_change_defined_to_live(s):
-        import subprocess, time
+        import select
         src = Path(__file__).resolve().parent.parent
         snap = subprocess.run(["git", "-C", str(src), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
         tmp = Path(tempfile.mkdtemp()); origin, repo, root = tmp / "origin.git", tmp / "harness", tmp / "root"
@@ -2083,12 +2084,22 @@ class EndToEnd(unittest.TestCase):
         v = hd_("tick").stdout
         s.assertIn("dev run due", v); s.assertIn("spawn: e2e-1", v)
         r = hd_("handover", "e2e"); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        def until(state):
-            for _ in range(90):
+        def until(state):   # each pass, then block on the scripts it started: the run's pace never fails the test
+            last = None
+            while True:
                 v = hd_("tick").stdout
                 if state in v:
                     return v
-                time.sleep(1)
+                live = [p for f in (root / "state" / "e2e").glob("proc-*.json") if hd.Facts().alive((p := json.loads(f.read_text()))["pid"], p["start"])]
+                if not live and v == last:
+                    break                                                   # nothing runs and the pass moves nothing: stuck
+                for p in live:
+                    try:
+                        fd = os.pidfd_open(p["pid"])
+                    except ProcessLookupError:
+                        continue
+                    select.select([fd], [], []); os.close(fd)               # readable once the process exits
+                last = v
             s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'e2e' / 'gate.json').read_text() if (root / 'state' / 'e2e' / 'gate.json').exists() else ''}")
         until("gate on")
         until("shipping")

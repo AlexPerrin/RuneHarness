@@ -865,6 +865,8 @@ class R5(Sandbox):
         ctx.start("s1", "build", [str(script), "T3"]); ctx.start("s1", "build", [str(script), "T3"])
         n = len(F.spawned); ctx.start("s1", "build", [str(script), "T3"])
         s.assertEqual(len(F.spawned), n)                                         # died twice on T3: raised
+        ctx.start("s1", "build", [str(script), "T3"])                            # a second change reaching the same script
+        s.assertEqual(sum("died twice" in a for a in ctx.alerts), 1)             # one alert in a pass, not one per caller
         pf = hd.STATE / "s1" / "proc-build.json"
         os.utime(script, ns=(pf.stat().st_mtime_ns + 10**9,) * 2)                # the script is fixed
         ctx.start("s1", "build", [str(script), "T3"])

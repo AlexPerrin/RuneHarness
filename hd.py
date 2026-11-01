@@ -552,7 +552,9 @@ class Ctx:
         if p.get("args") != args or newer(res) or newer(Path(args[0]).expanduser()):
             p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 2:
-            s.alerts.append(f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)")
+            a = f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)"
+            if a not in s.alerts:  # every gated server change reaches the one live ship: one alert
+                s.alerts.append(a)
             return
         if act:
             try:

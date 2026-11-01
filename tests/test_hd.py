@@ -1376,7 +1376,7 @@ class R5(Sandbox):
         s.assertEqual((s.state(F, "s1")["state"], F.spawned), ("question open: hold before ship?", []))
         hd.cmd_answer(["s1", "go"])
         hd.tick(s.ctx(F))
-        s.assertEqual([a[1] for a in F.spawned], ["gate"])                      # the answer releases it
+        s.assertEqual((s.state(F, "s1")["actor"], F.spawned), ("dev", []))     # the answer releases it, to the dev first (R3)
 
 
 class R6(Sandbox):
@@ -2376,6 +2376,23 @@ class R3(Sandbox):
         for role in ("dev", "qa", "planner"):
             s.assertIn("root cause", (Path(__file__).parent.parent / ".claude" / "agents" / f"{role}.md").read_text(), role)
 
+    def test_answer_after_handover_makes_a_dev_run(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        s.assertTrue(s.state(F, "h1")["state"].startswith("building"))
+        hd.put("h1", "handover", {**hd.rec("h1", "handover"), "ts": "2000-01-01T00:00:00Z"})   # handed over before the answer
+        hd.cmd_answer(["h1", "Fix first: reuse the gradle volume"])
+        s.assertEqual(s.state(F, "h1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
+        hd.tick(s.ctx(F))
+        run = [r for r in hd.runs() if r["change"] == "h1"][0]
+        s.assertEqual(run["role"], "dev")
+        s.assertIn("Fix first: reuse the gradle volume", (s.root / "state" / "briefs" / f"{run['name']}.md").read_text())
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1"])                                                          # the dev's new hand-over releases the head
+        s.assertTrue(s.state(F, "h1")["state"].startswith("building"))
+
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -2434,8 +2451,8 @@ class R3(Sandbox):
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_answer(["s1", "also do X"])  # the contract grew: the verdict no longer covers it
-        s.assertEqual(s.state(F, "s1")["state"], "review due")
+            hd.cmd_answer(["s1", "also do X"])  # the user's word after the hand-over is the dev's first
+        s.assertEqual(s.state(F, "s1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
         F2 = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": C}})
         s.assertTrue(s.state(F2, "s1")["state"].startswith("dev run due: head ccccccccc"))  # the head moved: the hand-over is stale
 

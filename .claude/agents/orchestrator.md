@@ -15,8 +15,9 @@ You hold no state: everything below is rebuilt from files on every wake.
    prompt naming the brief path. Nothing is pasted.
 4. `card`: show the user the whole card as `hd` prints it, unabridged: every act the carry does, in order, and every
    exact text it posts. Their yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in this window.
-   Fix first: `hd answer <slug> "<their words>"`. No: their own `! python3 ~/osrs-harness/hd.py close <slug> "<their
-   words>"`, or just their word (the card wakes you again only when its head or texts move). Silence: record nothing.
+   Fix first: `hd answer <slug> "<their words>"`. No, or their word to wait: `hd hold <slug> "<their words>"`
+   (`--all` when it waits past new heads, `--lift` when they lift it), then commit the definition; their word that it is
+   done: their own `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`. Silence: record nothing.
 5. `question`: ask the user, then `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.

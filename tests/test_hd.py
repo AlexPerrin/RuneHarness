@@ -731,6 +731,24 @@ class R4(Sandbox):
         F.f["prs"] = None
         s.assertEqual(s.state(F, "s1")["actor"], "unknown")
 
+    def test_the_users_hold_hides_the_card_at_its_head_until_a_new_head_or_the_lift(s):
+        F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F)
+        def hold(*a):
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+                hd.cmd_hold(["s1", *a])
+        hold("not", "yet")
+        s.assertEqual(hd.defs("changes")["s1"]["held"], f"{A}: not yet")
+        s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("held by the user: not yet", "wait"))
+        s.assertEqual(hd.tick(s.ctx(F))["card"], [])
+        F.f["refs"]["fork/dev/s1"] = D; F.f["trees"][D] = TC                     # a new head: the hold lapses, the card shows
+        s.gated("s1", F); s.verdict("s1", D, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual((s.state(F, "s1")["actor"], s.state(F, "s1")["input"]), ("user", D))
+        hold("--all", "after the auth changes")                                  # held at every head until the lift
+        s.assertEqual(s.state(F, "s1")["actor"], "wait")
+        hold("--lift")
+        s.assertNotIn("held", (s.root / "harness" / "changes" / "s1.md").read_text())
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+
     def test_a_release_card_and_its_publish_after_the_yes(s):
         s.change("rel", "client", kind="release", version="0.1.3"); hd.write_contract(hd.cfg(), "rel", "client", "derived")
         (s.root / "evidence" / "rel").mkdir(parents=True, exist_ok=True); (s.root / "evidence" / "rel" / "release-notes.md").write_text("notes")

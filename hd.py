@@ -938,6 +938,9 @@ def public(ctx, ch, head):
     if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
         return step("carrying upstream", "script", act=lambda: None)
     if not approved(ctx, ch, head):
+        at, _, why = str(ch.get("held") or "").partition(": ")
+        if at in ("all", head):  # the user's no or word: no card until a new head or their lift (`hd hold`)
+            return step("held by the user" + (f": {why}" if why else ""), "wait")
         return step("gated; waiting for the user's yes", "user", input=head)
     return step(f"publishing v{ch['version']}" if ch["kind"] == "release" else "carrying upstream", "script",
                 act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd.py"), "ship", slug, head]))
@@ -1571,7 +1574,7 @@ def card(ctx, ch, head):
     lines += ["(each post ends with the Claude Code attribution line)",
               f"verdict at {head[:12]}: {len(v[-1]['rows'])} rows pass (run {v[-1].get('run', '')})" if v else "gated; no judged rows",
               f"evidence {EVID / slug}",
-              f"yes: ! python3 {ROOT}/hd.py approve {slug} {head}    no: ! python3 {ROOT}/hd.py close {slug} <why>"]
+              f"yes: ! python3 {ROOT}/hd.py approve {slug} {head}    no: python3 {ROOT}/hd.py hold {slug} [--all] <why>    close: ! python3 {ROOT}/hd.py close {slug} <why>"]
     return "\n".join(lines)
 
 
@@ -1864,6 +1867,24 @@ def cmd_close(a):
     print(f"{slug} closed")
 
 
+def cmd_hold(a):
+    """R4: `hd hold <slug> [--all|--lift] [<why>]`, the user's no or word: `held: <head|all>` in the definition (the
+    orchestrator commits it); a hold at a head lapses at a new head, --all holds until --lift."""
+    ctx = Ctx()
+    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
+    flag = a[1] if len(a) > 1 and a[1] in ("--all", "--lift") else None
+    why = " ".join(a[2:] if flag else a[1:])
+    f = P(ch["path"])
+    m, body = _frontmatter(f.read_text())
+    m.pop("held", None)
+    if flag != "--lift":
+        at = "all" if flag else ctx.head(ch) or refuse("no head to hold")
+        m["held"] = f"{at}: {why}" if why else at
+    f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False, width=10**6) + "---\n" + body)
+    event(change=ch["slug"], record="hold", held=m.get("held", ""))
+    print(f"{ch['slug']} " + (f"held: {m['held']}" if "held" in m else "lifted"))
+
+
 def cmd_approve(a):
     """R4: the user's yes typed in chat, at the user step only: recorded here, bound to the head and the card's texts."""
     ctx = Ctx()
@@ -1959,7 +1980,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

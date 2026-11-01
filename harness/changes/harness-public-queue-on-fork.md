@@ -1,0 +1,22 @@
+---
+slug: harness-public-queue-on-fork
+track: harness
+title: Upstream PR work is a queue of fork draft PRs the user approves; hd-public
+  carries each approved action upstream
+kind: change
+priority: P0
+deps: []
+created: '2026-11-01T18:57:57Z'
+---
+The user's words (2026-11-01): "fix hd-public. May need to revise the entire public contribution system. I just need a queue of changes to approve, seeing them in fork GitHub is the best representation for me. The harness needs to be able to handle the upstream PR work (drafting, creating, reviews, comments, replys)". Asked how the fork shows the queue, the user chose: "Fork draft PRs, isolated".
+
+Today: approvals are typed as '! hd.py approve <slug> <head>' from cards in the orchestrator's chat; hd-public's upstream path has failed in several ways today (missed the existing PR #354 via 'gh pr list --head owner:branch'; completed without a result record; goblin-367 and Cook's Assistant ships hung silently with empty ship.log, harness-ship-silent-hang); reply-only changes (the three #354 replies) have a separate path never run against real GitHub. This supersedes the standing rule 'no PRs, issues or comments on the fork' for the queue PRs only, as the user chose, under the isolation below.
+
+Acceptance:
+1. The queue: one draft PR on AlexPerrin/OpenRune-Server (and the Central fork) per pending upstream action: open a new upstream PR, update an existing one (push + comment), reply to a review thread, ready, request review. Its base is a fork branch at upstream main; its head is the exact commit to go upstream; its title and body are the exact texts that will be posted (title, body, comment, or reply with the quoted finding), followed by the verdict and evidence summary.
+2. Isolation: a queue PR never names an upstream PR number, commit link or user handle in a way GitHub cross-references (no '#N', no 'OpenRune/...#N', no '@login', no full upstream commit URLs; the texts to post are fenced so GitHub does not link them), so nothing shows on upstream PRs; a test checks the rendered texts for each forbidden form.
+3. Approval: the user approves by an approving review (or a label 'approved') on the queue PR, read by the pass as the observed fact; the yes in chat ('! hd.py approve') keeps working. The approval binds the queue PR's head commit and texts; a change to either withdraws it.
+4. Carry: after approval, hd-public does the upstream action exactly as the queue PR shows it, logging each step to ship.log, and records its result atomically; on success it closes the queue PR with a comment linking nothing upstream (the result, by head sha); on failure it comments the failure on the queue PR and leaves it open.
+5. Upstream work handled end to end: drafting (new PR as draft), creating, updating (no force-push), comments naming the head, replies in review threads (quote + @ only the commenter), ready only when complete (every finding on the PR in the head, CI green), review requests; maintainer comments and reviews arriving on upstream PRs become changes as today (findings()).
+6. One queue PR per complete upstream PR state (per the user: a card is a complete PR); cards in chat become a one-line pointer to the queue PR.
+7. Docs (PROBLEM/PRD/ARCHITECTURE) state the queue as the approval surface; tests cover queue PR creation, approval by review, the carry, the close, and a withdrawn approval on a head change.

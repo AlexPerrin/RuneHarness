@@ -979,6 +979,23 @@ class R4(Sandbox):
             s.ship(F, g)
         s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
 
+    def test_a_finding_answered_with_no_code_is_one_qa_run(s):
+        s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99)
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        s.assertEqual(s.state(F, "s1")["actor"], "script")                      # the seed contract
+        hd.write_contract(hd.cfg(), "s1", "server", "")
+        st = s.state(F, "s1")
+        s.assertEqual((st["actor"], st["mode"], st["state"]), ("qa", "contract", "reply: qa run due"))   # one run, not contract then dev then review
+        s.agreed("s1"); (s.root / "evidence" / "s1" / "pr-reply-99.md").write_text("> reset it\n\n@rev kept.")
+        s.assertEqual(s.state(F, "s1")["actor"], "qa")                          # agreed, no verdict yet: still that run's
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_handover(["s1"])
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertNotIn(s.state(F, "s1")["actor"], ("qa", "dev"))                 # its run done: no dev, no review
+        s.verdict("s1", A, {"ok": "fail: needs code", "j1": "pass"}, F)         # the QA run decides code is needed
+        s.assertEqual(s.state(F, "s1")["actor"], "dev")
+
     def test_an_update_with_a_finding_replaces_the_body_comments_every_commit_and_replies_only_the_answer(s):
         F = Fake(**{**FACTS, "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": 213, "body": "bank?"}]},
                     "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False, "title": "t", "body": "old" + hd.ATTRIBUTION}]}})

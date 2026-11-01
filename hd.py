@@ -1047,6 +1047,8 @@ def nxt(ctx, ch):
     con = contract(slug)
     if con is None:
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else ""))
+    if reply_only(ctx, ch) and not [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]:  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
+        return step("reply: qa run due", "qa", mode="contract", input=[head, con["hash"]])
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
     tools = ctx.tools(ch)

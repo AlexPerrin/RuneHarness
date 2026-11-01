@@ -432,6 +432,8 @@ class Ctx:
                     if (op := rec(c["slug"], "opened") or {}).get("pr") == p["number"]:
                         c["opened"] = op["head"]  # the head the carry opened it at: a rerun there keeps the approved texts
         join(s.changes, lambda d: s.done(d, s.head(d)) is True)
+        s.cycles = cycles(s.changes)  # each one alert; its changes wait on each other, never shown as plain 'waiting on'
+        s.alerts += [f"dependency cycle {' -> '.join(c)}: no change in it can move; remove one of its deps" for c in s.cycles]
 
     def _m(s, k, f):
         if k not in s.memo:
@@ -771,9 +773,27 @@ def outside(ctx, ch, head):
     return out
 
 
+def cycles(changes):
+    """The dependency cycles among open changes, each once, from its least slug: [[a, b, ..., a], ...]."""
+    edges = {k: [d for d in c["deps"] if d in changes and not changes[d].get("closed")] for k, c in changes.items() if not c.get("closed")}
+    found = set()
+
+    def walk(path):  # only through slugs above the start: each cycle is found from its least slug alone
+        for d in edges.get(path[-1], []):
+            if d == path[0]:
+                found.add(tuple(path))
+            elif d > path[0] and d not in path:
+                walk(path + [d])
+    for k in edges:
+        walk([k])
+    return [[*c, c[0]] for c in sorted(found)]
+
+
 def deps_held(ctx, ch):
     """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it. R8: a
     same-track dependency that goes upstream holds until gated (the dependent joins its PR: nothing waits on an upstream merge)."""
+    if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
+        return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
     for d in ch["deps"]:
         dep = ctx.changes.get(d)
         if dep is None:
@@ -1885,6 +1905,11 @@ def cmd_new(a):
     meta["deps"] = [d for d in o.deps.split(",") if d]
     if o.units:
         meta["units"] = o.units.split(",")
+    graph = {**defs("changes"), o.slug: meta}
+    if o.blocks:
+        graph[o.blocks] = {**graph[o.blocks], "deps": [*graph[o.blocks]["deps"], o.slug]}
+    if (cy := [c for c in cycles(graph) if o.slug in c]):
+        refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))
     print(new_def(meta, o.body))
     if o.blocks:  # the blocked change waits on the new one, uncommitted like the definition
         bm, body = _frontmatter(blocked.read_text())

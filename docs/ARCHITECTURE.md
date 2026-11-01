@@ -13,7 +13,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
-                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close` (the user's `!` command fires no hook); a run's SubagentHandback is
+                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close` (the user's `!` command fires no hook); a git commit naming harness/ is denied while the definitions hold a dependency cycle; a run's SubagentHandback is
                   denied while a background command, monitor or subagent it started has no task notification, TaskStop
                   result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
                   kept as evidence/<slug>/subagent-<id>.md; PostToolUse: a run hands off at the context limit; else
@@ -36,7 +36,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd answer <slug> [--waive <row>] <text>` | the orchestrator, with the user's words | an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
-| `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track) |
+| `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle |
 | `hd show <slug>` | the orchestrator | the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead) |
 | `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass, fail or not-judged, appended; refused if a row is missing, or not judged with none failing |

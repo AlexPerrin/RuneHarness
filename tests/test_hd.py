@@ -102,13 +102,15 @@ class Sandbox(unittest.TestCase):
 FACTS = dict(refs={"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
 
 
-def payload(run, agent_id, event, root, last=None, usage=None, context=1000):
+def payload(run, agent_id, event, root, last=None, usage=None, context=1000, handback=None):
     """A hook payload with a transcript whose first message is the one-line prompt naming the brief."""
     tp = root / "state" / f"transcript-{agent_id}.jsonl"
     lines = [{"type": "user", "message": {"role": "user", "content": f"Read and follow {run['brief']}"}}]
     for i in range(usage or 0):
         lines.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": f"turn {i}"}],
                                                         "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": context, "cache_creation_input_tokens": 0}}})
+    if handback:
+        lines.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "SubagentHandback", "input": {"message": handback}}]}})
     tp.write_text("".join(json.dumps(l) + "\n" for l in lines))
     p = {"hook_event_name": event, "agent_id": agent_id, "agent_type": run["role"], "agent_transcript_path": str(tp)}
     if last:
@@ -338,6 +340,29 @@ class R2(Sandbox):
         with mock.patch.object(hook, "start_pass"):
             hook.end_run(p(runs[2], "a3", "SubagentStop", prompt=False))   # the first to stop ends its own run only
         s.assertEqual([bool(r["ended"]) for r in sorted(hd.runs(), key=lambda r: r["name"])], [False, False, True])
+
+    def test_orchestrator_listed_once_per_unanswered_alert(s):
+        s.change("s1", deps=["gone"])                                            # an alert: s1's dependency has no definition
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        orc = [r for r in hd.runs() if r["role"] == "orchestrator"][0]
+        hook.bind(payload(orc, "agO", "SubagentStart", s.root))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run orchestrator-1: nothing to file"))
+        s.change("s2", deps=["lost"])                                            # a second alert: the first is answered
+        hd.tick(s.ctx(F))
+        orc2 = [r for r in hd.runs() if r["role"] == "orchestrator"][1]
+        s.assertEqual(json.loads(orc2["input"])[0:1], ["s2: dependency lost has no definition"])
+        hook.bind(payload(orc2, "agO2", "SubagentStart", s.root))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(orc2, "agO2", "SubagentStop", s.root))           # died without a hand-back: no record
+        s.assertEqual([r["record"] for r in hd.runs() if r["role"] == "orchestrator"], [True, False])   # the hand-back is the record
+        s.change("h1", track="harness", deps=["s2"], body="s2: dependency lost has no definition")   # an open change carries the alert
+        hd.tick(s.ctx(F))
+        s.assertEqual(len([r for r in hd.runs() if r["role"] == "orchestrator"]), 2)
+        s.change("h0", track="harness", closed="answer-1: done")               # a change closes with s1's alert still raised
+        hd.tick(s.ctx(F))
+        s.assertEqual(json.loads([r for r in hd.runs() if r["role"] == "orchestrator"][2]["input"])[0:1], ["s1: dependency gone has no definition"])
 
     def test_orchestrator_record_and_unmatched_stop(s):
         s.change("s1"); s.agreed("s1")

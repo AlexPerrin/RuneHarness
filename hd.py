@@ -725,14 +725,23 @@ def dispatch(ctx, ch, st, act):
 
 def orchestrate(ctx, view, act):
     """The orchestrator run: cross-track planning and monitoring. Listed when the facts call for it: an alert, a goal
-    below target with nothing open, or 50 events since its last run ended (never on time)."""
-    last = max((r for r in ctx.runs if r["role"] == "orchestrator"), key=lambda r: r["listed"], default=None)
+    below target with nothing open, or 50 events since its last run ended (never on time). An alert or goal line is left
+    out while an open change's body carries it or an orchestrator run handed back on it since the last change closed."""
+    orc = [r for r in ctx.runs if r["role"] == "orchestrator"]
+    last = max(orc, key=lambda r: r["listed"], default=None)
     since = ctx.F.events_count() - ((last or {}).get("events_at") or 0)
-    why = sorted({a for a in view["alert"] if not a.startswith(("orchestrator:", "user:"))} | {g for g in view["goal"] if "planning due" in g}
+    st = {k: rec(k, "state") or {} for k in ctx.changes}
+    shut = {k: v.get("ts", "") for k, v in st.items() if ctx.changes[k].get("closed") or v.get("state", "").startswith(("done", "closed"))}
+    closed = max(shut.values(), default="")
+    handled = {a for r in orc if r.get("record") and (r.get("ended") or "") > closed for a in json.loads(r.get("input") or "[]")}
+    carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
+    why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g]
+                  if not a.startswith(("orchestrator:", "user:")) and a not in handled and a not in carried}
                  | ({"fifty events since the last orchestrator run"} if since >= 50 else set()))
     if why:
         pseudo = {"slug": "orchestrator", "track": "harness", "deps": [], "kind": "orchestrator", "priority": "P0", "body": "\n".join(why), "title": "orchestrate"}
-        dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate", input=why), act)
+        dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate",
+                                      input=why + [f"last change closed {closed}"]), act)  # a close re-examines what it left raised
 
 
 def measure(ctx, g, act):

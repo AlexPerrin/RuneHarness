@@ -27,7 +27,7 @@ gh, docker and the process table; a live check reads the real state.
    a server head live on the test server unblocks the client changes depending on it; a passing verdict on a live change marks the units it names, and only then; below target with nothing open an orchestrator run is listed. Live: `hd` shows each goal's
    number with a tree equal to its target's current tree.
 2. **R2** `tests.test_hd.R2`: a change with a live dependency goes from defined to live with no `approve`, `answer` or
-   console call; a closed change lists no run, ends its unspawned ones and leaves T_int, and a closed dependency holds nothing; a fresh dev ref the base contains is neither live nor done until handed over; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input.
+   console call; a closed change lists no run, ends its unspawned ones and leaves T_int, and a closed dependency holds nothing; a fresh dev ref the base contains is neither live nor done until handed over; `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input; an alert an open change carries or an orchestrator hand-back answered lists no orchestrator until a change closes.
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev; a hand-over with a failing
    script row, or whose pushed ref is not the head it names, is refused; a harness hand-over reads its local dev ref, never a pushed one; a script row the user's answer waives is not run; a verdict missing a row is refused; verdicts
    append; a text-only fix leaves the verdict at the same head valid; a gate at T does not hold at T'; a verdict at H

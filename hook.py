@@ -81,7 +81,7 @@ def bind(p):
 
 
 def usage_of(entries):
-    u, last = {"turns": 0, "input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}, ""
+    u, last, handed = {"turns": 0, "input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}, "", False
     for e in entries:
         if e.get("type") != "assistant":
             continue
@@ -91,7 +91,10 @@ def usage_of(entries):
             for k, f in (("input", "input_tokens"), ("output", "output_tokens"), ("cache_read", "cache_read_input_tokens"), ("cache_creation", "cache_creation_input_tokens")):
                 u[k] += us.get(f) or 0
         last = text_of(m) or last
-    return u, last[-500:]
+        for b in m.get("content") or []:  # the hand-back's report is the run's last word
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "SubagentHandback":
+                last, handed = str((b.get("input") or {}).get("message") or ""), True
+    return u, last[-500:], handed
 
 
 def produced(r):
@@ -123,8 +126,9 @@ def end_run(p):
         return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
     if r.get("ended"):
         return
-    u, last = usage_of(transcript(p))
-    r.update(ended=hd.now(), usage=u, last=(p.get("last_assistant_message") or last)[-500:], record=produced(r), events_at=hd.Facts().events_count())
+    u, last, handed = usage_of(transcript(p))
+    rec = produced(r) or (handed and r["role"] == "orchestrator")  # the orchestrator's hand-back is its record, filed or not
+    r.update(ended=hd.now(), usage=u, last=(p.get("last_assistant_message") or last)[-500:], record=rec, events_at=hd.Facts().events_count())
     hd.save_run(r)
     hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
     start_pass()

@@ -1116,8 +1116,10 @@ def tick(ctx=None, act=True):
             view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
         tint, open_prs = {}, set()
         prio, key = order(ctx)
+        hold = ctx.cfg.get("hold")  # R6: the user's word: no run is listed for a change below this band until it is lifted
         for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)
+            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9)
             if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
                 open_prs.add((ch["track"], ch["pr"]))
             if st["actor"] == "ship-test":
@@ -1129,7 +1131,7 @@ def tick(ctx=None, act=True):
                     st["act"]()
                 except RuntimeError as e:
                     view["alert"].append(f"{ch['slug']}: {e}")
-            elif st["actor"] in ("dev", "qa"):
+            elif st["actor"] in ("dev", "qa") and not held:
                 dispatch(ctx, ch, st, act)
             elif st["actor"] == "user":
                 view["card"].append(card(ctx, ch, st))
@@ -1143,8 +1145,8 @@ def tick(ctx=None, act=True):
                 for r in ctx.runs:
                     if r["change"] != ch["slug"] or r.get("ended"):
                         continue
-                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) != due)):
-                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
+                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (held or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) != due)):
+                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {hold}" if held else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
                         if r.get("started"):
                             r["record"] = produced(r)
                             event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])

@@ -456,7 +456,7 @@ class Ctx:
         return None if t is None or tools is None or cen is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)) + (f"-c{cen[:12]}" if cen else "")
 
     def central(s, ch, deps=None):
-        """R8: the Central tree a server build includes (-Popenrune.central.includeBuild): Central's base and the heads of
+        """R8: the Central tree a server build includes (the server tools' central.init.gradle): Central's base and the heads of
         the change's central dependencies (or of `deps`) merged; '' with none; None unknown."""
         ds = [s.changes[d] for d in (ch["deps"] if deps is None else deps) if d in s.changes and s.changes[d]["track"] == "central" and not s.changes[d].get("closed")]
         if ch["track"] != "server" or not ds:

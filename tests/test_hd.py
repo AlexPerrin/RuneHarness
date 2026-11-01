@@ -948,7 +948,7 @@ class R6(Sandbox):
             s.assertTrue(srv["args"][1].startswith("http://") or os.path.exists(srv["args"][1]), srv)   # the backend exists
             r = subprocess.run([str(repo / "mcp" / "devtools_bridge.py"), *srv["args"]], input="".join(json.dumps(m) + "\n" for m in msgs),
                                env={**os.environ, "HOME": str(home), "WINDOWS_SYSTEM32": str(home)}, capture_output=True, text=True)
-            out = [json.loads(l) for l in r.stdout.splitlines()]
+            out = sorted((json.loads(l) for l in r.stdout.splitlines()), key=lambda o: o["id"])   # desktop answers each as it comes
             s.assertEqual([("result" in o, "error" in o) for o in out], [(True, False), (True, False), (False, True)], r.stderr)
             s.assertIn("get_client_state", [t["name"] for t in out[1]["result"]["tools"]])
         shutil.rmtree(home, ignore_errors=True)
@@ -1004,6 +1004,25 @@ class R6(Sandbox):
             s.assertIn("timeout", k); raise sp.TimeoutExpired(a[0], k["timeout"])
         with mock.patch.object(b.subprocess, "run", hang), mock.patch.object(b.urllib.request, "urlopen", side_effect=OSError("refused")):
             s.assertIn("no desktop client answers", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {}})["error"]["message"])
+
+    def test_desktop_screenshot_answers_while_another_call_waits(s):   # central-login-whitelist-binds-3: a screenshot hung 30 min
+        import importlib.util, io, threading
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        shot, out = threading.Event(), []
+        def backend(cmd, method, params):
+            if params["name"] == "wait_for":
+                shot.wait(10)                                          # another run's wait, in flight until the screenshot is answered
+            return {"result": {"content": [{"type": "text", "text": json.dumps({"gameState": "LOGGED_IN", "name": params["name"]})}]}}
+        def reply(i, **r):
+            out.append(i); shot.set() if i == 2 else None
+        call = lambda i, n: json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": n, "arguments": {}}}) + "\n"
+        with mock.patch.object(b, "backend", backend), mock.patch.object(b, "reply", reply), \
+             mock.patch.object(b.sys, "argv", ["bridge", "desktop", "http://127.0.0.1:7780/mcp"]), mock.patch.object(b.sys, "stdin", io.StringIO(call(1, "wait_for") + call(2, "screenshot"))):
+            b.main()
+            for t in threading.enumerate():
+                t is threading.current_thread() or t.join(15)
+        s.assertEqual(out, [2, 1])                                     # the screenshot first, the wait after
 
     def test_harness_changes_dispatch_before_product_changes(s):
         s.change("s1", priority="P0"); s.agreed("s1")

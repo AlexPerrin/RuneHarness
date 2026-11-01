@@ -394,6 +394,20 @@ class R2(Sandbox):
         s.assertTrue(any("ended without a record" in a for a in v["alert"]))
         s.assertTrue(any(x.startswith("planner-") for x in v["spawn"]))  # the alert lists the planner, not the user
 
+    def test_a_listed_spawn_goes_when_its_change_stops_being_due(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)
+        hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1"])
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(c.startswith("s1 ") and "waiting on x1" in c for c in v["change"]))
+        s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])          # the listed run is dropped, not kept
+        s.assertEqual(hd.runs()[0]["reason"], "no longer due")
+        s.change("s1")                                                             # the dep dropped again
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"] if x.startswith("s1-")], ["s1-2"])   # due again: listed afresh
+        s.assertFalse(any("ended without a record" in a for a in v["alert"]))     # an unspawned run is no failed attempt
+
     def test_two_passes_list_a_run_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

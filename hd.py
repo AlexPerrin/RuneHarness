@@ -787,7 +787,7 @@ def dispatch(ctx, ch, st, act):
     if ctx.alive_run(ch) or rec(slug, "ask"):
         return
     inp = json.dumps(st.get("input"), sort_keys=True)
-    same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("ended") and r.get("input") == inp]
+    same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]
     hoff = EVID / slug / "handoff.md"
     if same and not hoff.exists():
         if same[-1].get("record"):
@@ -1023,10 +1023,13 @@ def tick(ctx=None, act=True):
             if (a := rec(ch["slug"], "ask")):
                 view["question"].append(f"{ch['slug']}: {a['text']}")
             last = rec(ch["slug"], "state")
-            if (ch.get("closed") or st["actor"] == "done") and act:  # a done or closed change holds no run, spawned or not
+            if act:  # a done or closed change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
+                due = (st["actor"], json.dumps(st.get("input"), sort_keys=True))
                 for r in ctx.runs:
-                    if r["change"] == ch["slug"] and not r.get("ended"):
-                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done"
+                    if r["change"] != ch["slug"] or r.get("ended"):
+                        continue
+                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and st["actor"] != "unknown" and (r["role"], r["input"]) != due):
+                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else "no longer due"
                         if r.get("started"):
                             r["record"] = produced(r)
                             event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])

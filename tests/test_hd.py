@@ -380,8 +380,8 @@ class R2(Sandbox):
         git("add", "."); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i")
         git("worktree", "add", "-q", "--detach", str(repo / "wt")); os.symlink(repo / "re", repo / "wt" / "re"); real = hd.Facts()
         s.assertFalse(real.edits(str(repo / "wt")))                                    # untracked symlinks only: no one's edits
-        (repo / "wt" / "f").write_text("x"); s.assertTrue(real.edits(str(repo / "wt")))   # an untracked file is
-        (repo / "wt" / "f").unlink(); (repo / "wt" / ".gitignore").write_text("x"); s.assertTrue(real.edits(str(repo / "wt")))  # a tracked edit is
+        (repo / "wt" / "f").write_text("x"); s.assertTrue(hd.Facts().edits(str(repo / "wt")))   # an untracked file is
+        (repo / "wt" / "f").unlink(); (repo / "wt" / ".gitignore").write_text("x"); s.assertTrue(hd.Facts().edits(str(repo / "wt")))  # a tracked edit is
 
     def test_maintainer_inline_comment_files_a_change_once(s):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")
@@ -576,19 +576,76 @@ class R2(Sandbox):
         hd.wake({"spawn": []})
         s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "spawn"])   # a key no longer watched is dropped
 
-    def test_a_bind_racing_a_pass_decides_on_the_run_read_under_the_lock(s):
-        import threading
+    def test_hooks_during_a_long_pass_never_wait_and_their_facts_are_folded(s):
+        """The three cancelled-hook cases: a bind (a57c2d6..., cancelled 5 times), a run dropped 'no longer due' while its
+        agent works (its dev ref appears), a hand-back landing untracked (stop-unmatched) and the deny rules skipped."""
+        import time
         s.change("s1"); s.agreed("s1")
-        hd.tick(s.ctx(Fake(**FACTS)))
+        F = Fake(**{**FACTS, "refs": {"origin/HEAD": B}})                    # no dev ref yet: "dev run due"
+        hd.tick(s.ctx(F))
         r = hd.runs()[0]
-        with hd.lock():                                                 # a pass holds the lock
-            t = threading.Thread(target=hook.bind, args=(payload(r, "agX", "SubagentStart", s.root),))
-            t.start()
-            hd.save_run({**r, "ended": hd.now(), "reason": "no longer due"})   # the pass drops the unstarted run
-        t.join()
-        s.assertEqual([(x.get("started"), x["reason"]) for x in hd.runs()], [(None, "no longer due")])   # the bind wrote nothing over it
+        with hd.lock():                                                    # a pass holds the lock the whole time
+            t0 = time.monotonic()
+            hook.bind(payload(r, "agX", "SubagentStart", s.root))
+            hd.save_run({**r, "ended": hd.now(), "reason": "no longer due"})   # the pass drops the run it read unstarted
+            with mock.patch("sys.stdin", io.StringIO(json.dumps({"hook_event_name": "PreToolUse", "agent_id": "agX", "agent_type": "dev",
+                                                                  "tool_input": {"command": "python3 hd.py approve s1"}}))), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.main()
+            s.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")   # the deny rule ran
+            s.assertLess(time.monotonic() - t0, 1)                         # neither hook waited on the lock
+        s.assertEqual((hd.runs()[0]["agent_id"], hd.runs()[0]["ended"]), ("agX", None))   # the view applies the unfolded fact
+        F.f["refs"]["fork/dev/s1"] = A                                     # its agent creates the dev ref: the step's input moves
+        v = hd.tick(s.ctx(F))
+        saved = json.loads((s.root / "state" / "runs" / f"{r['name']}.json").read_text())
+        s.assertEqual((saved["agent_id"], saved["ended"], saved["reason"]), ("agX", None, None))   # folded: the bound run is live, not dropped
+        s.assertEqual([x.split(" ")[0] for x in v["run"]], [r["name"]]); s.assertEqual(v["spawn"], [])
+        with hd.lock(), mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(r, "agX", "SubagentStop", s.root, usage=1, handback=f"run {r['name']}: handed over {A}"))
+        s.assertFalse(any('"stop-unmatched"' in l for l in open(s.root / "state" / "events.jsonl")))
+        s.assertTrue(hd.runs()[0]["ended"])
+        hd.tick(s.ctx(F))
+        s.assertTrue(json.loads((s.root / "state" / "runs" / f"{r['name']}.json").read_text())["ended"])   # the end folded in
 
-    def test_each_hook_write_racing_a_pass_decides_on_the_run_read_under_the_lock(s):
+    def test_a_pass_reads_the_world_outside_the_lock_and_holds_it_for_milliseconds(s):
+        import fcntl, threading, time
+        s.change("s1"); s.agreed("s1")
+        def free():
+            with open(s.root / "state" / ".lock", "w") as f:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB); return True
+                except BlockingIOError:
+                    return False
+        reads = []; (s.root / "state").mkdir(exist_ok=True)
+        class Slow(Fake):
+            @hd._read
+            def rev(s_, clone, ref):                                       # a slow git read, memoised as the real one is
+                time.sleep(0.05); reads.append(free()); return Fake.rev(s_, clone, ref)
+        F = Slow(**FACTS)
+        t = threading.Thread(target=hd.tick, args=(s.ctx(F),)); t.start()
+        time.sleep(0.02)
+        s.assertTrue(free())                                               # the pass is reading: the lock is free
+        t.join()
+        s.assertTrue(reads); s.assertTrue(all(reads))                      # every read ran outside the lock, once
+        s.assertEqual([r["name"] for r in hd.runs()], ["s1-1"])
+
+    def test_a_pass_streams_the_events_file(s):
+        import tracemalloc
+        s.change("s1"); s.agreed("s1")
+        (s.root / "state").mkdir(exist_ok=True)
+        line = json.dumps({"ts": "2026-11-01T00:00:00Z", "change": "x", "state": "y" * 300}) + "\n"
+        with open(s.root / "state" / "events.jsonl", "w") as f:
+            f.write(line * 60000)                                          # 20 MB, the rotation size
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        hook.bind(payload(hd.runs()[0], "ag1", "SubagentStart", s.root))
+        tracemalloc.start()
+        for _ in range(3):
+            hd.tick(s.ctx(F)); hd.produced(hd.runs()[0])
+        peak = tracemalloc.get_traced_memory()[1]; tracemalloc.stop()
+        s.assertLess(peak, 20_000_000)                                     # the file is never held, nor re-read per call
+
+    def test_each_hook_fact_racing_a_pass_folds_over_the_pass_write(s):
         import io, contextlib
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))
@@ -597,16 +654,13 @@ class R2(Sandbox):
         (s.root / "state" / "s1").mkdir(exist_ok=True)
         (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop1:7780"}')
         bound = hd.runs()[0]
-        real = hd.lock
-        class passed(real):                       # the pass saves after the hook's first read, before the hook gets the lock
-            def __enter__(x):
-                hd.save_run({**bound, **x.write})
-                return real.__enter__(x)
-        def race(call, write):
+        def race(call, write):                    # the hook appends its fact; the pass, having read the run before it, saves; then folds
             hd.save_run(bound)
-            with mock.patch.object(hd, "lock", type("p", (passed,), {"write": write})), mock.patch.object(hook, "start_pass"), \
-                    contextlib.redirect_stdout(io.StringIO()):
+            with mock.patch.object(hook, "start_pass"), contextlib.redirect_stdout(io.StringIO()):
                 call()
+            hd.save_run({**bound, **write})
+            with hd.lock():
+                hd.fold()
             return hd.runs()[0]
         r = race(lambda: hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=2, handback="run s1-1: handoff")),
                  {"ended": hd.now(), "reason": "stopped"})
@@ -1042,6 +1096,18 @@ class R7(Sandbox):
 
 
 class R5(Sandbox):
+    LIVE = hd.P(hd.yaml.safe_load((Path(__file__).resolve().parents[1] / "hd.yaml").read_text())["repos"]["harness"]["path"])
+
+    @unittest.skipUnless((LIVE / "state" / "runs").is_dir(), "no live state on this machine")
+    def test_a_pass_on_the_live_state_stays_under_200_mb(s):
+        """The pass process's own peak (its builds and gates run in their own scopes), on the live state, dry."""
+        code = ("import resource, sys; sys.path.insert(0, sys.argv[1]); import hd; hd.tick(act=False); "
+                "print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)")
+        out = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve().parents[1])], env={**os.environ, "HD_ROOT": str(s.LIVE)},
+                             capture_output=True, text=True, timeout=600)
+        s.assertEqual(out.returncode, 0, out.stderr[-500:])
+        s.assertLess(int(out.stdout.split()[-1]), 200 * 1024)            # ru_maxrss in KiB
+
     def started(s, F, slug):
         hd.tick(s.ctx(F))
         run = [r for r in hd.runs() if r["change"] == slug][-1]

@@ -19,6 +19,8 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
+Every write is a fact appended to state/facts.jsonl (hd.fact), folded into the run records by the pass under its lock:
+a hook never takes the lock, never waits on a pass. The deny rules run first and read only definitions and the command.
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
 """
 import json, re, subprocess, sys, time
@@ -69,37 +71,25 @@ def find_run(p):
     aid = p.get("agent_id")
     idx = hd.STATE / "runs" / "by-agent" / str(aid)
     if aid and idx.exists():
-        f = hd.STATE / "runs" / f"{idx.read_text()}.json"
-        if f.exists():
-            return json.loads(f.read_text())
+        if (r := hd.runs(idx.read_text())):
+            return r[0]
     name = brief_in(transcript(p))
-    return next((r for r in hd.runs() if name and r["name"] == name and not r.get("ended")), None)
+    return next((r for r in (hd.runs(name) if name else []) if not r.get("ended") or not r.get("started")), None)
 
 
 def bind(p):
+    """R2: the binding is a fact appended to state/facts.jsonl (the pass folds it under its lock): never a wait on the pass."""
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
-    if not r or r.get("started") and (not r.get("ended") or r.get("reason")):  # nothing to write: no lock on each tool call
-        return
-    with hd.lock():  # R5: a pass reads and saves runs under the same lock: decide on the run read under it
-        bind_locked(p)
-
-
-def bind_locked(p):
-    r = find_run(p)
     if r and r.get("ended") and not r.get("reason") and r.get("agent_id") == p["agent_id"]:   # resumed after its hand-back
-        r["ended"] = None
-        hd.save_run(r)
+        hd.fact(fact="resumed", run=r["name"], agent_id=p["agent_id"])
         return hd.event(change=r["change"], run=r["name"], action="resumed")
-    if not r or r.get("started"):
+    if not r or r.get("started"):   # nothing to write on each tool call
         return
     cpid, cstart = hd.Facts().console()
-    r.update(started=hd.now(), started_at=time.time(), agent_id=p["agent_id"], transcript=agent_transcript(p),
-             console_pid=cpid, console_start=cstart)
-    hd.save_run(r)
-    (hd.STATE / "runs" / "by-agent").mkdir(exist_ok=True)
-    (hd.STATE / "runs" / "by-agent" / p["agent_id"]).write_text(r["name"])
+    hd.write(hd.STATE / "runs" / "by-agent" / p["agent_id"], r["name"])
+    hd.fact(fact="bind", run=r["name"], agent_id=p["agent_id"], transcript=agent_transcript(p), console_pid=cpid, console_start=cstart, at=time.time())
     hd.event(change=r["change"], run=r["name"], action="started")
 
 
@@ -172,13 +162,6 @@ def start_pass():
 
 def end_run(p):
     entries = transcript(p)
-    with hd.lock():   # R5: every hook write of a run decides on the run read under the pass's lock
-        ended = end_locked(p, entries)
-    if ended:
-        start_pass()
-
-
-def end_locked(p, entries):
     r = find_run(p)
     if not r:
         return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
@@ -191,15 +174,13 @@ def end_locked(p, entries):
             f"Your background command(s) {', '.join(ids)} are still running. Never end a turn on your own work: block on it in the "
             "foreground with one until-loop on an observable fact (its output file, a log line, a port). A step that cannot "
             "finish (a hang, a refused login) is an error: stop it and hand back."}))
-    r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
+    rec = handed and bool(hd.produced(r) or r["role"] == "planner")  # the planner's hand-back is its record, filed or not
     if handed:   # an idle stop leaves the run live
-        rec = hd.produced(r) or r["role"] == "planner"  # the planner's hand-back is its record, filed or not
-        r.update(ended=hd.now(), record=rec)
         keep_answers(p, r, entries)
-    hd.save_run(r)
+    hd.fact(fact="end", run=r["name"], usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:], handed=handed, record=rec)
     if handed:
-        hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
-    return True
+        hd.event(change=r["change"], run=r["name"], action="ended", record=rec, turns=u["turns"])
+    start_pass()
 
 
 def deny_users_word(p):
@@ -249,16 +230,12 @@ def context_limit(p):
     if p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
-    if not r or r.get("handoff_told"):   # nothing to write: no lock on each tool call
+    if not r or r.get("handoff_told"):
         return
     size = context_of(agent_transcript(p))
     if size < hd.cfg().get("context_limit", 150000):
         return
-    with hd.lock():
-        if not (r := find_run(p)) or r.get("handoff_told"):
-            return
-        r["handoff_told"] = size
-        hd.save_run(r)
+    hd.fact(fact="context-limit", run=r["name"], tokens=size)
     hd.event(change=r["change"], run=r["name"], action="context-limit", tokens=size)
     ch = hd.defs("changes").get(r["change"]) or {}
     dev = hd.TRACK.get(ch.get("track"), {}).get("dev", "").format(slug=r["change"])
@@ -283,29 +260,26 @@ IDLE_CALLS = 10   # tool calls with desktops up and none played in them: the run
 
 def idle_desktops(p):
     """R6: a run keeps desktops up only while it plays in them; a stretch of other tool calls is told once."""
-    if p.get("agent_type") not in ROLES or not (r := find_run(p)) or r.get("ended") or not (hd.STATE / r["change"] / "up.json").exists():
-        return   # nothing to write: no lock on each tool call
-    with hd.lock():
-        return idle_locked(p)
-
-
-def idle_locked(p):
-    if not (r := find_run(p)) or r.get("ended"):
+    if p.get("agent_type") not in ROLES or not (r := find_run(p)) or r.get("ended"):
         return
-    up = hd.STATE / r["change"] / "up.json"
+    up, mine = hd.STATE / r["change"] / "up.json", hd.STATE / "runs" / "by-agent" / f"{p['agent_id']}.idle"
     try:
         mark, desktops = up.stat().st_mtime_ns, json.loads(up.read_text()).get("desktops")
     except (OSError, ValueError):
         return
     if not desktops:
         return
+    try:   # the count is the agent's own (no run record written on each tool call)
+        r = {**r, **json.loads(mine.read_text())}
+    except (OSError, ValueError):
+        pass
     if r.get("play_mark") != mark or (p.get("tool_name") or "").startswith("mcp__osrs-devtools-desktop__"):
         r.update(play_mark=mark, idle_calls=0, idle_told=False)
     else:
         r["idle_calls"] = r.get("idle_calls", 0) + 1
     tell = r["idle_calls"] >= IDLE_CALLS and not r["idle_told"]
     r["idle_told"] = r["idle_told"] or tell
-    hd.save_run(r)
+    hd.write(mine, json.dumps({k: r[k] for k in ("play_mark", "idle_calls", "idle_told")}))
     if tell:
         hd.event(change=r["change"], run=r["name"], action="desktops-idle", desktops=desktops)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
@@ -317,7 +291,7 @@ def idle_locked(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), deny_dep_cycle(p), hold_handback(p)),"PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": bind, "PreToolUse": lambda p: (deny_users_word(p), deny_dep_cycle(p), hold_handback(p), bind(p)), "PostToolUse": lambda p: context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, subprocess, sys, tempfile, time
+import fcntl, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -31,6 +31,13 @@ def cfg():
 
 
 # ---------------------------------------------------------------- facts (P1: an unknown fact is None, never False)
+def _read(f):
+    """R5: a read of the world, done once per pass (the Facts memo): the pass gathers it outside the state lock and decides on it under it."""
+    def g(s, *a):
+        return s._m((f.__name__, *a), lambda: f(s, *a))
+    return g
+
+
 class Facts:
     """Every read of the outside world, memoised per pass. Tests replace it with a dict-driven Fake."""
 
@@ -41,6 +48,15 @@ class Facts:
         if key not in s.memo:
             s.memo[key] = f()
         return s.memo[key]
+
+    def forget(s, *names):
+        """After a write, the reads it changed (their keys name a repo or worktree path, or a read's name) are read again."""
+        s.memo = {k: v for k, v in s.memo.items() if not any(n in k for n in names)}
+
+    @_read
+    def git(s, clone, *args):
+        """A git read the decisions use (an identity, the current branch)."""
+        return s.sh(["git", "-C", clone, *args])
 
     def sh(s, args, cwd=None, env=None, timeout=600):
         try:
@@ -57,11 +73,13 @@ class Facts:
             return ok
         return s._m(("fetch", clone, remote), f)
 
+    @_read
     def rev(s, clone, ref):
         """sha | '' (no such ref) | None (unknown)."""
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", ref + "^{commit}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
 
+    @_read
     def resolutions(s, clone, h7):
         """R8: [(fork ref local/merge/<a7>-<b7>, the other side's 7)] for every recorded resolution naming h7 on one side; None unknown."""
         r = s.sh(["git", "-C", clone, "for-each-ref", "--format=%(refname:short)", "refs/remotes/fork/local/merge/"])
@@ -74,6 +92,7 @@ class Facts:
                 out.append((ref, b if a == h7 else a))
         return out
 
+    @_read
     def contains(s, clone, tip, sha):
         if not tip or not sha:
             return None if tip is None else False
@@ -87,6 +106,7 @@ class Facts:
             return None if r is None or r[0] else frozenset(r[1].split())
         return s._m(("unmerged", clone, base, head), f)
 
+    @_read
     def worktrees(s, repo):
         """[(path, branch or '')] of a repo's worktrees, after pruning those whose directory is gone; None unknown."""
         s.sh(["git", "-C", repo, "worktree", "prune"])
@@ -101,6 +121,7 @@ class Facts:
                 out[-1][1] = l[18:]
         return [tuple(w) for w in out]
 
+    @_read
     def edits(s, wt):
         """True when a worktree holds someone's edits: any status entry but an untracked symlink (a link to a shared
         dir, which a dir-only ignore rule like `re/` misses); None unknown."""
@@ -117,6 +138,7 @@ class Facts:
         line = s._m(("line", clone, tip), f)
         return None if line is None else sha in line
 
+    @_read
     def tree(s, clone, commit, drop=""):
         """The commit's tree sha; with drop, a key of its tree without that top-level entry (the harness repo's harness/)."""
         if not drop:
@@ -178,11 +200,13 @@ class Facts:
         r = s.sh(["git", "-C", wt, "rebase", "-q", onto], env=GIT_ENV)
         if r is None:
             return None
+        s.forget(repo, wt)
         if r[0]:
             s.sh(["git", "-C", wt, "rebase", "--abort"])
             return "conflict", (r[1] + r[2])[-2000:]
         return "ok", s.rev(wt, "HEAD")
 
+    @_read
     def blob(s, clone, ref, path):
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", f"{ref}:{path}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
@@ -214,7 +238,10 @@ class Facts:
 
     def spawn(s, args, log, env=None):
         Path(log).parent.mkdir(parents=True, exist_ok=True)
-        p = subprocess.Popen(args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
+        if not shutil.which(args[0]):
+            raise FileNotFoundError(f"No such file or executable: {args[0]}")
+        scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--"] if shutil.which("systemd-run") else []  # R5: builds and gates outside the pass's cgroup; the scope execs the command, so the pid is the script's
+        p = subprocess.Popen(scope + args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
                              stderr=subprocess.STDOUT, start_new_session=True)
         return p.pid, s.proc_start(p.pid)
 
@@ -223,17 +250,20 @@ class Facts:
         r = s.sh(["bash", "-c", cmd], cwd=cwd, env=env, timeout=3600)
         return (1, "could not run") if r is None else (r[0], (r[1] + r[2])[-4000:])
 
+    @_read
     def release(s, repo, tag):
         """{tag} when the release exists, {} when not, None when GitHub cannot be read."""
         r = s.sh(["gh", "release", "view", tag, "-R", repo, "--json", "tagName"], timeout=120)
         return None if r is None else {"tag": tag} if r[0] == 0 else {} if "release not found" in r[2] else None
 
+    @_read
     def review_comments(s, repo, pr):
         """R2: the PR's inline review comments [{id, author, bot, reply, path, line, body}], or None when GitHub cannot be read."""
         jq = '.[] | {id, author: .user.login, bot: (.user.type == "Bot"), reply: .in_reply_to_id, path, line: (.line // .original_line), body}'
         r = s.sh(["gh", "api", "--paginate", f"repos/{repo}/pulls/{pr}/comments", "--jq", jq], timeout=120)
         return None if r is None or r[0] else [json.loads(l) for l in r[1].splitlines() if l.strip()]
 
+    @_read
     def pr_comments(s, repo, pr):
         """R4: the PR's conversation comments and reviews [{id, author, body, at}] (a review's id is `PRR_`), or None when GitHub cannot be read."""
         r = s.sh(["gh", "pr", "view", str(pr), "-R", repo, "--json", "comments,reviews"], timeout=120)
@@ -243,6 +273,7 @@ class Facts:
         return [{"id": c["id"], "author": (c.get("author") or {}).get("login", ""), "body": c.get("body") or "", "at": c.get("createdAt") or c.get("submittedAt") or ""}
                 for c in (v.get("comments") or []) + (v.get("reviews") or [])]
 
+    @_read
     def open_prs(s, repo):
         """R4: the open PRs of an upstream repo [{number, branch, owner, head, draft, title, body}], None unknown."""
         r = s.sh(["gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json",
@@ -252,11 +283,13 @@ class Facts:
         return [{"number": p["number"], "branch": p["headRefName"], "owner": (p.get("headRepositoryOwner") or {}).get("login", ""),
                  "head": p["headRefOid"], "draft": p["isDraft"], "title": p.get("title"), "body": p.get("body")} for p in json.loads(r[1] or "[]")]
 
+    @_read
     def containers(s):
         """{name: state} of every docker container, or None when docker cannot be reached."""
         r = s.sh(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"], timeout=60)
         return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
 
+    @_read
     def orchestrator(s):
         """R2: the pid of the orchestrator session (a `claude --agent orchestrator` process), or None: the process table is the fact."""
         for d in Path("/proc").glob("[0-9]*"):
@@ -428,9 +461,87 @@ def verdicts(slug):
     return [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
 
 
-def runs():
-    d = STATE / "runs"
-    return [json.loads(f.read_text()) for f in sorted(d.glob("*.json")) if not f.name.startswith(".")] if d.exists() else []
+def runs(only=None, pending=True):
+    """R5: the run records with the hooks' facts not yet folded applied: the offset is read before the records, which
+    the fold writes before it, so a fact is never missed (one applied twice sets what it set)."""
+    off, d = fact_offset(), STATE / "runs"   # the offset first
+    fs = [d / f"{only}.json"] if only else sorted(d.glob("[!.]*.json")) if d.exists() else []
+    rs = {}
+    for f in fs:
+        try:
+            r = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        rs[r["name"]] = r
+    for e in facts_since(off)[0] if pending else []:
+        apply_fact(rs.get(e.get("run")), e)
+    return list(rs.values())
+
+
+def fact(**e):
+    """R2: a hook's fact (bind, resumed, end, context-limit), one O_APPEND write: a hook never waits on the pass."""
+    STATE.mkdir(parents=True, exist_ok=True)
+    fd = os.open(STATE / "facts.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (json.dumps({"ts": now(), **e}, sort_keys=True) + "\n").encode())
+    finally:
+        os.close(fd)
+
+
+def fact_offset():
+    try:
+        return int((STATE / "facts.offset").read_text())
+    except (OSError, ValueError):
+        return 0
+
+
+def facts_since(off):
+    """The complete fact lines past off, and the offset after them."""
+    # shortcut: facts.jsonl is never rotated (a few lines per run, read from the offset); rotate under the lock if it ever grows large
+    out = []
+    try:
+        with open(STATE / "facts.jsonl", "rb") as f:
+            f.seek(off)
+            for l in f:
+                if not l.endswith(b"\n"):
+                    break
+                off += len(l)
+                try:
+                    out.append(json.loads(l))
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    return out, off
+
+
+def apply_fact(r, e):
+    """A fact sets what it states on its run, in the order the facts were written."""
+    if r is None:
+        return
+    k = e["fact"]
+    if k == "bind" and not r.get("started"):  # a bound run is a run: a pass that dropped it unstarted is overruled by its agent
+        r.update({x: e[x] for x in ("agent_id", "transcript", "console_pid", "console_start")}, started=e["ts"], started_at=e["at"], ended=None, reason=None)
+    elif k == "resumed" and r.get("ended") and not r.get("reason") and r.get("agent_id") == e["agent_id"]:
+        r["ended"] = None
+    elif k == "end" and not r.get("reason"):
+        r.update(usage=e["usage"], last=e["last"])
+        if e["handed"]:
+            r.update(ended=e["ts"], record=e["record"])
+    elif k == "context-limit" and not r.get("handoff_told"):
+        r["handoff_told"] = e["tokens"]
+
+
+def fold():
+    """R5: under the lock, the hooks' facts become the run records, then the offset moves past them."""
+    rs = {r["name"]: r for r in runs(pending=False)}
+    facts, off = facts_since(fact_offset())
+    for e in facts:
+        apply_fact(rs.get(e.get("run")), e)
+    for name in {e.get("run") for e in facts} & set(rs):
+        save_run(rs[name])
+    if facts:
+        write(STATE / "facts.offset", str(off))
 
 
 def save_run(r):
@@ -443,6 +554,37 @@ def event(**e):
         f.write(json.dumps({"ts": now(), **e}, sort_keys=True) + "\n")
     if (STATE / "events.jsonl").stat().st_size > 20_000_000:
         os.replace(STATE / "events.jsonl", STATE / "events.1.jsonl")
+
+
+_EV = {}
+
+
+def evs(needle):
+    """R5: the events whose line holds needle (bytes), streamed from where this process last read: each byte read once,
+    only the matches held."""
+    f = STATE / "events.jsonl"
+    try:
+        st = f.stat()
+    except OSError:
+        return []
+    key = (str(f), st.st_dev, st.st_ino, needle)
+    off, got = _EV.get(key, (0, []))
+    if st.st_size < off:  # rewritten in place
+        off, got = 0, []
+    if st.st_size > off:
+        with open(f, "rb") as h:
+            h.seek(off)
+            for l in h:
+                if not l.endswith(b"\n"):
+                    break
+                off += len(l)
+                if needle in l:
+                    try:
+                        got.append(json.loads(l))
+                    except ValueError:
+                        pass
+    _EV[key] = (off, got)
+    return got
 
 
 WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
@@ -1192,7 +1334,7 @@ def brief(ctx, ch, st, name, role):
     root = track_root(ctx.cfg, ch["track"])
     base = TRACK[ch["track"]]["base"]
     if base == "HEAD":  # the harness base: name the live checkout's branch, not a ref every clone reads as its own
-        r = ctx.F.sh(["git", "-C", ctx.clone(ch), "branch", "--show-current"])
+        r = ctx.F.git(ctx.clone(ch), "branch", "--show-current")
         base = (r and r[0] == 0 and r[1].strip()) or base
     v = verdicts(ch["slug"]) if ch.get("path") else []
     lines = [f"# {role} run {name}: {ch['slug']} ({ch['track']}, {st.get('mode', role)})", "",
@@ -1247,9 +1389,7 @@ def unlistable(ctx, ch, st):
         return None
     last = same[-1]
     if last.get("record") and not last.get("handoff_told"):
-        f = STATE / "events.jsonl"
-        deps = [e["dep"] for e in map(json.loads, f.read_text().splitlines() if f.exists() else []) if e.get("change") == slug
-                and e.get("action") == "dep" and last["started"] <= e["ts"] <= last["ended"]]
+        deps = [e["dep"] for e in evs(b'"action": "dep"') if e.get("change") == slug and e.get("action") == "dep" and last["started"] <= e["ts"] <= last["ended"]]
         if not deps:  # the record exists and the facts still want this step: another run would change nothing
             return f"{slug}: {role} run {last['name']} handed back its record, yet its step is still due on the same input: no run is listed"
     tail = same[max([i for i, r in enumerate(same) if r.get("record") or r.get("handoff_told")] + [-1]) + 1:]
@@ -1375,6 +1515,7 @@ def repair(ctx, slug, name, args, check, act):
     if not act:
         return
     ctx.F.sh(args, timeout=120)
+    ctx.F.forget("containers")
     if check():
         drop(slug, f"repair-{name}")
         event(change=slug, action=name)
@@ -1389,12 +1530,13 @@ def repairs(ctx, act):
     missing tools worktree; give a repo without the noreply identity that identity (its worktrees share it)."""
     for name, r in ctx.cfg["repos"].items():
         p = str(P(r["path"]))
-        if act and (ctx.F.sh(["git", "-C", p, "config", "user.email"]) or [1, ""])[1].strip() != AUTHOR[1]:
+        if (ctx.F.git(p, "config", "user.email") or [1, ""])[1].strip() != AUTHOR[1] and act:
             for k, v in zip(("user.name", "user.email"), AUTHOR):
                 ctx.F.sh(["git", "-C", p, "config", k, v])
         wt = tools_wt(r)
         if wt and not wt.exists() and act:
             ok = ctx.F.sh(["git", "-C", str(P(r["path"])), "worktree", "add", str(wt), r["tools"]])
+            ctx.F.forget(str(P(r["path"])))
             if ok and ok[0] == 0:
                 event(action="worktree", repo=name)
             else:
@@ -1417,9 +1559,8 @@ def repairs(ctx, act):
 def produced(r):
     """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
     hand-over, verdict, question, agreed contract or filed change."""
-    slug, f = r["change"], STATE / "events.jsonl"
-    ev = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
-    since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in ev if e.get("change") == slug and e.get("record") == "answer"])
+    slug = r["change"]
+    since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in evs(b'"record": "answer"') if e.get("change") == slug and e.get("record") == "answer"])
     newer = lambda ts: ts >= since and ts > answered
     if any(x and newer(x["ts"]) for x in (rec(slug, "handover"), rec(slug, "ask"))):
         return True
@@ -1428,7 +1569,7 @@ def produced(r):
     con = contract(slug)
     if con and con["agreed"] == r["name"]:
         return True
-    return any(e.get("action") == "new" and newer(e["ts"]) for e in ev)
+    return any(e.get("action") == "new" and newer(e["ts"]) for e in evs(b'"action": "new"'))
 
 
 def close_branches(ctx, ch, act):
@@ -1457,6 +1598,7 @@ def close_branches(ctx, ch, act):
             if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path):
                 force = ["--force"] if wt.endswith("-build") or ctx.F.edits(wt) is False else []  # a build copy is the loop's
                 ctx.F.sh(["git", "-C", path, "worktree", "remove", *force, wt])
+                ctx.F.forget(path)
         wts = ctx.F.worktrees(path) or []
         left += [f"{path}: worktree {wt}" for wt, b in wts if wt in (f"{path}/.worktrees/{slug}", f"{path}/.worktrees/{slug}-build") or (b in bs and wt != path)]
         base = "HEAD" if name == "harness" else "origin/HEAD"
@@ -1471,6 +1613,7 @@ def close_branches(ctx, ch, act):
                 left.append(f"{path}: {b} at {tip[:9]} is held by no live branch")
                 continue
             ctx.F.sh(["git", "-C", path, "branch", "-D", b])
+            ctx.F.forget(path)
             if ctx.F.rev(path, b):
                 left.append(f"{path}: {b} not deleted")
     if not left:
@@ -1508,83 +1651,92 @@ def order(ctx):
 
 
 def tick(ctx=None, act=True):
-    """One pass under the state lock → the view for `hd`."""
+    """R5: one pass → the view for `hd`. A dry pass gathers every read of the world (git, GitHub, docker) into the Facts
+    memo outside the state lock; under it the pass folds the hooks' facts, re-reads the state, decides and writes."""
     ctx = ctx or Ctx()
-    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
+    if not act:
+        return _pass(ctx, False)
+    _pass(ctx, False)
     with lock():
+        fold()
         ctx.__init__(ctx.F, ctx.cfg)  # R2: decide on the state read under the lock, never on what was read while waiting for it
-        repairs(ctx, act)
-        view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
-        for g in ctx.goals.values():
-            view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
-        tint, open_prs = {}, set()
-        prio, key = order(ctx)
-        due = []  # R6: a due run holds the tiers below only until it is listed; one alive or listed holds nothing, one the pass cannot list is an alert
-        for k, c in ctx.changes.items():
-            if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")) and not ctx.alive_run(c):
-                if (why := unlistable(ctx, c, st)) and why not in ctx.alerts:
-                    ctx.alerts.append(why)
-                due += [] if why else [prio[k]]
-        hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
-        for ch in sorted(ctx.changes.values(), key=key):
-            st = work = nxt(ctx, ch)
-            if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
-                open_prs.add((ch["track"], ch["pr"]))
-            dues = {(st["actor"], json.dumps(st.get("input"), sort_keys=True))}
-            if st["actor"] == "ship-test" or st.get("deploy"):  # R8: the test server deploy, beside the card and the ship, holding neither
-                if "v" not in tint:
-                    tint["v"] = integration(ctx)  # once per pass
-                dst = st if st["actor"] == "ship-test" else step("test server deploy pending", "ship-test")
-                ship_test(ctx, ch, dst, tint["v"], act)
-                work = dst if dst["actor"] in ("dev", "qa") else st
-                if dst is not st:
-                    st = {**st, "state": f"{st['state']}; {dst['state']}"}
-                    dues.add((dst["actor"], json.dumps(dst.get("input"), sort_keys=True)))
-            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], work["actor"])
-            banded = held and PRIO.get(prio[ch["slug"]], 9) > PRIO.get(ctx.cfg.get("hold"), 9)  # only the user's band drops a listed run; the tier hold lists no new one
-            if work["actor"] in ("dev", "qa") and not held:  # R6: the one dispatch of a change's agent step, its pin conflict's included
-                dispatch(ctx, ch, work, act)
-            if st["actor"] == "script" and act:
-                try:
-                    st["act"]()
-                except RuntimeError as e:
-                    view["alert"].append(f"{ch['slug']}: {e}")
-            elif st["actor"] == "user":
-                view["card"].append(card(ctx, ch, st["input"]))
-            elif st["actor"] == "alert":
-                view["alert"].append(f"{ch['slug']}: {st['state']}")
-            if (a := rec(ch["slug"], "ask")):
-                view["question"].append(f"{ch['slug']}: {a['text']}")
-            last = rec(ch["slug"], "state")
-            if act:  # a done or closed change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
-                for r in ctx.runs:
-                    if r["change"] != ch["slug"] or r.get("ended"):
-                        continue
-                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
-                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
-                        if r.get("started"):
-                            r["record"] = produced(r)
-                            event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
-                        save_run(r)
-            if st["actor"] == "done":
-                close_branches(ctx, ch, act)
-            if st["actor"] != "done" or not last or last["state"] != st["state"]:
-                view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
-            if act and (not last or last["state"] != st["state"]):
-                put(ch["slug"], "state", {"state": st["state"]})
-                event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
-        findings(ctx, open_prs, act)
-        view["alert"] += ctx.alerts
-        plan(ctx, view, act)
-        if not ctx.F.orchestrator():
-            view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
-        for r in ctx.runs:
-            if not r.get("ended"):
-                (view["spawn"] if not r.get("started") else view["run"]).append(
-                    f"{r['name']}: Agent(subagent_type=\"{r['role']}\", prompt=\"Read and follow {r['brief']}\")" if not r.get("started")
-                    else f"{r['name']} ({r['role']}, {r['change']}) since {r['started']}")
-        if act:
-            wake(view)
+        return _pass(ctx, True)
+
+
+def _pass(ctx, act):
+    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
+    repairs(ctx, act)
+    view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
+    for g in ctx.goals.values():
+        view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
+    tint, open_prs = {}, set()
+    prio, key = order(ctx)
+    due = []  # R6: a due run holds the tiers below only until it is listed; one alive or listed holds nothing, one the pass cannot list is an alert
+    for k, c in ctx.changes.items():
+        if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")) and not ctx.alive_run(c):
+            if (why := unlistable(ctx, c, st)) and why not in ctx.alerts:
+                ctx.alerts.append(why)
+            due += [] if why else [prio[k]]
+    hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
+    for ch in sorted(ctx.changes.values(), key=key):
+        st = work = nxt(ctx, ch)
+        if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
+            open_prs.add((ch["track"], ch["pr"]))
+        dues = {(st["actor"], json.dumps(st.get("input"), sort_keys=True))}
+        if st["actor"] == "ship-test" or st.get("deploy"):  # R8: the test server deploy, beside the card and the ship, holding neither
+            if "v" not in tint:
+                tint["v"] = integration(ctx)  # once per pass
+            dst = st if st["actor"] == "ship-test" else step("test server deploy pending", "ship-test")
+            ship_test(ctx, ch, dst, tint["v"], act)
+            work = dst if dst["actor"] in ("dev", "qa") else st
+            if dst is not st:
+                st = {**st, "state": f"{st['state']}; {dst['state']}"}
+                dues.add((dst["actor"], json.dumps(dst.get("input"), sort_keys=True)))
+        held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], work["actor"])
+        banded = held and PRIO.get(prio[ch["slug"]], 9) > PRIO.get(ctx.cfg.get("hold"), 9)  # only the user's band drops a listed run; the tier hold lists no new one
+        if work["actor"] in ("dev", "qa") and not held:  # R6: the one dispatch of a change's agent step, its pin conflict's included
+            dispatch(ctx, ch, work, act)
+        if st["actor"] == "script" and act:
+            try:
+                st["act"]()
+            except RuntimeError as e:
+                view["alert"].append(f"{ch['slug']}: {e}")
+        elif st["actor"] == "user":
+            view["card"].append(card(ctx, ch, st["input"]))
+        elif st["actor"] == "alert":
+            view["alert"].append(f"{ch['slug']}: {st['state']}")
+        if (a := rec(ch["slug"], "ask")):
+            view["question"].append(f"{ch['slug']}: {a['text']}")
+        last = rec(ch["slug"], "state")
+        if act:  # a done or closed change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
+            for r in ctx.runs:
+                if r["change"] != ch["slug"] or r.get("ended"):
+                    continue
+                if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+                    r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
+                    if r.get("started"):
+                        r["record"] = produced(r)
+                        event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
+                    save_run(r)
+        if st["actor"] == "done":
+            close_branches(ctx, ch, act)
+        if st["actor"] != "done" or not last or last["state"] != st["state"]:
+            view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
+        if act and (not last or last["state"] != st["state"]):
+            put(ch["slug"], "state", {"state": st["state"]})
+            event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
+    findings(ctx, open_prs, act)
+    view["alert"] += ctx.alerts
+    plan(ctx, view, act)
+    if not ctx.F.orchestrator():
+        view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
+    for r in ctx.runs:
+        if not r.get("ended"):
+            (view["spawn"] if not r.get("started") else view["run"]).append(
+                f"{r['name']}: Agent(subagent_type=\"{r['role']}\", prompt=\"Read and follow {r['brief']}\")" if not r.get("started")
+                else f"{r['name']} ({r['role']}, {r['change']}) since {r['started']}")
+    if act:
+        wake(view)
     return view
 
 

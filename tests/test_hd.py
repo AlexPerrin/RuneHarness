@@ -500,20 +500,37 @@ class R2(Sandbox):
         s.assertTrue(hd.runs()[0]["ended"])
         s.assertEqual((s.root / "evidence" / "s1" / "subagent-c1.md").read_text(), "the basement is under the manor\n")   # its answer kept
 
-    def test_hook_binds_by_brief_path_and_wakes_main(s):
+    def test_hook_binds_by_brief_path(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s2": A}})
         hd.tick(s.ctx(F))
         r1, r2 = hd.runs()
-        wake = (s.root / "state" / "wake").read_text()
         hook.bind(payload(r2, "agX", "SubagentStart", s.root))        # the second listed run is spawned first
         s.assertEqual([r.get("agent_id") for r in hd.runs()], [None, "agX"])
         s.assertEqual((hd.runs()[1]["console_pid"], hd.runs()[0]["console_pid"]), (7, None))   # the hook binds the console; the pass records none
-        s.assertNotEqual((s.root / "state" / "wake").read_text(), wake)  # a state change touches the wake file
         hook.bind(payload(r2, "agX", "PreToolUse", s.root))           # a repeated bind changes nothing
         s.assertEqual(hd.runs()[1]["started"], hd.runs()[1]["started"])
         s.assertEqual(sum(1 for l in open(s.root / "state" / "events.jsonl") if '"started"' in l), 1)
 
+
+    def test_each_watch_wakes_only_on_a_new_line_it_acts_on(s):
+        w = lambda who: (s.root / "state" / f"wake.{who}")
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s1": A}})
+        hd.tick(s.ctx(F))
+        s.assertIn("Agent(", w("orchestrator").read_text())                       # a new spawn wakes the orchestrator
+        s.assertFalse(w("main").exists() and "Agent(" in w("main").read_text())  # never main
+        os.utime(w("orchestrator"), ns=(1, 1))
+        hd.tick(s.ctx(F))
+        s.assertEqual(w("orchestrator").stat().st_mtime_ns, 1)                  # the same lines again wake nobody
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_tell(["stop", "everything"])
+        s.assertEqual(w("orchestrator").read_text(), "1: stop everything\n")      # a message wakes it without a pass
+        hd.put("s1", "ask", {"text": "which one?"})
+        os.utime(w("orchestrator"), ns=(1, 1))
+        hd.tick(s.ctx(F))
+        s.assertIn("s1: which one?", w("main").read_text())                       # a question wakes main
+        s.assertEqual(w("orchestrator").stat().st_mtime_ns, 1)                  # and not the orchestrator
 
     def test_runs_spawned_together_each_bind_their_own_brief(s):
         """SubagentStart carries only the session's transcript_path; each agent's prompt is in <session>/subagents/."""
@@ -640,6 +657,10 @@ class R4(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual([a for a in F.spawned if "hd-public" in a[0]], [])
         s.assertEqual(len(v["card"]), 1); s.assertIn("approve s1 " + A, v["card"][0])
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_decline(["s1"])
+        s.assertEqual(hd.tick(s.ctx(F))["card"], [])                              # the user's no hides the card at this head
+        hd.drop("s1", "decline")
         hd.put("s1", "approval", {"head": C, "body": "x"})                        # a yes at another head is no yes
         hd.tick(s.ctx(F)); s.assertEqual([a for a in F.spawned if "hd-public" in a[0]], [])
         with mock.patch.object(hd, "Facts", lambda: F):

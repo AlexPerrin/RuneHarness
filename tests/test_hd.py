@@ -14,7 +14,7 @@ TA, TB, TC = "ta" * 20, "tb" * 20, "tc" * 20
 
 class Fake(hd.Facts):
     """Facts from dicts: refs {ref: sha}, anc {(tip, sha)}, trees {commit: tree}, merges {(base, head): result},
-    blobs {(ref, path): sha}, line {commits of the base's first-parent line}, rows {cmd: (rc, out)}, unknown {remote}. Records spawns and row runs."""
+    blobs {(ref, path): sha}, commits {head: its commits not in the base}, line {commits of the base's first-parent line}, rows {cmd: (rc, out)}, unknown {remote}. Records spawns and row runs."""
 
     def __init__(s, **f):
         super().__init__()
@@ -49,6 +49,7 @@ class Fake(hd.Facts):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
     def on_line(s, clone, tip, sha): return sha in s.f.get("line", ())
+    def unmerged(s, clone, base, head): return frozenset(s.f.get("commits", {}).get(head, {head}) - {base})  # a head's own commits: itself unless a test says
     def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
@@ -225,6 +226,20 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
+    def test_a_dependency_on_another_pr_waits_for_its_upstream_merge(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC})
+        s.gated("s1", F)
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": D, "heads": [A]})        # live on the test server, not merged
+        s.assertEqual(s.state(F, "s2")["state"], "waiting on s1's upstream merge")
+        F.f["anc"] = {(B, A)}                                                        # merged upstream
+        s.assertTrue(s.state(F, "s2")["state"].startswith("dev run due"))
+        F.f["anc"] = set()
+        for slug in ("s1", "s2"):                                                  # one PR: the dependency's own gate is enough
+            p_ = s.root / "harness" / "changes" / f"{slug}.md"; p_.write_text(p_.read_text().replace("---\ndo it", 'pr: 9\n---\ndo it'))
+        hd.drop("live", "tree")
+        s.assertTrue(s.state(F, "s2")["state"].startswith("dev run due"))
+
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
         s.assertNotIn("message", v)                                                            # no relayed inbox
@@ -1465,6 +1480,21 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_a_stacked_head_is_refused_at_the_gate(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}})
+        s.gated("s2", F)
+        st = s.state(F, "s2")
+        s.assertEqual((st["actor"], st["state"]), ("dev", "stacked on s1: dev"))  # s2's branch carries s1's unmerged commit
+        s.assertIn(f"upstream main ({B[:9]})", st["detail"])
+        F.f["refs"]["origin/HEAD"] = D; F.f["commits"] = {A: set(), C: {C}}       # s1 merged upstream: s2 holds only its own
+        F.f["trees"][D] = "td" * 20; F.f["merges"] = {(D, C): ("ok", C)}
+        s.assertNotEqual(s.state(F, "s2")["actor"], "dev")
+        F.f["refs"]["origin/HEAD"] = B; F.f["commits"] = {A: {A}, C: {C, A}}
+        for slug in ("s1", "s2"):                                                  # one PR: one branch, not a stack
+            p_ = s.root / "harness" / "changes" / f"{slug}.md"; p_.write_text(p_.read_text().replace("---\ndo it", 'pr: 9\n---\ndo it'))
+        s.assertEqual(s.state(F, "s2")["actor"], "qa")
+
     def test_the_pass_rebases_a_carried_tools_head_its_branch_moved_past(s):
         s.change("h1", track="harness"); s.agreed("h1", track="harness")
         fork = str(s.root / "fork")
@@ -1637,11 +1667,11 @@ class R8(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual(F.spawned[-1][1:], ["ship", "integration", R])
         s.assertEqual(F.envs[-1]["T"], "tr" * 20)
-        s.assertIn("s1 [server P2]: test server: deploying trtrtrtrt", v["change"])
+        s.assertIn("s1 [server P2]: gated; waiting for the user's yes; test server: deploying trtrtrtrt", v["change"])
         F.f["procs"] = {(7, "1"), (4242, "99")}                                      # the deploy is running: not started again
         hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
         hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
-        s.assertEqual(s.state(F, "s1")["state"], "live on the test server; waiting for the user's yes")
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 
     def test_conflict_without_a_resolution_is_the_younger_change_s(s):
         F, R = s.integration_fixture(with_ref=False)
@@ -1653,6 +1683,12 @@ class R8(Sandbox):
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
         s.assertIn("local/merge/<yours7>-<theirs7>", open(hd.runs()[0]["brief"]).read())
         s.assertEqual([x for x in F.spawned if x[1] == "ship"], [])
+        s.assertTrue(any(c.startswith("## s1") and f"base main {B[:9]}" in c for c in v["card"]))   # the card waits on its own gate alone, naming the base
+        s.assertIn("conflicts with the integration tree", hd.rec("s1", "state")["state"])
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))                 # the conflict's dev run stays listed beside the card
+        hd.put("s1", "approval", {"head": A, "body": hd.digest("body")})
+        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream")              # nor does the conflict hold the ship
 
     def test_a_lower_priority_conflict_leaves_the_higher_priority_tree_to_deploy(s):
         s.change("lo", priority="P3"); s.agreed("lo"); s.change("hi", priority="P1"); s.agreed("hi")   # the P3 is the older
@@ -1960,9 +1996,9 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
         (s.root / "evidence" / "s1" / "pr-body.md").write_text("fixed body")  # qa fixed the text in place
-        s.assertEqual(s.state(F, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
 
     def test_gate_bound_to_tree(s):
         s.change("s1"); s.agreed("s1")
@@ -1977,7 +2013,7 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_answer(["s1", "also do X"])  # the contract grew: the verdict no longer covers it
         s.assertEqual(s.state(F, "s1")["state"], "review due")
@@ -1991,12 +2027,12 @@ class R3(Sandbox):
         F = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b1"})
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertEqual(s.state(F, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
         F2 = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "b2"})
         st = s.state(F2, "s1")
         s.assertEqual((st["actor"], st["input"][2]), ("qa", ["AGENTS.md"]))
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
-        s.assertEqual(s.state(F2, "s1")["actor"], "ship-test")
+        s.assertEqual(s.state(F2, "s1")["actor"], "user")
         s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
 
     def test_no_reviewer_without_judge_rows_and_no_arbitrary_check(s):

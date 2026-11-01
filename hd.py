@@ -80,6 +80,13 @@ class Facts:
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
+    def unmerged(s, clone, base, head):
+        """The commits head holds that base does not: a frozenset; None unknown."""
+        def f():
+            r = s.sh(["git", "-C", clone, "rev-list", head, "^" + base])
+            return None if r is None or r[0] else frozenset(r[1].split())
+        return s._m(("unmerged", clone, base, head), f)
+
     def worktrees(s, repo):
         """[(path, branch or '')] of a repo's worktrees, after pruning those whose directory is gone; None unknown."""
         s.sh(["git", "-C", repo, "worktree", "prune"])
@@ -646,8 +653,21 @@ def rebase_tools(ctx, ch, ho, behind):
     event(change=slug, action="rebased tools", tools=tools)
 
 
+def upstream(ch):
+    """The change opens or moves an upstream PR."""
+    return TRACK[ch["track"]]["public"] == "upstream" and ch.get("kind", "change") != "local"
+
+
+def one_pr(a, b):
+    """Two changes of one upstream PR: the same pr number or the same public branch."""
+    br = lambda c: c.get("branch") or f"content/{c['slug']}"
+    return a["track"] == b["track"] and (bool(a.get("pr")) and a.get("pr") == b.get("pr") or br(a) == br(b))
+
+
 def deps_held(ctx, ch):
-    """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it."""
+    """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it. R8: a
+    dependency both of whose changes go upstream as separate PRs holds until merged upstream (no PR is stacked on another);
+    one of the same PR, until gated."""
     for d in ch["deps"]:
         dep = ctx.changes.get(d)
         if dep is None:
@@ -657,6 +677,16 @@ def deps_held(ctx, ch):
         dh = ctx.head(dep)
         if dh is None:
             return step(f"dependency {d}: ref unknown", "unknown")
+        if "target" not in ch and dep["track"] == ch["track"] and upstream(ch) and upstream(dep):
+            if one_pr(ch, dep):
+                ok = ctx.done(dep, dh) or ctx.gated(dep, dh)
+                if not ok:
+                    return step(f"waiting on {d}", "unknown" if ok is None else "wait")
+                continue
+            ok = ctx.done(dep, dh)
+            if not ok:
+                return step(f"waiting on {d}'s upstream merge", "unknown" if ok is None else "wait")
+            continue
         if not ctx.live(dep, dh):
             return step(f"waiting on {d}", "wait")
     return None
@@ -713,6 +743,15 @@ def nxt(ctx, ch):
     if T[0] == "conflict":
         return step("tree conflict: dev", "dev", mode="code", input=["conflict", head, con["hash"]], detail=T[1])
     tc = T[1]
+    if upstream(ch):  # R8: a PR holds only its own commits on upstream main: a head reaching another PR's unmerged commits fails its gate
+        on = stacked(ctx, ch, head)
+        if on is None:
+            return step("tree unknown", "unknown")
+        if on:
+            return step(f"stacked on {', '.join(on)}: dev", "dev", mode="code", input=["stacked", head, con["hash"]] + on, detail=(
+                f"The head {head[:9]} holds unmerged commits of {', '.join(on)}, another PR. A PR is based on upstream main "
+                f"({ctx.base(ch)[:9]}) and holds only its own commits: rebase them onto it, or, when this change needs that one, "
+                "add it to deps (it waits for its upstream merge) or make both one PR (the same pr or branch)."))
     tree = ctx.key(ch, ctx.tree(ch, tc))
     if tree is None:
         return step("tree unknown", "unknown")
@@ -742,24 +781,46 @@ def nxt(ctx, ch):
             return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
                         detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed))
     if TRACK[track]["public"] == "upstream":
-        if not ctx.live(ch, head):
-            return step("gated; test server deploy pending", "ship-test")
-        if ch["kind"] == "local":
-            return step("live on the test server", "done")
-        a = rec(slug, "approval")
+        live = ctx.live(ch, head)
+        if ch["kind"] == "local":  # the test server is its target
+            return step("live on the test server", "done") if live else step("gated; test server deploy pending", "ship-test")
+        a = rec(slug, "approval")  # R4: the card and the ship follow the change's own gate; the test server deploy runs beside them (tick)
         if not a or a["head"] != head:
-            return step(f"{'live on the test server' if track == 'server' else 'gated'}; waiting for the user's yes", "user", input=head)
-        if (r := rec(slug, "ship")) and r.get("T") == head and r.get("ok"):  # hd-public's last step: the acts are done, never repeated
-            return step(f"shipped upstream at {head[:9]}: {r.get('detail', '')}; waiting on the maintainers", "wait")
-        reply = ctx.reply(ch, head)  # no commit of its own: the reply in the finding's thread is the act
-        return step(f"shipping upstream: the reply to {ch['finding']} on #{ch['pr']}" if reply else "shipping upstream", "script",
-                    act=lambda: ctx.start(slug, "ship", ctx.public("reply" if reply else "upstream", slug, head), env))
+            st = step("gated; waiting for the user's yes", "user", input=head)
+        elif (r := rec(slug, "ship")) and r.get("T") == head and r.get("ok"):  # hd-public's last step: the acts are done, never repeated
+            st = step(f"shipped upstream at {head[:9]}: {r.get('detail', '')}; waiting on the maintainers", "wait")
+        else:
+            reply = ctx.reply(ch, head)  # no commit of its own: the reply in the finding's thread is the act
+            st = step(f"shipping upstream: the reply to {ch['finding']} on #{ch['pr']}" if reply else "shipping upstream", "script",
+                      act=lambda: ctx.start(slug, "ship", ctx.public("reply" if reply else "upstream", slug, head), env))
+        return {**st, "deploy": True} if live is False else st
     if ch["kind"] == "release":
         a = rec(slug, "approval")
         if not a or a["head"] != head:
             return step(f"release v{ch['version']} at {head[:9]} waits for the user's yes", "user", input=head)
         return step(f"publishing v{ch['version']}", "script", act=lambda: ctx.start(slug, "ship", ctx.public("release", slug, head, f"v{ch['version']}"), env))
     return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
+
+
+def stacked(ctx, ch, head):
+    """R8: the open same-track changes of other PRs whose unmerged commits head reaches; None unknown."""
+    clone, base = ctx.clone(ch), ctx.base(ch)
+    mine = ctx.F.unmerged(clone, base, head) if base else None
+    if mine is None:
+        return None
+    on = []
+    for o in ctx.changes.values():
+        if o["slug"] == ch["slug"] or o.get("closed") or o["track"] != ch["track"] or one_pr(ch, o) or not mine:
+            continue
+        oh = ctx.head(o)
+        if oh is None:
+            return None
+        theirs = ctx.F.unmerged(clone, base, oh) if oh else frozenset()
+        if theirs is None:
+            return None
+        if mine & theirs:
+            on.append(o["slug"])
+    return on
 
 
 def findings(ctx, open_prs, act):
@@ -837,7 +898,7 @@ def integration(ctx):
                     break
             if r is None or r[0] != "ok":
                 # a pin's conflict is owned by the oldest gated change whose step is this deploy: only that step dispatches its dev
-                owner = ch or next((c for _, _, c in heads if c and nxt(ctx, c)["actor"] == "ship-test"), None)
+                owner = ch or next((c for _, _, c in heads if c and ((x := nxt(ctx, c))["actor"] == "ship-test" or x.get("deploy"))), None)
                 conflicts.append({"conflict": name, "change": owner, "head": h, "detail": r[1] if r else "", "with": [n for n, _, _ in included]})
                 continue  # every conflict in one pass: the rest merge without this head
         cur = r[1]
@@ -1207,10 +1268,15 @@ def tick(ctx=None, act=True):
             held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], st["actor"])
             if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
                 open_prs.add((ch["track"], ch["pr"]))
-            if st["actor"] == "ship-test":
+            dues = {(st["actor"], json.dumps(st.get("input"), sort_keys=True))}
+            if st["actor"] == "ship-test" or st.get("deploy"):  # R8: the test server deploy, beside the card and the ship, holding neither
                 if "v" not in tint:
                     tint["v"] = integration(ctx)  # once per pass
-                ship_test(ctx, ch, st, tint["v"], act)
+                dst = st if st["actor"] == "ship-test" else step("test server deploy pending", "ship-test")
+                ship_test(ctx, ch, dst, tint["v"], act)
+                if dst is not st:
+                    st = {**st, "state": f"{st['state']}; {dst['state']}"}
+                    dues.add((dst["actor"], json.dumps(dst.get("input"), sort_keys=True)))
             if st["actor"] == "script" and act:
                 try:
                     st["act"]()
@@ -1226,11 +1292,10 @@ def tick(ctx=None, act=True):
                 view["question"].append(f"{ch['slug']}: {a['text']}")
             last = rec(ch["slug"], "state")
             if act:  # a done or closed change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
-                due = (st["actor"], json.dumps(st.get("input"), sort_keys=True))
                 for r in ctx.runs:
                     if r["change"] != ch["slug"] or r.get("ended"):
                         continue
-                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (held or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) != due)):
+                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (held or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
                         r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {hold}" if held else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
                         if r.get("started"):
                             r["record"] = produced(r)
@@ -1269,7 +1334,8 @@ def card(ctx, ch, st):
         lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} PR #{ch['pr']}: a reply in the thread of review comment {ch['finding']}, no push",
                   f"### reply\n{t['comment']}"]
     else:
-        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR"),
+        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR")
+                  + f"; base main {(ctx.base(ch) or '?')[:9]}, holding this PR's commits alone",
                   f"### title\n{t['title']}", f"### body\n{t['body']}", f"### comment\n{t['comment']}"]
     lines += [f"the user types: ! python3 {ROOT}/hd.py approve {ch['slug']} {head}"]
     return "\n".join(lines)

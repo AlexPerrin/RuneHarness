@@ -1288,6 +1288,20 @@ class R6(Sandbox):
         s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], [])
         s.assertIn("p1-11", " ".join(v["spawn"]))                                  # the hand-off then a death: one retry is due
 
+    def test_a_dependency_the_run_filed_leaves_the_step_listable_once_live_though_recorded_shipping(s):
+        s.change("p1", priority="P1"); s.agreed("p1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/h9": C}, "anc": {(B, C)}})
+        hd.tick(s.ctx(F))
+        r = next(r for r in hd.runs() if r["name"] == "p1-1")
+        r.update(started=hd.now()); hd.save_run(r)
+        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1"])
+        r.update(ended=hd.now(), record=True); hd.save_run(r)
+        s.change("h9", track="harness", priority="P1"); s.change("p1", priority="P1", deps=["h9"])
+        hd.put("h9", "handover", {"head": C}); hd.put("h9", "state", {"state": "shipping"})   # on the live branch, not yet recorded done
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], [])
+        s.assertIn("p1-2", " ".join(v["spawn"]))
+
     def test_a_dependency_the_run_filed_settles_the_step_only_until_it_is_shut(s):
         s.change("p1", priority="P1"); s.agreed("p1")
         F = Fake(**FACTS)

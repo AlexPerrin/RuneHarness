@@ -7,8 +7,9 @@ PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd ap
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 write evidence/<slug>/handoff.md and hand back.                                                            R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
-                role's record newer than the start and the change's last answer). A stop fires at every idle turn (a
-                wait on a build, before the hand-back nudge): it leaves the run live. Then start the pass without
+                role's record newer than the start and the change's last answer). Any other stop leaves the run live,
+                and is refused while a background command the agent started has not reported its end: the agent
+                blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
@@ -106,6 +107,18 @@ def usage_of(entries):
     return u, last[-500:], handed
 
 
+def running(entries):
+    """Background commands and monitors the agent started (a result's backgroundTaskId or taskId) with no task
+    notification yet."""
+    started, done = set(), set()
+    for e in entries:
+        t = e.get("toolUseResult")
+        if isinstance(t, dict) and (tid := t.get("backgroundTaskId") or t.get("taskId")):
+            started.add(tid)
+        done.update(re.findall(r"<task-id>(\w+)</task-id>", json.dumps(e)))
+    return sorted(started - done)
+
+
 def start_pass():
     """The pass runs after every run end, never waited on."""
     r = subprocess.run(["systemctl", "--user", "start", "--no-block", "hd-tick.service"], capture_output=True)
@@ -121,7 +134,14 @@ def end_run(p):
         return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
     if r.get("reason"):   # ended by the pass or the head, not by a stop
         return
-    u, last, handed = usage_of(transcript(p))
+    entries = transcript(p)
+    u, last, handed = usage_of(entries)
+    if not handed and (ids := running(entries)):   # R2: never idle on its own work
+        hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
+        return print(json.dumps({"decision": "block", "reason":
+            f"Your background command(s) {', '.join(ids)} are still running. Never end a turn on your own work: block on it in the "
+            "foreground with one until-loop on an observable fact (its output file, a log line, a port). A step that cannot "
+            "finish (a hang, a refused login) is an error: stop it and hand back."}))
     r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
     if handed:   # an idle stop leaves the run live
         rec = hd.produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not

@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import json, os, re, shutil, sys, tempfile, unittest
+import io, json, os, re, shutil, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -407,6 +407,24 @@ class R2(Sandbox):
         r = hd.runs()[0]
         s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the hand-back's stop ends it
         s.assertFalse(r["record"])                                        # nothing newer than the answer: no record
+
+    def test_an_idle_stop_is_refused_while_its_own_background_work_runs(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        p = payload(run, "ag1", "SubagentStop", s.root, last="Waiting on the build.", usage=1)
+        tp = Path(p["agent_transcript_path"])
+        with open(tp, "a") as f:
+            f.write(json.dumps({"type": "user", "toolUseResult": {"stdout": "", "backgroundTaskId": "b1"}}) + "\n")
+        with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.end_run(p)
+        s.assertEqual(json.loads(out.getvalue())["decision"], "block")        # the build still runs: the stop is refused
+        with open(tp, "a") as f:
+            f.write(json.dumps({"type": "attachment", "attachment": {"prompt": "<task-notification>\n<task-id>b1</task-id>"}}) + "\n")
+        with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.end_run(p)
+        s.assertEqual((out.getvalue(), hd.runs()[0]["ended"]), ("", None))   # its end reported: an idle stop, the run live
 
     def test_hook_binds_by_brief_path_and_wakes_main(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")

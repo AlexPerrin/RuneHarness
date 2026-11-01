@@ -10,7 +10,8 @@ hd.yaml           repos, paths, the agent count, the context limit, the fork's p
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
                   started without waiting; a stop fires at each idle turn and leaves the run live (usage, last line),
-                  the stop after its SubagentHandback ends it; its record is newer than its start and the change's
+                  refused (decision block) while a background command or monitor the agent started has no task
+                  notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
                   PreToolUse: a subagent may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own

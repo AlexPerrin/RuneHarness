@@ -16,6 +16,10 @@ with `log`; never build in your clone by hand. On the harness track build is the
 go to a read-only subagent that returns the conclusion. When the hook tells you the context limit is reached, write
 `evidence/<slug>/handoff.md` (what is done, what is next, the facts you rely on) and hand back at once.
 
+Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
+fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that
+cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle.
+
 Never: a public act (PR, release, upstream comment); a push to any ref but your dev ref; a forced push; Jagex;
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied
 action is reported in your hand-back, never worked around. A harness dev ref stays local (hd reads it there): rebase

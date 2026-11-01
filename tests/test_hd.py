@@ -701,6 +701,50 @@ class R4(Sandbox):
         s.assertEqual(calls[0][:3], ("git", "-C", str(s.root / "central")))     # the Central clone pushes to its fork
         s.assertIn("u/z", calls[1]); s.assertIn("u/z", calls[2])                 # the PR is on Central's upstream
 
+    def test_a_reply_only_change_posts_its_reply_in_the_finding_thread_after_the_yes(s):
+        s.change("s0", pr=7, closed="x"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A}})       # s1's head is its root's head: no commit of its own
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        card = hd.tick(s.ctx(F))["card"][0]
+        s.assertIn("reply in the thread of review comment 99", card); s.assertIn("@rev", card); s.assertNotIn("### body", card)
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_approve(["s1", A])
+        s.assertEqual(s.state(F, "s1")["state"], "shipping upstream: the reply to 99 on #7")
+        hd.tick(s.ctx(F))
+        s.assertEqual([a[-3:] for a in F.spawned if "hd-public" in " ".join(a)], [["reply", "s1", A]])
+        F.f["comments"] = {7: [{"id": 5, "author": "rev", "bot": False, "reply": None, "path": "x", "line": 1, "body": "reset it"}]}
+        s.assertNotEqual(s.state(F, "s1")["actor"], "done")
+        F.f["comments"][7].append({"id": 6, "author": "o", "bot": False, "reply": 99, "path": "x", "line": 1, "body": "@rev ..."})
+        s.assertEqual(s.state(F, "s1")["state"], "done")                         # done once our reply is in the thread
+        import importlib.util
+        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
+        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
+        calls, thread = [], [""]
+        def fake_sh(*args, inp=None):
+            calls.append(args)
+            return (0, "rev", "") if args[2].endswith("comments/99") else (0, thread[0], "")
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", new_callable=io.StringIO):
+            with s.assertRaises(SystemExit) as e:
+                pub.reply("s1", A)
+            s.assertEqual(e.exception.code, 0)
+            s.assertEqual(calls[-1][:4], ("gh", "api", "-X", "POST")); s.assertEqual(calls[-1][4], "repos/u/f/pulls/7/comments/99/replies")
+            s.assertTrue(calls[-1][6].startswith("body=> reset it"))
+            calls.clear(); thread[0] = "6"
+            with s.assertRaises(SystemExit):
+                pub.reply("s1", A)
+            s.assertNotIn("POST", [c[2] for c in calls])                          # our reply is there: nothing posted
+            (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other")
+            with s.assertRaises(SystemExit) as e:
+                pub.reply("s1", A)
+            s.assertIn("no approval", str(e.exception))                           # the reply changed since the yes
+            hd.put("s1", "approval", {"head": A, "comment": hd.digest("> reset it\n\n@rev and @other")})
+            with s.assertRaises(SystemExit) as e:
+                pub.reply("s1", A)
+            s.assertIn("@ only rev", str(e.exception))
+
     def test_approve_refused_off_the_user_step(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

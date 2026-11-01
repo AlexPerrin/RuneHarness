@@ -34,7 +34,8 @@ gh, docker and the process table; a live check reads the real state.
    append; a text-only fix leaves the verdict at the same head valid; a gate at T does not hold at T'; a verdict at H
    does not hold at H'; a harness change's tools commits are handed over, gated and landed with it; a moved upstream rule file voids only the rule rows; a failed fetch leaves every change where
    it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.
-4. **R4** `tests.test_hd.R4`: the upstream and release steps run only after an approval at that head; `hd decline` hides the card at that head; a central change goes
+4. **R4** `tests.test_hd.R4`: the upstream and release steps run only after an approval at that head; a change on a PR whose head adds no commit to its root's
+   reaches a card for its reply, the yes (bound to the reply text) posts pr-comment.md in the finding's review thread, quoting it and @ only its author, and it is done once that reply exists; `hd decline` hides the card at that head; a central change goes
    to Central's upstream through its own fork. Live: `gh auth
    status` in an agent's shell shows the token scoped to AlexPerrin/*; `sudo -n -l` lists only the public-act helper
    under user `hd`; `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.

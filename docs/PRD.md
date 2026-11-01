@@ -31,11 +31,11 @@ gh, docker and the process table; a live check reads the real state.
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev; a hand-over with a failing
    script row, or whose pushed ref is not the head it names, is refused; a verdict missing a row is refused; verdicts
    append; a text-only fix leaves the verdict at the same head valid; a gate at T does not hold at T'; a verdict at H
-   does not hold at H'; a moved upstream rule file voids only the rule rows; a failed fetch leaves every change where
+   does not hold at H'; a harness change's tools commits are handed over, gated and landed with it; a moved upstream rule file voids only the rule rows; a failed fetch leaves every change where
    it was. Live: every `evidence/<slug>/contract.md` row has an id and a result.
 4. **R4** `tests.test_hd.R4`: the upstream and release steps run only after an approval at that head. Live: `gh auth
    status` in an agent's shell shows the token scoped to AlexPerrin/*; `sudo -n -l` lists only the public-act helper
-   under user `hd`; `hd approve` from a subagent is denied.
+   under user `hd`; `hd approve` or `hd close` from a subagent is denied.
 5. **R5** `tests.test_hd.R5`: console gone → its runs end and their artefacts are removed in one pass; a dead ship
    process → rerun; a yes recorded then main gone → the ship completes; a repair whose effect is not observed is not
    logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused.

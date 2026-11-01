@@ -5,7 +5,7 @@ kind: change
 title: 'Friends chat and clan channels: the server sends no friends chat, clan channel
   or clan settings state'
 priority: P2
-deps: []
+deps: [harness-server-build-tree]
 created: '2026-10-25T20:31:36Z'
 goal: client-api
 ---

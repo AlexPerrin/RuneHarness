@@ -10,7 +10,7 @@ hd.yaml           repos, paths, the agent count, the context limit, the fork's p
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
                   started without waiting;
-                  PreToolUse: a subagent may not `hd approve`; PostToolUse: hand off at the context limit
+                  PreToolUse: a subagent may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
@@ -42,7 +42,7 @@ harness/goals/<slug>.md        slug, track, target; measured by the track's `too
 harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version, closed; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
-state/<slug>/handover.json     {head, T}                       state/<slug>/gate.json      {T, ok, detail}
+state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
 state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note}, rules{file: blob}, run}   appended
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
@@ -54,10 +54,15 @@ fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar and game cache), a client APK
-`evidence/<slug>/<T>.apk` with its repack log, a harness test run. The game cache is keyed by the hash of its inputs
+`evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition
+commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current T). The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume. The build copy is `<repo>/.worktrees/<slug>-build`, the
 dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
-(hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
+(hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing. A harness change carries
+a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless
+it descends from the tools branch), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's
+`tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build`, ship fast-forwards the tools branch to it, and the change
+is live once the live branch and every such branch hold their heads; a script that cannot start is an alert; containers, volumes and client windows carry the slug or the run name.
 
 ## The loop
 
@@ -97,21 +102,22 @@ change that a harness dev run remediates. It writes no product code.
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N clients started and
-logged in by widget actions, blocks until every devtools endpoint answers), and hands over. The hook tells a run past
+logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
+unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it.
 
 **Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
 no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>
 <head>`, the one program sudoers allows, which holds the full token and acts only when `approval.json` names that
-head. The one hook rule: `hd approve` is denied inside a subagent.
+head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent.
 
 | | Client | Server | Harness |
 |---|---|---|---|
-| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` |
+| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` (and `harness/<slug>` of each product repo whose tools it changes) |
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>` | the test suite at T |
-| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not |
+| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not; each carried tools head's tests |
 | judge | release only | every contract row | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`; upstream after the yes | fast-forward the live branch to T, push; moved past T's base: re-gate |
+| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`; upstream after the yes | fast-forward each carried tools branch, then the live branch to T, push; moved past T's base: re-gate |
 
 ```mermaid
 sequenceDiagram
@@ -147,6 +153,7 @@ python3 hd.py                            # a pass, then the view
 python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
 fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
+each tools branch ignores __pycache__/; no compiled cache is committed
 ```
 
 | Requirement | Mechanism |

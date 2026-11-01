@@ -26,11 +26,14 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
-    def rev(s, clone, ref): return None if ref.split("/")[0] in s.f.get("unknown", ()) else s.f.get("refs", {}).get(ref, "")
+    def rev(s, clone, ref):
+        if ref.split("/")[0] in s.f.get("unknown", ()): return None
+        if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
+        return s.f.get("refs", {}).get(ref, "")
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
-    def tree(s, clone, commit): return s.f.get("trees", {}).get(commit)
+    def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
@@ -175,6 +178,7 @@ class R2(Sandbox):
         s.assertEqual((run["role"], run["started"]), ("dev", None))
         s.assertIn("Read and follow", spawn[0])
         s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in main's context
+        s.assertIn(f"Base: origin/HEAD at {B[:9]}", open(run["brief"]).read())   # the dev branches from the base tip the brief names
         with mock.patch.object(hook, "start_pass") as sp:
             hook.bind(payload(run, "ag1", "SubagentStart", s.root))
             F.f["refs"]["origin/client/c1"] = A                       # the dev pushes and hands over
@@ -333,14 +337,15 @@ class R4(Sandbox):
         s.assertIn("nothing to approve", str(e.exception))
         s.assertIsNone(hd.rec("s1", "approval"))
 
-    def test_hook_denies_approve_in_subagent_only(s):
+    def test_hook_denies_approve_and_close_in_subagent_only(s):
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})
-            hook.deny_approve({"tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})          # main: allowed
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
-        s.assertEqual(out.getvalue().count('"deny"'), 1)
+            for verb in ("approve s1 " + A, "close s1 done"):
+                hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
+                hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
+            hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
+        s.assertEqual(out.getvalue().count('"deny"'), 2)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))
@@ -623,6 +628,29 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_harness_build_refuses_without_the_loops_env(s):
+        import subprocess
+        script = Path(__file__).parent.parent / "tools" / "track.sh"
+        env = {k: v for k, v in os.environ.items() if k not in ("T", "TCOMMIT")}
+        r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**env, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
+        s.assertEqual((r.returncode, hd.rec("s1", "build")), (2, None), r.stdout + r.stderr)   # no record written, no copy moved
+
+    def test_harness_key_leaves_out_definitions(s):
+        import subprocess
+        repo = Path(tempfile.mkdtemp())
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q"); (repo / "hd.py").write_text("v1"); git("add", "."); git("commit", "-qm", "code")
+        c1 = git("rev-parse", "HEAD")
+        (repo / "harness" / "changes").mkdir(parents=True); (repo / "harness" / "changes" / "x.md").write_text("a definition")
+        git("add", "."); git("commit", "-qm", "harness: change x"); c2 = git("rev-parse", "HEAD")
+        (repo / "hd.py").write_text("v2"); git("commit", "-qam", "code moves"); c3 = git("rev-parse", "HEAD")
+        s.change("h1", track="harness")
+        ctx = hd.Ctx(hd.Facts(), {**hd.cfg(), "repos": {**hd.cfg()["repos"], "harness": {"name": "o/h", "path": str(repo)}}})
+        k = [ctx.tree(hd.defs("changes")["h1"], c) for c in (c1, c2, c3)]
+        s.assertEqual((k[0] == k[1], k[1] == k[2]), (True, False))                 # a definition commit keeps the key; code moves it
+        s.assertNotEqual(hd.Facts().tree(str(repo), c1), hd.Facts().tree(str(repo), c2))   # other tracks: the plain tree sha
+        shutil.rmtree(repo, ignore_errors=True)
+
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
         hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream
@@ -631,6 +659,9 @@ class R8(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["s2"])
         s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
+        s.change("h1", "harness"); s.change("s3", deps=["h1"]); s.agreed("s3")       # a harness dep is in another repo: not merged
+        F.f["refs"].update({"harness/h1": "h" * 40, "fork/dev/s3": C}); F.f["merges"][(B, C)] = ("ok", E)
+        s.assertEqual(s.ctx(F).T(hd.defs("changes")["s3"], C), ("ok", E))
 
     def test_conflict_lists_dev(s):
         s.change("s1"); s.agreed("s1")
@@ -794,6 +825,25 @@ class R3(Sandbox):
         s.change("s1")
         F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract
         s.assertEqual(s.state(F, "s1")["state"], "done")
+
+    def test_harness_change_carries_its_tools_commits(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork = str(s.root / "fork")
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["h1"])
+        s.assertIn("does not descend from local/harness", str(e.exception))      # it must land as a fast-forward
+        F.f["anc"] = {(C, "local/harness")}
+        ho = s.gated("h1", F)
+        s.assertEqual((ho["tools"], ho["T"]), ({"fork": C}, TA + "+" + C[:12]))  # build and gate are keyed by the carried head too
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1], "ship"); s.assertEqual(F.envs[-1]["TOOLS"], f"{fork}:local/harness:{C}")
+        F.f["refs"][f"{fork}:harness/h1"] = D
+        s.assertEqual(s.state(F, "h1")["actor"], "dev")                          # a moved tools ref is handed over again
+        F.f["refs"][f"{fork}:harness/h1"] = C; F.f["anc"].add((B, A))
+        s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # main holds the head, the tools branch not yet
+        F.f["anc"].add(("local/harness", C))
+        s.assertEqual(s.state(F, "h1")["state"], "done")
 
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")

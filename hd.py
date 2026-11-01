@@ -67,9 +67,13 @@ class Facts:
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
-    def tree(s, clone, commit):
-        r = s.sh(["git", "-C", clone, "rev-parse", commit + "^{tree}"])
-        return r[1].strip() if r and r[0] == 0 else None
+    def tree(s, clone, commit, drop=""):
+        """The commit's tree sha; with drop, a key of its tree without that top-level entry (the harness repo's harness/)."""
+        if not drop:
+            r = s.sh(["git", "-C", clone, "rev-parse", commit + "^{tree}"])
+            return r[1].strip() if r and r[0] == 0 else None
+        r = s.sh(["git", "-C", clone, "ls-tree", commit])
+        return hashlib.sha1("".join(l + "\n" for l in r[1].splitlines() if l.split("\t", 1)[-1] != drop).encode()).hexdigest() if r and r[0] == 0 else None
 
     def merge(s, clone, base, head, msg):
         """R8: ('ok', commit) | ('conflict', detail) | None. The merged tree becomes a commit with fixed author and
@@ -310,14 +314,41 @@ class Ctx:
     def base(s, ch):
         return s._m(("base", ch["track"]), lambda: s.F.rev(s.clone(ch), TRACK[ch["track"]]["base"]) if s.fetched(ch) else None)
 
+    def tools(s, ch):
+        """A harness change's commits on the product repos' tools branches: {repo: tip of harness/<slug> in that repo}
+        for each repo with a tools branch where the ref exists; {} for other tracks; None when a ref cannot be read."""
+        if ch["track"] != "harness":
+            return {}
+        def f():
+            out = {}
+            for name, r in s.cfg["repos"].items():
+                if r.get("tools"):
+                    h = s.F.rev(str(P(r["path"])), f"harness/{ch['slug']}")
+                    if h is None:
+                        return None
+                    if h:
+                        out[name] = h
+            return out
+        return s._m(("tools", ch["slug"]), f)
+
+    def landed(s, ch):
+        """Every carried tools commit is on its tools branch: True | False | None."""
+        t = s.tools(ch)
+        if t is None:
+            return None
+        got = [s.F.contains(str(P(s.cfg["repos"][n]["path"])), s.cfg["repos"][n]["tools"], h) for n, h in t.items()]
+        return None if None in got else all(got)
+
     def live(s, ch, head):
-        """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch."""
+        """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch
+        and every tools branch the change carries commits for."""
         if not head:
             return False
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
-        return s.F.contains(s.clone(ch), s.base(ch), head)
+        on = s.F.contains(s.clone(ch), s.base(ch), head)
+        return s.landed(ch) if on else on
 
     def done(s, ch, head):
         """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live."""
@@ -329,13 +360,14 @@ class Ctx:
         return s.live(ch, head)
 
     def T(s, ch, head):
-        """R8: base + each dependency's head not yet in base + head, merged in order."""
+        """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
+        dependency lives in another repo: the change only waits for it to be live)."""
         def f():
             base, clone = s.base(ch), s.clone(ch)
             if not base:
                 return None
             cur = base
-            for d in ch["deps"]:
+            for d in [d for d in ch["deps"] if d not in s.changes or s.changes[d]["track"] == ch["track"]]:
                 dh = s.head(s.changes[d]) if d in s.changes else None
                 if dh is None:
                     return None
@@ -348,7 +380,11 @@ class Ctx:
         return s._m(("T", ch["slug"], head), f)
 
     def tree(s, ch, commit):
-        return s._m(("tree", commit), lambda: s.F.tree(s.clone(ch), commit))
+        """T's tree sha, which keys build and gate; a harness change's key leaves out the definitions under harness/ (a
+        definition commit on the live branch re-gates nothing) and holds its carried tools heads."""
+        drop = "harness" if ch["track"] == "harness" else ""
+        t, tools = s._m(("tree", commit, drop), lambda: s.F.tree(s.clone(ch), commit, drop)), s.tools(ch)
+        return None if t is None or tools is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools))
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
@@ -356,7 +392,8 @@ class Ctx:
     def env(s, ch, head, tc, tree, build=""):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
-                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT)}
+                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT),
+                "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}" for n, h in (s.tools(ch) or {}).items())}
 
     def public(s, *args):
         """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""
@@ -427,7 +464,7 @@ def nxt(ctx, ch):
         return step("dev ref unknown", "unknown")
     done = ctx.done(ch, head) if head else False
     if done is None:
-        return step("release state unknown", "unknown")
+        return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
     if done and (head != ctx.base(ch) or ch["kind"] == "release" or (ho and ho["head"] == head)):  # a bare dev ref at the base tip is not done
         return step("done", "done")
@@ -436,7 +473,10 @@ def nxt(ctx, ch):
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
-    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head):  # a release has no dev: its head is the base tip
+    tools = ctx.tools(ch)
+    if tools is None:
+        return step("tools refs unknown", "unknown")
+    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
                     input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
@@ -556,13 +596,20 @@ def ship_test(ctx, ch, st, tint, act):
 def brief(ctx, ch, st, name, role):
     con, hoff = contract(ch["slug"]), EVID / ch["slug"] / "handoff.md"
     root = track_root(ctx.cfg, ch["track"])
+    base = TRACK[ch["track"]]["base"]
+    if base == "HEAD":  # the harness base: name the live checkout's branch, not a ref every clone reads as its own
+        r = ctx.F.sh(["git", "-C", ctx.clone(ch), "branch", "--show-current"])
+        base = (r and r[0] == 0 and r[1].strip()) or base
     v = [x for x in verdicts(ch["slug"]) if x["head"] == ctx.head(ch)] if ch.get("path") else []
     lines = [f"# {role} run {name}: {ch['slug']} ({ch['track']}, {st.get('mode', role)})", "",
              f"Read {root}/tools/track.md, then run `python3 {ROOT}/hd.py show {ch['slug']}`.",
              f"Change: {ch.get('path', '')}  Evidence: {EVID / ch['slug']}  Contract: {EVID / ch['slug'] / 'contract.md'}",
              f"Clone: {ctx.clone(ch)}/.worktrees/{ch['slug']}  Build copy: {ctx.clone(ch)}/.worktrees/{ch['slug']}-build  Script: {root}/tools/track.sh",
-             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {TRACK[ch['track']]['base']}  Head now: {ctx.head(ch) or 'none'}",
+             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {base} at {(ctx.base(ch) or 'unknown')[:9]}  Head now: {ctx.head(ch) or 'none'}",
              f"State: {st['state']}", ""]
+    if ch["track"] == "harness":
+        lines.insert(-1, "Tools: a fix to a product repo's tools branch is carried on branch harness/" + ch["slug"] + " of that repo, from its tools branch: "
+                        + ", ".join(f"{r['path']} {r['tools']}" for r in ctx.cfg["repos"].values() if r.get("tools")))
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
@@ -793,11 +840,16 @@ def cmd_handover(a):
         refuse("tree cannot be computed")
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
+    tools = ctx.tools(ch)
+    if tools is None:
+        refuse("a tools ref cannot be read")
+    why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
+           if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
     tree = ctx.tree(ch, T[1])
-    why = rows(ctx, ch, con, head, T[1], tree, "", gate=False)
+    why += rows(ctx, ch, con, head, T[1], tree, "", gate=False)
     if why:
         refuse(*why)
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "summary": " ".join(a[1:])})
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:])})
     drop(ch["slug"], "ask")
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)

@@ -889,6 +889,16 @@ class EndToEnd(unittest.TestCase):
 class Tools(unittest.TestCase):
     """The harness track script against this repo itself."""
 
+    def test_check_tests_keeps_the_verdict_and_failures(s):
+        import subprocess
+        build = Path(tempfile.mkdtemp()); (build / "tests").mkdir()
+        (build / "tests" / "test_x.py").write_text("import unittest, sys\nclass X(unittest.TestCase):\n    def test_a(s): s.fail('boom')\n"
+                                                   "    def test_b(s): sys.stderr.write('noise\\n' * 20)\n")
+        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True)
+        s.assertNotEqual(r.returncode, 0)
+        s.assertEqual([l.split()[0] for l in r.stdout.splitlines()], ["FAIL:", "Ran", "FAILED"], r.stdout)   # no noise, nothing lost
+        shutil.rmtree(build, ignore_errors=True)
+
     def test_check_docs_and_gate_rows(s):
         import subprocess
         repo = Path(__file__).parent.parent

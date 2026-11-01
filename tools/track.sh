@@ -23,7 +23,8 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
-check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | tail -3); }
+summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()'; }   # unittest's verdict and each failing test, whatever the tests print
+check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contract at T, from the build copy (hd rows applies the hand-over's rules)
   wt=$(copy)
   if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "$slug" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
@@ -42,7 +43,7 @@ check_tools() {  # each carried tools head: a fast-forward of its branch, its to
     git -C "$path" merge-base --is-ancestor "$branch" "$sha" || { echo "$path: $sha is not a fast-forward of $branch"; exit 1; }
     if [ -d "$wt" ]; then git -C "$wt" checkout -q --detach "$sha"; else git -C "$path" worktree add -q --detach "$wt" "$sha"; fi
     tests=$(git -C "$wt" ls-files tools | grep -E '(^|/)test_[^/]*\.py$' || true)
-    [ -z "$tests" ] || (cd "$wt" && python3 -m unittest $tests 2>&1 | tail -3) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
+    [ -z "$tests" ] || (cd "$wt" && python3 -m unittest $tests 2>&1 | summary) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
   done
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)

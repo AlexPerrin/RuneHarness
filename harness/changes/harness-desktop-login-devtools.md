@@ -3,7 +3,7 @@ slug: harness-desktop-login-devtools
 track: harness
 title: desktop login through the devtools login tool, no canvas clicks
 kind: change
-priority: P0
+priority: P1
 created: '2026-11-01T01:01:19Z'
 deps:
 - client-devtools-login

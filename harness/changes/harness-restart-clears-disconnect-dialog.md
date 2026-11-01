@@ -3,7 +3,7 @@ slug: harness-restart-clears-disconnect-dialog
 track: harness
 title: restart logs desktops back in past the disconnected dialog
 kind: change
-priority: P0
+priority: P1
 deps: [harness-desktop-login-devtools]
 created: '2026-11-01T10:55:11Z'
 ---

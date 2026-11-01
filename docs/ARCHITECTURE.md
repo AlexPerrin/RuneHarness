@@ -124,8 +124,8 @@ change that a harness dev run remediates. Its hand-back is its record, filed or 
 **Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
-the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started and
-logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
+the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each
+loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it. Main, which holds nothing beyond files, is
 told once per session past the same limit to start nothing new, give the user docs/HANDOFF.md's start prompt for a

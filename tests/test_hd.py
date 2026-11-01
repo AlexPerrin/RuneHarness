@@ -33,7 +33,7 @@ class Fake(hd.Facts):
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
-    def tree(s, clone, commit): return s.f.get("trees", {}).get(commit)
+    def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
@@ -634,6 +634,22 @@ class R8(Sandbox):
         env = {k: v for k, v in os.environ.items() if k not in ("T", "TCOMMIT")}
         r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**env, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
         s.assertEqual((r.returncode, hd.rec("s1", "build")), (2, None), r.stdout + r.stderr)   # no record written, no copy moved
+
+    def test_harness_key_leaves_out_definitions(s):
+        import subprocess
+        repo = Path(tempfile.mkdtemp())
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q"); (repo / "hd.py").write_text("v1"); git("add", "."); git("commit", "-qm", "code")
+        c1 = git("rev-parse", "HEAD")
+        (repo / "harness" / "changes").mkdir(parents=True); (repo / "harness" / "changes" / "x.md").write_text("a definition")
+        git("add", "."); git("commit", "-qm", "harness: change x"); c2 = git("rev-parse", "HEAD")
+        (repo / "hd.py").write_text("v2"); git("commit", "-qam", "code moves"); c3 = git("rev-parse", "HEAD")
+        s.change("h1", track="harness")
+        ctx = hd.Ctx(hd.Facts(), {**hd.cfg(), "repos": {**hd.cfg()["repos"], "harness": {"name": "o/h", "path": str(repo)}}})
+        k = [ctx.tree(hd.defs("changes")["h1"], c) for c in (c1, c2, c3)]
+        s.assertEqual((k[0] == k[1], k[1] == k[2]), (True, False))                 # a definition commit keeps the key; code moves it
+        s.assertNotEqual(hd.Facts().tree(str(repo), c1), hd.Facts().tree(str(repo), c2))   # other tracks: the plain tree sha
+        shutil.rmtree(repo, ignore_errors=True)
 
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")

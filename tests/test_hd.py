@@ -39,7 +39,8 @@ class Fake(hd.Facts):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
         return 0, "", ""
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
-    def orchestrator(s): return s.f.get("orchestrator", 1)  # None in f = no orchestrator session
+    def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
+    def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
@@ -251,6 +252,27 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
+    def test_a_shipped_orchestrator_definition_swaps_the_session(s):
+        blobs = {("HEAD", hd.ORCH): "new"}
+        v = hd.tick(s.ctx(Fake(**FACTS, blobs=blobs, started_on={"1": "new"})))
+        s.assertFalse(any(a.startswith("orchestrator ") for a in v["alert"]))                # started on the live definition: no step
+        v = hd.tick(s.ctx(Fake(**FACTS, blobs=blobs, started_on={"1": "old"})))
+        s.assertEqual([a for a in v["alert"] if a.startswith("orchestrator 7:")], [a for a in v["alert"] if "orchestrator 7: your definition changed" in a])
+        s.assertEqual(len([a for a in v["alert"] if a.startswith("orchestrator ")]), 1)    # one step: hand off, drive on until the fresh one is up
+        s.assertIn("orchestrator-handoff.md", v["alert"][-1])
+        (s.root / "state" / "orchestrator-handoff.md").write_text("open: x")
+        F = Fake(**FACTS, blobs=blobs, started_on={"1": "old", "2": "new"}, orchestrators=[(7, "1"), (8, "2")])
+        v = hd.tick(s.ctx(F))
+        s.assertTrue(any(a.startswith("orchestrator 7: replaced by 8") for a in v["alert"]))
+        s.assertTrue(any(a.startswith("orchestrator 8: read ") for a in v["alert"]))       # the fresh one reads the hand-off
+        s.change("s1"); s.agreed("s1")
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hd.cmd_tick([])                                                               # the console is 7: the replaced one
+        s.assertTrue(out.getvalue().startswith("alert: orchestrator 7: replaced"))
+        s.assertNotIn("spawn:", out.getvalue())                                           # it spawns nothing; its bound runs go on
+        brief = (Path(__file__).parent.parent / ".claude" / "agents" / "orchestrator.md").read_text()
+        s.assertIn("state/orchestrator-handoff.md", brief.split("2.")[0])                 # step 1 reads the hand-off
+
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
         s.assertNotIn("message", v)                                                            # no relayed inbox
@@ -264,7 +286,7 @@ class R2(Sandbox):
         for step in ("`card`", "`question`", "`alert`", "`! python3 ~/osrs-harness/hd.py approve", "`! python3 ~/osrs-harness/hd.py close", "monitor sweep", "evidence/monitor/sweep-<n>.md", "On session start, also start a monitor sweep"):   # the head skill's steps; the user types the yes and the close
             s.assertIn(step, brief)
         s.assertIn("disallowedTools: AskUserQuestion", brief.split("---")[1])    # the only spawner never waits on the user
-        v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrator": None})))
+        v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrators": []})))
         s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))
         s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))                       # the user's to fix, no planner
 

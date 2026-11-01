@@ -394,16 +394,32 @@ class Facts:
         return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
 
     @_read
-    def orchestrator(s):
-        """R2: the pid of the orchestrator session (a `claude --agent orchestrator` process), or None: the process table is the fact."""
+    def orchestrators(s):
+        """R2: [(pid, start)] of each orchestrator session (a `claude --agent orchestrator` process): the process table is the fact."""
+        out = []
         for d in Path("/proc").glob("[0-9]*"):
             try:
                 a = (d / "cmdline").read_bytes().split(b"\0")
             except OSError:
                 continue
             if a and Path(a[0].decode(errors="replace")).name == "claude" and b"orchestrator" in a and (b"--agent" in a):
-                return int(d.name)
-        return None
+                out.append((int(d.name), s.proc_start(int(d.name))))
+        return out
+
+    def definition_at(s, start):
+        """R2: the orchestrator.md blob a session started at `start` (clock ticks since boot) loaded: the live checkout's
+        HEAD then, by its reflog; "" when the reflog does not reach back that far."""
+        def f():
+            try:
+                btime = next(int(l.split()[1]) for l in Path("/proc/stat").read_text().splitlines() if l.startswith("btime "))
+            except (OSError, StopIteration):
+                return ""
+            t = btime + int(start) / os.sysconf("SC_CLK_TCK")
+            r = s.sh(["git", "-C", str(ROOT), "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD"])
+            at = next((h for h, d in (l.split(" ", 1) for l in (r[1] if r and r[0] == 0 else "").splitlines())
+                       if int(d.rsplit("{", 1)[1].rstrip("}")) <= t), None)
+            return s.blob(str(ROOT), at, ORCH) if at else ""
+        return s._m(("definition_at", start), f)
 
 
 def _bot(c):
@@ -2016,8 +2032,9 @@ def _pass(ctx, act):
     if q := quota():
         view["alert"].append(f"github: API quota exhausted ({q['url']} at {q['at']}): every GitHub read and the steps on it hold until "
                              f"{datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}")
-    if not ctx.F.orchestrator():
+    if not ctx.F.orchestrators():
         view["alert"].append(f"user: no orchestrator session: start it with `cd {ROOT} && claude --agent orchestrator`")
+    view["alert"] += swap(ctx)
     for r in ctx.runs:
         if not r.get("ended"):
             (view["spawn"] if not r.get("started") else view["run"]).append(
@@ -2026,6 +2043,25 @@ def _pass(ctx, act):
     if act:
         wake(view)
     return view
+
+
+ORCH = ".claude/agents/orchestrator.md"
+
+
+def swap(ctx):
+    """R2: a session loads its definition only at start, so the live target of a shipped orchestrator.md is a fresh
+    session: one started on another blob hands off to it, and drives on until it is up; then it spawns nothing more and
+    keeps only its running agents to their hand-backs (they are bound to it), so no run stops across the swap."""
+    cur, sessions = ctx.F.blob(str(ROOT), "HEAD", ORCH), ctx.F.orchestrators()
+    old = [p for p, st in sessions if cur and (b := ctx.F.definition_at(st)) and b != cur]
+    new = [p for p, _ in sessions if p not in old]
+    off = STATE / "orchestrator-handoff.md"
+    return ([f"orchestrator {p}: replaced by {new[0]}: write {off} if you have not; spawn nothing, re-arm no watch, TaskStop each "
+             "of your agents at its hand-back, then ask the user to close this window" if new else
+             f"orchestrator {p}: your definition changed since you started: write {off} (open questions, running agents, the "
+             f"monitor sweep in progress), TaskStop the monitor sweep and ask the user to start a fresh `cd {ROOT} && claude "
+             "--agent orchestrator`; drive on until it starts" for p in old]
+            + [f"orchestrator {p}: read {off}, act on it, then delete it" for p in new[:1] if off.exists()])
 
 
 # ---------------------------------------------------------------- the public act (R4): the console card shows it, the user's `hd approve` is the yes, the carry does it
@@ -2587,6 +2623,9 @@ def cmd_commit(a):
 
 def cmd_tick(a):
     v = tick(act="--dry-run" not in a)
+    me = f"orchestrator {Facts().console()[0]}:"
+    if any(l.startswith(me + " replaced") for l in v["alert"]):  # R2: a replaced session sees only its own lines, so it spawns nothing
+        v = {"alert": [l for l in v["alert"] if l.startswith(me)]}
     for k, lines in v.items():
         for l in lines:
             print(f"{k}: {l}" if k != "card" else l)

@@ -9,7 +9,7 @@ You hold no state: everything below is rebuilt from files on every wake.
    `inotifywait -qm -e close_write --format %f ~/osrs-harness/state | grep --line-buffered -x wake.orchestrator | while read f; do cat ~/osrs-harness/state/$f; done`
    It prints the head line of each spawn, card, question or alert that appeared since the last; a hand-back arrives as
    the agent's own notification. A wake, a hand-back, the user's words or the watch's expiry is the only reason to run
-   this loop; re-arm it every time before you go idle.
+   this loop; re-arm it every time before you go idle. On session start, also start a monitor sweep (step 11).
 2. Run `hd`. Act on its sections.
 3. `spawn`: call the Agent tool exactly as printed, in the background: the role as `subagent_type`, the one-line
    prompt naming the brief path. Nothing is pasted.
@@ -34,8 +34,16 @@ You hold no state: everything below is rebuilt from files on every wake.
    TaskStop alone leaves the run holding a slot.
 10. Commit every new or changed definition under `harness/` and hd.yaml (pathspec-only, authored as Alex Perrin
    <44126061+AlexPerrin@users.noreply.github.com>, the Co-Authored-By line only).
+11. One read-only monitor sweep is always running: a `general-purpose` agent, in the background, that edits nothing and
+   runs no `hd` pass (`hd`, `hd tick`) while harness-pass-lock-short is open. It validates that the harness changes
+   shipped since the last sweep landed and finds harness bugs, reporting each with its evidence. Its brief names the
+   last report `evidence/monitor/sweep-<n>.md` (the highest n), the changes shipped since (`git log --oneline
+   <the v8 head that report names>..v8 -- hd.py hook.py tools .claude docs`) and that report's open findings to follow
+   up. When it reports: TaskStop it, write its report to `evidence/monitor/sweep-<n+1>.md` with the v8 head it swept as
+   its first line, file each finding by its root cause (one harness change per cause, or into the open change that owns
+   it), and start the next sweep.
 
 Never: run `hd approve` or `hd close` yourself (the hook denies them: the user types them as `!` commands, which fire
 no hook); an upstream, release, deploy or build command; product code; EnterWorktree; investigation or review in this
 session (a `planner` run plans and monitors when `hd` lists it; a read-only subagent looks things up). Spawn only what
-`hd` lists. Times for the user are US Eastern.
+`hd` lists, and the monitor sweep. Times for the user are US Eastern.

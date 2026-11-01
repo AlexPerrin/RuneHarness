@@ -67,6 +67,11 @@ class Fake(hd.Facts):
     def review_comments(s, repo, pr): return None if s.f.get("comments", {}) is None else s.f.get("comments", {}).get(pr, [])  # None in f = GitHub unreadable
     def pr_comments(s, repo, pr): return None if s.f.get("talk", {}) is None else s.f.get("talk", {}).get(pr, [])
     def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
+    def pr(s, repo, n): return s.next(s.f.get("pull", {}), n)    # pull {n: {branch, head, draft, requested}}
+    def ci(s, repo, sha): return s.next(s.f, "ci")               # ci [the checks at each read]
+    def next(s, d, k):  # a list answers each read in turn, its last answer from then on
+        v = d.get(k)
+        return (v.pop(0) if len(v) > 1 else v[0]) if isinstance(v, list) else v
 
 
 class Sandbox(unittest.TestCase):
@@ -1034,16 +1039,12 @@ class R4(Sandbox):
     def test_the_carry_opens_the_draft_waits_for_green_ci_comments_readies_and_records_it(s):
         F = Fake(**FACTS); s.ready(F)
         s.approve(F, "s1", A); texts = hd.rec("s1", "approval")["texts"]
-        ci = ["pending", "success"]
-        def view(a):
-            if "headRefOid,statusCheckRollup" in a:
-                st = ci.pop(0)
-                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"name": "build", "detailsUrl": "https://ci/1", "status": "COMPLETED" if st != "pending" else "IN_PROGRESS", "conclusion": st.upper()}]}), ""
-            return 0, json.dumps({"comments": []}), ""
-        g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", ""), "pr view": view})
+        b = lambda st: [{"name": "build", "url": "https://ci/1", "state": st}]
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "requested": []}}, ci=[b("pending"), b("success")])
+        g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", "")})
         log = s.ship(F, g)
         order = [c[3] if c[0] == "git" else " ".join(c[1:3]) for c in g.calls if c[0] == "gh" or c[3] == "push"]
-        s.assertEqual(order, ["push", "pr create", "pr view", "pr view", "pr view", "pr comment", "pr ready", "pr view"])
+        s.assertEqual(order, ["push", "pr create", "pr comment", "pr ready"])  # every read goes through Facts, never gh pr view
         steps = [l.split(" ", 1)[1] for l in log.splitlines()]                   # ship.log: each step as it goes, the CI wait naming its checks
         s.assertEqual([x.split(":")[0].split(" ")[0] for x in steps[:4]], ["pushed", "opened", "CI", "CI"]); s.assertIn("CI wait: pending: build https://ci/1", steps)
         s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertTrue(steps[-2].startswith("review request: none listed")); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
@@ -1056,16 +1057,16 @@ class R4(Sandbox):
         s.assertIsNone(hd.rec("s1", "approval"))                                 # the yes is spent by the carry
         hd.put("s1", "approval", {"head": A, "texts": texts})                    # a new yes at the same texts
         s.assertTrue(hd.approved(ctx, ctx.changes["s1"], A))                    # the PR it opened: the yes holds on a rerun
-        ci[:] = ["failure"]; g = GH(**{"pr view": lambda a: view(a) if "statusCheckRollup" in " ".join(a) else (0, json.dumps({"headRefName": "content/s1", "headRefOid": A, "isDraft": True, "reviews": []}), "")})
+        F.f["ci"] = [b("failure")]; g = GH()
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("CI failure", str(e.exception))
         s.assertEqual(g.did("pr ready") + g.did("pr create"), [])               # stays draft, no second PR
         s.assertIn("build https://ci/1", str(e.exception))
-        g = GH(**{"pr view": lambda a, v=g.a["pr view"]: (1, "", "HTTP 502") if "statusCheckRollup" in " ".join(a) else v(a)})
+        F.f["ci"] = [None]; g = GH()
         with s.assertRaises(SystemExit) as e:                                    # a CI read that fails ends the wait, never loops on it
             s.ship(F, g)
-        s.assertIn("HTTP 502", str(e.exception)); s.assertEqual(g.did("pr ready"), [])
+        s.assertIn(f"the checks of u/f at {A[:9]} cannot be read", str(e.exception)); s.assertEqual(g.did("pr ready"), [])
 
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
@@ -1079,14 +1080,14 @@ class R4(Sandbox):
         s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
         s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["reply in the thread of review comment 99", 99, "> reset it\n\n@rev the official server keeps it."]])
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "fix/x", "headRefOid": A, "isDraft": False, "reviews": [], "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), "")})
-        s.ship(F, g)
+        F.f["pull"] = {7: {"branch": "fix/x", "head": A, "draft": False, "requested": []}}
+        g = GH(); s.ship(F, g)
         s.assertEqual(g.did("push") + g.did("pr comment") + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
         post = [c for c in g.calls if "POST" in c][0]
         s.assertEqual(post[4], "repos/u/f/pulls/7/comments/99/replies"); s.assertTrue(post[6].startswith("body=> reset it"))
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other"); hd.drop("s1", "ship")
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": g.a["pr view"]})
+        g = GH()
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
@@ -1123,8 +1124,8 @@ class R4(Sandbox):
         c = hd.tick(s.ctx(F), act=False)["card"][0]
         s.assertIn("update upstream PR 7 of u/f (base main", c); s.assertIn("replacing its body with the one below", c); s.assertIn("### body\nnew body", c)
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": lambda a: (0, json.dumps({"headRefName": "content/s1", "headRefOid": A if g.did("push") else D, "isDraft": False, "comments": [],
-                                                       "statusCheckRollup": [{"conclusion": "SUCCESS"}]}), ""), "api repos/u/f/pulls/comments/99": (0, "rev", "")})
+        F.f.update(pull={7: [{"branch": "content/s1", "head": h, "draft": False, "requested": []} for h in (D, A)]}, ci=[[{"name": "b", "url": "", "state": "success"}]])
+        g = GH(**{"api repos/u/f/pulls/comments/99": (0, "rev", "")})
         s.ship(F, g)
         s.assertEqual(g.did("pr edit")[0][-2:], ("--body", "new body" + hd.ATTRIBUTION))
         s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"]))
@@ -1164,7 +1165,8 @@ class R4(Sandbox):
         s.assertNotEqual(s.state(F, "s1")["actor"], "wait")
         s.verdict("z1", D, {"ok": "pass", "j1": "pass"}, F)
         s.approve(F, "z1", D)
-        g = GH(**{"pr create": (0, "https://github.com/u/z/pull/3", ""), "pr view": (0, json.dumps({"headRefOid": D, "statusCheckRollup": [{"conclusion": "SUCCESS"}], "comments": []}), "")})
+        F.f.update(pull={3: {"branch": "content/z1", "head": D, "draft": True, "requested": []}}, ci=[[{"name": "b", "url": "", "state": "success"}]])
+        g = GH(**{"pr create": (0, "https://github.com/u/z/pull/3", "")})
         s.ship(F, g, "z1", D)
         s.assertEqual(g.did("push")[0][2], str(s.root / "central"))
         cr = g.did("pr create")[0]; s.assertEqual(cr[cr.index("-R") + 1], "u/z")
@@ -1183,7 +1185,8 @@ class R4(Sandbox):
         c = hd.tick(s.ctx(F), act=False)["card"]
         s.assertEqual(len(c), 1); s.assertIn("### reply to PR comment IC_x\n(finding by rev on the PR: get the cutscene in)", c[0])
         s.approve(F, "s1", A)
-        g = GH(**{"pr view": (0, json.dumps({"headRefName": "content/s0", "headRefOid": A, "isDraft": False, "reviewRequests": []}), "")})
+        F.f["pull"] = {7: {"branch": "content/s0", "head": A, "draft": False, "requested": []}}
+        g = GH()
         s.ship(F, g)
         s.assertEqual(g.did("pr comment")[0][-1], "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION)
         F.f["talk"][7].append({"id": "IC_y", "author": "O", "body": "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION})
@@ -1293,6 +1296,19 @@ class R5(Sandbox):
             hd.tick(s.ctx(GitHub(**FACTS)), act=False)
             s.assertEqual(GitHub(**FACTS).review_comments("u/f", 7)[0]["author"], "rev")   # what the passes read
         s.assertEqual(calls, [])
+        cr = {"repos/u/f/pulls/7?per_page=100": {"head": {"ref": "content/s1", "sha": A}, "draft": False, "requested_reviewers": [{"login": "rev"}]},
+              f"repos/u/f/commits/{A}/check-runs?per_page=100": {"total_count": 1, "check_runs": [{"name": "build", "details_url": "https://ci/1", "status": "completed", "conclusion": "success"}]},
+              f"repos/u/f/commits/{A}/status?per_page=100": {"state": "pending", "statuses": []}}
+        api.update(cr); g = type("C", (GitHub,), {"pr": hd.Facts.pr, "ci": hd.Facts.ci})(**FACTS)
+        s.assertEqual(hd.checks(g, "u/f", 7, A), ("success", "build https://ci/1"))    # the carry's CI wait: the same cache
+        s.assertEqual(sorted(u for u, _ in calls), sorted(cr))
+        calls.clear(); hd.checks(g, "u/f", 7, A)                                # its next poll: each read afresh and conditional
+        s.assertEqual(sorted(calls), sorted((u, True) for u in cr))
+        s.assertEqual(g.pr("u/f", 7)["requested"], ["rev"])
+        src = (Path(hd.__file__).read_text()).split("\n")                       # no GitHub read in hd.py bypasses Facts.page
+        s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "POST"|"(comment|create|edit|ready)"', l)
+                       and "If-None-Match" not in l], [])
+        calls.clear()
         quota["reset"] = int(time.time()) + 3600
         shutil.rmtree(hd.STATE / "gh")                                          # nothing cached: every read goes to GitHub
         v = hd.tick(s.ctx(GitHub(**FACTS)))

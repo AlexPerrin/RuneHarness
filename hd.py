@@ -276,7 +276,7 @@ class Facts:
             code, body, url = p
             if code == 404:
                 return 404, None
-            out = body if out is None else out + body
+            out = body if out is None else out + body if isinstance(body, list) else {**body, **{k: out[k] + v for k, v in body.items() if isinstance(v, list)}}  # a page's lists joined
         return 200, out
 
     def page(s, url):
@@ -346,6 +346,28 @@ class Facts:
             return None
         return [{"number": p["number"], "branch": p["head"]["ref"], "owner": ((p["head"].get("repo") or {}).get("owner") or {}).get("login", ""),
                  "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body")} for p in r[1]]
+
+    @_read
+    def pr(s, repo, n):
+        """R4: one upstream PR {branch, head, draft, requested: the reviewers asked}, None unknown."""
+        r = s.api(f"repos/{repo}/pulls/{n}")
+        if r is None or r[0] != 200:
+            return None
+        p = r[1]
+        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"],
+                "requested": [u.get("login") or u.get("slug") or u.get("name") or "" for u in (p.get("requested_reviewers") or []) + (p.get("requested_teams") or [])]}
+
+    @_read
+    def ci(s, repo, sha):
+        """R4: the checks reported at a commit [{name, url, state: success | failure | pending}] (check runs and commit statuses), None unknown."""
+        runs, st = s.api(f"repos/{repo}/commits/{sha}/check-runs"), s.api(f"repos/{repo}/commits/{sha}/status")
+        if runs is None or st is None or runs[0] != 200 or st[0] != 200:
+            return None
+        ok = ("success", "neutral", "skipped")
+        return ([{"name": c.get("name") or "", "url": c.get("details_url") or "", "state": "pending" if c.get("status") != "completed" else "success" if c.get("conclusion") in ok else "failure"}
+                 for c in runs[1].get("check_runs") or []]
+                + [{"name": c.get("context") or "", "url": c.get("target_url") or "", "state": "pending" if c.get("state") == "pending" else "success" if c.get("state") in ok else "failure"}
+                   for c in st[1].get("statuses") or []])
 
     @_read
     def containers(s):
@@ -2053,20 +2075,26 @@ def log(msg):
     print(time.strftime("%H:%M:%SZ", time.gmtime()), msg, flush=True)
 
 
-def checks(up, number, head):
-    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at);
-    a failed read ends the wait."""
-    v = json.loads(must("gh", "pr", "view", str(number), "-R", up, "--json", "headRefOid,statusCheckRollup") or "{}")
-    if v.get("headRefOid") != head:
-        return "none", f"PR {number} head at {(v.get('headRefOid') or '')[:9]}, not yet {head[:9]}"
+def checks(F, up, number, head):
+    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at),
+    read afresh through Facts (conditional: an unchanged read costs no quota); a failed read ends the wait."""
+    F.forget("pr", "ci")
+    v = known(F.pr(up, number), f"PR {number} of {up}")
+    if v["head"] != head:
+        return "none", f"PR {number} head at {v['head'][:9]}, not yet {head[:9]}"
     by = {}
-    for c in v.get("statusCheckRollup") or []:
-        k = (c.get("conclusion") or c.get("state") or "").upper()
-        st = ("pending" if c.get("status", "COMPLETED") != "COMPLETED" or k in ("", "PENDING", "EXPECTED")
-              else "success" if k in ("SUCCESS", "NEUTRAL", "SKIPPED") else "failure")
-        by.setdefault(st, []).append(f"{c.get('name') or c.get('context') or ''} {c.get('detailsUrl') or c.get('targetUrl') or ''}".strip())
+    for c in known(F.ci(up, head), f"the checks of {up} at {head[:9]}"):
+        by.setdefault(c["state"], []).append(f"{c['name']} {c['url']}".strip())
     state = next((k for k in ("failure", "pending", "success") if k in by), "none")
     return state, ", ".join(by.get(state, [])) or f"no check reported at {head[:9]}"
+
+
+def known(v, what):
+    """A carry's GitHub read: the fact, or the carry stops (it reruns once GitHub reads again; an exhausted quota holds the pass's step)."""
+    if v is None:
+        q = quota()
+        raise RuntimeError(f"{what} cannot be read" + (f": GitHub's API quota is exhausted until {datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}" if q else ""))
+    return v
 
 
 def reply(ctx, ch, up, pr, finding, body):
@@ -2104,9 +2132,9 @@ def carry(ctx, ch, head, txt):
         return must("gh", "release", "create", f"v{ch['version']}", "-R", r["name"], "--target", head, "--title", f"v{ch['version']}",
                     "--notes", t["release notes"] + ATTRIBUTION, *assets)
     pr = ch.get("pr")
-    v = json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "headRefName,headRefOid,isDraft")) if pr else {"isDraft": True}
-    branch = v.get("headRefName") or ch.get("branch") or f"content/{ch['slug']}"
-    if (pushed := v.get("headRefOid") != head):
+    v = known(ctx.F.pr(up, pr), f"PR {pr} of {up}") if pr else {"draft": True}
+    branch = v.get("branch") or ch.get("branch") or f"content/{ch['slug']}"
+    if (pushed := v.get("head") != head):
         must("git", "-C", path, "push", "-q", remote(path, r["name"]), f"{head}:refs/heads/{branch}")
         log(f"pushed {head[:9]} to {branch}")
     if not pr:
@@ -2117,10 +2145,10 @@ def carry(ctx, ch, head, txt):
     elif (edit := [x for w in ("title", "body") if w in t for x in (f"--{w}", t[w] + (ATTRIBUTION if w == "body" else ""))]):
         must("gh", "pr", "edit", str(pr), "-R", up, *edit)
         log(f"updated the {' and '.join(w for w in ('title', 'body') if w in t)} of PR {pr}")
-    if pushed or v.get("isDraft"):  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
+    if pushed or v["draft"]:  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
         log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
         seen = None
-        while (cur := checks(up, pr, head))[0] in ("pending", "none"):
+        while (cur := checks(ctx.F, up, pr, head))[0] in ("pending", "none"):
             if cur != seen:  # each new fact the wait stands on, once
                 log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
             time.sleep(30)  # the fact decides; the sleep only spaces the reads
@@ -2128,17 +2156,18 @@ def carry(ctx, ch, head, txt):
             raise RuntimeError(f"CI {cur[0]} at {head[:9]}: {cur[1]}: the PR stays as it is")
         log(f"CI green at {head[:9]}: {cur[1]}")
     m = f"<!-- hd:{head[:12]} -->"
-    if "comment" in t and not any(m in c.get("body", "") for c in json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "comments"))["comments"]):
+    if "comment" in t and not any(m in c["body"] for c in known(ctx.F.pr_comments(up, pr), f"the comments of PR {pr}")):
         must("gh", "pr", "comment", str(pr), "-R", up, "--body", t["comment"] + ATTRIBUTION + f"\n{m}")
         log(f"commented, naming {head[:9]}")
     for _, finding, body in txt:
         if finding:
             reply(ctx, ch, up, pr, finding, body)
-    if v.get("isDraft"):
+    if v["draft"]:
         must("gh", "pr", "ready", str(pr), "-R", up)
         log("marked ready")
-    asked = json.loads(must("gh", "pr", "view", str(pr), "-R", up, "--json", "reviewRequests") or "{}").get("reviewRequests") or []
-    log(f"review requested from {', '.join(r.get('login') or r.get('name') or r.get('slug') or '' for r in asked)}" if asked
+    ctx.F.forget("pr")
+    asked = known(ctx.F.pr(up, pr), f"PR {pr} of {up}")["requested"]
+    log(f"review requested from {', '.join(asked)}" if asked
         else "review request: none listed (GitHub refuses the fork author's own request; upstream's CODEOWNERS asks on ready)")
     return f"upstream PR {pr} at {head[:9]}, ready for review"
 

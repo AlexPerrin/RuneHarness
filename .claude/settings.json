@@ -4,7 +4,7 @@
       {"matcher": "dev|qa|planner", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|SubagentHandback", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "PostToolUse": [
       {"matcher": "Bash|Read|Edit|Write|Agent", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}

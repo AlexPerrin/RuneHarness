@@ -467,6 +467,31 @@ class R2(Sandbox):
             hook.end_run(p)
         s.assertEqual((out.getvalue(), hd.runs()[0]["ended"]), ("", None))   # its end reported: an idle stop, the run live
 
+    def test_a_hand_back_waits_for_its_subagents_and_keeps_their_answers(s):
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        p = payload(run, "ag1", "SubagentStop", s.root, usage=1, handback="run s1-1: handoff")
+        tp = Path(p["agent_transcript_path"])
+        with open(tp, "a") as f:
+            f.write(json.dumps({"type": "user", "toolUseResult": {"isAsync": True, "status": "async_launched", "agentId": "c1"}}) + "\n")
+        pre = dict(p, hook_event_name="PreToolUse", tool_name="SubagentHandback", tool_input={"message": "run s1-1: handoff"})
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.hold_handback(pre)
+        s.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")   # its subagent still runs
+        (tp.parent / "agent-c1.jsonl").write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "the basement is under the manor"}}]}}) + "\n")
+        with open(tp, "a") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "<task-notification>\n<task-id>c1</task-id>"}}) + "\n")
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.hold_handback(pre)
+        s.assertEqual(out.getvalue(), "")                                  # its end reported: the hand-back goes
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(p)
+        s.assertTrue(hd.runs()[0]["ended"])
+        s.assertEqual((s.root / "evidence" / "s1" / "subagent-c1.md").read_text(), "the basement is under the manor\n")   # its answer kept
+
     def test_hook_binds_by_brief_path_and_wakes_main(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s2": A}})
@@ -1090,7 +1115,7 @@ class R6(Sandbox):
         s.assertIn("push it to fork dev/s1", out.getvalue())           # its work in progress committed and pushed first
         told = out.getvalue()
         s.assertIn("start no new work", told)                          # the told run starts nothing new
-        s.assertTrue(told.index("push it") < told.index("TaskStop") < told.index("`down s1`") < told.index("handoff.md"))   # a clean hand-off, in order
+        s.assertTrue(told.index("push it") < told.index("SendMessage") < told.index("`down s1`") < told.index("handoff.md"))   # a clean hand-off, in order
         s.assertTrue(hd.runs()[0]["handoff_told"])
         (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half; next: the rest")
         with mock.patch.object(hook, "start_pass"):

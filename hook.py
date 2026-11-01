@@ -4,12 +4,15 @@
 SubagentStart   bind the listed run named by the brief path in the agent's own first message (never another run: agents
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
 PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
+                A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
+                notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 start no new work and hand off cleanly: commit (and, off the harness track, push) its work in progress on the
-                dev ref, record what it judged, stop its subagents and processes, write evidence/<slug>/handoff.md, hand back; tell main (no agent) once per session to start nothing
+                dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; tell main (no agent) once per session to start nothing
                 new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn.                    R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
-                role's record newer than the start and the change's last answer). Any other stop leaves the run live,
+                role's record newer than the start and the change's last answer; each subagent's hand-back is kept as
+                evidence/<slug>/subagent-<id>.md). Any other stop leaves the run live,
                 and is refused while a background command the agent started has not reported its end: the agent
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
@@ -106,19 +109,44 @@ def usage_of(entries):
                 last, handed = str((b.get("input") or {}).get("message") or ""), True
             elif isinstance(b, dict) and b.get("type") == "tool_use":   # resumed after a hand-back: work goes on
                 handed = False
-    return u, last[-500:], handed
+    return u, last, handed
 
 
 def running(entries):
-    """Background commands and monitors the agent started (a result's backgroundTaskId or taskId) with no task
-    notification yet."""
+    """Background commands, monitors and subagents the agent started (a result's backgroundTaskId, taskId or async
+    agentId) with no task notification yet."""
     started, done = set(), set()
     for e in entries:
         t = e.get("toolUseResult")
-        if isinstance(t, dict) and (tid := t.get("backgroundTaskId") or t.get("taskId")):
+        if isinstance(t, dict) and (tid := t.get("backgroundTaskId") or t.get("taskId") or (t.get("isAsync") and t.get("agentId"))):
             started.add(tid)
         done.update(re.findall(r"<task-id>(\w+)</task-id>", json.dumps(e)))
     return sorted(started - done)
+
+
+def subagents(entries):
+    """The async subagents the agent started, by id."""
+    return [t["agentId"] for e in entries if isinstance(t := e.get("toolUseResult"), dict) and t.get("isAsync") and t.get("agentId")]
+
+
+def keep_answers(p, r, entries):
+    """Each subagent's hand-back, read from its transcript beside the run's, kept in the run's evidence."""
+    for aid in subagents(entries):
+        _, answer, handed = usage_of(transcript({"agent_transcript_path": str(Path(agent_transcript(p)).parent / f"agent-{aid}.jsonl")}))
+        if handed and answer:
+            (hd.EVID / r["change"]).mkdir(parents=True, exist_ok=True)
+            (hd.EVID / r["change"] / f"subagent-{aid}.md").write_text(answer + "\n")
+
+
+def hold_handback(p):
+    """R2: a run hands back only once every background task and subagent it started has reported its end."""
+    if p.get("tool_name") != "SubagentHandback" or p.get("agent_type") not in ROLES or not (ids := running(transcript(p))):
+        return
+    hd.event(action="handback-held", agent=p.get("agent_id"), tasks=ids)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          f"Not yet: {', '.join(ids)} you started have not reported their end. A subagent: SendMessage it to return its answer "
+          "now (you cannot TaskStop it), then block until its task notification; a background command or monitor: TaskStop it. "
+          "Then hand back; each subagent's answer is kept in the change's evidence."}}))
 
 
 def start_pass():
@@ -148,6 +176,7 @@ def end_run(p):
     if handed:   # an idle stop leaves the run live
         rec = hd.produced(r) or r["role"] == "planner"  # the planner's hand-back is its record, filed or not
         r.update(ended=hd.now(), record=rec)
+        keep_answers(p, r, entries)
     hd.save_run(r)
     if handed:
         hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
@@ -227,7 +256,8 @@ def context_limit(p):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
           f"Context limit reached ({size} tokens): start no new work (no new step, lookup or subagent); finish only the "
           f"command in hand, then hand off cleanly, in this order: {save}{judged}"
-          "stop every subagent you started (TaskStop) and every process you started (your track script's `down "
+          "collect every subagent you started (SendMessage it to return its answer now, then block until its task "
+          "notification; TaskStop cannot stop it) and stop every process you started (TaskStop, your track script's `down "
           f"{r['change']}`); write evidence/{r['change']}/handoff.md (your commit, what is done, what is next, the facts you "
           "rely on); then hand back with `run " + r["name"] + ": handoff`. A fresh run continues from your commit and file."}}))
 
@@ -235,7 +265,7 @@ def context_limit(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p)),"PostToolUse": context_limit, "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SubagentStart": bind, "PreToolUse": lambda p: (bind(p), deny_users_word(p), hold_handback(p)),"PostToolUse": context_limit, "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

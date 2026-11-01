@@ -13,7 +13,10 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
-                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit (a run, or main)
+                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; a run's SubagentHandback is
+                  denied while a background command, monitor or subagent it started has no task notification yet (a run
+                  cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is
+                  kept as evidence/<slug>/subagent-<id>.md; PostToolUse: hand off at the context limit (a run, or main)
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
@@ -138,7 +141,7 @@ loading the devtools jar of the client track's build of slug `live` (the client'
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit (set below the bound with room for a clean hand-off, measured under 11000 tokens) to start no new work,
 then in order: commit its work in progress on the dev ref (pushed off the harness track), record what it judged (a judge:
-`hd verdict` when a row failed, else the judged rows in `handoff.md`), stop its subagents and processes, write
+`hd verdict` when a row failed, else the judged rows in `handoff.md`), collect its subagents and stop its processes, write
 `handoff.md` and hand back; the successor is listed with it, its brief naming that commit. Three runs of a change past the limit since its
 last handover are an alert (the change too large for one run, or its brief spending context on reading). Main, which holds nothing beyond files, is
 told once per session past the same limit to start nothing new, give the user docs/HANDOFF.md's start prompt for a

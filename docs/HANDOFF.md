@@ -35,5 +35,4 @@ against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until it
    line (docs/ARCHITECTURE.md, Run and test); the `pins` list in hd.yaml; the `fix/31` decision.
 2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
    branch) until it moves onto `local/harness`.
-3. Regenerate the RSProx text transcripts with every packet filter on (`tools/track.sh recordings` reads them).
-4. Stop v7's timer, merge `v8` into `main`, install the units, resume with `claude --agent orchestrator`.
+3. Stop v7's timer, merge `v8` into `main`, install the units, resume with `claude --agent orchestrator`.

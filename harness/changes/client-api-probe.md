@@ -4,7 +4,7 @@ track: client
 kind: change
 title: 'tools/api-probe.sh: runtime probe of every net.runelite.api interface method
   in the Android app, percentage and per-method report'
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T13:57:43Z'
 goal: client-api

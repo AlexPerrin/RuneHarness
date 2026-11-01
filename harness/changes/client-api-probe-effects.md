@@ -4,7 +4,7 @@ track: client
 kind: change
 title: 'api-probe: observe and undo session-ending and server-visible methods (world
   hop, game state, menuAction, runScript; 21 skipped rows)'
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api

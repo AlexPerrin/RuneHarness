@@ -4,7 +4,7 @@ finding: 4433251631
 track: server
 title: '#354: reset the ammo varp (Nulodion.kt:265)'
 kind: change
-priority: P2
+priority: P1
 pr: 354
 created: '2026-10-31T23:42:50Z'
 deps: [harness-no-powershell, cannon-review-354, harness-server-build-musicrepository, harness-desktop-first-login]

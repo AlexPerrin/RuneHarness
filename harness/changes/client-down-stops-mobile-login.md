@@ -3,7 +3,7 @@ slug: client-down-stops-mobile-login
 track: client
 title: track.sh down stops mobile_login.py
 kind: change
-priority: P1
+priority: P2
 deps:
 - harness-mobile-devtools-jar
 - harness-down-stops-mobile-login

@@ -4,7 +4,7 @@ track: client
 kind: change
 title: Widget content type, drag parent, target priority, type and item quantity on
   the game widget instead of WidgetBag (8 rows)
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api

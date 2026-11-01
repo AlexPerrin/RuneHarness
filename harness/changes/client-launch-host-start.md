@@ -3,7 +3,7 @@ slug: client-launch-host-start
 track: client
 title: 'host start: plugins loaded off the launch path''s critical steps'
 kind: change
-priority: P1
+priority: P2
 goal: client-launch
 units:
 - launch:host-start

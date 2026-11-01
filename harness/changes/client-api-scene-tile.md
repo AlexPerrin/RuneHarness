@@ -4,7 +4,7 @@ track: client
 kind: change
 title: Scene terrain data and Tile scene tile model/paint (17 inert, unblocks SceneTileModel
   and SceneTilePaint, 39 rows)
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api

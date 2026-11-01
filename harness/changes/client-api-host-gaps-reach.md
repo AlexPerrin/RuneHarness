@@ -4,7 +4,7 @@ track: client
 kind: change
 title: 'Host gaps behind unreached probe rows: DynamicObject, HealthBarConfig, Script,
   ColorTextureOverride, PendingLogin (host never creates them)'
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T20:46:12Z'
 goal: client-api

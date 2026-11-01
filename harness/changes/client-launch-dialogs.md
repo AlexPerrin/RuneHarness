@@ -3,7 +3,7 @@ slug: client-launch-dialogs
 track: client
 title: no first-run dialogs at launch (Got it, Stay signed out, Accept, No thanks)
 kind: change
-priority: P1
+priority: P2
 goal: client-launch
 units:
 - launch:dialogs

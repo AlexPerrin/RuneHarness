@@ -4,7 +4,7 @@ track: client
 kind: change
 title: createProjectile on Client and WorldView, and the probe reaching the Projectile
   it creates (3 inert, 26 unreached)
-priority: P1
+priority: P2
 deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api

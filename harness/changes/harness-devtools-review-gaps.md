@@ -1,6 +1,7 @@
 ---
 slug: harness-devtools-review-gaps
 track: harness
+mechanism: devtools
 title: Devtools read chathead expressions and jingles, and interact_object reaches
   every loc
 kind: change

@@ -1,6 +1,7 @@
 ---
 slug: harness-card-comment-names-commits
 track: harness
+mechanism: carry
 title: A card's comment always names every commit it pushes; no generic fallback
 kind: change
 priority: P1

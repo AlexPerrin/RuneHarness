@@ -1,6 +1,7 @@
 ---
 slug: harness-live-issuer-cutover
 track: harness
+mechanism: server
 title: The live test stack takes its tokens from issuer.py, not the sidecar's LOCAL_AUTH
 kind: change
 priority: P1

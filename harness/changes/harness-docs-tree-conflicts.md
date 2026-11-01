@@ -5,7 +5,7 @@ title: Harness changes stop colliding on the shared docs; a sibling's ship costs
   dev run
 kind: change
 priority: P1
-mechanism: integration-conflict
+mechanism: tree
 deps: []
 created: '2026-11-01T22:50:06Z'
 ---

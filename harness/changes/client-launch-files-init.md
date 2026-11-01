@@ -1,6 +1,7 @@
 ---
 slug: client-launch-files-init
 track: harness
+mechanism: mobile
 title: 'up: no throwaway first app start and fixed sleep to create files/'
 kind: change
 priority: P1

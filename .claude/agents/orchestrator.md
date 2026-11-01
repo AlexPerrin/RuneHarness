@@ -26,7 +26,8 @@ You hold no state: everything below is rebuilt from files on every wake.
 6. `alert`: tell the user in one line.
 7. A hand-back arrives as one line: TaskStop that agent at once (`hd` shows what it recorded). A hand-back that reports
    a denied action, a broken script or a step the harness got wrong becomes one harness change (`hd new <slug> --track
-   harness --title "..." --body "<the evidence>"`).
+   harness --mechanism <m> --title "..." --body "<the evidence>"`, `<m>` the hd.yaml `mechanisms` entry the fault is in:
+   it joins the open change on `<m>` if there is one).
 8. The user's other words, at once: an instruction about a change or a run goes to that run by SendMessage if it is
    alive, else into the change (`hd new`, or a change's body); a planning request with a measurable target becomes a
    goal (`harness/goals/<slug>.md`: track, a numeric target, the user's words as its body), any other a change (`hd new`);

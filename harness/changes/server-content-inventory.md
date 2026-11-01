@@ -1,6 +1,7 @@
 ---
 slug: server-content-inventory
 track: harness
+mechanism: goals
 title: 'Server-content inventory: one row per content unit from the cache'
 kind: change
 priority: P1

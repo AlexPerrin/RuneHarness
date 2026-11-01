@@ -78,7 +78,8 @@ class Sandbox(unittest.TestCase):
         repos = {"client": s.root / "client", "fork": s.root / "fork", "central": s.root / "central", "harness": s.root}
         (s.root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repos["client"])}, "fork": {"name": "o/f", "path": str(repos["fork"]), "tools": "local/harness", "upstream": "u/f"},
                                                      "central": {"name": "o/z", "path": str(repos["central"]), "tools": "local/harness", "upstream": "u/z"},
-                                                     "harness": {"name": "o/h", "path": str(s.root)}}, "agents": 3, "context_limit": 150000, "pins": []}))
+                                                     "harness": {"name": "o/h", "path": str(s.root)}}, "agents": 3, "context_limit": 150000, "pins": [],
+                                                     "mechanisms": ["loop", "runs", "tree", "dispatch", "carry", "hold"]}))
         for track, p in (("client", repos["client"]), ("server", repos["fork"] / ".worktrees" / "harness"), ("central", repos["central"] / ".worktrees" / "harness"), ("harness", s.root)):
             (p / "tools").mkdir(parents=True, exist_ok=True)
             (p / "tools" / "track.md").write_text(f"# {track}\n\n## Seed rows\n- ok | always passes | check: true\n" + (f"- j1 | a judged row | judge: qa-{track}\n" if track in ("server", "central") else ""))
@@ -468,7 +469,7 @@ class R2(Sandbox):
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**FACTS)
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)
-        hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1"])
+        hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1", "--mechanism", "loop"])
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(c.startswith("s1 ") and "waiting on x1" in c for c in v["change"]))
         s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])          # the listed run is dropped, not kept
@@ -494,7 +495,7 @@ class R2(Sandbox):
         run = hd.runs()[0]
         hook.bind(payload(run, "ag1", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
-            hd.cmd_new(["x9", "--track", "harness", "--title", "another run's filing"])
+            hd.cmd_new(["x9", "--track", "harness", "--title", "another run's filing", "--mechanism", "loop"])
             hd.cmd_ask(["s1", "which?"]); hd.cmd_answer(["s1", "this one"])   # an answered ask, then work goes on
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="Waiting for the build to finish.", usage=2))   # an idle turn
             r = hd.runs()[0]
@@ -884,7 +885,7 @@ class R2(Sandbox):
         v = hd.tick(s.ctx(F))
         orc = [r for r in hd.runs() if r["role"] == "planner"][0]
         hook.bind(payload(orc, "agO", "SubagentStart", s.root))
-        hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the planner files a change
+        hd.cmd_new(["x1", "--track", "harness", "--title", "fix something", "--mechanism", "loop"])   # the planner files a change
         with mock.patch.object(hook, "start_pass"):
             hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run planner-1: filed x1"))
             s.assertTrue([r for r in hd.runs() if r["role"] == "planner"][0]["record"])
@@ -1317,8 +1318,8 @@ class R5(Sandbox):
 
     def test_dev_files_fix_outside_its_track_without_asking(s):
         s.change("c1", track="client"); s.agreed("c1", "client")
-        hd.cmd_new(["h9", "--track", "harness", "--title", "tools fix", "--blocks", "c1"])
-        hd.cmd_new(["h8", "--track", "harness", "--title", "another", "--blocks", "c1"])
+        hd.cmd_new(["h9", "--track", "harness", "--title", "tools fix", "--blocks", "c1", "--mechanism", "runs"])
+        hd.cmd_new(["h8", "--track", "harness", "--title", "another", "--blocks", "c1", "--mechanism", "tree"])
         s.assertEqual(hd.defs("changes")["c1"]["deps"], ["h9", "h8"])
         s.assertEqual(hd.defs("changes")["c1"]["body"], "do it")
         s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on h9")      # held, no question raised
@@ -1345,7 +1346,7 @@ class R5(Sandbox):
         s.assertEqual(hd.cycles(hd.defs("changes")), [])
         for a in (["n1", "--deps", "c4", "--blocks", "c3"], ["n2", "--blocks", "n2"]):   # closes c1 -> c2 -> c3 -> n1 -> c4 -> c1; a self-dep
             with s.assertRaises(SystemExit):
-                hd.cmd_new([a[0], "--track", "harness", "--title", "x", *a[1:]])
+                hd.cmd_new([a[0], "--track", "harness", "--title", "x", "--mechanism", "loop", *a[1:]])
             s.assertNotIn(a[0], hd.defs("changes"))
         s.assertEqual(hd.defs("changes")["c3"]["deps"], [])
 
@@ -1622,7 +1623,7 @@ class R6(Sandbox):
         s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")     # a harness change is never below P1
         c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 1; (s.root / "hd.yaml").write_text(json.dumps(c))
         s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(Fake(**FACTS)))["spawn"]], ["h1-1"])
-        hd.cmd_new(["h2", "--track", "harness", "--title", "t"])
+        hd.cmd_new(["h2", "--track", "harness", "--title", "t", "--mechanism", "loop"])
         s.assertIn("priority: P1", (s.root / "harness" / "changes" / "h2.md").read_text())   # hd new without --priority: P1
 
     def test_pr_changes_before_new_content_and_blockers_raised(s):
@@ -1689,7 +1690,7 @@ class R6(Sandbox):
         hd.tick(s.ctx(F))
         r = next(r for r in hd.runs() if r["name"] == "p1-1")
         r.update(started=hd.now()); hd.save_run(r)
-        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1"])
+        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1", "--mechanism", "loop"])
         r.update(ended=hd.now(), record=True); hd.save_run(r)
         s.change("h9", track="harness", priority="P1"); s.change("p1", priority="P1", deps=["h9"])
         hd.put("h9", "handover", {"head": C}); hd.put("h9", "state", {"state": "shipping"})   # on the live branch, not yet recorded done
@@ -1703,7 +1704,7 @@ class R6(Sandbox):
         hd.tick(s.ctx(F))
         r = next(r for r in hd.runs() if r["name"] == "p1-1")
         r.update(started=hd.now()); hd.save_run(r)
-        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1"])
+        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1", "--mechanism", "loop"])
         r.update(ended=hd.now(), record=True); hd.save_run(r)
         s.change("h9", track="harness", priority="P1", closed="done elsewhere"); s.change("p1", priority="P1", deps=["h9"])
         v = hd.tick(s.ctx(F))
@@ -2498,13 +2499,28 @@ class R3(Sandbox):
     def test_planner_merges_changes_on_one_mechanism(s):
         s.change("h1", track="harness"); s.change("h2", track="harness"); s.change("s1")
         with s.assertRaises(SystemExit):
-            hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--supersedes", "h1,s1"])   # only open harness changes
+            hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--mechanism", "hold", "--supersedes", "h1,s1"])   # only open harness changes
         hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1,h2"])
         g = hd.defs("changes")
         s.assertEqual((g["h1"]["closed"], g["h2"]["closed"], g["r1"]["mechanism"]), ("superseded by r1", "superseded by r1", "hold"))
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # a later issue on it joins it
         g = hd.defs("changes")
         s.assertNotIn("p9", g); s.assertIn("hold drops a run", g["r1"]["body"])
+        s.assertIn("filed by p9: hold drops a run", (s.root / "evidence" / "r1" / "contract.md").read_text())   # an answer row: a handed-over r1 gets its dev run
+        for bad in ([], ["--mechanism", "r1"]):                                 # a harness filing names one of hd.yaml's mechanisms
+            with s.assertRaises(SystemExit) as e:
+                hd.cmd_new(["p8", "--track", "harness", "--title", "y", *bad])
+            s.assertIn("one of: loop, runs", str(e.exception)); s.assertNotIn("p8", hd.defs("changes"))
+        hd.cmd_new(["s9", "--track", "server", "--title", "a quest"])           # a product change needs none
+        s.assertEqual(hd.mechanism(hd.defs("changes")["s9"]), "s9")
+        repo = Path(__file__).parent.parent
+        for role in ("orchestrator", "planner", "dev"):
+            s.assertIn("--mechanism <m>", (repo / ".claude" / "agents" / f"{role}.md").read_text(), role)
+        live = hd.yaml.safe_load((repo / "hd.yaml").read_text())["mechanisms"]
+        for f in (repo / "harness" / "changes").glob("*.md"):                   # every open harness definition names one
+            m, _ = hd._frontmatter(f.read_text())
+            if m["track"] == "harness" and not m.get("closed") and m.get("mechanism"):
+                s.assertIn(m["mechanism"], live, f.name)
         for role in ("dev", "qa", "planner"):
             s.assertIn("root cause", (Path(__file__).parent.parent / ".claude" / "agents" / f"{role}.md").read_text(), role)
 

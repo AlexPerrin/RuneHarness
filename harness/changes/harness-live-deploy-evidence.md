@@ -1,6 +1,7 @@
 ---
 slug: harness-live-deploy-evidence
 track: harness
+mechanism: server
 title: Each test-server deploy attempt keeps its own log, and a retry reuses the cache
 kind: change
 priority: P1

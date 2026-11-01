@@ -1,6 +1,7 @@
 ---
 slug: harness-desktop-login-devtools
 track: harness
+mechanism: desktop
 title: desktop login through the devtools login tool, no canvas clicks
 kind: change
 priority: P1

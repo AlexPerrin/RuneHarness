@@ -1,6 +1,7 @@
 ---
 slug: harness-ship-queue-no-regate
 track: harness
+mechanism: carry
 title: Approved, gated harness changes ship as one batch, not each re-gated after
   every sibling
 kind: change

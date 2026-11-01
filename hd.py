@@ -594,7 +594,7 @@ class Ctx:
         s.F, s.cfg = facts or Facts(), c or cfg()
         defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
-        s.runs, s.memo, s.alerts, s.docker = runs(), {}, [], True
+        s.runs, s.memo, s.alerts, s.docker, s.gate_failed = runs(), {}, [], True, {}
         s.batching, s.batched = False, {}  # R8: each track's batch, computed once per pass
         for c in s.changes.values():  # R4: an open upstream PR is found by its head branch (no owner prefix), from our fork
             if upstream(c) and not c.get("pr"):
@@ -1579,8 +1579,9 @@ def plan(ctx, view, act):
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
     gates = []
     for c in view["change"]:
-        slug, T = c.split(" ", 1)[0], (rec(c.split(" ", 1)[0], "gate") or {}).get("T") or ""
-        if ": gate failed" in c and slug in ctx.changes and not ctx.alive_run(ctx.changes[slug]) and any(
+        slug = c.split(" ", 1)[0]
+        T = ctx.gate_failed.get(slug)  # the failing gate's key from its step: a batched member's is its batch's tree
+        if T and slug in ctx.changes and not ctx.alive_run(ctx.changes[slug]) and any(
                 r["change"] == slug and r["role"] == "dev" and r.get("record") and T in (r.get("input") or "") for r in ctx.runs):
             gates.append(f"{c} at {T[:9]}")
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
@@ -1855,6 +1856,8 @@ def _pass(ctx, act):
                     save_run(r)
         if st["actor"] == "done":
             close_branches(ctx, ch, act)
+        if st["state"].startswith("gate failed"):
+            ctx.gate_failed[ch["slug"]] = st["input"][1]
         if st["actor"] != "done" or not last or last["state"] != st["state"]:
             view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
         if act and (not last or last["state"] != st["state"]):
@@ -2409,6 +2412,21 @@ def new_def(meta, body, **ev):
     return str(f)
 
 
+def cmd_commit(a):
+    """`hd commit <path>... -m <message>`: a definition commit on the live checkout, pathspec-only, authored as AUTHOR with the
+    co-author line, under state/ship.lock: never at once with a ship's merge there (R8)."""
+    i = a.index("-m") if "-m" in a else -1
+    if i < 1 or i + 1 >= len(a):
+        sys.exit("usage: hd commit <path>... -m <message>")
+    paths = a[:i] + a[i + 2:]
+    (ROOT / "state").mkdir(exist_ok=True)
+    with open(ROOT / "state" / "ship.lock", "w") as h:
+        fcntl.flock(h, fcntl.LOCK_EX)
+        git = lambda *c: subprocess.run(["git", "-C", str(ROOT), *c], env={**os.environ, **GIT_ENV}).returncode
+        rc = git("add", "-A", "--", *paths) or git("commit", "-q", "-m", f"{a[i + 1]}\n\n{TRAILER}", "--", *paths)
+    sys.exit(rc)
+
+
 def cmd_tick(a):
     v = tick(act="--dry-run" not in a)
     for k, lines in v.items():
@@ -2418,7 +2436,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

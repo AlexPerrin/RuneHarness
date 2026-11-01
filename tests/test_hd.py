@@ -2039,6 +2039,13 @@ class R8(Sandbox):
         hd.put("ship-harness", "gate-t0", {"ok": True})                                # it passes alone: h1's failure is h1's
         st = s.state(F, "h1")
         s.assertEqual((st["state"], st["actor"], st["detail"]), ("gate failed: dev", "dev", "FAIL: tests"))
+        F.f["procs"] = set(); hd.tick(s.ctx(F))
+        dev = [r for r in hd.runs() if r["change"] == "h1"][-1]
+        for r in [dev] + [r for r in hd.runs() if r["role"] == "planner"]:   # its dev handed back and the batch gate still fails; the alert's planner too
+            r.update(started=hd.now(), ended=hd.now(), record=True); hd.save_run(r)
+        hd.tick(s.ctx(F))
+        s.assertTrue(any(i.startswith("h1 [harness") and i.endswith("gate failed: dev at t1") for r in hd.runs() if r["role"] == "planner"
+                         for i in json.loads(r["input"])))                         # the planner reads the batch's gate, keyed by its tree
         F.f["merges"][(H2, H3)] = ("ok", "m4" * 20); F.f["trees"]["m4" * 20] = "t23"   # h1 leaves the batch: h2, h3 on the base
         s.assertEqual(states()[1:], ["gate on t23", "gate on t23"])
         F.f["merges"][(H2, H3)] = ("conflict", "CONFLICT: x")                       # only with h2: h3 waits for the batch ahead
@@ -2088,6 +2095,24 @@ class R8(Sandbox):
         r = ship(T2)                                                                  # the live branch moved past T2's base
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_definition_commit_waits_for_the_ship_lock(s):
+        import fcntl
+        git = lambda *a: subprocess.run(["git", "-C", str(s.root), *a], capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", str(s.root)], check=True); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+        (s.root / "harness" / "changes").mkdir(parents=True, exist_ok=True); (s.root / "harness" / "changes" / "d1.md").write_text("a definition")
+        (s.root / "other.txt").write_text("an edit of someone else"); git("add", "other.txt")
+        (s.root / "state").mkdir(exist_ok=True)
+        with open(s.root / "state" / "ship.lock", "w") as h:
+            fcntl.flock(h, fcntl.LOCK_EX)                                             # a ship holds the lock
+            p = subprocess.Popen([sys.executable, str(Path(hd.__file__)), "commit", "harness/changes/d1.md", "-m", "harness: define d1"],
+                                 env={**os.environ, "HD_ROOT": str(s.root)}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            s.assertEqual(git("log", "--format=%s"), "base")                          # nothing commits while it is held
+        out = p.communicate()[0]
+        s.assertEqual(p.returncode, 0, out)
+        s.assertEqual(git("log", "-1", "--format=%an <%ae>%n%B").splitlines()[:3], [f"{hd.AUTHOR[0]} <{hd.AUTHOR[1]}>", "harness: define d1", ""])
+        s.assertEqual(git("show", "--name-only", "--format=", "HEAD"), "harness/changes/d1.md")   # pathspec-only: the staged edit stays staged
+        s.assertEqual(git("diff", "--cached", "--name-only"), "other.txt")
 
     def test_the_suite_ignores_the_gates_tools(s):
         tmp = Path(tempfile.mkdtemp()); fork = tmp / "fork"

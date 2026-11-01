@@ -45,6 +45,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
+| `hd commit <path>... -m <msg>` | the orchestrator | commits those paths of the live checkout alone, authored as Alex Perrin with the co-author line, under `state/ship.lock`: never at once with a ship's merge |
 | `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised; a fetch another pass has in flight is waited on and its result taken) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
 
 ## Data

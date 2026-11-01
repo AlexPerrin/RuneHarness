@@ -1075,9 +1075,12 @@ def nxt(ctx, ch):
     tools = ctx.tools(ch)
     if tools is None:
         return step("tools refs unknown", "unknown")
-    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools):  # a release has no dev: its head is the base tip
+    # R3: the user's answer after the hand-over is the dev's to act on: the head is not built, gated or shipped until a new hand-over
+    late = [r for r in con["rows"] if ho and r["id"].startswith("answer-") and r["text"][:20] >= ho["ts"]]
+    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
-        return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
+        return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
+                    else f"dev run due: the user answered after the hand-over ({', '.join(r['id'] for r in late)})", "dev", mode="code",
                     input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; a conflict is the dev's step
     for n, h in tools.items():

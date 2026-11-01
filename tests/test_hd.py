@@ -1126,6 +1126,23 @@ class R6(Sandbox):
         with mock.patch.object(b.subprocess, "run", hang), mock.patch.object(b.urllib.request, "urlopen", side_effect=OSError("refused")):
             s.assertIn("no desktop client answers", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {}})["error"]["message"])
 
+    def test_desktop_call_answers_when_netstat_never_starts_or_the_call_raises(s):   # cannon-354-reset-ammo-varp-2: get_timeline hung 30 min
+        import importlib.util, threading
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        stuck = threading.Event()
+        def exec_hangs(*a, **k):
+            stuck.wait()                                               # netstat.exe's exec from /mnt/c blocks, before its timeout applies
+        ok = mock.MagicMock(); ok.__enter__.return_value.read.return_value = json.dumps({"result": {"content": [{"type": "text", "text": "{}"}]}}).encode()
+        with mock.patch.object(b, "NETSTAT_WAIT", 0.2), mock.patch.object(b.subprocess, "run", exec_hangs), mock.patch.object(b.urllib.request, "urlopen", return_value=ok):
+            s.assertIn("result", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "get_timeline", "arguments": {}}))   # it connects
+        stuck.set()
+        out = []
+        call = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_timeline", "arguments": {}}})
+        with mock.patch.object(b, "backend", side_effect=ValueError("truncated body")), mock.patch.object(b, "reply", lambda i, **r: out.append((i, r))):
+            b.handle("desktop", ["http://127.0.0.1:7780/mcp"], call)
+        s.assertEqual((out[0][0], "truncated body" in out[0][1]["error"]["message"]), (7, True))   # an exception is an error answer
+
     def test_desktop_screenshot_answers_while_another_call_waits(s):   # central-login-whitelist-binds-3: a screenshot hung 30 min
         import importlib.util, io, threading
         spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")

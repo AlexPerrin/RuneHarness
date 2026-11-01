@@ -50,7 +50,7 @@ state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate
 state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note}, rules{file: blob}, run}   appended
 state/<slug>/approval.json     {head, body}                    state/<slug>/ask.json       {text}
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
-state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, events_at, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
+state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
@@ -105,7 +105,7 @@ time; write an event only when `next` differs from the last event; end the runs 
 they own; repair what is observed broken, once. **Main** (skill `head`) is the chat head: a watch on `state/wake` wakes it; it runs `hd`, spawns each listed run by
 path, shows each card, records the user's word, dispatches the user's other messages to the run or the orchestrator
 they concern, re-arms the watch (an expiry is a wake too) and returns to the user. **The orchestrator** is a run
-listed when the facts call for it (an alert, a goal below target with nothing open, fifty events since its last run;
+listed on significant facts only (an alert, a gate failure, a goal below target with nothing open; never time or an event count;
 an alert or goal line an open change's body carries, or an orchestrator hand-back since the last change closed answered, is left out),
 outside the agent count (one at most); a planning request from the user reaches it as a goal. It
 files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in

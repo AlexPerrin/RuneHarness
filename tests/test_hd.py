@@ -47,7 +47,6 @@ class Fake(hd.Facts):
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
-    def events_count(s): return 0
     def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
 
 
@@ -495,11 +494,24 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual(json.loads([r for r in hd.runs() if r["role"] == "orchestrator"][2]["input"])[0:1], ["s1: dependency gone has no definition"])
 
-    def test_orchestrator_record_and_unmatched_stop(s):
+    def test_orchestrator_listed_on_significant_facts_only(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
-        with mock.patch.object(Fake, "events_count", lambda s: 60):        # fifty events since the last orchestrator run
-            v = hd.tick(s.ctx(F))
+        s.gated("s1", F)
+        for _ in range(60):                                                     # many events, nothing significant
+            hd.event(change="s1", action="noise")
+        hd.tick(s.ctx(F))
+        s.assertEqual([r for r in hd.runs() if r["role"] == "orchestrator"], [])
+        hd.put("s1", "gate", {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: tests"})   # a gate failure
+        hd.tick(s.ctx(F))
+        orc = [r for r in hd.runs() if r["role"] == "orchestrator"]
+        s.assertEqual(len(orc), 1)
+        s.assertIn("s1 [server P2]: gate failed: dev", json.loads(orc[0]["input"]))
+
+    def test_orchestrator_record_and_unmatched_stop(s):
+        s.change("s1"); s.agreed("s1"); s.change("s0", deps=["gone"])       # an alert lists the orchestrator
+        F = Fake(**FACTS)
+        v = hd.tick(s.ctx(F))
         orc = [r for r in hd.runs() if r["role"] == "orchestrator"][0]
         hook.bind(payload(orc, "agO", "SubagentStart", s.root))
         hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the orchestrator files a change
@@ -844,8 +856,8 @@ class R6(Sandbox):
             s.change(f"s{i}"); s.agreed(f"s{i}")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], **{f"fork/dev/s{i}": A for i in range(3)}}})
         hd.tick(s.ctx(F))                                              # three dev runs fill the three slots
-        with mock.patch.object(Fake, "events_count", lambda s: 60):
-            v = hd.tick(s.ctx(F))
+        s.change("s9", deps=["gone"])                                  # an alert
+        v = hd.tick(s.ctx(F))
         s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))
         s.assertEqual(len([r for r in hd.runs() if not r.get("ended") and r["role"] != "orchestrator"]), 3)
 

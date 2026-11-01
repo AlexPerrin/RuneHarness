@@ -186,10 +186,6 @@ class Facts:
         r = s.sh(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}"], timeout=60)
         return None if r is None or r[0] else dict(l.split("\t", 1) for l in r[1].splitlines() if "\t" in l)
 
-    def events_count(s):
-        f = STATE / "events.jsonl"
-        return f.read_bytes().count(b"\n") if f.exists() else 0
-
 
 # ---------------------------------------------------------------- what is stored (P2) and nothing else
 def _frontmatter(text):
@@ -764,7 +760,7 @@ def dispatch(ctx, ch, st, act):
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
     r = {"name": name, "role": role, "change": slug, "step": st["state"], "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
-         "console_pid": None, "console_start": None, "listed": now(), "events_at": ctx.F.events_count(), "started": None, "started_at": 0,
+         "console_pid": None, "console_start": None, "listed": now(), "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
     ctx.runs.append(r)
@@ -772,20 +768,18 @@ def dispatch(ctx, ch, st, act):
 
 
 def orchestrate(ctx, view, act):
-    """The orchestrator run: cross-track planning and monitoring. Listed when the facts call for it: an alert, a goal
-    below target with nothing open, or 50 events since its last run ended (never on time). An alert or goal line is left
-    out while an open change's body carries it or an orchestrator run handed back on it since the last change closed."""
+    """The orchestrator run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
+    event count): an alert (a run ended without its record twice, a script died or cannot start, a ship that died), a gate
+    failure, a goal below target with nothing open. A line is left out while an open change's body carries it or an
+    orchestrator run handed back on it since the last change closed."""
     orc = [r for r in ctx.runs if r["role"] == "orchestrator"]
-    last = max(orc, key=lambda r: r["listed"], default=None)
-    since = ctx.F.events_count() - ((last or {}).get("events_at") or 0)
     st = {k: rec(k, "state") or {} for k in ctx.changes}
     shut = {k: v.get("ts", "") for k, v in st.items() if ctx.changes[k].get("closed") or v.get("state", "").startswith(("done", "closed"))}
     closed = max(shut.values(), default="")
     handled = {a for r in orc if r.get("record") and (r.get("ended") or "") > closed for a in json.loads(r.get("input") or "[]")}
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
-    why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g]
-                  if not a.startswith(("orchestrator:", "user:")) and a not in handled and a not in carried}
-                 | ({"fifty events since the last orchestrator run"} if since >= 50 else set()))
+    why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + [c for c in view["change"] if ": gate failed" in c]
+                  if not a.startswith(("orchestrator:", "user:")) and a not in handled and a not in carried})
     if why:
         pseudo = {"slug": "orchestrator", "track": "harness", "deps": [], "kind": "orchestrator", "priority": "P0", "body": "\n".join(why), "title": "orchestrate"}
         dispatch(ctx, pseudo, step("orchestrator run due: " + "; ".join(why)[:200], "orchestrator", mode="orchestrate",

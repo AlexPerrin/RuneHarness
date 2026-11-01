@@ -6,11 +6,11 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
 PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 write evidence/<slug>/handoff.md and hand back.                                                            R6
-SubagentStop    end the run: ended, usage, last message, record (the role's record newer than the start), then start the
-                pass without waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`).
-                A stop fires at every idle turn (a wait on a build, before the hand-back nudge): the agent's next tool
-                call (PreToolUse) makes the run alive again and its next stop ends it afresh, so the last stop (after
-                SubagentHandback) holds the record.                                                                        R2 R6
+SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
+                role's record newer than the start and the change's last answer). A stop fires at every idle turn (a
+                wait on a build, before the hand-back nudge): it leaves the run live. Then start the pass without
+                waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
+                never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
 """
 import json, re, subprocess, sys, time
@@ -72,7 +72,7 @@ def bind(p):
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
-    if r and r.get("ended") and not r.get("reason") and r.get("agent_id") == p["agent_id"]:   # resumed after an idle stop
+    if r and r.get("ended") and not r.get("reason") and r.get("agent_id") == p["agent_id"]:   # resumed after its hand-back
         r["ended"] = None
         hd.save_run(r)
         return hd.event(change=r["change"], run=r["name"], action="resumed")
@@ -101,21 +101,26 @@ def usage_of(entries):
         for b in m.get("content") or []:  # the hand-back's report is the run's last word
             if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "SubagentHandback":
                 last, handed = str((b.get("input") or {}).get("message") or ""), True
+            elif isinstance(b, dict) and b.get("type") == "tool_use":   # resumed after a hand-back: work goes on
+                handed = False
     return u, last[-500:], handed
 
 
 def produced(r):
-    """The run's record, newer than its start: a hand-over, verdict, question, agreed contract or filed change."""
-    slug, since = r["change"], r.get("started") or r["listed"]
-    if any(x and x["ts"] >= since for x in (hd.rec(slug, "handover"), hd.rec(slug, "ask"))):
+    """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
+    hand-over, verdict, question, agreed contract or filed change."""
+    slug, f = r["change"], hd.STATE / "events.jsonl"
+    ev = [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+    since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in ev if e.get("change") == slug and e.get("record") == "answer"])
+    newer = lambda ts: ts >= since and ts > answered
+    if any(x and newer(x["ts"]) for x in (hd.rec(slug, "handover"), hd.rec(slug, "ask"))):
         return True
-    if any(v["ts"] >= since for v in hd.verdicts(slug)):
+    if any(newer(v["ts"]) for v in hd.verdicts(slug)):
         return True
     con = hd.contract(slug)
     if con and con["agreed"] == r["name"]:
         return True
-    f = hd.STATE / "events.jsonl"
-    return f.exists() and any('"action": "new"' in l and json.loads(l)["ts"] >= since for l in open(f))
+    return any(e.get("action") == "new" and newer(e["ts"]) for e in ev)
 
 
 def start_pass():
@@ -134,10 +139,13 @@ def end_run(p):
     if r.get("reason"):   # ended by the pass or the head, not by a stop
         return
     u, last, handed = usage_of(transcript(p))
-    rec = produced(r) or (handed and r["role"] == "orchestrator")  # the orchestrator's hand-back is its record, filed or not
-    r.update(ended=hd.now(), usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:], record=rec, events_at=hd.Facts().events_count())
+    r.update(usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:])
+    if handed:   # an idle stop leaves the run live
+        rec = produced(r) or r["role"] == "orchestrator"  # the orchestrator's hand-back is its record, filed or not
+        r.update(ended=hd.now(), record=rec, events_at=hd.Facts().events_count())
     hd.save_run(r)
-    hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
+    if handed:
+        hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
     start_pass()
 
 

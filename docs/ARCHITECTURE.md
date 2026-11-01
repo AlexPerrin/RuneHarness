@@ -9,8 +9,9 @@ hd.py             the loop: next(change), facts, records, the pass; commands bel
 hd.yaml           repos, paths, the agent count, the context limit, the fork's permanent pins
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
-                  started without waiting; a stop fires at each idle turn, so the agent's next tool call makes the run
-                  alive again and its last stop (after its hand-back) is the run's end;
+                  started without waiting; a stop fires at each idle turn and leaves the run live (usage, last line),
+                  the stop after its SubagentHandback ends it; its record is newer than its start and the change's
+                  last answer;
                   PreToolUse: a subagent may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log

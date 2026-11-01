@@ -227,7 +227,7 @@ class R2(Sandbox):
             (s.root / "evidence" / "c1" / "log.txt").write_text("evidence")
             with mock.patch.object(hd, "Facts", lambda: F):
                 hd.cmd_handover(["c1"])
-            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run c1-1: handed over " + A, usage=3))
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run c1-1: handed over " + A, usage=3, handback="run c1-1: handed over " + A))
             s.assertEqual(sp.call_count, 1)                           # the pass is started, never waited on
         run = [r for r in hd.runs() if r["change"] == "c1"][0]
         s.assertTrue(run["record"]); s.assertEqual(run["usage"]["turns"], 3); s.assertIn("handed over", run["last"])
@@ -350,12 +350,12 @@ class R2(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual((v["spawn"], len(v["run"])), ([], 1))           # alive: listed under run, not spawn
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run s1-1: gave up"))
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, handback="run s1-1: gave up"))
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)            # one retry on the same input
         run2 = hd.runs()[1]
         hook.bind(payload(run2, "ag2", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(run2, "ag2", "SubagentStop", s.root, last="run s1-2: gave up"))
+            hook.end_run(payload(run2, "ag2", "SubagentStop", s.root, handback="run s1-2: gave up"))
         v = hd.tick(s.ctx(F))
         s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])   # then raised once, never a third
         s.assertTrue(any("ended without a record" in a for a in v["alert"]))
@@ -377,13 +377,18 @@ class R2(Sandbox):
         run = hd.runs()[0]
         hook.bind(payload(run, "ag1", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
+            hd.cmd_new(["x9", "--track", "harness", "--title", "another run's filing"])
+            hd.cmd_ask(["s1", "which?"]); hd.cmd_answer(["s1", "this one"])   # an answered ask, then work goes on
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="Waiting for the build to finish.", usage=2))   # an idle turn
-            hook.bind(payload(run, "ag1", "PreToolUse", s.root))          # the build notification resumes it
+            r = hd.runs()[0]
+            s.assertEqual((r["ended"], r["last"], r["usage"]["turns"]), (None, "Waiting for the build to finish.", 2))   # live, usage and last kept
             v = hd.tick(s.ctx(F))
-            s.assertEqual(([x for x in v["spawn"] if x.startswith("s1-")], len(hd.runs())), ([], 1))   # alive: no second run
+            s.assertEqual(([x for x in v["spawn"] if x.startswith("s1-")], len(hd.runs())), ([], 1))   # alive between the stop and the resume: no second run
+            hook.bind(payload(run, "ag1", "PreToolUse", s.root))          # the build notification resumes it
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="I'll hand back.", usage=5, handback="run s1-1: handoff"))
         r = hd.runs()[0]
-        s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the last stop's record
+        s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the hand-back's stop ends it
+        s.assertFalse(r["record"])                                        # nothing newer than the answer: no record
 
     def test_hook_binds_by_brief_path_and_wakes_main(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
@@ -424,6 +429,8 @@ class R2(Sandbox):
         s.assertEqual([r["agent_id"] for r in bound], ["a1", "a2", "a3"])
         s.assertTrue(bound[2]["transcript"].endswith("subagents/agent-a3.jsonl"))
         with mock.patch.object(hook, "start_pass"):
+            with open(s.root / "state" / "session" / "subagents" / "agent-a3.jsonl", "a") as t:   # a3 hands back
+                t.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "SubagentHandback", "input": {"message": "run s3-1: handoff"}}]}}) + "\n")
             hook.end_run(p(runs[2], "a3", "SubagentStop", prompt=False))   # the first to stop ends its own run only
         s.assertEqual([bool(r["ended"]) for r in sorted(hd.runs(), key=lambda r: r["name"])], [False, False, True])
 
@@ -441,7 +448,9 @@ class R2(Sandbox):
         s.assertEqual(json.loads(orc2["input"])[0:1], ["s2: dependency lost has no definition"])
         hook.bind(payload(orc2, "agO2", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(orc2, "agO2", "SubagentStop", s.root))           # died without a hand-back: no record
+            hook.end_run(payload(orc2, "agO2", "SubagentStop", s.root))           # an idle stop: still live
+            s.assertIsNone(hd.runs()[-1]["ended"])
+            hd.cmd_stop([orc2["name"]])                                           # stopped without a hand-back: no record
         s.assertEqual([r["record"] for r in hd.runs() if r["role"] == "orchestrator"], [True, False])   # the hand-back is the record
         s.change("h1", track="harness", deps=["s2"], body="s2: dependency lost has no definition")   # an open change carries the alert
         hd.tick(s.ctx(F))
@@ -459,7 +468,7 @@ class R2(Sandbox):
         hook.bind(payload(orc, "agO", "SubagentStart", s.root))
         hd.cmd_new(["x1", "--track", "harness", "--title", "fix something"])   # the orchestrator files a change
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(orc, "agO", "SubagentStop", s.root))
+            hook.end_run(payload(orc, "agO", "SubagentStop", s.root, handback="run orchestrator-1: filed x1"))
             s.assertTrue([r for r in hd.runs() if r["role"] == "orchestrator"][0]["record"])
             dev = [r for r in hd.runs() if r["role"] == "dev"][0]
             hook.end_run({"hook_event_name": "SubagentStop", "agent_id": "ghost", "agent_type": "dev"})  # no transcript, no id: ends nothing
@@ -814,7 +823,7 @@ class R6(Sandbox):
         s.assertTrue(hd.runs()[0]["handoff_told"])
         (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half; next: the rest")
         with mock.patch.object(hook, "start_pass"):
-            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="run s1-1: handoff", usage=4, context=170000))
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=4, context=170000, handback="run s1-1: handoff"))
         r = hd.runs()[0]
         s.assertEqual((r["record"], r["usage"]["turns"], r["usage"]["cache_read"] > 0, bool(r["transcript"])), (False, 4, True, True))
         v = hd.tick(s.ctx(F))

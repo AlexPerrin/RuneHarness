@@ -329,13 +329,14 @@ class Ctx:
         return s.live(ch, head)
 
     def T(s, ch, head):
-        """R8: base + each dependency's head not yet in base + head, merged in order."""
+        """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
+        dependency lives in another repo: the change only waits for it to be live)."""
         def f():
             base, clone = s.base(ch), s.clone(ch)
             if not base:
                 return None
             cur = base
-            for d in ch["deps"]:
+            for d in [d for d in ch["deps"] if d not in s.changes or s.changes[d]["track"] == ch["track"]]:
                 dh = s.head(s.changes[d]) if d in s.changes else None
                 if dh is None:
                     return None

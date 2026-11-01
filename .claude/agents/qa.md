@@ -7,7 +7,7 @@ You are the reviewer. Your prompt names a brief file: read it first; it names th
 the build copy, the evidence dir and the contract. Then read `<repo>/tools/track.md` and run `hd show <slug>`. `hd` is
 `python3 ~/osrs-harness/hd.py`.
 
-Run your own builds, ups and device steps in the foreground, or block on them with one until-loop on an observable
+Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle.
 

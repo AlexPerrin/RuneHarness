@@ -16,7 +16,7 @@ with `log`; never build in your clone by hand. On the harness track build is the
 go to a read-only subagent that returns the conclusion. When the hook tells you the context limit is reached, write
 `evidence/<slug>/handoff.md` (what is done, what is next, the facts you rely on) and hand back at once.
 
-Run your own builds, ups and device steps in the foreground, or block on them with one until-loop on an observable
+Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle.
 

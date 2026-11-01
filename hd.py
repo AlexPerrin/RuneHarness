@@ -18,6 +18,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": AUTHOR[0], "GIT_AUTHOR_EMAIL": AUTHOR[1], "GIT_COM
 TRACK = {  # derived, not configured: the repo, the remotes fetched, the base, the dev ref of a change, the public act
     "client": {"repo": "client", "fetch": ["origin"], "base": "origin/HEAD", "dev": "origin/client/{slug}", "public": "release"},
     "server": {"repo": "fork", "fetch": ["origin", "fork"], "base": "origin/HEAD", "dev": "fork/dev/{slug}", "public": "upstream"},
+    "central": {"repo": "central", "fetch": ["origin", "fork"], "base": "origin/HEAD", "dev": "fork/dev/{slug}", "public": "upstream"},
     "harness": {"repo": "harness", "fetch": [], "base": "HEAD", "dev": "harness/{slug}", "public": None},  # base: the live checkout's branch
 }
 PRIO = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
@@ -407,6 +408,9 @@ class Ctx:
             return False
         if not (o := s.own(ch, head)):
             return o
+        if ch["track"] == "central":  # its test target is its gate: the locally built Central a dependent server build includes
+            ho, g = rec(ch["slug"], "handover") or {}, rec(ch["slug"], "gate") or {}
+            return ho.get("head") == head and bool(g.get("ok")) and (g.get("T", "") + "-").startswith(ho.get("T") + "-")
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
@@ -418,7 +422,7 @@ class Ctx:
         if ch["kind"] == "release":
             r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
             return None if r is None else bool(r)
-        if ch["track"] == "server" and ch["kind"] != "local":
+        if TRACK[ch["track"]]["public"] == "upstream" and ch["kind"] != "local":
             if not head:
                 return False
             return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
@@ -448,8 +452,27 @@ class Ctx:
         """T's tree sha, which keys build and gate; a harness change's key leaves out the definitions under harness/ (a
         definition commit on the live branch re-gates nothing) and holds its carried tools heads."""
         drop = "harness" if ch["track"] == "harness" else ""
-        t, tools = s._m(("tree", commit, drop), lambda: s.F.tree(s.clone(ch), commit, drop)), s.tools(ch)
-        return None if t is None or tools is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools))
+        t, tools, cen = s._m(("tree", commit, drop), lambda: s.F.tree(s.clone(ch), commit, drop)), s.tools(ch), s.central(ch)
+        return None if t is None or tools is None or cen is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)) + (f"-c{cen[:12]}" if cen else "")
+
+    def central(s, ch, deps=None):
+        """R8: the Central tree a server build includes (-Popenrune.central.includeBuild): Central's base and the heads of
+        the change's central dependencies (or of `deps`) merged; '' with none; None unknown."""
+        ds = [s.changes[d] for d in (ch["deps"] if deps is None else deps) if d in s.changes and s.changes[d]["track"] == "central" and not s.changes[d].get("closed")]
+        if ch["track"] != "server" or not ds:
+            return ""
+        clone, base = s.clone(ds[0]), s.base(ds[0])
+        cur = base
+        for d in ds:
+            h = s.head(d)
+            if not base or not h:
+                return None
+            if not s.F.contains(clone, base, h):
+                r = s.F.merge(clone, cur, h, f"central: {d['slug']} {h[:9]}")
+                if r is None or r[0] != "ok":
+                    return None  # shortcut: two Central changes that conflict read as unknown; give it a dev step if it ever happens
+                cur = r[1]
+        return cur
 
     def key(s, ch, tree):
         """The build and gate key: T's tree, plus the tip of the track's tools branch when it has one, so a tools fix
@@ -466,8 +489,12 @@ class Ctx:
     def env(s, ch, head, tc, tree, build=""):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
-                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT),
+                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT), "CENTRAL": s.central_env(s.central(ch)),
                 "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}:{s.cfg['repos'][n]['name']}" for n, h in (s.tools(ch) or {}).items())}
+
+    def central_env(s, commit):
+        """CENTRAL for a server track script: `<Central clone>:<commit>`, '' without one."""
+        return f"{P(s.cfg['repos']['central']['path'])}:{commit}" if commit else ""
 
     def public(s, *args):
         """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""
@@ -556,7 +583,7 @@ def nxt(ctx, ch):
         return step("done", "done")
     con = contract(slug)
     if con is None:
-        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
+        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else ""))
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
     tools = ctx.tools(ch)
@@ -600,14 +627,14 @@ def nxt(ctx, ch):
         if failed:
             return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
                         detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed))
-    if track == "server":
+    if TRACK[track]["public"] == "upstream":
         if not ctx.live(ch, head):
             return step("gated; test server deploy pending", "ship-test")
         if ch["kind"] == "local":
             return step("live on the test server", "done")
         a = rec(slug, "approval")
         if not a or a["head"] != head:
-            return step("live on the test server; waiting for the user's yes", "user", input=head)
+            return step(f"{'live on the test server' if track == 'server' else 'gated'}; waiting for the user's yes", "user", input=head)
         return step("shipping upstream", "script", act=lambda: ctx.start(slug, "ship", ctx.public("upstream", slug, head), env))
     if ch["kind"] == "release":
         a = rec(slug, "approval")
@@ -620,18 +647,18 @@ def nxt(ctx, ch):
 def findings(ctx, open_prs, act):
     """R2: each maintainer's inline review comment on an open PR that no definition carries (`finding`: an id or a list)
     becomes a P0 change on the PR with deps [the PR's root changes] and their contract, unagreed, plus the finding."""
-    owner = ctx.cfg["repos"]["fork"]["name"].split("/")[0].lower()
     carried = {str(f) for c in ctx.changes.values() for f in (c["finding"] if isinstance(c.get("finding"), list) else [c.get("finding")]) if f}
-    for pr in sorted(open_prs):
-        cs = ctx.F.review_comments(ctx.cfg["repos"]["upstream"]["name"], pr)
-        on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == "server"]
+    for track, pr in sorted(open_prs):
+        r = ctx.cfg["repos"][TRACK[track]["repo"]]
+        owner, cs = r["name"].split("/")[0].lower(), ctx.F.review_comments(r.get("upstream"), pr)
+        on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track]
         roots = [c for c in on if not any(d in {o["slug"] for o in on} for d in c["deps"])]
         for c in cs or []:  # a reply belongs to its thread's finding; unknown (None) files nothing this pass
             if c["reply"] or c["bot"] or str(c["author"]).lower() == owner or str(c["id"]) in carried or not act:
                 continue
             carried.add(str(c["id"]))
             slug = f"{roots[0]['slug'] if roots else f'pr{pr}'}-c{c['id']}"
-            meta = {"slug": slug, "track": "server", "title": f"#{pr}: {c['author']} on {c['path']}:{c['line']}", "kind": "change", "priority": "P0",
+            meta = {"slug": slug, "track": track, "title": f"#{pr}: {c['author']} on {c['path']}:{c['line']}", "kind": "change", "priority": "P0",
                     "deps": [r["slug"] for r in roots], "pr": pr, "finding": c["id"]}
             if roots and roots[0].get("branch"):
                 meta["branch"] = roots[0]["branch"]
@@ -663,7 +690,7 @@ def integration(ctx):
             heads.append((pin, h, None))
     for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
         head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
-        if head and ho and ho["head"] == head and g and g["ok"] and g["T"].split("-")[0] == ho["T"] and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
+        if head and ho and ho["head"] == head and g and g["ok"] and (g["T"] + "-").startswith(ho["T"] + "-") and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
     cur, included = base, []
@@ -684,8 +711,9 @@ def integration(ctx):
                 return {"conflict": name, "change": owner, "head": h, "base": base, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
         cur = r[1]
         included.append((name, h, ch))
-    tree = ctx.F.tree(clone, cur)
-    return {"commit": cur, "tree": tree, "heads": [h for _, h, _ in included], "names": [n for n, _, _ in included]} if tree else None
+    tree, cen = ctx.F.tree(clone, cur), ctx.central(srv, [d for _, _, c in included if c for d in c["deps"]])
+    return {"commit": cur, "tree": tree + (f"-c{cen[:12]}" if cen else ""), "central": cen, "heads": [h for _, h, _ in included],
+            "names": [n for n, _, _ in included]} if tree and cen is not None else None
 
 
 def ship_test(ctx, ch, st, tint, act):
@@ -711,7 +739,8 @@ def ship_test(ctx, ch, st, tint, act):
                 ctx.alerts.append(f"pin {tint['conflict']} conflicts with the integration tree ({', '.join(tint['with'][-3:])}): a resolution ref or a change is needed")
     elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
-                  {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT)}, act)
+                  {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
+                   "CENTRAL": ctx.central_env(tint["central"])}, act)
         st["state"] = f"test server: deploying {tint['tree'][:9]}"
 
 
@@ -974,8 +1003,8 @@ def tick(ctx=None, act=True):
         tint, open_prs = {}, set()
         for ch in sorted(ctx.changes.values(), key=lambda c: (c["track"] != "harness", PRIO.get(c["priority"], 9), c.get("created", ""), c["slug"])):  # harness fixes first: they unblock every track
             st = nxt(ctx, ch)
-            if ch["track"] == "server" and ch.get("pr") and st["actor"] != "done":
-                open_prs.add(ch["pr"])
+            if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
+                open_prs.add((ch["track"], ch["pr"]))
             if st["actor"] == "ship-test":
                 if "v" not in tint:
                     tint["v"] = integration(ctx)  # once per pass
@@ -1031,7 +1060,7 @@ def card(ctx, ch, st):
     if ch["kind"] == "release":
         lines += [f"release v{ch['version']}: the APK in the evidence dir"]
     else:
-        lines += [f"branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR"),
+        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR"),
                   f"### title\n{t['title']}", f"### body\n{t['body']}", f"### comment\n{t['comment']}"]
     lines += [f"then: python3 {ROOT}/hd.py approve {ch['slug']} {head}"]
     return "\n".join(lines)
@@ -1252,7 +1281,7 @@ def cmd_tree(a):
         refuse("tree cannot be computed")
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
-    print(T[1], ctx.tree(ch, T[1]) or "")
+    print(T[1], ctx.tree(ch, T[1]) or "", ctx.central_env(ctx.central(ch)))
 
 
 def cmd_new(a):

@@ -2,7 +2,8 @@
 
 The harness that moves changes to their live targets for two products: the client (AlexPerrin/osrs-plugins-reverse:
 RuneLite plugins in the official OSRS Android app, APK releases) and the test server (the OpenRune fork
-AlexPerrin/OpenRune-Server, contributed upstream to OpenRune/OpenRune-Server). It is neither product's code.
+AlexPerrin/OpenRune-Server and its Central AlexPerrin/OpenRune-Central-Server, contributed upstream to
+OpenRune/OpenRune-Server and OpenRune/OpenRune-Central-Server). It is neither product's code.
 
 **New session: read docs/PROBLEM.md (first principles), docs/PRD.md (R1–R8), docs/ARCHITECTURE.md (how it is built),
 docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.

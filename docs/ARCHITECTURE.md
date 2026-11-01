@@ -6,7 +6,7 @@ it. `next(change)` is the first unmet of a fixed list; everything shown or acted
 
 ```
 hd.py             the loop: next(change), facts, records, the pass; commands below
-hd.yaml           repos, paths, the agent count, the context limit, the fork's permanent pins
+hd.yaml           repos (each fork with its upstream), paths, the agent count, the context limit, the fork's permanent pins
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript,
                   <session>/subagents/agent-<id>.jsonl; else its first tool call binds it) and end, then the pass
                   started without waiting; a stop fires at each idle turn and leaves the run live (usage, last line),
@@ -61,7 +61,7 @@ fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be 
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit),
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
-permanent pins. Build and gate are keyed by T's tree joined with `-<tip12>` of the track's tools branch when it has one (a tools fix re-builds and re-gates; T_int admits a gate whose tree part is the hand-over's). Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK
+permanent pins. Build and gate are keyed by T's tree joined with `-<tip12>` of the track's tools branch when it has one (a tools fix re-builds and re-gates; T_int admits a gate whose key starts with the hand-over's T). A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`; `hd tree` prints it third); T_int carries the one of its heads' central dependencies. Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition
 commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current T). The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned). The build copy is `<repo>/.worktrees/<slug>-build`, the
@@ -81,13 +81,13 @@ head holds its tip, or the change is closed; `swept.json` keeps the head the dev
 next(change):
   closed by the user?               yes → done
   deps live or closed?              no → wait on them
-  contract.md?                      no → qa run (server) | derived from the definition and seed rows (client, harness)
+  contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   T                                 conflict → dev
   build(T)                          not built → tools/track.sh build; failed → dev
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
-  server: live.json ⊇ head?         no → ship test server (T_int built once, deployed); a conflict → the younger change's dev
+  live? (central: its gate at T)    server: live.json ⊇ head? no → ship test server (T_int built once, deployed); a conflict → the younger change's dev
                                     (a pin's: the oldest one at this step): against a change, resolve in its own branch; against a
                                     permanent pin, the base or a union, push local/merge/<a>-<b>
   public (upstream, release)?       approval at head? no → card
@@ -135,13 +135,13 @@ no command of theirs can act on OpenRune or publish. The ship step of a public a
 head. The one hook rule: `hd approve` and `hd close` (the user's word, recorded by main) are denied inside a subagent or the
 orchestrator session (a hook input with an agent id or type) when a command runs them (hd at a command's start); a command that only quotes them (grep, echo, a heredoc body) runs.
 
-| | Client | Server | Harness |
-|---|---|---|---|
-| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` (and `harness/<slug>` of each product repo whose tools it changes) |
-| build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>` | the test suite at T |
-| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` | tests; `hd tick --dry-run` plans no upstream action main's pass does not; each carried tools head's tests |
-| judge | release only | every contract row | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to T, push; any of them moved past its gated base: nothing moves, re-gate |
+| | Client | Server | Central | Harness |
+|---|---|---|---|---|
+| Base, head | `origin/main`, `origin/client/<slug>` | upstream `main`, fork `dev/<slug>` | upstream `main` of OpenRune-Central-Server, its fork's `dev/<slug>` | the live checkout's branch (`HEAD`), `harness/<slug>` (and `harness/<slug>` of each product repo whose tools it changes) |
+| build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`; APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>`; with a Central dependency `CENTRAL` names the Central tree, built in with `-Popenrune.central.includeBuild` | Gradle `assemble` in container `build-<slug>` | the test suite at T |
+| gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` | `gradle test`, evidence files, commit subjects | tests; `hd tick --dry-run` plans no upstream action main's pass does not; each carried tools head's tests |
+| judge | release only | every contract row | every contract row | none |
+| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | live at its gate (dependent server builds include it); upstream to Central after the yes | fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to T, push; any of them moved past its gated base: nothing moves, re-gate |
 
 ```mermaid
 sequenceDiagram

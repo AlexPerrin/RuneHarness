@@ -2,7 +2,7 @@
 """hd-public: the one program that performs a public act, run as Unix user `hd` through sudoers with the full GitHub
 token (docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval.json names the head it is given.  R4
 
-  hd-public upstream <slug> <head>        push head to the public branch on the fork; create the draft PR if none;
+  hd-public upstream <slug> <head>        push head to the public branch on the change's fork (server or central); create the draft PR if none;
                                           wait for CI at head (a fact, polled); stop before anything public when it
                                           is not green; post or edit our comment naming the head; mark ready.
   hd-public release <slug> <head> <tag>   gh release create with the APK, the notices and the log from the evidence dir.
@@ -59,8 +59,9 @@ def upstream(slug, head):
     if not approved(slug, head):
         sys.exit(f"refused: no approval at {head}")
     c = yaml.safe_load((ROOT / "hd.yaml").read_text())
-    fork, up = c["repos"]["fork"], c["repos"]["upstream"]["name"]
-    owner, ch = fork["name"].split("/")[0], change(slug)
+    ch = change(slug)
+    fork = c["repos"]["central" if ch.get("track") == "central" else "fork"]  # the fork of the change's upstream: OpenRune-Server or OpenRune-Central-Server
+    up, owner = fork["upstream"], fork["name"].split("/")[0]
     branch = ch.get("branch") or f"content/{slug}"
     rc, _, err = sh("git", "-C", str(Path(fork["path"]).expanduser()), "push", "-q", "fork", f"{head}:refs/heads/{branch}")
     if rc:

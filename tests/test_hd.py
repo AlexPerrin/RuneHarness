@@ -57,12 +57,13 @@ class Sandbox(unittest.TestCase):
     def setUp(s):
         s.root = Path(tempfile.mkdtemp())
         hd.ROOT, hd.STATE, hd.EVID, hd.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
-        repos = {"client": s.root / "client", "fork": s.root / "fork", "harness": s.root}
-        (s.root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repos["client"])}, "fork": {"name": "o/f", "path": str(repos["fork"]), "tools": "local/harness"},
-                                                     "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(s.root)}}, "agents": 3, "context_limit": 150000, "pins": []}))
-        for track, p in (("client", repos["client"]), ("server", repos["fork"] / ".worktrees" / "harness"), ("harness", s.root)):
+        repos = {"client": s.root / "client", "fork": s.root / "fork", "central": s.root / "central", "harness": s.root}
+        (s.root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repos["client"])}, "fork": {"name": "o/f", "path": str(repos["fork"]), "tools": "local/harness", "upstream": "u/f"},
+                                                     "central": {"name": "o/z", "path": str(repos["central"]), "tools": "local/harness", "upstream": "u/z"},
+                                                     "harness": {"name": "o/h", "path": str(s.root)}}, "agents": 3, "context_limit": 150000, "pins": []}))
+        for track, p in (("client", repos["client"]), ("server", repos["fork"] / ".worktrees" / "harness"), ("central", repos["central"] / ".worktrees" / "harness"), ("harness", s.root)):
             (p / "tools").mkdir(parents=True, exist_ok=True)
-            (p / "tools" / "track.md").write_text(f"# {track}\n\n## Seed rows\n- ok | always passes | check: true\n" + (f"- j1 | a judged row | judge: qa-{track}\n" if track == "server" else ""))
+            (p / "tools" / "track.md").write_text(f"# {track}\n\n## Seed rows\n- ok | always passes | check: true\n" + (f"- j1 | a judged row | judge: qa-{track}\n" if track in ("server", "central") else ""))
         (s.root / "harness" / "changes").mkdir(parents=True)
         (s.root / "harness" / "goals").mkdir(parents=True)
         s.seq = 0
@@ -564,6 +565,35 @@ class R4(Sandbox):
         F.f["releases"] = {"v0.1.3"}
         s.assertEqual(s.state(F, "rel")["state"], "done")
 
+    def test_a_central_change_goes_upstream_to_central_only_after_the_yes(s):
+        s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D}, "trees": {**FACTS["trees"], D: TC}, "merges": {(B, D): ("ok", D)}})
+        s.assertEqual(s.state(F, "s1")["state"], "waiting on z1")
+        s.gated("z1", F)                                                         # its test target is its gate: live, the server change goes on
+        s.assertNotEqual(s.state(F, "s1")["actor"], "wait")
+        s.verdict("z1", D, {"ok": "pass", "j1": "pass"}, F)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(s.state(F, "z1")["state"], "gated; waiting for the user's yes")
+        s.assertEqual([a for a in F.spawned if "hd-public" in " ".join(a)], [])
+        s.assertIn("u/z branch content/z1", [c for c in v["card"] if "z1" in c][0])
+        hd.put("z1", "approval", {"head": D, "body": "x"})
+        hd.tick(s.ctx(F))
+        s.assertEqual([a[-3:] for a in F.spawned if "hd-public" in " ".join(a)], [["upstream", "z1", D]])
+        import importlib.util
+        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
+        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
+        calls = []
+        def fake_sh(*args, inp=None):
+            calls.append(args)
+            return (1, "", "stop") if args[:3] == ("gh", "pr", "create") else (0, "[]", "")
+        import hashlib
+        hd.put("z1", "approval", {"head": D, "body": hashlib.sha256(b"body").hexdigest()[:16]})
+        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit):
+            pub.upstream("z1", D)
+        s.assertEqual(calls[0][:3], ("git", "-C", str(s.root / "central")))     # the Central clone pushes to its fork
+        s.assertIn("u/z", calls[1]); s.assertIn("u/z", calls[2])                 # the PR is on Central's upstream
+
     def test_approve_refused_off_the_user_step(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -627,7 +657,7 @@ class R4(Sandbox):
             with s.assertRaises(SystemExit) as e:
                 pub.upstream("s1", A)
         s.assertEqual(e.exception.code, 0)
-        s.assertEqual(calls[0][:2], ("git", "-C"))
+        s.assertEqual(calls[0][:3], ("git", "-C", str(s.root / "fork")))
         s.assertEqual([c[1:] for c in calls[1:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready")])
         calls.clear(); ci[:] = ["failure"]
         with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit) as e:
@@ -932,6 +962,20 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_a_server_build_includes_its_central_dependencies(s):
+        s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1"); s.change("s2"); s.agreed("s2")
+        E = "e" * 40
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D, "fork/dev/s2": C}, "trees": {**FACTS["trees"], D: TC, C: TC, E: "te" * 20},
+                    "merges": {(B, D): ("ok", E), (B, A): ("ok", A), (B, C): ("ok", C)}})
+        s.gated("z1", F)
+        ho = s.gated("s1", F)
+        s.assertEqual(ho["T"], TA + "-c" + E[:12])                               # Central's base and z1 merged join s1's key
+        s.assertEqual(s.ctx(F).env(hd.defs("changes")["s1"], A, A, ho["T"])["CENTRAL"], f"{s.root / 'central'}:{E}")
+        s.assertEqual(s.ctx(F).env(hd.defs("changes")["s2"], C, C, TC)["CENTRAL"], "")   # no Central dependency: the published Central
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["central"], t["tree"]), (E, TA + "-c" + E[:12]))    # the test server carries the Central its heads need
+
     def test_a_game_client_is_named_mobile_or_desktop(s):  # the three source docs, the track rules and the roles
         import re
         root = Path(__file__).parent.parent
@@ -1148,7 +1192,7 @@ class EndToEnd(unittest.TestCase):
         git("checkout", "-q", "-B", "main", snap); git("remote", "set-url", "origin", str(origin)); git("push", "-q", "origin", "main")
         for d in ("harness/changes", "harness/goals", "evidence/e2e"):
             (root / d).mkdir(parents=True)
-        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
+        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
         (root / "harness" / "changes" / "e2e.md").write_text("---\nslug: e2e\ntrack: harness\ntitle: e2e\n---\nadd a line to the README")
         (root / "evidence" / "e2e" / "note.txt").write_text("evidence")
         git("worktree", "add", "-q", str(repo / ".worktrees" / "e2e"), "-b", "harness/e2e", "main")   # the dev's clone
@@ -1200,7 +1244,7 @@ class Tools(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         for d in ("harness/changes", "harness/goals", "evidence/g1", "tools"):
             (root / d).mkdir(parents=True)
-        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "upstream": {"name": "u/f"}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
+        (root / "hd.yaml").write_text(json.dumps({"repos": {"client": {"name": "o/c", "path": str(repo)}, "fork": {"name": "o/f", "path": str(repo)}, "harness": {"name": "o/h", "path": str(repo)}}, "agents": 3, "pins": []}))
         (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
         (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n")
         snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"

@@ -3,8 +3,8 @@
 # copies are worktrees of that repo under <repo>/.worktrees/; a track's base is its repo's default branch.
 repos:
   client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse, tools: client/harness-v8}
-  fork:     {name: AlexPerrin/OpenRune-Server,       path: ~/src/OpenRune-Server, tools: local/harness}
-  upstream: {name: OpenRune/OpenRune-Server}
+  fork:     {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         tools: local/harness, upstream: OpenRune/OpenRune-Server}
+  central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
 agents: 6                 # runs alive at once (raised from 3 while the harness fixes run: the user's word)
 context_limit: 150000     # tokens; past it the hook tells a run to hand off

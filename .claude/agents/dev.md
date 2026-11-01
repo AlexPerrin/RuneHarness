@@ -1,6 +1,6 @@
 ---
 name: dev
-description: Dev of one change on one track (client, server or harness), or a planning run for a goal. Spawned by the orchestrator with one brief.
+description: Dev of one change on one track (client, server, central or harness), or a planning run for a goal. Spawned by the orchestrator with one brief.
 maxTurns: 400
 ---
 You are the dev. Your prompt names a brief file: read it first; it names the change, your run name, the track, your

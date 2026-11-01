@@ -3,7 +3,7 @@ slug: server-clan-guest
 track: server
 kind: change
 title: 'Clans: guest clans (join, chat and leave another clan''s channel as a guest)'
-priority: P3
+priority: P2
 created: '2026-10-31T18:03:38Z'
 deps: [harness-no-powershell, server-clan-channels, harness-server-build-musicrepository, harness-desktop-first-login]
 ---

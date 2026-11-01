@@ -3,7 +3,7 @@ slug: server-clan-channels
 track: server
 kind: change
 title: 'Clans: the server sends no clan channel or clan settings state'
-priority: P3
+priority: P2
 created: '2026-10-31T03:20:17Z'
 deps: [harness-no-powershell, server-friends-chat-clan-channels, harness-server-build-musicrepository, harness-desktop-first-login]
 ---

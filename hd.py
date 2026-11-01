@@ -310,14 +310,41 @@ class Ctx:
     def base(s, ch):
         return s._m(("base", ch["track"]), lambda: s.F.rev(s.clone(ch), TRACK[ch["track"]]["base"]) if s.fetched(ch) else None)
 
+    def tools(s, ch):
+        """A harness change's commits on the product repos' tools branches: {repo: tip of harness/<slug> in that repo}
+        for each repo with a tools branch where the ref exists; {} for other tracks; None when a ref cannot be read."""
+        if ch["track"] != "harness":
+            return {}
+        def f():
+            out = {}
+            for name, r in s.cfg["repos"].items():
+                if r.get("tools"):
+                    h = s.F.rev(str(P(r["path"])), f"harness/{ch['slug']}")
+                    if h is None:
+                        return None
+                    if h:
+                        out[name] = h
+            return out
+        return s._m(("tools", ch["slug"]), f)
+
+    def landed(s, ch):
+        """Every carried tools commit is on its tools branch: True | False | None."""
+        t = s.tools(ch)
+        if t is None:
+            return None
+        got = [s.F.contains(str(P(s.cfg["repos"][n]["path"])), s.cfg["repos"][n]["tools"], h) for n, h in t.items()]
+        return None if None in got else all(got)
+
     def live(s, ch, head):
-        """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch."""
+        """A6: the target holds head. client: master; server: the test server's tree; harness: the live checkout's branch
+        and every tools branch the change carries commits for."""
         if not head:
             return False
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
-        return s.F.contains(s.clone(ch), s.base(ch), head)
+        on = s.F.contains(s.clone(ch), s.base(ch), head)
+        return s.landed(ch) if on else on
 
     def done(s, ch, head):
         """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live."""
@@ -348,7 +375,9 @@ class Ctx:
         return s._m(("T", ch["slug"], head), f)
 
     def tree(s, ch, commit):
-        return s._m(("tree", commit), lambda: s.F.tree(s.clone(ch), commit))
+        """T's tree sha, which keys build and gate; a harness change's carried tools heads are part of the key."""
+        t, tools = s._m(("tree", commit), lambda: s.F.tree(s.clone(ch), commit)), s.tools(ch)
+        return None if t is None or tools is None else t + "".join(f"+{tools[n][:12]}" for n in sorted(tools))
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
@@ -356,7 +385,8 @@ class Ctx:
     def env(s, ch, head, tc, tree, build=""):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
-                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT)}
+                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT),
+                "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}" for n, h in (s.tools(ch) or {}).items())}
 
     def public(s, *args):
         """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""
@@ -409,10 +439,14 @@ def digest(t):
 def nxt(ctx, ch):
     """The first unmet step of a change (docs/ARCHITECTURE.md, The loop); its state is a fact in words (R7)."""
     slug, track = ch["slug"], ch["track"]
+    if ch.get("closed"):  # the user's word: no further step, never in T_int
+        return step(f"closed: {ch['closed']}", "done")
     for d in ch["deps"]:
         dep = ctx.changes.get(d)
         if dep is None:
             return step(f"dependency {d} has no definition", "alert")
+        if dep.get("closed"):
+            continue
         dh = ctx.head(dep)
         if dh is None:
             return step(f"dependency {d}: ref unknown", "unknown")
@@ -423,7 +457,7 @@ def nxt(ctx, ch):
         return step("dev ref unknown", "unknown")
     done = ctx.done(ch, head) if head else False
     if done is None:
-        return step("release state unknown", "unknown")
+        return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
     if done and (head != ctx.base(ch) or ch["kind"] == "release" or (ho and ho["head"] == head)):  # a bare dev ref at the base tip is not done
         return step("done", "done")
@@ -432,7 +466,10 @@ def nxt(ctx, ch):
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if track != "server" else ""))
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
-    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head):  # a release has no dev: its head is the base tip
+    tools = ctx.tools(ch)
+    if tools is None:
+        return step("tools refs unknown", "unknown")
+    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over", "dev", mode="code",
                     input=[head, con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])
@@ -504,8 +541,8 @@ def integration(ctx):
             heads.append((pin, h, None))
     for ch in sorted((c for c in ctx.changes.values() if c["track"] == "server"), key=lambda c: c.get("created", "")):
         head, ho, g = ctx.head(ch), rec(ch["slug"], "handover"), rec(ch["slug"], "gate")
-        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ctx.F.contains(clone, base, head) \
-                and all(d in ctx.changes and ctx.live(ctx.changes[d], ctx.head(ctx.changes[d])) for d in ch["deps"]):
+        if head and ho and ho["head"] == head and g and g["ok"] and g["T"] == ho["T"] and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
+                and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
     cur, included = base, []
     for name, h, ch in heads:
@@ -552,13 +589,20 @@ def ship_test(ctx, ch, st, tint, act):
 def brief(ctx, ch, st, name, role):
     con, hoff = contract(ch["slug"]), EVID / ch["slug"] / "handoff.md"
     root = track_root(ctx.cfg, ch["track"])
+    base = TRACK[ch["track"]]["base"]
+    if base == "HEAD":  # the harness base: name the live checkout's branch, not a ref every clone reads as its own
+        r = ctx.F.sh(["git", "-C", ctx.clone(ch), "branch", "--show-current"])
+        base = (r and r[0] == 0 and r[1].strip()) or base
     v = [x for x in verdicts(ch["slug"]) if x["head"] == ctx.head(ch)] if ch.get("path") else []
     lines = [f"# {role} run {name}: {ch['slug']} ({ch['track']}, {st.get('mode', role)})", "",
              f"Read {root}/tools/track.md, then run `python3 {ROOT}/hd.py show {ch['slug']}`.",
              f"Change: {ch.get('path', '')}  Evidence: {EVID / ch['slug']}  Contract: {EVID / ch['slug'] / 'contract.md'}",
              f"Clone: {ctx.clone(ch)}/.worktrees/{ch['slug']}  Build copy: {ctx.clone(ch)}/.worktrees/{ch['slug']}-build  Script: {root}/tools/track.sh",
-             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {TRACK[ch['track']]['base']}  Head now: {ctx.head(ch) or 'none'}",
+             f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {base} at {(ctx.base(ch) or 'unknown')[:9]}  Head now: {ctx.head(ch) or 'none'}",
              f"State: {st['state']}", ""]
+    if ch["track"] == "harness":
+        lines.insert(-1, "Tools: a fix to a product repo's tools branch is carried on branch harness/" + ch["slug"] + " of that repo, from its tools branch: "
+                        + ", ".join(f"{r['path']} {r['tools']}" for r in ctx.cfg["repos"].values() if r.get("tools")))
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
@@ -712,7 +756,12 @@ def tick(ctx=None, act=True):
             if (a := rec(ch["slug"], "ask")):
                 view["question"].append(f"{ch['slug']}: {a['text']}")
             last = rec(ch["slug"], "state")
-            if st["actor"] != "done" or not last or last["state"] != "done":
+            if ch.get("closed") and act:  # a run listed before the close is never spawned
+                for r in ctx.runs:
+                    if r["change"] == ch["slug"] and not r.get("started") and not r.get("ended"):
+                        r["ended"], r["reason"] = now(), "change closed"
+                        save_run(r)
+            if st["actor"] != "done" or not last or last["state"] != st["state"]:
                 view["change"].append(f"{ch['slug']} [{ch['track']} {ch['priority']}]: {st['state']}")
             if act and (not last or last["state"] != st["state"]):
                 put(ch["slug"], "state", {"state": st["state"]})
@@ -784,11 +833,16 @@ def cmd_handover(a):
         refuse("tree cannot be computed")
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
+    tools = ctx.tools(ch)
+    if tools is None:
+        refuse("a tools ref cannot be read")
+    why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
+           if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
     tree = ctx.tree(ch, T[1])
-    why = rows(ctx, ch, con, head, T[1], tree, "", gate=False)
+    why += rows(ctx, ch, con, head, T[1], tree, "", gate=False)
     if why:
         refuse(*why)
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "summary": " ".join(a[1:])})
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:])})
     drop(ch["slug"], "ask")
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
@@ -868,6 +922,21 @@ def cmd_answer(a):
     print(f"answer-{n} added to the contract")
 
 
+def cmd_close(a):
+    """R2: the user's word closes a change as done: an answer row, and `closed` in the definition (main commits it)."""
+    slug = a[0]
+    ch = defs("changes").get(slug) or refuse(f"no change {slug}")
+    if ch.get("closed"):
+        refuse(f"already closed: {ch['closed']}")
+    cmd_answer(a)
+    n = sum(1 for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- answer-"))
+    f = P(ch["path"])
+    head, sep, rest = f.read_text().partition("\n---\n")
+    f.write_text(head + "\n" + yaml.safe_dump({"closed": f"answer-{n}: {' '.join(a[1:])}"}, width=10**6).strip() + sep + rest)
+    event(change=slug, record="closed")
+    print(f"{slug} closed")
+
+
 def cmd_approve(a):
     """R4: only at the change's user step, bound to that head and the PR body's digest."""
     ctx = Ctx()
@@ -921,7 +990,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
+            "approve": cmd_approve, "close": cmd_close, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "tick": cmd_tick}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

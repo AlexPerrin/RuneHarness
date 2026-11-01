@@ -26,7 +26,10 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote): return remote not in s.f.get("unknown", ())
-    def rev(s, clone, ref): return None if ref.split("/")[0] in s.f.get("unknown", ()) else s.f.get("refs", {}).get(ref, "")
+    def rev(s, clone, ref):
+        if ref.split("/")[0] in s.f.get("unknown", ()): return None
+        if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
+        return s.f.get("refs", {}).get(ref, "")
     def contains(s, clone, tip, sha):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
@@ -175,6 +178,7 @@ class R2(Sandbox):
         s.assertEqual((run["role"], run["started"]), ("dev", None))
         s.assertIn("Read and follow", spawn[0])
         s.assertNotIn("##", spawn[0])                                 # spawn by path: nothing of the brief in main's context
+        s.assertIn(f"Base: origin/HEAD at {B[:9]}", open(run["brief"]).read())   # the dev branches from the base tip the brief names
         with mock.patch.object(hook, "start_pass") as sp:
             hook.bind(payload(run, "ag1", "SubagentStart", s.root))
             F.f["refs"]["origin/client/c1"] = A                       # the dev pushes and hands over
@@ -196,6 +200,28 @@ class R2(Sandbox):
         for view in views + [v]:
             s.assertEqual((view["card"], view["question"]), ([], []))  # no person anywhere on the path
         s.assertIsNone(hd.rec("c1", "approval"))
+
+    def test_a_change_the_user_closes_takes_no_step_and_leaves_t_int(s):
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"])
+        F = Fake(**FACTS)
+        (s.root / "evidence" / "s1" / "log.txt").write_text("evidence")
+        s.gated("s1", F)
+        s.assertEqual(hd.integration(s.ctx(F))["names"], ["s1"])
+        hd.tick(s.ctx(F))
+        listed = [r for r in hd.runs() if r["change"] == "s1"]
+        s.assertEqual(len(listed), 1)                                 # a qa run listed, not yet spawned
+        hd.cmd_close(["s1", "done", "upstream"])
+        s.assertIn("closed: 'answer-1: done upstream'", (s.root / "harness" / "changes" / "s1.md").read_text())
+        s.assertIn("- answer-1 |", hd.contract("s1")["text"])
+        v = hd.tick(s.ctx(F))
+        s.assertIn("s1 [server P2]: closed: answer-1: done upstream", v["change"])
+        s.assertFalse([x for x in v["spawn"] if x.startswith("s1-")])  # the listed run ends; none is listed again
+        s.assertEqual(hd.runs()[0]["reason"], "change closed")
+        s.assertEqual(hd.integration(s.ctx(F))["names"], [])         # nothing open: no T_int beyond what is live
+        s.assertNotEqual(s.state(F, "s2")["state"], "waiting on s1")  # a closed dependency holds nothing
+        s.assertNotIn("s1 [server P2]: closed: answer-1: done upstream", hd.tick(s.ctx(F))["change"])  # shown once
+        with s.assertRaises(SystemExit):
+            hd.cmd_close(["s1", "again"])
 
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")
@@ -311,14 +337,15 @@ class R4(Sandbox):
         s.assertIn("nothing to approve", str(e.exception))
         s.assertIsNone(hd.rec("s1", "approval"))
 
-    def test_hook_denies_approve_in_subagent_only(s):
+    def test_hook_denies_approve_and_close_in_subagent_only(s):
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})
-            hook.deny_approve({"tool_input": {"command": "python3 ~/osrs-harness/hd.py approve s1 " + A}})          # main: allowed
-            hook.deny_approve({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
-        s.assertEqual(out.getvalue().count('"deny"'), 1)
+            for verb in ("approve s1 " + A, "close s1 done"):
+                hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})
+                hook.deny_users_word({"tool_input": {"command": "python3 ~/osrs-harness/hd.py " + verb}})          # main: allowed
+            hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": "grep approve notes.md; git push fork HEAD:dev/s1"}})
+        s.assertEqual(out.getvalue().count('"deny"'), 2)
 
     def test_public_act_runs_as_hd_when_the_user_exists(s):
         ctx = s.ctx(Fake(**FACTS))
@@ -772,6 +799,25 @@ class R3(Sandbox):
         s.change("s1")
         F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract
         s.assertEqual(s.state(F, "s1")["state"], "done")
+
+    def test_harness_change_carries_its_tools_commits(s):
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork = str(s.root / "fork")
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["h1"])
+        s.assertIn("does not descend from local/harness", str(e.exception))      # it must land as a fast-forward
+        F.f["anc"] = {(C, "local/harness")}
+        ho = s.gated("h1", F)
+        s.assertEqual((ho["tools"], ho["T"]), ({"fork": C}, TA + "+" + C[:12]))  # build and gate are keyed by the carried head too
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned[-1][1], "ship"); s.assertEqual(F.envs[-1]["TOOLS"], f"{fork}:local/harness:{C}")
+        F.f["refs"][f"{fork}:harness/h1"] = D
+        s.assertEqual(s.state(F, "h1")["actor"], "dev")                          # a moved tools ref is handed over again
+        F.f["refs"][f"{fork}:harness/h1"] = C; F.f["anc"].add((B, A))
+        s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # main holds the head, the tools branch not yet
+        F.f["anc"].add(("local/harness", C))
+        s.assertEqual(s.state(F, "h1")["state"], "done")
 
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")

@@ -18,3 +18,5 @@ Steps, in order:
 1. Public (the user's yes on its card): convert PR 367 to draft, and one comment quoting eaglepurerocketgrape's comment, thanking them and @ eaglepurerocketgrape and a-thoren, saying the PR goes back to draft while we review the Goblin Diplomacy recording against the quest, including the cutscene, and that it returns to ready with the result. No promise of a separate PR; no fork link.
 2. Dev (once the dump is in evidence/goblin-367-rsprox-dump/rsprox/): transcribe it with 'track.sh transcribe' (all filters), then check the whole quest at 019e5a1c4 against it (dialogue, cutscene camera/anims/npcs/timings, varps, items, xp) with the wiki; every divergence is fixed on content/goblin-diplomacy as new commits (no force-push), cutscene included; recording details that hold other players' names stay local.
 3. QA judges it; the card then is the complete update (push, comment naming the head and summarising what the dump changed, ready).
+
+Step 1 done by the user (2026-11-01): PR 367 converted to draft and the comment posted (issuecomment-6563660994, with the Claude Code attribution). The harness does not repeat it.

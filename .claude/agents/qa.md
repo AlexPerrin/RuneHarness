@@ -22,9 +22,9 @@ needs a change depending on this one is that change's row), and the rules header
 CONTRIBUTING.md and PR template. A scope or overlap question the sources cannot settle: `hd ask <slug> "..."`, once.
 End with `agreed: <run name>` in the header.
 A contract brief on a maintainer's finding (`finding` in the definition) whose answer needs no code is the change's one
-run: write the contract (agreed), `pr-comment.md` (the reply: the finding quoted with `> `, `@` only its author) and the
-proof it cites in the evidence dir, judge every row with `hd verdict` at the head the brief names (the PR tip's: the
-change has no dev ref), then `hd handover <slug>`. An answer that needs code: the contract alone, the dev writes it.
+run: write the contract (agreed), `pr-reply-<finding>.md` (the reply: the finding quoted with `> `, `@` only its author) and the
+proof it cites in the evidence dir, `hd handover <slug>`, then judge every row with `hd verdict` at the head the brief names (the PR tip's: the
+change has no dev ref). An answer that needs code: the contract and a verdict failing the row that needs it; the dev writes it.
 
 A **judge** brief: bring the change's build up with `<repo>/tools/track.sh up <slug>` (central: the server's base with
 this Central built in), check every row of the contract

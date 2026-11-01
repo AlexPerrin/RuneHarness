@@ -90,6 +90,7 @@ next(change):
   deps live or closed?              no → wait on them (a same-track upstream dependency: gated; the dependent with no pr or branch of its own joins its PR, a chain one PR)
   question open (hd ask)?           yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
+  reply-only, no verdict at head?   yes → one qa run: contract, reply (pr-reply-<finding>.md), verdict, handover; a FAIL verdict → dev
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   carried tools head behind branch? rebase it in the pass, record it in the hand-over; conflict → dev
   T                                 conflict → dev; an upstream head holding unmerged commits of another PR's change (stacked), or

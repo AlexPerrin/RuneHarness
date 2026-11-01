@@ -1027,6 +1027,22 @@ class R6(Sandbox):
             hd.save_run(r)
             (s.root / "evidence" / "s1" / "handoff.md").write_text(f"part {i}")
         s.assertTrue(any(a.startswith("s1: 3 runs reached the context limit") for a in hd.tick(s.ctx(F))["alert"]))
+        p = next(r for r in hd.runs() if r["role"] == "planner")      # the planner hands back on the alert
+        for r in hd.runs():
+            r.update(listed="2000-01-01T00:00:00Z")
+            if r is p or r["name"] == p["name"]:
+                r.update(started="2001-01-01T00:00:00Z", ended="2001-01-01T00:00:00Z", record=True)
+            hd.save_run(r)
+        v = hd.tick(s.ctx(F))
+        s.assertFalse(any("context limit" in a for a in v["alert"]))   # the count restarts at the planner's look
+        s.assertEqual(sum(r["role"] == "planner" for r in hd.runs()), 1)   # and the planner is not listed again
+        for i in range(4):                                             # the first is the run listed before the look
+            r = [r for r in hd.runs() if r["role"] == "dev"][-1]
+            r.update(started=hd.now(), ended=hd.now(), handoff_told=160000)
+            hd.save_run(r)
+            (s.root / "evidence" / "s1" / "handoff.md").write_text(f"later {i}")
+            v = hd.tick(s.ctx(F))
+        s.assertTrue(any(a.startswith("s1: 3 runs reached the context limit") for a in v["alert"]))   # three new limits re-raise it
 
 
     def test_main_past_context_limit_is_told_once_to_hand_off(s):

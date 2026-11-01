@@ -1300,6 +1300,32 @@ class R6(Sandbox):
         s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["q2-1", "planner-1"])   # p1 cannot be listed: q2 is not held below it; the alert lists the planner
         s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], ["p1: dev run p1-1 handed back its record, yet its step is still due on the same input: no run is listed"])
 
+    def test_the_latest_run_by_listed_time_decides_and_a_hand_off_settles_nothing(s):
+        s.change("p1", priority="P1"); s.agreed("p1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        inp = next(r for r in hd.runs() if r["name"] == "p1-1")["input"]
+        for n, t, k in ((9, "01", {"record": True, "handoff_told": 1}), (10, "02", {"record": False})):   # "-10" sorts before "-9" by name
+            hd.save_run({"name": f"p1-{n}", "role": "dev", "change": "p1", "input": inp, "listed": f"2026-11-01T00:{t}:00Z",
+                         "started": f"2026-11-01T00:{t}:01Z", "ended": f"2026-11-01T00:{t}:02Z", **k})
+        hd.drop("runs", "p1-1")
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], [])
+        s.assertIn("p1-11", " ".join(v["spawn"]))                                  # the hand-off then a death: one retry is due
+
+    def test_a_dependency_the_run_filed_settles_the_step_only_until_it_is_shut(s):
+        s.change("p1", priority="P1"); s.agreed("p1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        r = next(r for r in hd.runs() if r["name"] == "p1-1")
+        r.update(started=hd.now()); hd.save_run(r)
+        hd.cmd_new(["h9", "--track", "harness", "--title", "a fix p1 waits on", "--blocks", "p1"])
+        r.update(ended=hd.now(), record=True); hd.save_run(r)
+        s.change("h9", track="harness", priority="P1", closed="done elsewhere"); s.change("p1", priority="P1", deps=["h9"])
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], [])
+        s.assertIn("p1-2", " ".join(v["spawn"]))                                   # the dep shut: the step is listable again
+
     def test_a_hand_off_is_replaced_in_the_same_pass_past_the_tier_hold_and_the_count(s):
         s.change("p1", priority="P1"); s.agreed("p1")
         s.change("q2", priority="P2"); s.agreed("q2")

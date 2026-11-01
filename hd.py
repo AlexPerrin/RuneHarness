@@ -997,16 +997,25 @@ def relay(ctx, slug, role):
 
 
 def unlistable(ctx, ch, st):
-    """R5 R6: why no run can be listed for the change's due step, as its alert; None when one can (the agent count aside)."""
+    """R5 R6: why no run can be listed for the change's due step, as its alert; None when one can (the agent count aside).
+    The latest run on the input (by its listed time) settles the step only by a record that answers it: a hand-off, or
+    a dependency it filed that is now shut, leaves the step listable; one retry follows the last run with a record."""
     role, slug = st["actor"], ch["slug"]
     inp = json.dumps(st.get("input"), sort_keys=True)
-    same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]
+    same = sorted([r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp],
+                  key=lambda r: r["listed"])
     if not same or (EVID / slug / "handoff.md").exists():
         return None
-    if same[-1].get("record"):  # the record exists and the facts still want this step: another run would change nothing
-        return f"{slug}: {role} run {same[-1]['name']} handed back its record, yet its step is still due on the same input: no run is listed"
-    if len(same) >= 2:  # R5: one retry, then raised once
-        return f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}"
+    last = same[-1]
+    if last.get("record") and not last.get("handoff_told"):
+        f, shut = STATE / "events.jsonl", shut_changes(ctx)
+        deps = [e["dep"] for e in map(json.loads, f.read_text().splitlines() if f.exists() else []) if e.get("change") == slug
+                and e.get("action") == "dep" and last["started"] <= e["ts"] <= last["ended"]]
+        if not (deps and set(deps) <= shut):  # the record exists and the facts still want this step: another run would change nothing
+            return f"{slug}: {role} run {last['name']} handed back its record, yet its step is still due on the same input: no run is listed"
+    tail = same[max([i for i, r in enumerate(same) if r.get("record") or r.get("handoff_told")] + [-1]) + 1:]
+    if len(tail) >= 2:  # R5: one retry, then raised once
+        return f"{slug}: {len(tail)} {role} runs ended without a record on the same input; last: {(last.get('last') or '')[:200]}"
     return None
 
 

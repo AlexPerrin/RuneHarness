@@ -5,7 +5,8 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
                 spawned together start at once); record agent_id and the agent's transcript path.                         R2
 PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd approve` and `hd close` are denied in a subagent.  R4
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
-                write evidence/<slug>/handoff.md and hand back.                                                            R6
+                write evidence/<slug>/handoff.md and hand back; tell main (no agent) once per session to start nothing
+                new, give the user docs/HANDOFF.md's start prompt for a fresh session and end its turn.                    R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
                 role's record newer than the start and the change's last answer). Any other stop leaves the run live,
                 and is refused while a background command the agent started has not reported its end: the agent
@@ -182,8 +183,28 @@ def context_of(path):
     return 0
 
 
+def main_context_limit(p):
+    """R6: main holds no state beyond files, so past the limit a fresh session replaces it rather than a compaction."""
+    told = hd.STATE / "main-told"
+    sid = str(p.get("session_id"))
+    if told.exists() and told.read_text() == sid:
+        return
+    size = context_of(p.get("transcript_path"))
+    if size < hd.cfg().get("context_limit", 150000):
+        return
+    hd.STATE.mkdir(parents=True, exist_ok=True)
+    told.write_text(sid)
+    hd.event(action="context-limit", role="main", tokens=size)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+          f"Context limit reached ({size} tokens): start nothing new. Tell the user to start a fresh session in ~/osrs-harness "
+          "with docs/HANDOFF.md's start prompt (read CLAUDE.md, docs/HANDOFF.md and docs/ISSUES.md, then follow skill head), "
+          "and end your turn now. Everything you hold is in files."}}))
+
+
 def context_limit(p):
     """R6: past cfg.context_limit the run is told once to write its hand-off and hand back; the successor is listed with it."""
+    if not p.get("agent_id") and not p.get("agent_type"):
+        return main_context_limit(p)
     if p.get("agent_type") not in ROLES:
         return
     r = find_run(p)

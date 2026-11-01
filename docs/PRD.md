@@ -43,7 +43,7 @@ gh, docker and the process table; a live check reads the real state.
    files with `hd new --blocks` holds the change with no question raised.
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
    no more than the configured agents are listed, the planner outside that count; two passes over unchanged facts append no event; a run over the
-   context limit is told to hand off and its successor is listed with the hand-off file; every run record carries
+   context limit is told to hand off and its successor is listed with the hand-off file; main past it is told once per session to hand off to a fresh session; every run record carries
    its usage and transcript. Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
 7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, messages, runs, goals and change facts, and
    prints no step name as a state. Live: `python3 hd.py` on the real state.

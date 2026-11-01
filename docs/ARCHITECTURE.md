@@ -13,7 +13,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   refused (decision block) while a background command or monitor the agent started has no task
                   notification yet; the stop after its SubagentHandback ends it; its record is newer than its start and the change's
                   last answer;
-                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit
+                  PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close`; PostToolUse: hand off at the context limit (a run, or main)
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
@@ -127,7 +127,9 @@ copy snapshotted to an anonymous commit, T computed, the build copy checked out 
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started and
 logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
 unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
-the context limit to write `handoff.md` and hand back; the successor is listed with it.
+the context limit to write `handoff.md` and hand back; the successor is listed with it. Main, which holds nothing beyond files, is
+told once per session past the same limit to start nothing new, give the user docs/HANDOFF.md's start prompt for a
+fresh session and end its turn.
 
 **Authority**: main, the orchestrator, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
 no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>

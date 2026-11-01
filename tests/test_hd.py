@@ -912,6 +912,27 @@ class R6(Sandbox):
         s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
 
 
+    def test_main_past_context_limit_is_told_once_to_hand_off(s):
+        import io, contextlib
+        def main_payload(session, context):
+            tp = s.root / f"main-{session}.jsonl"
+            tp.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": "x",
+                          "usage": {"input_tokens": 10, "cache_read_input_tokens": context}}}) + "\n")
+            return {"hook_event_name": "PostToolUse", "session_id": session, "transcript_path": str(tp)}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hook.context_limit(main_payload("m1", 1000))
+            s.assertEqual(out.getvalue(), "")                          # under the limit: silent
+            hook.context_limit(main_payload("m1", 160000))
+            hook.context_limit(main_payload("m1", 170000))
+            s.assertEqual(out.getvalue().count("start prompt"), 1)  # told once
+            hook.context_limit(main_payload("m2", 160000))
+        s.assertEqual(out.getvalue().count("start prompt"), 2)      # a fresh main session is told for itself
+        with contextlib.redirect_stdout(out):                          # the orchestrator is no main
+            hook.context_limit({**main_payload("m3", 160000), "agent_type": "orchestrator"})
+        s.assertEqual(out.getvalue().count("start prompt"), 2)
+
+
     def test_malformed_definition_is_one_alert(s):
         s.change("s1"); s.agreed("s1")
         (s.root / "harness" / "changes" / "bad.md").write_text("---\ntitle: [unclosed\n---\n")

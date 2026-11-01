@@ -4,7 +4,7 @@ track: harness
 title: A reply-only change on a PR posts its reply in the review thread after the
   user's yes
 kind: change
-priority: P1
+priority: P0
 deps: []
 created: '2026-11-01T12:53:01Z'
 ---

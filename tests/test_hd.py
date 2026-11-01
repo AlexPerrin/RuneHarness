@@ -1079,6 +1079,16 @@ class R6(Sandbox):
         s.assertIn("q3 [server P1]", " ".join(v["change"]))
         s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["p1-1"])
 
+    def test_a_held_band_lists_no_run_below_it_but_a_blocker_keeps_its_raised_priority(s):
+        for slug, k in (("p1", {"priority": "P1", "deps": ["b3"]}), ("b3", {"priority": "P3"}), ("q3", {"priority": "P3"})):
+            s.change(slug, **k); s.agreed(slug)
+        F = Fake(**FACTS)
+        s.assertIn("q3-1", " ".join(hd.tick(s.ctx(F))["spawn"]))     # no hold: q3 is listed
+        c = json.loads((s.root / "hd.yaml").read_text()); c["hold"] = "P1"; (s.root / "hd.yaml").write_text(json.dumps(c))
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(sorted(x.split(":")[0] for x in v["spawn"]), ["b3-1"])   # q3's listed run dropped; b3 runs at p1's P1
+        s.assertEqual(next(r for r in hd.runs() if r["name"] == "q3-1")["reason"], "held below P1")
+
     def test_same_tree_never_builds_or_gates_twice(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

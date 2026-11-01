@@ -18,6 +18,7 @@ holds no state.
 5. `alert`: tell the user in one line; `user: no orchestrator session` asks them to start it.
 6. Every other message of the user (an instruction, a planning request, a run to stop) goes to the orchestrator:
    `hd tell "<their words>"`. A question about the harness's state is answered from `hd`.
+7. The user's word to hold work below a priority ("only P0 and P1") is `hold: P1` in hd.yaml, committed; their word to lift it removes the key.
 
 Never: Agent, SendMessage or TaskStop for a run; an upstream, release, deploy or build command; EnterWorktree;
 investigation, planning, monitoring or review in this chat. Times for the user are US Eastern.

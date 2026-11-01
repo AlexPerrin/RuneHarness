@@ -117,7 +117,7 @@ state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resum
 state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
 state/gh/<hash>.json          {url, code, etag, body, next}: the one cache of GitHub REST reads, keyed by URL, shared by passes, gates, dry-runs and the carry (its PR, CI and comment reads, the CI wait polling them afresh);
                               each read sends If-None-Match (a 304 costs no quota);
-                              HD_GH=cache (check-dry-run) reads it alone, never the network;
+                              HD_OFFLINE (every `hd tick --dry-run`, check-dry-run's included) reads it alone and fetches no git remote: never the network;
                               gh/quota.json {reset, at, url}: GitHub refused on its quota, every GitHub read is unknown (its steps hold, an alert) until GitHub's reset
 state/briefs/<run>.md          the prompt;
                                state/events.jsonl  one line per state change (rotated at 20 MB;

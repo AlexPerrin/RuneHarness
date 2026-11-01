@@ -1285,10 +1285,28 @@ class R5(Sandbox):
         """The pass process's own peak (its builds and gates run in their own scopes), on the live state, dry."""
         code = ("import resource, sys; sys.path.insert(0, sys.argv[1]); import hd; hd.tick(act=False); "
                 "print(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)")
-        out = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve().parents[1])], env={**os.environ, "HD_ROOT": str(s.LIVE), "HD_GH": "cache"},
+        out = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve().parents[1])], env={**os.environ, "HD_ROOT": str(s.LIVE), "HD_OFFLINE": "1"},
                              capture_output=True, text=True, timeout=600)
         s.assertEqual(out.returncode, 0, out.stderr[-500:])
         s.assertLess(int(out.stdout.split()[-1]), 200 * 1024)            # ru_maxrss in KiB
+
+    def test_a_dry_run_never_reaches_the_network(s):
+        """hd tick --dry-run (check-dry-run's, inside a gate): git from the local refs alone, GitHub from the cache alone."""
+        s.change("s1"); s.agreed("s1")                                           # a server change: its clone's remotes are fetched by a pass
+        net = []
+        class Net(Fake):
+            fetch, page = hd.Facts.fetch, hd.Facts.page
+            def sh(s_, args, cwd=None, env=None, timeout=600):
+                if "fetch" in args or "set-head" in args or args[:1] == ["gh"]:
+                    net.append(args)
+                return super().sh(args, cwd, env, timeout)
+        F = Net(**FACTS)
+        with mock.patch.dict(os.environ), mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_tick(["--dry-run"])
+            F.page("repos/u/f/pulls?state=open&per_page=100")
+        s.assertEqual(net, [])
+        s.assertTrue(F.fetch("/c", "origin"))                                    # the env is the pass's alone: a real pass still fetches
+        s.assertTrue(any("fetch" in a for a in net))
 
     def test_github_reads_are_conditional_shared_and_held_on_an_exhausted_quota(s):
         """Two passes and a gate over the same state: the first pass reads each GitHub resource once, the second only
@@ -1318,7 +1336,7 @@ class R5(Sandbox):
         calls.clear(); hd.tick(s.ctx(GitHub(**FACTS)))                          # pass 2, the same state: every read revalidates
         s.assertEqual(sorted(calls), sorted((u, True) for u in api))            # all conditional: GitHub answers 304, no quota spent
         calls.clear()
-        with mock.patch.dict(os.environ, {"HD_GH": "cache"}):                   # the gate's dry-runs (check-dry-run): the cache alone
+        with mock.patch.dict(os.environ, {"HD_OFFLINE": "1"}):                   # the gate's dry-runs (check-dry-run): the cache alone
             hd.tick(s.ctx(GitHub(**FACTS)), act=False)
             s.assertEqual(GitHub(**FACTS).review_comments("u/f", 7)[0]["author"], "rev")   # what the passes read
         s.assertEqual(calls, [])

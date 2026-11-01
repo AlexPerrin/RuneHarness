@@ -3,7 +3,6 @@ slug: goblin-diplomacy-review-367-fftgsrq
 track: server
 kind: change
 priority: P0
-deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-server-build-tree, harness-no-powershell]
 branch: content/goblin-diplomacy
 pr: 367
 finding: IC_kwDOQBbPT88AAAABfTgSRQ
@@ -11,6 +10,7 @@ folded:
 - IC_kwDOQBbPT88AAAABhguqsg
 created: '2026-10-25T12:42:01Z'
 title: 'goblin-diplomacy-review-367: finding by a-thoren on PR #367'
+deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository]
 ---
 ## Change
 Answer the maintainer's comment on PR #367 with a commit on top of the PR head and a reply in pr-comment.md.

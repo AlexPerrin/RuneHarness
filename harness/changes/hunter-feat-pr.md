@@ -7,7 +7,7 @@ pr: 408
 priority: P3
 created: '2026-10-25T02:32:09Z'
 branch: feat/hunter
-deps: [harness-no-powershell]
+deps: [harness-no-powershell, harness-server-build-musicrepository]
 ---
 ## Change
 Upstream #408 (draft) is the entire Hunter skill (the user, 2026-10-25: "Scope is entire Hunter Skill"): every Hunter

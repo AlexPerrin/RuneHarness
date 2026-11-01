@@ -28,7 +28,9 @@ the user chats with it directly. A write to OpenRune and a client release is sho
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,
 reduces the work surface (fewer concepts, steps, special cases, files, knobs), and updates them last, each fact in the
-one document that owns it. Code, tests, config keys and docs traceable to no requirement are removed.
+one document that owns it. PROBLEM and PRD state the workflow in its simplest terms (agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR), so ARCHITECTURE can change
+without brittleness: every fix finds its root cause against that workflow and fixes it there, rewriting the mechanism
+when the cause is in its design; a limit found is a bug of the change on its mechanism, never passed on. Code, tests, config keys and docs traceable to no requirement are removed.
 
 ## Rules
 - The user's OK only for OpenRune upstream actions and client releases.

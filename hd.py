@@ -1360,7 +1360,7 @@ def brief(ctx, ch, st, name, role):
     lines += ["## Definition", f"title: {ch.get('title', '')}  priority: {ch.get('priority', '')}  deps: {ch.get('deps', [])}  pr: {ch.get('pr', '')}", ch.get("body", ""), ""]
     if con:
         lines += ["## Contract", con["text"], ""]
-    lines += ["## Hand back", "One line: `run <name>: handed over <sha>` | `run <name>: PASS` | `run <name>: FAIL n rows` | "
+    lines += ["## Hand back", "One line: `run <name>: handed over <sha>` (each filed out-of-scope limit after it as `limit:<slug>`, as handed to `hd handover`) | `run <name>: PASS` | `run <name>: FAIL n rows` | "
               "`run <name>: contract agreed` | `run <name>: ask <text>` | `run <name>: filed <slug>` | `run <name>: handoff`."]
     f = STATE / "briefs" / f"{name}.md"
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -1429,9 +1429,31 @@ def dispatch(ctx, ch, st, act):
     event(change=slug, run=name, action="listed", role=role)
 
 
+def shut(k, c):
+    """A closed change, or one whose last pass found it done."""
+    return bool(c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed")))
+
+
 def shut_changes(ctx):
-    """The closed changes and those whose last pass found them done."""
-    return {k for k, c in ctx.changes.items() if c.get("closed") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed"))}
+    return {k for k, c in ctx.changes.items() if shut(k, c)}
+
+
+def mechanism(c):
+    """The mechanism a change fixes (its definition's `mechanism`, else its own slug): the scope its limits fall in."""
+    return c.get("mechanism") or c["slug"]
+
+
+def scope(graph, slug):
+    """The mechanisms a change owns: its own and those of the changes it was filed as a limit of, transitively;
+    a limit on any of them is fixed in the change (the two are one rewrite), never filed again, so filing converges."""
+    seen, todo = set(), [slug]
+    while todo:
+        k = todo.pop()
+        if k in seen or k not in graph:
+            continue
+        seen.add(k)
+        todo += graph[k].get("limit-of") or []
+    return {mechanism(graph[k]) for k in seen}
 
 
 def plan(ctx, view, act):
@@ -1986,6 +2008,14 @@ def cmd_handover(a):
         refuse("a tools ref cannot be read")
     why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
            if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
+    graph = defs("changes")
+    for w in a[1:]:  # each limit the hand-back names is filed outside this change's scope: `limit:<slug>`
+        if w.lower().startswith("limit:"):
+            k = w.split(":", 1)[1]
+            if k not in graph:
+                why.append(f"{w}: no such change; file it with `hd new --limit-of {ch['slug']}` or fix it here")
+            elif mechanism(graph[k]) in scope(graph, ch["slug"]):
+                why.append(f"{w}: in this change's scope ({mechanism(graph[k])}): fix it here, rewriting the mechanism if the limit is in its design")
     tree = ctx.tree(ch, T[1])
     why += rows(ctx, ch, con, head, T[1], tree, "", gate=False)
     if why:
@@ -2100,9 +2130,7 @@ def cmd_close(a):
         refuse(f"already closed: {ch['closed']}")
     cmd_answer(a)
     n = sum(1 for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- answer-"))
-    f = P(ch["path"])
-    head, sep, rest = f.read_text().partition("\n---\n")
-    f.write_text(head + "\n" + yaml.safe_dump({"closed": f"answer-{n}: {' '.join(a[1:])}"}, width=10**6).strip() + sep + rest)
+    mark_closed(ch, f"answer-{n}: {' '.join(a[1:])}")
     event(change=slug, record="closed")
     print(f"{slug} closed")
 
@@ -2177,6 +2205,9 @@ def cmd_new(a):
     p.add_argument("--version"); p.add_argument("--network", action="store_true"); p.add_argument("--body", default="")
     p.add_argument("--units", default="", help="the goal's content units the change makes pass, comma-separated")
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
+    p.add_argument("--mechanism", help="the mechanism the change fixes (default: its slug)")
+    p.add_argument("--limit-of", help="the change whose run found this limit, outside that change's scope")
+    p.add_argument("--supersedes", default="", help="open harness changes this root-cause change replaces, comma-separated: each is closed as superseded")
     o = p.parse_args(a)
     if o.track == "harness" and PRIO.get(o.priority, 9) > 1:
         o.priority = "P1"  # the user's word: a harness change is never below P1
@@ -2185,22 +2216,56 @@ def cmd_new(a):
     blocked = DEFS / "changes" / f"{o.blocks}.md"
     if o.blocks and not blocked.exists():
         refuse(f"{blocked} does not exist")
-    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks")}
+    graph = defs("changes")
+    sup = [k for k in o.supersedes.split(",") if k]
+    if (bad := [k for k in sup if k not in graph or graph[k]["track"] != "harness" or shut(k, graph[k])]):
+        refuse("supersedes only open harness changes: " + ", ".join(bad))
+    m = o.mechanism or o.slug
+    if o.limit_of:
+        if o.limit_of not in graph:
+            refuse(f"no change {o.limit_of}")
+        if m in (own := scope(graph, o.limit_of)):
+            refuse(f"{m} is in {o.limit_of}'s scope ({', '.join(sorted(own))}): fix it there, rewriting the mechanism if the limit is in its design")
+    if not sup and (into := next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c)), None)):
+        return merge_limit(graph[into], o)  # one root-cause change per mechanism, never one per symptom
+    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks", "supersedes", "limit_of")}
+    if o.limit_of:
+        meta["limit-of"] = [o.limit_of]
     meta["deps"] = [d for d in o.deps.split(",") if d]
     if o.units:
         meta["units"] = o.units.split(",")
-    graph = {**defs("changes"), o.slug: meta}
+    graph = {**graph, o.slug: meta}
     if o.blocks:
         graph[o.blocks] = {**graph[o.blocks], "deps": [*graph[o.blocks]["deps"], o.slug]}
     if (cy := [c for c in cycles(graph) if o.slug in c]):
         refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))
     print(new_def(meta, o.body))
+    for k in sup:
+        mark_closed(graph[k], f"superseded by {o.slug}")
+        event(change=k, record="closed", by=o.slug)
     if o.blocks:  # the blocked change waits on the new one, uncommitted like the definition
         bm, body = _frontmatter(blocked.read_text())
         if o.slug not in bm.setdefault("deps", []):
             bm["deps"].append(o.slug)
             blocked.write_text("---\n" + yaml.safe_dump(bm, sort_keys=False) + "---\n" + body)
             event(change=o.blocks, action="dep", dep=o.slug)
+
+
+def merge_limit(c, o):
+    """A filing on a mechanism that has an open change joins it: its text appended, a limit's finder in `limit-of`."""
+    f = Path(c["path"])
+    m, body = _frontmatter(f.read_text())
+    if o.limit_of and o.limit_of not in m.setdefault("limit-of", []):
+        m["limit-of"].append(o.limit_of)
+    f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + f"\n\nAlso ({o.limit_of or 'filed'}): {o.title}\n{o.body}\n")
+    event(change=c["slug"], action="limit", by=o.limit_of or o.slug)
+    print(f"merged into {c['slug']} ({mechanism(c)})")
+
+
+def mark_closed(ch, text):
+    f = P(ch["path"])
+    head, sep, rest = f.read_text().partition("\n---\n")
+    f.write_text(head + "\n" + yaml.safe_dump({"closed": text}, width=10**6).strip() + sep + rest)
 
 
 def new_def(meta, body, **ev):

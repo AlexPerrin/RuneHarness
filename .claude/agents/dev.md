@@ -18,6 +18,12 @@ go to a read-only subagent that returns the conclusion. When the hook tells you 
 work and follow its hand-off steps in order: commit, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`
 (what is proven, what is left, the exact next step, whether a server or desktop is up, the facts you rely on), hand back.
 
+Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. A limit you find in the mechanism your change touches is a bug of your change: fix it, or rewrite the mechanism so it
+cannot arise, before you hand over. Only a limit in another mechanism is filed, once, as that mechanism's root-cause change:
+`hd new <new-slug> --track harness --title "..." --body "..." --mechanism <m> --limit-of <slug>` (it joins the open change
+on `<m>` if there is one, and refuses `<m>` inside your scope); name each in `hd handover <slug> limit:<new-slug>` and after
+your hand-back line.
+
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle. A desktop is up only while you play

@@ -37,9 +37,9 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd hold <slug> [--all\|--lift] [<why>]` | the orchestrator, on the user's no or word | `held: <head\|all>[: <why>]` in the definition (the orchestrator commits it): no card at that head (every head with --all) until a new head; --lift removes it |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
-| `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle |
+| `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle. A change's mechanism is its `mechanism` (else its slug); a filing on a mechanism with an open change appends its text to that change instead; `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes'); `--supersedes` closes those open harness changes as `superseded by <slug>` |
 | `hd show <slug>` | the orchestrator | the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead) |
-| `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
+| `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir or a `limit:<slug>` argument (a filed limit the hand-back names) that is no change or is in the change's scope, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass, fail or not-judged, appended; refused if a row is missing, or not judged with none failing |
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
@@ -164,7 +164,7 @@ a line an open change's body carries, or a planner hand-back answered, is left o
 an alert for the user lists none), outside the agent count (one at most); a planning request from the user with a measurable target reaches it as a goal, any other as a change. It
 files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
 operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness
-change that a harness dev run remediates. Its hand-back is its record, filed or not. It writes no product code.
+change on that issue's mechanism that a harness dev run remediates, and on every run merges the open and today's merged harness changes that patch one mechanism into one root-cause change (`--supersedes`). Its hand-back is its record, filed or not. It writes no product code.
 **Runs**: the brief is a run's one read of its change: the definition, the contract with the user's answers, the last
 verdict, the build and gate lines (each its verdict and key, the log in the `state/<slug>/<name>.log` it names) and the
 hand-off, each once; `hd show` is not read again. The role file holds the nevers; the
@@ -236,7 +236,7 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 |---|---|
 | R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the planner plans |
 | R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, `wake` and the wake file, the orchestrator session |
-| R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
+| R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, `hd new`'s one change per mechanism, records bound to T or head and contract, rule-row shas |
 | R4 Authority | the console card (acts, exact texts), approval.json bound to head and texts as the yes, `hd ship`'s carry re-checking both, the one hook rule |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |
 | R6 Economy | artefacts keyed by T, verdicts keyed by head and contract, the agent count, events on edges, the hook's context limit, the track scripts |

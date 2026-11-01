@@ -84,6 +84,7 @@ an upstream PR is self-contained: its head holds no unmerged commit of another P
 a carried tools head rebased onto its moved branch;
 a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it and it still merges.
 Two changes conflict only where they change the same fact: the source docs (PROBLEM.md, PRD.md, ARCHITECTURE.md) hold one fact per line, each requirement and paragraph a block of its own, and the gate's docs row fails a doc out of that format.
+Two changes to different fact lines of a source doc merge, neighbouring lines included, with no dev run.
 The harness changes, and the client code changes, ready to ship merge onto their live branch as one batch per track, gated and shipped once, one ship or definition commit at a time on the live checkout;
 a failure drops only the change that causes it, and one the live branch fails alone blames none.
 The integration tree merges the pins, then the gated heads by priority and creation;
@@ -214,6 +215,7 @@ a live check reads the real state.
    a server change's key and `CENTRAL` carry the merge of its central dependencies, and T_int the one of its heads';
    a conflict lists the dev;
    two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
+   one change editing a fact line and another inserting a fact on the line before it merge in either order, while a code conflict beside them stays the dev's;
    a carried tools head its branch moved past is rebased by the pass and re-gated, a conflict listing the dev;
    a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;
    a pin's conflict lists the dev of the oldest gated change at its deploy step;

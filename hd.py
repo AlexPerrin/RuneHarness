@@ -862,7 +862,7 @@ def cmd_show(a):
 
 
 def cmd_handover(a):
-    """R3: reads the pushed dev ref (no sha typed); every script row must pass; records {head, T}."""
+    """R3: reads the dev ref (a harness one local, never pushed; no sha typed); every script row must pass; records {head, T}."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     con = contract(ch["slug"])
@@ -872,7 +872,7 @@ def cmd_handover(a):
     if head is None:
         refuse("dev ref cannot be read")
     if not head:
-        refuse(f"dev ref {TRACK[ch['track']]['dev'].format(slug=ch['slug'])} does not exist: push it")
+        refuse(f"dev ref {TRACK[ch['track']]['dev'].format(slug=ch['slug'])} does not exist: " + ("commit on it" if ch["track"] == "harness" else "push it"))
     ev = EVID / ch["slug"]
     if len([f for f in ev.iterdir() if f.name != "contract.md"]) == 0:
         refuse(f"evidence dir {ev} holds nothing but the contract")

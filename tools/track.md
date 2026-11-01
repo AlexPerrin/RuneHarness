@@ -4,7 +4,8 @@ Changes to this repo (hd.py, hook.py, hd-public, tools/, roles, the drive skill,
 the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); docs state current
 truth only; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's
-pass does not). Push the branch, then `hd handover <slug>`.
+pass does not). The dev ref stays local, as does each carried tools ref: hd reads the local ref and ship pushes only
+the live branch, so rebase it onto the base at will and never push it. Commit, then `hd handover <slug>`.
 
 A fix to a product repo's tools (the fork's `local/harness`, the client's `client/harness-v8`) is committed on branch
 `harness/<slug>` of that repo, from its tools branch, in a worktree `<repo>/.worktrees/<slug>`; the dev ref

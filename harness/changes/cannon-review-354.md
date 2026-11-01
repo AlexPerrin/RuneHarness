@@ -9,6 +9,7 @@ priority: P0
 created: '2026-10-24T19:31:52Z'
 branch: content/cannon
 network: true
+quest-mode: assume-completed
 deps: [harness-subject-row-range, harness-dupe-tests-row-scope, harness-build-volume-perms, harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]
 ---
 ## Change

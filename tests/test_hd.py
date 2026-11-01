@@ -581,6 +581,26 @@ class R6(Sandbox):
 
 
 class R8(Sandbox):
+    def test_ship_fast_forwards_the_live_branch_or_regates(s):
+        import subprocess
+        tmp = Path(tempfile.mkdtemp()); origin, repo = tmp / "origin.git", tmp / "live"
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "v8", str(repo)], check=True)
+        (repo / "tools").mkdir(); shutil.copy(Path(__file__).parent.parent / "tools" / "track.sh", repo / "tools")
+        git("add", "."); git("commit", "-qm", "base"); git("remote", "add", "origin", str(origin)); git("push", "-q", "origin", "v8")
+        commit = lambda msg: (git("commit", "-q", "--allow-empty", "-m", msg), git("rev-parse", "HEAD"))[1]
+        git("checkout", "-q", "--detach"); T1 = commit("T1"); git("checkout", "-q", "v8")
+        (repo / "harness" / "changes").mkdir(parents=True); (repo / "harness" / "changes" / "new.md").write_text("an uncommitted definition")
+        ship = lambda tc: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", tc], env={**os.environ, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
+        r = ship(T1)
+        s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
+        git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
+        hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
+        r = ship(T2)                                                                  # the live branch moved past T2's base
+        s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
+        shutil.rmtree(tmp, ignore_errors=True)
+
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
         hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream

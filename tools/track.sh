@@ -3,7 +3,8 @@
 # EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
-# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push). hd runs
+# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push; one ship at
+# a time, under state/ship.lock; a T already on the live branch moves nothing). hd runs
 # gate and ship for the harness batch, slug ship-harness, NAMES its changes.
 set -euo pipefail
 verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
@@ -26,9 +27,9 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
 summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal, whatever the tests print
-check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | summary); }
+check_tests() { (cd "$BUILD" && env -u ROWS python3 -m unittest discover -s tests 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; kept by T as gate-<T>
-  wt=$(copy)
+  wt=$(copy); mkdir -p "$state"; ROWS=$(mktemp -d "$state/.rows.XXXXXX"); export ROWS; trap 'rm -rf "$ROWS"' EXIT   # each member runs its rows; a check of the tree alone runs once (rowmemo)
   if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
   cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }
@@ -51,6 +52,10 @@ check_tools() {  # each carried tools head: a fast-forward of its branch, its to
   done
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)
+  mkdir -p "$root/state"; exec 9> "$root/state/ship.lock"; flock 9   # one ship at a time on the live checkout, whatever started it
+  if git -C "$repo" merge-base --is-ancestor "$tc" HEAD; then   # T already landed (a ship before this one): nothing to move
+    rm -f "$state/proc-ship.json" "$state"/gate-*.json; echo "${tc:0:9} is already on the live branch"; exit 0
+  fi
   [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
   moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch")
   for t in ${TOOLS:-}; do  # nothing moves unless every branch fast-forwards to its gated head
@@ -71,4 +76,10 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
   rm -f "$state"/gate-*.json   # every kept gate was of a tree on the old base
 }
 
-case $verb in build|gate|check-tests|check-dry-run|check-docs|check-tools|ship) "${verb//-/_}" ;; *) echo "verbs: build gate check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac
+rowmemo() {  # within one gate (ROWS), a check whose input is the tree and the batch's TOOLS alone gives every member its first result
+  [ -n "${ROWS:-}" ] || { "$1"; return; }
+  [ -f "$ROWS/$1.rc" ] || { rc=0; ( "$1" ) > "$ROWS/$1.out" 2>&1 || rc=$?; echo "$rc" > "$ROWS/$1.rc"; }
+  cat "$ROWS/$1.out"; return "$(cat "$ROWS/$1.rc")"
+}
+
+case $verb in build|gate|ship) "$verb" ;; check-tests|check-dry-run|check-docs|check-tools) rowmemo "${verb//-/_}" ;; *) echo "verbs: build gate check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac

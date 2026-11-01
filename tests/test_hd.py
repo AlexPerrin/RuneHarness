@@ -118,7 +118,7 @@ class Sandbox(unittest.TestCase):
         ho = hd.rec(slug, "handover")
         hd.put(slug, "build", {"T": ho["T"], "ok": True})
         hd.put(slug, "gate", {"T": ho["T"], "ok": True})
-        hd.put("ship-harness", f"gate-{ho['T']}", {"T": ho["T"], "ok": True})  # a harness change alone in its batch
+        hd.put(f"ship-{hd.defs('changes')[slug]['track']}", f"gate-{ho['T']}", {"T": ho["T"], "ok": True})  # a batched change alone in its batch
         return ho
 
     def approve(s, F, slug, head):
@@ -283,11 +283,9 @@ class R2(Sandbox):
             s.assertEqual(sp.call_count, 1)                           # the pass is started, never waited on
         run = [r for r in hd.runs() if r["change"] == "c1"][0]
         s.assertTrue(run["record"]); s.assertEqual(run["usage"]["turns"], 3); s.assertIn("handed over", run["last"])
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["build", "c1", A])
-        hd.put("c1", "build", {"T": TA, "ok": True})
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["gate", "c1", A])
-        hd.put("c1", "gate", {"T": TA, "ok": True})
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["ship", "c1", A])
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["gate", "ship-client", A])   # the client's batch, built in its gate
+        hd.put("ship-client", f"gate-{F.envs[-1]['T']}", {"ok": True})
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["ship", "ship-client", A])
         F.f["anc"] = {(B, A)}                                          # the ship pushed the merge: master holds the head
         v = hd.tick(s.ctx(F))
         s.assertIn("c1 [client P2]: done", v["change"])
@@ -2012,7 +2010,7 @@ class R8(Sandbox):
         for k in ("h1", "h2", "h3"):
             s.change(k, track="harness"); s.agreed(k, track="harness")
         H1, H2, H3, M2, M3 = "1" * 40, "2" * 40, "3" * 40, "m2" * 20, "m3" * 20
-        F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2, "harness/h3": H3}, trees={H1: "t1", H2: "t2", H3: "t3", M2: "t12", M3: "t123"},
+        F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2, "harness/h3": H3}, trees={B: "t0", H1: "t1", H2: "t2", H3: "t3", M2: "t12", M3: "t123"},
                  merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (B, H3): ("ok", H3), (H1, H2): ("ok", M2), (M2, H3): ("ok", M3)})
         with mock.patch.object(hd, "Facts", lambda: F):
             for k in ("h1", "h2", "h3"):
@@ -2026,9 +2024,19 @@ class R8(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3], ["ship", "ship-harness", M3]])  # shipped once
         s.assertEqual(states(), ["shipping"] * 3)
+        F.f["procs"] = {(7, "1"), (4242, "99")}; hd.tick(s.ctx(F))                 # the ship runs: no second one starts
+        s.assertEqual(len(F.spawned), 2)
         hd.put("ship-harness", "gate-t123", {"ok": False, "detail": "FAIL: tests"})   # a failure: the first half alone, then the culprit
         s.assertEqual(states(), ["gate on t1", "waiting for the batch ahead (gate on t1)", "waiting for the batch ahead (gate on t1)"])
-        hd.put("ship-harness", "gate-t1", {"ok": False, "detail": "FAIL: tests"})
+        hd.put("ship-harness", "gate-t1", {"ok": False, "detail": "FAIL: tests"})       # the first alone fails: the live branch's own gate decides
+        s.assertEqual(states(), ["gate on the live branch t0"] + ["waiting for the batch ahead (gate on the live branch t0)"] * 2)
+        F.f["procs"] = {(7, "1")}; hd.tick(s.ctx(F))
+        s.assertEqual((F.spawned[-1][1:], F.envs[-1]["NAMES"]), (["gate", "ship-harness", B], "h1"))   # h1's rows at the base
+        hd.put("ship-harness", "gate-t0", {"ok": False, "detail": "FAIL: tests"})       # the live branch fails alone: an alert, no member blamed
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(states(), ["waiting: the live branch fails its own gate"] * 3)
+        s.assertIn("harness: the live branch fails its own gate at t0 (state/ship-harness/gate-t0.json)", v["alert"])
+        hd.put("ship-harness", "gate-t0", {"ok": True})                                # it passes alone: h1's failure is h1's
         st = s.state(F, "h1")
         s.assertEqual((st["state"], st["actor"], st["detail"]), ("gate failed: dev", "dev", "FAIL: tests"))
         F.f["merges"][(H2, H3)] = ("ok", "m4" * 20); F.f["trees"]["m4" * 20] = "t23"   # h1 leaves the batch: h2, h3 on the base
@@ -2072,6 +2080,9 @@ class R8(Sandbox):
         ship = lambda tc: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", tc], env={**os.environ, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
         r = ship(T1)
         s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
+        hd.put("s1", "gate-k", {"ok": True}); r = ship(T1)                            # a T that already landed: a no-op, its gates spent
+        s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
+        s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
         hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
         r = ship(T2)                                                                  # the live branch moved past T2's base

@@ -142,14 +142,16 @@ next(change):
                                     on and ending on their result or a failed read, a step observed done skipped. Success: ship.json, approval.json removed (the yes is spent).
                                     Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
                                     args an alert
-  ship (client)                     merge and push
-  harness batch (`hd.batch`)        every harness change at this step, in hand-over order, merged onto the live branch (no
-                                    per-change build or gate): a conflict with the branch → dev; with an earlier member, or
-                                    tools of a repo an earlier member carries → wait for the next batch. Each prefix is a tree,
-                                    its gate `state/ship-harness/gate-<key>.json` (NAMES: its changes, each distinct row command
-                                    once); the longest passing prefix ships (one ship moves every member of it); none passing:
-                                    gate the whole batch, after a failure the first half of the failing prefix, down to the
-                                    first member alone, whose failure is its dev's and which leaves the batch; a ship clears the kept gates
+  batch (`hd.batch`: harness, and   every change of the track at this step, in hand-over order, merged onto the live branch
+  client code; a release is gated   (no per-change build or gate): a conflict with the branch → dev; with an earlier member, or
+  alone)                            tools of a repo an earlier member carries → wait for the next batch. Each prefix is a tree,
+                                    its gate `state/ship-<track>/gate-<key>.json` (NAMES: its changes, each change's rows with
+                                    its own env; a harness check of the tree alone runs once per gate); the longest passing
+                                    prefix ships (one ship moves every member of it); none passing: gate the whole batch, after
+                                    a failure the first half of the failing prefix, down to the first member alone, then the
+                                    live branch with that member's rows: passing, the member's failure is its dev's and it
+                                    leaves the batch; failing, an alert and the batch waits, no member blamed. A ship runs under
+                                    `state/ship.lock`, a T already on the live branch moves nothing; it clears the kept gates
   wait                              upstream merged; each maintainer word on the pr (an inline comment, a review's body, a
                                     conversation comment; no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's
                                     `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply
@@ -216,7 +218,7 @@ start); a command that only quotes them (grep, echo, a heredoc body) runs.
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`, the jav_config and world-list URLs patched to `OPENRUNE_ENDPOINT` (default `http://10.0.2.2:8080`, a Jagex, RuneScape or Google host refused); APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>`; a tree whose settings name `.m2-rsprot` (the pin local/android's locally published rsprot) gets the fork clone's `.m2-rsprot`, and without it the build fails saying so; with a Central dependency `CENTRAL` names the Central tree, built in by the init script `central.init.gradle`, which substitutes every Central module (`openrune-central` by `:central-app`) | Gradle `assemble` in container `build-<slug>` | the test suite at T |
 | gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`; the change's head unchanged) | `gradle test`, evidence files, commit subjects | tests; `hd tick --dry-run` plans no upstream action the live checkout's pass does not; each carried tools head's tests |
 | judge | release only | every contract row | every contract row, from `up`: the server's base built with this Central (the server track's build and up), `down` stops it | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | live at its gate (dependent server builds include it); upstream to Central after the yes | fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree, push; any of them moved past its gated base: nothing moves, the next pass merges the batch again |
+| ship | push the batch tree to `main`; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | live at its gate (dependent server builds include it); upstream to Central after the yes | under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree, push; any of them moved past its gated base: nothing moves, the next pass merges the batch again |
 
 ```mermaid
 sequenceDiagram

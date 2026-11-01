@@ -15,8 +15,8 @@ only `passes` may change.
 | R7 **Visibility** | `hd` prints what to spawn, the cards and questions waiting, what runs, each goal's number with its tree, and the facts of every open change, derived; nothing else. | P10 |
 | R8 **Trees** | A change's tree T is its base, its dependencies and its head merged; a conflict is the dev's step, and a resolution against a permanent pin is a merge ref bound to both heads, used by the integration tree only. T is built at most once, in a copy no agent commits from; its artefact serves the dev's check, the gate, the review and the deployment. The game cache is rebuilt only when its inputs change. Every artefact and process is named after its change or run. | P6 P9 |
 
-Constraints that need no mechanism: nothing contacts Jagex; the user's own RuneLite and the tester account are never
-touched (A10). Each track's seed rows and the dev's and reviewer's rules live in each repo's `tools/track.md` and `.claude/skills/`.
+Nothing contacts Jagex: every emulator the client track boots resolves no hostname, checked by its `up`. Constraints
+that need no mechanism: the user's own RuneLite and the tester account are never touched (A10). Each track's seed rows and the dev's and reviewer's rules live in each repo's `tools/track.md` and `.claude/skills/`.
 
 ## Acceptance
 

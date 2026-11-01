@@ -34,6 +34,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd approve <slug> <head>` | the user, as a `!` command in the orchestrator's window | at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts} |
 | `hd ship <slug> <head>` | the pass (the public step's script) | carries the approved head upstream or publishes the release, re-checking the yes; records `ship.json` (R4) |
 | `hd answer <slug> [--waive <row>] <text>` | the orchestrator, with the user's words | an answer appends a contract row; `--waive` names a script row the hand-over and gate then skip |
+| `hd hold <slug> [--all\|--lift] [<why>]` | the orchestrator, on the user's no or word | `held: <head\|all>[: <why>]` in the definition (the orchestrator commits it): no card at that head (every head with --all) until a new head; --lift removes it |
 | `hd close <slug> <text>` | the user, as a `!` command in the orchestrator's window | the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent |
 | `hd stop <run>` | the orchestrator, with TaskStop (which fires no SubagentStop) | ends the run's record, so it frees its agent slot |
 | `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track); refused when its deps close a dependency cycle |
@@ -118,7 +119,8 @@ next(change):
                                     or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the
                                     comment (pr-comment.md) when it pushes, each reply (pr-reply-<finding>.md),
                                     ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes
-                                    (`hd approve`) and no (`hd close`) commands; it wakes the orchestrator once per head and texts
+                                    (`hd approve`), no (`hd hold`) and close (`hd close`) commands; `held: <head|all>` in the
+                                    definition hides it (held by the user, a wait) until a new head or the lift; it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)       release: gh release with the APK, notices and log. Upstream: push head to the PR's branch
                                     (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that
                                     differ from the live ones, CI green

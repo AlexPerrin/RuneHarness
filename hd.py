@@ -344,41 +344,10 @@ def tools_wt(r):
 
 
 def tools_run(files, cmds):
-    """The hash of the tools a build and gate run: tools/track.sh's top-level code (comment lines dropped) and each function
-    reachable from build, gate and the verbs the contract's commands name (not through the verb dispatch), plus every tools file whose name that code or
-    those commands mention, transitively. A misparse only adds code; a commit outside these files keeps the hash."""
-    sh, chunks, fns, doc = files.get("tools/track.sh", ""), [], {}, None
-    for l in sh.splitlines():
-        if doc is not None:  # a here-document's lines belong to the code that opened it
-            chunks[-1].append(l); doc = None if l.strip() == doc else doc
-            continue
-        if re.match(r"\s*#", l) or not l.strip():
-            continue
-        if not l[0].isspace() and not l.startswith("}"):
-            chunks.append([])
-            m = re.match(r"([A-Za-z_]\w*)\(\)\s*\{", l)
-            if m:
-                fns[m.group(1)] = chunks[-1]
-        if chunks:
-            chunks[-1].append(l)
-            m = re.search(r"<<-?\s*['\"]?(\w+)", l)
-            doc = m.group(1) if m and "<<<" not in l else None
-    words = lambda t: set(re.findall(r"(?:^|[;&|({!]|\$\(|\b(?:then|do|else|if|elif|while|until))[ \t]*([A-Za-z_]\w*)\b(?![=\w])", re.sub(r"\s#\s.*", "", t), re.M))  # the words in command position
-    todo = {"build", "gate"} | {c.split()[1].replace("-", "_") for c in cmds if c.startswith("tools/track.sh ") and len(c.split()) > 1}
-    used = [c for c in chunks if not any(c is f for f in fns.values())]
-    routed = [c for c in used if not c[0].startswith("case $verb")]  # the verb dispatch names every verb: it routes, it calls none
-    text, seen, paths = "\n".join(cmds) + "\n" + "\n".join("\n".join(c) for c in routed), set(), set()
-    while True:
-        new = {n for n in (todo | words(text)) & set(fns) if n not in seen}
-        newp = {p for p in files if p != "tools/track.sh" and p not in paths and p.rsplit("/", 1)[-1] in text}
-        if not new and not newp:
-            break
-        seen |= new; paths |= newp
-        text += "".join("\n" + "\n".join(fns[n]) for n in sorted(new)) + "".join("\n" + files[p] for p in sorted(newp))
-        todo = set()
-    # shortcut: a change to the dispatch's own build or gate line keeps the hash; hash those lines if one ever does more than route
-    body = ["\n".join(c) for c in routed] + [f"{n}\n" + "\n".join(fns[n]) for n in sorted(seen)] + [f"{p}\n{files[p]}" for p in sorted(paths)]
-    return hashlib.sha1("\0".join(body).encode()).hexdigest()
+    """The hash of the tools a build and gate run: every file under tools/gate/ (where the track keeps that code; tools/track.sh
+    only dispatches to it) and each other tools file a contract row's command names, with those commands."""
+    run = sorted(p for p in files if p.startswith("tools/gate/") or (p != "tools/track.sh" and any(p in c for c in cmds)))
+    return hashlib.sha1("\0".join(list(cmds) + [f"{p}\n{files[p]}" for p in run]).encode()).hexdigest()
 
 
 def track_root(c, track):

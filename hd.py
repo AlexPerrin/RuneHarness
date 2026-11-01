@@ -463,8 +463,27 @@ class Ctx:
         if TRACK[ch["track"]]["public"] == "upstream" and ch["kind"] != "local":
             if not head:
                 return False
+            if s.reply(ch, head):
+                return s.replied(ch)
             return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
         return s.live(ch, head)
+
+    def reply(s, ch, head):
+        """R4: a change on a PR answering one inline finding whose head adds no commit to a same-track dependency's head:
+        its outcome is a reply in that finding's review thread."""
+        f = ch.get("finding")
+        if not head or not ch.get("pr") or not f or isinstance(f, list):
+            return False
+        return any(d in s.changes and s.changes[d]["track"] == ch["track"] and s.F.contains(s.clone(ch), s.head(s.changes[d]), head) for d in ch["deps"])
+
+    def comments(s, track, pr):
+        """The PR's inline review comments, read once per pass; None when GitHub cannot be read."""
+        return s._m(("comments", track, pr), lambda: s.F.review_comments(s.cfg["repos"][TRACK[track]["repo"]].get("upstream"), pr))
+
+    def replied(s, ch):
+        """R4: our reply is in the finding's thread: True | False | None (unknown)."""
+        cs, owner = s.comments(ch["track"], ch["pr"]), s.cfg["repos"][TRACK[ch["track"]]["repo"]]["name"].split("/")[0].lower()
+        return None if cs is None else any(str(c["reply"]) == str(ch["finding"]) and str(c["author"]).lower() == owner for c in cs)
 
     def T(s, ch, head):
         """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
@@ -707,7 +726,9 @@ def nxt(ctx, ch):
         a = rec(slug, "approval")
         if not a or a["head"] != head:
             return step(f"{'live on the test server' if track == 'server' else 'gated'}; waiting for the user's yes", "user", input=head)
-        return step("shipping upstream", "script", act=lambda: ctx.start(slug, "ship", ctx.public("upstream", slug, head), env))
+        reply = ctx.reply(ch, head)  # no commit of its own: the reply in the finding's thread is the act
+        return step(f"shipping upstream: the reply to {ch['finding']} on #{ch['pr']}" if reply else "shipping upstream", "script",
+                    act=lambda: ctx.start(slug, "ship", ctx.public("reply" if reply else "upstream", slug, head), env))
     if ch["kind"] == "release":
         a = rec(slug, "approval")
         if not a or a["head"] != head:
@@ -722,7 +743,7 @@ def findings(ctx, open_prs, act):
     carried = {str(f) for c in ctx.changes.values() for f in (c["finding"] if isinstance(c.get("finding"), list) else [c.get("finding")]) if f}
     for track, pr in sorted(open_prs):
         r = ctx.cfg["repos"][TRACK[track]["repo"]]
-        owner, cs = r["name"].split("/")[0].lower(), ctx.F.review_comments(r.get("upstream"), pr)
+        owner, cs = r["name"].split("/")[0].lower(), ctx.comments(track, pr)
         on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track]
         roots = [c for c in on if not any(d in {o["slug"] for o in on} for d in c["deps"])]
         for c in cs or []:  # a reply belongs to its thread's finding; unknown (None) files nothing this pass
@@ -1194,6 +1215,9 @@ def card(ctx, ch, st):
              f"verdict: {len(v[-1]['rows']) if v else 0} rows pass (run {v[-1].get('run', '?') if v else '?'})"]
     if ch["kind"] == "release":
         lines += [f"release v{ch['version']}: the APK in the evidence dir"]
+    elif ctx.reply(ch, head):
+        lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} PR #{ch['pr']}: a reply in the thread of review comment {ch['finding']}, no push",
+                  f"### reply\n{t['comment']}"]
     else:
         lines += [f"{ctx.cfg['repos'][TRACK[ch['track']]['repo']].get('upstream', '')} branch {ch.get('branch') or 'content/' + ch['slug']}" + (f", PR #{ch['pr']}" if ch.get("pr") else ", new draft PR"),
                   f"### title\n{t['title']}", f"### body\n{t['body']}", f"### comment\n{t['comment']}"]
@@ -1374,13 +1398,13 @@ def cmd_close(a):
 
 
 def cmd_approve(a):
-    """R4: only at the change's user step, bound to that head and the PR body's digest."""
+    """R4: only at the change's user step, bound to that head and the digests of the PR body and the comment."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     st = nxt(ctx, ch)
     if st["actor"] != "user" or st["input"] != a[1]:
         refuse(f"nothing to approve at {a[1]}: {st['state']}")
-    put(ch["slug"], "approval", {"head": a[1], "body": digest(texts(ch["slug"])["body"])})
+    put(ch["slug"], "approval", {"head": a[1], "body": digest(texts(ch["slug"])["body"]), "comment": digest(texts(ch["slug"])["comment"])})
     event(change=ch["slug"], record="approval", head=a[1])
     print(f"approved {a[1]}")
 

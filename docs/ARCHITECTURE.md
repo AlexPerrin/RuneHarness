@@ -22,7 +22,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
-hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
+hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts, review-thread replies and releases
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring)
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, and every answer names a session that dropped to the login screen; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
@@ -99,8 +99,10 @@ next(change):
                                     and the rest merged on (pins first, then heads by priority, then creation), so one dev step lists them all with the merge
                                     order; only a pin's conflict holds the deploy, the tree without a conflicting head deploys
   public (upstream, release)?       approval at head? no → card
-  ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push
-  wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no
+  ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; a reply change (one `finding`,
+                                    its head a same-track dependency's: no commit of its own): pr-comment.md posted in that finding's thread,
+                                    quoting it and naming only its author; release: gh release; else merge and push
+  wait                              upstream merged (a reply change: our reply in the finding's thread); each maintainer inline review comment on the pr (no reply, no bot) that no
                                     definition's `finding` carries files a P1 change on the pr with deps [the pr's root changes],
                                     their contract unagreed plus a judged `finding` row
   done

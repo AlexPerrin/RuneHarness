@@ -528,6 +528,10 @@ class Ctx:
                 s.alerts.append("user: R4: no Unix user hd; public acts run as you with your token")
             return [str(ROOT / "hd-public"), *args]
 
+    def dockerless(s, ch, mode):
+        """R5: while docker does not answer, a step that builds, brings up or tests (a code or judge step off the harness track) waits."""
+        return not s.docker and ch["track"] != "harness" and mode in ("code", "judge")
+
     def alive_run(s, ch):
         return next((r for r in s.runs if r["change"] == ch["slug"] and not r.get("ended")), None)
 
@@ -854,7 +858,7 @@ def dispatch(ctx, ch, st, act):
                  and any(a.startswith(lim[0]) and lim[1] in a for a in json.loads(r.get("input") or "[]"))])
     if role == "dev" and (n := len([r for r in ctx.runs if r["change"] == slug and r.get("handoff_told") and (r.get("listed") or "") > since])) >= 3:
         ctx.alerts.append(f"{slug}: {n} runs reached the context limit without a handover: the change is too large for one run, or its brief spends context on reading")
-    if ctx.alive_run(ch) or rec(slug, "ask"):
+    if ctx.alive_run(ch) or rec(slug, "ask") or ctx.dockerless(ch, st.get("mode")):
         return
     inp = json.dumps(st.get("input"), sort_keys=True)
     same = [r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp]
@@ -991,7 +995,7 @@ def repairs(ctx, act):
     cs = ctx.F.containers()
     if cs is None:
         ctx.docker = False
-        ctx.alerts.append("user: docker unreachable: no script starts until it answers")
+        ctx.alerts.append("user: Docker Desktop is down (docker unreachable): no script starts and no run that builds or tests is listed until it answers")
         return
     for ch in ctx.changes.values():
         if f"server-{ch['slug']}" in cs and not ctx.alive_run(ch):
@@ -1106,8 +1110,8 @@ def tick(ctx=None, act=True):
                 for r in ctx.runs:
                     if r["change"] != ch["slug"] or r.get("ended"):
                         continue
-                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and st["actor"] != "unknown" and (r["role"], r["input"]) != due):
-                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else "no longer due"
+                    if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) != due)):
+                        r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
                         if r.get("started"):
                             r["record"] = produced(r)
                             event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])

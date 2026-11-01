@@ -894,6 +894,18 @@ class R5(Sandbox):
         s.assertEqual(F.spawned, [])
         s.assertEqual(sum("docker unreachable" in a for a in v["alert"]), 1)
 
+    def test_docker_down_lists_no_build_run_until_it_answers(s):
+        s.change("s1"); s.agreed("s1"); s.change("p1", "harness")
+        F = Fake(**FACTS)
+        s.assertTrue([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")])   # listed while docker answers
+        F.f["containers"] = None
+        v = hd.tick(s.ctx(F))
+        s.assertFalse([x for x in v["spawn"] if x.startswith("s1-")])                  # the unspawned run ends, none is listed
+        s.assertTrue([x for x in v["spawn"] if x.startswith("p1-")])                   # a harness run needs no docker
+        s.assertEqual(sum("Docker Desktop is down" in a for a in v["alert"]), 1)
+        F.f["containers"] = {}
+        s.assertTrue([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")])   # listed again once docker answers
+
     def test_second_ask_refused_while_one_open(s):
         s.change("s1")
         hd.cmd_ask(["s1", "which scope?"])

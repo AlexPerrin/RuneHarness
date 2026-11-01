@@ -82,7 +82,7 @@ next(change):
   wait                              upstream merged; a maintainer finding files a new change on the pr with deps [this], contract inherited plus the finding
   done
 ```
-A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A
+A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in); a fresh dev ref cut at a base commit is neither. A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A
 hand-over at the same head after a verdict re-marks only the failed rows. A goal's `measure` is a step of the goal:
 unmet when its target's tree (client: master and the live T_int) is not the tree of `measure.json`; below target,
 the orchestrator files changes.

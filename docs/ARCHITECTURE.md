@@ -50,6 +50,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
 | `hd rows <slug> <T commit> <build copy>` | a track script's gate | every `check:` and `gate:` row at the track root with `BUILD` set; exit 1 names the failures |
 | `hd ask <slug> <text>` | agents | refused while a question is open on the change |
+| `hd commit <path>... -m <msg>` | the orchestrator | commits those paths of the live checkout alone, authored as Alex Perrin with the co-author line, under `state/ship.lock`: never at once with a ship's merge |
 | `hd tick` | the timer, the hook | one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised; a fetch another pass has in flight is waited on and its result taken) outside the state lock; under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes; builds, gates and ships start in their own systemd scopes |
 
 ## Data
@@ -75,8 +76,8 @@ Every `state/` JSON record is written to a temp file beside it and renamed over 
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit),
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Build and gate are keyed by T's tree joined with `-<hash12>` of the tools they run when the track has a tools branch: at its tip, every file under `tools/gate/` (the code a build or gate runs: `tools/gate/gate.sh` holds build, gate and every verb a contract row runs, and tools/track.sh only dispatches those verbs to it) and each other tools file a row's command names, with the contract's script rows (`hd.tools_run`); a tools fix re-builds and re-gates, a tools commit outside them (docs, tests, up's code) neither; T_int admits a change whose gate passed at its current key, the test `nxt` applies). A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`; `hd tree` prints it third); T_int carries the one of its heads' central dependencies. Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK
-`evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition
-commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current T). The game cache is keyed by the hash of its inputs
+`evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by its batch tree without `harness/`, so a definition
+commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current batch tree). The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned). The build copy is `<repo>/.worktrees/<slug>-build`, the
 dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
 (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing. A harness change carries
@@ -147,7 +148,16 @@ next(change):
                                     on and ending on their result or a failed read, a step observed done skipped. Success: ship.json, approval.json removed (the yes is spent).
                                     Failure: the reason in ship.log, the PR as it is; the pass reruns it, a second death on the same
                                     args an alert
-  ship (other tracks)               merge and push
+  batch (`hd.batch`: harness, and   every change of the track at this step, in hand-over order, merged onto the live branch
+  client code; a release is gated   (no per-change build or gate): a conflict with the branch → dev; with an earlier member, or
+  alone)                            tools of a repo an earlier member carries → wait for the next batch. Each prefix is a tree,
+                                    its gate `state/ship-<track>/gate-<key>.json` (NAMES: its changes, each change's rows with
+                                    its own env; a harness check of the tree alone runs once per gate); the longest passing
+                                    prefix ships (one ship moves every member of it); none passing: gate the whole batch, after
+                                    a failure the first half of the failing prefix, down to the first member alone, then the
+                                    live branch with that member's rows: passing, the member's failure is its dev's and it
+                                    leaves the batch; failing, an alert and the batch waits, no member blamed. A ship runs under
+                                    `state/ship.lock`, a T already on the live branch moves nothing; it clears the kept gates
   wait                              upstream merged; each maintainer word on the pr (an inline comment, a review's body, a
                                     conversation comment; no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's
                                     `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply
@@ -214,7 +224,7 @@ start); a command that only quotes them (grep, echo, a heredoc body) runs.
 | build(T) | host build, ninja, repack with `OPENRUNE=1 LOCAL_AUTH=1`, the jav_config and world-list URLs patched to `OPENRUNE_ENDPOINT` (default `http://10.0.2.2:8080`, a Jagex, RuneScape or Google host refused); APK and log | Gradle in container `build-<slug>`, cache by inputs; image `or:<T>`; a tree whose settings name `.m2-rsprot` (the pin local/android's locally published rsprot) gets the fork clone's `.m2-rsprot`, and without it the build fails saying so; with a Central dependency `CENTRAL` names the Central tree, built in by the init script `central.init.gradle`, which substitutes every Central module (`openrune-central` by `:central-app`) | Gradle `assemble` in container `build-<slug>` | the test suite at T |
 | gate(T) | repack log lines (checked again at install), probe report at T, network QA when `network`; `log` reads logcat by pattern since a marker | script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`; the change's head unchanged) | `gradle test`, evidence files, commit subjects | tests; `hd tick --dry-run` plans no upstream action the live checkout's pass does not; each carried tools head's tests |
 | judge | release only | every contract row | every contract row, from `up`: the server's base built with this Central (the server track's build and up), `down` stops it | none |
-| ship | merge `master`, push; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | live at its gate (dependent server builds include it); upstream to Central after the yes | fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to T, push; any of them moved past its gated base: nothing moves, re-gate |
+| ship | push the batch tree to `main`; release after the yes | test server: deploy `or:<T_int>`, its sidecars serving `tools/server/jav_config.ws.template` (`javcheck.py` after `up` and `ship`: local hosts only); upstream after the yes | live at its gate (dependent server builds include it); upstream to Central after the yes | under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree, push; any of them moved past its gated base: nothing moves, the next pass merges the batch again |
 
 ```mermaid
 sequenceDiagram

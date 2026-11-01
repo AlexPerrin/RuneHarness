@@ -118,6 +118,7 @@ class Sandbox(unittest.TestCase):
         ho = hd.rec(slug, "handover")
         hd.put(slug, "build", {"T": ho["T"], "ok": True})
         hd.put(slug, "gate", {"T": ho["T"], "ok": True})
+        hd.put(f"ship-{hd.defs('changes')[slug]['track']}", f"gate-{ho['T']}", {"T": ho["T"], "ok": True})  # a batched change alone in its batch
         return ho
 
     def approve(s, F, slug, head):
@@ -282,11 +283,9 @@ class R2(Sandbox):
             s.assertEqual(sp.call_count, 1)                           # the pass is started, never waited on
         run = [r for r in hd.runs() if r["change"] == "c1"][0]
         s.assertTrue(run["record"]); s.assertEqual(run["usage"]["turns"], 3); s.assertIn("handed over", run["last"])
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["build", "c1", A])
-        hd.put("c1", "build", {"T": TA, "ok": True})
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["gate", "c1", A])
-        hd.put("c1", "gate", {"T": TA, "ok": True})
-        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["ship", "c1", A])
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["gate", "ship-client", A])   # the client's batch, built in its gate
+        hd.put("ship-client", f"gate-{F.envs[-1]['T']}", {"ok": True})
+        v = hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1][1:], ["ship", "ship-client", A])
         F.f["anc"] = {(B, A)}                                          # the ship pushed the merge: master holds the head
         v = hd.tick(s.ctx(F))
         s.assertIn("c1 [client P2]: done", v["change"])
@@ -2052,7 +2051,54 @@ class R8(Sandbox):
         s.assertIn(["rebase", fork, "harness/h1", "local/harness"], F.ran)
         F.f["refs"][f"{fork}:harness/h1"] = D; F.f["anc"] = {(D, "local/harness")}
         s.assertEqual((hd.rec("h1", "handover")["tools"], hd.rec("h1", "handover")["T"]), ({"fork": D}, TA + "+" + D[:12]))
-        s.assertEqual(s.state(F, "h1")["state"], f"building {TA[:9]}")         # the new head is recorded and re-built, re-gated
+        s.assertEqual(s.state(F, "h1")["state"], f"gate on {TA[:9]}")          # the new head is recorded and re-gated in its batch
+
+    def test_ready_harness_siblings_ship_in_one_gate_a_failure_bisected_to_its_change(s):
+        for k in ("h1", "h2", "h3"):
+            s.change(k, track="harness"); s.agreed(k, track="harness")
+        H1, H2, H3, M2, M3 = "1" * 40, "2" * 40, "3" * 40, "m2" * 20, "m3" * 20
+        F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2, "harness/h3": H3}, trees={B: "t0", H1: "t1", H2: "t2", H3: "t3", M2: "t12", M3: "t123"},
+                 merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (B, H3): ("ok", H3), (H1, H2): ("ok", M2), (M2, H3): ("ok", M3)})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            for k in ("h1", "h2", "h3"):
+                hd.cmd_handover([k])
+        states = lambda: [s.state(F, k)["state"] for k in ("h1", "h2", "h3")]
+        s.assertEqual(states(), ["gate on t123"] * 3)                             # one tree: base, then each in hand-over order
+        hd.tick(s.ctx(F))
+        s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3]])  # one gate for all three
+        s.assertEqual(F.envs[-1]["NAMES"], "h1,h2,h3")
+        hd.put("ship-harness", "gate-t123", {"ok": True})
+        hd.tick(s.ctx(F))
+        s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3], ["ship", "ship-harness", M3]])  # shipped once
+        s.assertEqual(states(), ["shipping"] * 3)
+        F.f["procs"] = {(7, "1"), (4242, "99")}; hd.tick(s.ctx(F))                 # the ship runs: no second one starts
+        s.assertEqual(len(F.spawned), 2)
+        hd.put("ship-harness", "gate-t123", {"ok": False, "detail": "FAIL: tests"})   # a failure: the first half alone, then the culprit
+        s.assertEqual(states(), ["gate on t1", "waiting for the batch ahead (gate on t1)", "waiting for the batch ahead (gate on t1)"])
+        hd.put("ship-harness", "gate-t1", {"ok": False, "detail": "FAIL: tests"})       # the first alone fails: the live branch's own gate decides
+        s.assertEqual(states(), ["gate on the live branch t0"] + ["waiting for the batch ahead (gate on the live branch t0)"] * 2)
+        F.f["procs"] = {(7, "1")}; hd.tick(s.ctx(F))
+        s.assertEqual((F.spawned[-1][1:], F.envs[-1]["NAMES"]), (["gate", "ship-harness", B], "h1"))   # h1's rows at the base
+        hd.put("ship-harness", "gate-t0", {"ok": False, "detail": "FAIL: tests"})       # the live branch fails alone: an alert, no member blamed
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(states(), ["waiting: the live branch fails its own gate"] * 3)
+        s.assertIn("harness: the live branch fails its own gate at t0 (state/ship-harness/gate-t0.json)", v["alert"])
+        hd.put("ship-harness", "gate-t0", {"ok": True})                                # it passes alone: h1's failure is h1's
+        st = s.state(F, "h1")
+        s.assertEqual((st["state"], st["actor"], st["detail"]), ("gate failed: dev", "dev", "FAIL: tests"))
+        F.f["procs"] = set(); hd.tick(s.ctx(F))
+        dev = [r for r in hd.runs() if r["change"] == "h1"][-1]
+        for r in [dev] + [r for r in hd.runs() if r["role"] == "planner"]:   # its dev handed back and the batch gate still fails; the alert's planner too
+            r.update(started=hd.now(), ended=hd.now(), record=True); hd.save_run(r)
+        hd.tick(s.ctx(F))
+        s.assertTrue(any(i.startswith("h1 [harness") and i.endswith("gate failed: dev at t1") for r in hd.runs() if r["role"] == "planner"
+                         for i in json.loads(r["input"])))                         # the planner reads the batch's gate, keyed by its tree
+        F.f["merges"][(H2, H3)] = ("ok", "m4" * 20); F.f["trees"]["m4" * 20] = "t23"   # h1 leaves the batch: h2, h3 on the base
+        s.assertEqual(states()[1:], ["gate on t23", "gate on t23"])
+        F.f["merges"][(H2, H3)] = ("conflict", "CONFLICT: x")                       # only with h2: h3 waits for the batch ahead
+        s.assertEqual(states()[1:], ["gate on t2", "waiting for the batch ahead: conflicts with h2"])
+        F.f["merges"][(B, H3)] = ("conflict", "CONFLICT: y")                        # with the live branch: its dev's
+        s.assertEqual((s.state(F, "h3")["state"], s.state(F, "h3")["detail"]), ("tree conflict: dev", "CONFLICT: y"))
 
     def test_a_server_build_includes_its_central_dependencies(s):
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1"); s.change("s2"); s.agreed("s2")
@@ -2088,11 +2134,32 @@ class R8(Sandbox):
         ship = lambda tc: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", tc], env={**os.environ, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
         r = ship(T1)
         s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
+        hd.put("s1", "gate-k", {"ok": True}); r = ship(T1)                            # a T that already landed: a no-op, its gates spent
+        s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
+        s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
         hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
         r = ship(T2)                                                                  # the live branch moved past T2's base
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_definition_commit_waits_for_the_ship_lock(s):
+        import fcntl
+        git = lambda *a: subprocess.run(["git", "-C", str(s.root), *a], capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", str(s.root)], check=True); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+        (s.root / "harness" / "changes").mkdir(parents=True, exist_ok=True); (s.root / "harness" / "changes" / "d1.md").write_text("a definition")
+        (s.root / "other.txt").write_text("an edit of someone else"); git("add", "other.txt")
+        (s.root / "state").mkdir(exist_ok=True)
+        with open(s.root / "state" / "ship.lock", "w") as h:
+            fcntl.flock(h, fcntl.LOCK_EX)                                             # a ship holds the lock
+            p = subprocess.Popen([sys.executable, str(Path(hd.__file__)), "commit", "harness/changes/d1.md", "-m", "harness: define d1"],
+                                 env={**os.environ, "HD_ROOT": str(s.root)}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            s.assertEqual(git("log", "--format=%s"), "base")                          # nothing commits while it is held
+        out = p.communicate()[0]
+        s.assertEqual(p.returncode, 0, out)
+        s.assertEqual(git("log", "-1", "--format=%an <%ae>%n%B").splitlines()[:3], [f"{hd.AUTHOR[0]} <{hd.AUTHOR[1]}>", "harness: define d1", ""])
+        s.assertEqual(git("show", "--name-only", "--format=", "HEAD"), "harness/changes/d1.md")   # pathspec-only: the staged edit stays staged
+        s.assertEqual(git("diff", "--cached", "--name-only"), "other.txt")
 
     def test_the_suite_ignores_the_gates_tools(s):
         tmp = Path(tempfile.mkdtemp()); fork = tmp / "fork"
@@ -2125,8 +2192,8 @@ class R8(Sandbox):
         moved = commit(wt, "another change shipped to local/harness")
         hd.put("s1", "gate", {"T": "t", "ok": True}); hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
         r = ship()
-        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness"), hd.rec("s1", "gate"), hd.rec("s1", "proc-ship")),
-                      (0, live, moved, None, None), r.stdout + r.stderr)   # nothing moved; the gate re-runs and check-tools sends the dev to merge
+        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness"), hd.rec("s1", "proc-ship")),
+                      (0, live, moved, None), r.stdout + r.stderr)   # nothing moved; the pass rebases the carried head, a new key re-gates
         run(wt, "reset", "-q", "--hard", "HEAD~1")
         r = ship()
         s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")), (0, T, C), r.stdout + r.stderr)
@@ -2383,7 +2450,7 @@ class EndToEnd(unittest.TestCase):
                 v = hd_("tick").stdout
                 if state in v:
                     return v
-                live = [p for f in (root / "state" / "e2e").glob("proc-*.json") if hd.Facts().alive((p := json.loads(f.read_text()))["pid"], p["start"])]
+                live = [p for f in (root / "state").glob("*/proc-*.json") if hd.Facts().alive((p := json.loads(f.read_text()))["pid"], p["start"])]
                 if not live and v == last:
                     break                                                   # nothing runs and the pass moves nothing: stuck
                 for p in live:
@@ -2393,7 +2460,7 @@ class EndToEnd(unittest.TestCase):
                         continue
                     select.select([fd], [], []); os.close(fd)               # readable once the process exits
                 last = v
-            s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'e2e' / 'gate.json').read_text() if (root / 'state' / 'e2e' / 'gate.json').exists() else ''}")
+            s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'ship-harness' / 'gate.json').read_text() if (root / 'state' / 'ship-harness' / 'gate.json').exists() else ''}")
         until("gate on")
         until("shipping")
         until("e2e [harness P1]: done")
@@ -2429,7 +2496,7 @@ class Tools(unittest.TestCase):
         (root / "harness" / "changes" / "g1.md").write_text("---\nslug: g1\ntrack: harness\n---\n")
         (root / "evidence" / "g1" / "contract.md").write_text("agreed: x\n- a | fine | check: true\n- b | injected | check: rm -rf /\n- c | script | gate: tools/track.sh check-docs\n- d | suite | gate: tools/track.sh check-tests\n")
         snap = subprocess.run(["git", "-C", str(repo), "stash", "create"], capture_output=True, text=True).stdout.strip() or "HEAD"
-        r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
+        r = subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", snap], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "NAMES": "", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
         rec = json.loads((root / "state" / "g1" / "gate.json").read_text())
         s.assertEqual((r.returncode, rec["ok"]), (0, False), r.stderr)
         s.assertIn("FAIL: b: false # refused", rec["detail"]); s.assertIn("ok: a: true", rec["detail"]); s.assertIn("ok: c: tools/track.sh check-docs", rec["detail"])
@@ -2576,7 +2643,7 @@ class R3(Sandbox):
         F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["h1"])
-        s.assertTrue(s.state(F, "h1")["state"].startswith("building"))
+        s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))
         hd.put("h1", "handover", {**hd.rec("h1", "handover"), "ts": "2000-01-01T00:00:00Z"})   # handed over before the answer
         hd.cmd_answer(["h1", "Fix first: reuse the gradle volume"])
         s.assertEqual(s.state(F, "h1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
@@ -2586,7 +2653,7 @@ class R3(Sandbox):
         s.assertIn("Fix first: reuse the gradle volume", (s.root / "state" / "briefs" / f"{run['name']}.md").read_text())
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1"])                                                          # the dev's new hand-over releases the head
-        s.assertTrue(s.state(F, "h1")["state"].startswith("building"))
+        s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))
 
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")

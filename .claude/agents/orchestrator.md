@@ -37,8 +37,9 @@ You hold no state: everything below is rebuilt from files on every wake.
    tool that waits for their answer: you are the only spawner, so a wait stops every run.
 9. To stop a run (the user says so, or its change closed while it runs): `hd stop <run>`, then TaskStop its agent;
    TaskStop alone leaves the run holding a slot.
-10. Commit every new or changed definition under `harness/` and hd.yaml (pathspec-only, authored as Alex Perrin
-   <44126061+AlexPerrin@users.noreply.github.com>, the Co-Authored-By line only).
+10. Commit every new or changed definition under `harness/` and hd.yaml with `hd commit <paths> -m "<message>"`: it
+   commits pathspec-only, authored as Alex Perrin with the Co-Authored-By line only, under `state/ship.lock`, so it never
+   runs at once with a ship's merge on the live checkout. Never `git commit` there yourself.
 11. One read-only monitor sweep is always running: a `general-purpose` agent, in the background, that edits nothing and
    runs no `hd` pass (`hd`, `hd tick`) while harness-pass-lock-short is open. It validates that the harness changes
    shipped since the last sweep landed and finds harness bugs, reporting each with its evidence. Its brief names the

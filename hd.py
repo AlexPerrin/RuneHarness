@@ -594,7 +594,8 @@ class Ctx:
         s.F, s.cfg = facts or Facts(), c or cfg()
         defs.bad = []
         s.changes, s.goals = defs("changes"), defs("goals")
-        s.runs, s.memo, s.alerts, s.docker = runs(), {}, [], True
+        s.runs, s.memo, s.alerts, s.docker, s.gate_failed = runs(), {}, [], True, {}
+        s.batching, s.batched = False, {}  # R8: each track's batch, computed once per pass
         for c in s.changes.values():  # R4: an open upstream PR is found by its head branch (no owner prefix), from our fork
             if upstream(c) and not c.get("pr"):
                 if (p := next((p for p in s.upstream_prs(c) or [] if p["branch"] == (c.get("branch") or f"content/{c['slug']}")
@@ -772,9 +773,10 @@ class Ctx:
         k = s.key(ch, s.tree(ch, T[1]))
         return None if k is None else g["T"] == k
 
-    def key(s, ch, tree):
+    def key(s, ch, tree, slugs=None):
         """The build and gate key: T's tree, plus (on a track with a tools branch) the hash of the tools its build and gate
-        run (tools_run), so a tools commit outside them re-runs neither. `-` joins it: the server tags its image by the key."""
+        run (tools_run: the rows of the change, or of a batch's `slugs`), so a tools commit outside them re-runs neither. `-`
+        joins it: the server tags its image by the key."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         if tree is None or not r.get("tools"):
             return tree
@@ -782,8 +784,8 @@ class Ctx:
         if not t:
             return None if t is None else tree
         files = s.F.tools_files(str(P(r["path"])), t)
-        con = contract(ch["slug"])
-        return None if files is None else tree + "-" + tools_run(files, [x for row in (con or {}).get("rows", []) for x in (row["check"], row["gate"]) if x])[:12]
+        rows = [r for x in slugs or [ch["slug"]] for r in (contract(x) or {}).get("rows", [])]
+        return None if files is None else tree + "-" + tools_run(files, [x for row in rows for x in (row["check"], row["gate"]) if x])[:12]
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
@@ -1065,7 +1067,7 @@ def nxt(ctx, ch):
             behind[n] = path
     if behind:
         return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
-    if not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated: the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
+    if not batched(ch) and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a batched head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
         T = ctx.T(ch, head)
         if T is None:
             return step("tree unknown", "unknown")
@@ -1127,7 +1129,96 @@ def nxt(ctx, ch):
         return {**st, "deploy": True} if live is False else st
     if ch["kind"] == "release":
         return public(ctx, ch, head)
-    return step("shipping", "script", act=lambda: ctx.start(slug, "ship", [script, "ship", slug, tc], env))
+    return step("ready", "batch") if ctx.batching else batch(ctx, track).get(slug) or step("ready: the next pass batches it", "wait")
+
+
+def batched(ch):
+    """R8: a change that ships by moving its track's live branch (a harness change, a client code change) ships in its track's batch."""
+    return TRACK[ch["track"]]["public"] != "upstream" and ch["kind"] != "release"
+
+
+def batch(ctx, track):
+    """R8: a track's ship → {slug: step}. Every change of the track at its ship step, in hand-over order, merges onto the live
+    branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member, or carrying a repo's
+    tools another member carries, waits for the next batch. Each prefix of the batch is a tree, its gate keyed by that tree
+    (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships; with none, the whole batch is gated, and
+    after a failure the first half of the failing prefix, down to the first member alone. Its failure is its dev's, and it
+    leaves the batch, unless the live branch fails that member's rows alone (its own gate): an alert, no member blamed.
+    All passing: one gate, one ship; a failure costs log2 of the batch's gates, one more for the live branch's."""
+    if track in ctx.batched:
+        return ctx.batched[track]
+    ctx.batching = True
+    try:
+        members = sorted((c for c in ctx.changes.values() if c["track"] == track and nxt(ctx, c)["actor"] == "batch"),
+                         key=lambda c: ((rec(c["slug"], "handover") or {}).get("ts", ""), c["slug"]))
+    finally:
+        ctx.batching = False
+    me = {"slug": f"ship-{track}", "track": track, "deps": [], "kind": "code"}
+    clone, base, failed, script, repos = ctx.clone(me), ctx.base(me), {}, ctx.script(me), ctx.cfg["repos"]
+
+    def key(commit, ms, tools):  # a tree's gate key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
+        t = ctx.F.tree(clone, commit, "harness" if track == "harness" else "")
+        return t and ctx.key(me, t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), [m["slug"] for m in ms])
+
+    held = None  # the members behind the first while the live branch's own gate runs
+    while True:
+        out, pre, cur, tools = dict(failed), [], base, {}  # pre: [(change, T commit, key, tools)], one per prefix
+        for c in members:
+            slug, h, t = c["slug"], ctx.head(c), ctx.tools(c)
+            alone = base and ctx.F.merge(clone, base, h, f"T: {slug} {h[:9]} onto {base[:9]}")
+            if not alone:
+                out[slug] = step("tree unknown", "unknown")
+                continue
+            if alone[0] == "conflict":
+                out[slug] = step("tree conflict: dev", "dev", mode="code", input=["conflict", h, contract(slug)["hash"]], detail=alone[1])
+                continue
+            if (o := next((p[0]["slug"] for p in pre if set(ctx.tools(p[0])) & set(t)), None)):
+                out[slug] = step(f"waiting for the batch ahead: {o} carries tools of {', '.join(sorted(set(t) & set(tools)))}", "wait")
+                continue
+            r = alone if cur == base else ctx.F.merge(clone, cur, h, f"T: {slug} {h[:9]}")
+            if r is None or r[0] != "ok":
+                out[slug] = step("tree unknown", "unknown") if r is None else step(f"waiting for the batch ahead: conflicts with {', '.join(p[0]['slug'] for p in pre)}", "wait")
+                continue
+            k = key(r[1], [p[0] for p in pre] + [c], {**tools, **t})
+            if k is None:
+                out[slug] = step("tree unknown", "unknown")
+                continue
+            cur, tools = r[1], {**tools, **t}
+            pre.append((c, cur, k, dict(tools)))
+        res = [rec(me["slug"], f"gate-{p[2]}") for p in pre]
+        if not (res and res[0] and not res[0]["ok"]):
+            break
+        c = pre[0][0]  # the first member alone fails: the live branch's own gate (its rows at the base) decides whose failure it is
+        bk = key(base, [c], {})
+        g = bk and rec(me["slug"], f"gate-{bk}")
+        if g and g["ok"]:
+            failed[c["slug"]] = step("gate failed: dev", "dev", mode="code", input=["gate", pre[0][2], contract(c["slug"])["hash"]], detail=res[0].get("detail", ""))
+            members = [m for m in members if m is not c]
+            continue
+        if not bk or g:
+            if g and (a := f"{track}: the live branch fails its own gate at {bk[:9]} (state/{me['slug']}/gate-{bk}.json)") not in ctx.alerts:
+                ctx.alerts.append(a)
+            ctx.batched[track] = {**out, **{m["slug"]: step("waiting: the live branch fails its own gate" if g else "tree unknown", "wait" if g else "unknown") for m in members}}
+            return ctx.batched[track]
+        held = [p[0] for p in pre[1:]]
+        pre, res = [(c, base, bk, {})], [None]
+        break
+    ctx.batched[track] = out
+    if not pre:
+        return out
+    ok = [i for i, g in enumerate(res) if g and g["ok"]]
+    bad = [i for i, g in enumerate(res) if g and not g["ok"]]
+    i = ok[-1] if ok else (bad[0] + 1) // 2 - 1 if bad else len(pre) - 1
+    _, tc, k, tl = pre[i]
+    env = {"SLUG": me["slug"], "T": k, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
+           "TOOLS": " ".join(f"{P(repos[n]['path'])}:{repos[n]['tools']}:{h}:{repos[n]['name']}" for n, h in sorted(tl.items()))}
+    verb, what = ("ship", "shipping") if ok else ("gate", f"gate on the live branch {k[:9]}" if held is not None else f"gate on {k[:9]}")
+    act = lambda: ctx._m(("batch", track, verb, tc, k), lambda: ctx.start(me["slug"], verb, [script, verb, me["slug"], tc], env))
+    for j, p in enumerate(pre):
+        out[p[0]["slug"]] = step(what, "script", act=act) if j <= i else step(f"waiting for the batch ahead ({what})", "wait")
+    for m in held or []:
+        out[m["slug"]] = step(f"waiting for the batch ahead ({what})", "wait")
+    return out
 
 
 def public(ctx, ch, head):
@@ -1488,8 +1579,9 @@ def plan(ctx, view, act):
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
     gates = []
     for c in view["change"]:
-        slug, T = c.split(" ", 1)[0], (rec(c.split(" ", 1)[0], "gate") or {}).get("T") or ""
-        if ": gate failed" in c and slug in ctx.changes and not ctx.alive_run(ctx.changes[slug]) and any(
+        slug = c.split(" ", 1)[0]
+        T = ctx.gate_failed.get(slug)  # the failing gate's key from its step: a batched member's is its batch's tree
+        if T and slug in ctx.changes and not ctx.alive_run(ctx.changes[slug]) and any(
                 r["change"] == slug and r["role"] == "dev" and r.get("record") and T in (r.get("input") or "") for r in ctx.runs):
             gates.append(f"{c} at {T[:9]}")
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
@@ -1764,6 +1856,8 @@ def _pass(ctx, act):
                     save_run(r)
         if st["actor"] == "done":
             close_branches(ctx, ch, act)
+        if st["state"].startswith("gate failed"):
+            ctx.gate_failed[ch["slug"]] = st["input"][1]
         if st["actor"] != "done" or not last or last["state"] != st["state"]:
             view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
         if act and (not last or last["state"] != st["state"]):
@@ -2049,8 +2143,10 @@ def cmd_handover(a):
 
 
 def rows(ctx, ch, con, head, tc, tree, build, gate):
-    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root."""
+    """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root, each
+    with the change's own env (a track script keeps a check of the tree alone once per gate)."""
     env, why = ctx.env(ch, head, tc, tree, build), []
+    env.update({k: os.environ[k] for k in ("TOOLS",) if k in os.environ and gate})  # the gate's: a batch's, every member's tools
     waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
     for row in con["rows"]:
         if row["id"] in waived:
@@ -2066,11 +2162,14 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
 
 
 def cmd_rows(a):
-    """`hd rows <slug> <tcommit> <build copy>`: the gate's row run at T; exit 1 names every failing row."""
-    ctx = Ctx()
-    ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
-    con = contract(ch["slug"]) or refuse("no contract")
-    why = rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True)
+    """`hd rows <slug>[,<slug>...] <tcommit> <build copy>`: the gate's row run at T (a batch: every change's rows, with the
+    batch's TOOLS); exit 1 names every failing row."""
+    ctx, why = Ctx(), []
+    for slug in a[0].split(","):
+        ch = ctx.changes.get(slug) or refuse(f"no change {slug}")
+        print(f"## {slug}") if "," in a[0] else None
+        con = contract(ch["slug"]) or refuse("no contract")
+        why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True)
     sys.exit(1 if why else 0)
 
 
@@ -2313,6 +2412,21 @@ def new_def(meta, body, **ev):
     return str(f)
 
 
+def cmd_commit(a):
+    """`hd commit <path>... -m <message>`: a definition commit on the live checkout, pathspec-only, authored as AUTHOR with the
+    co-author line, under state/ship.lock: never at once with a ship's merge there (R8)."""
+    i = a.index("-m") if "-m" in a else -1
+    if i < 1 or i + 1 >= len(a):
+        sys.exit("usage: hd commit <path>... -m <message>")
+    paths = a[:i] + a[i + 2:]
+    (ROOT / "state").mkdir(exist_ok=True)
+    with open(ROOT / "state" / "ship.lock", "w") as h:
+        fcntl.flock(h, fcntl.LOCK_EX)
+        git = lambda *c: subprocess.run(["git", "-C", str(ROOT), *c], env={**os.environ, **GIT_ENV}).returncode
+        rc = git("add", "-A", "--", *paths) or git("commit", "-q", "-m", f"{a[i + 1]}\n\n{TRAILER}", "--", *paths)
+    sys.exit(rc)
+
+
 def cmd_tick(a):
     v = tick(act="--dry-run" not in a)
     for k, lines in v.items():
@@ -2322,7 +2436,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

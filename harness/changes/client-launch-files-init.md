@@ -1,5 +1,6 @@
 ---
 slug: client-launch-files-init
+deps: [harness-device-network-block]
 track: client
 title: 'up: no throwaway first app start and fixed sleep to create files/'
 kind: change

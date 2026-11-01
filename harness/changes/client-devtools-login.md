@@ -1,5 +1,6 @@
 ---
 slug: client-devtools-login
+deps: [harness-device-network-block]
 track: client
 title: devtools login tool; device and desktop logins act on it, not coordinates
 kind: change

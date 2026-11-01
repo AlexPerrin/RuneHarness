@@ -1,5 +1,6 @@
 ---
 slug: client-launch-host-start
+deps: [harness-device-network-block]
 track: client
 title: 'host start: plugins loaded off the launch path''s critical steps'
 kind: change

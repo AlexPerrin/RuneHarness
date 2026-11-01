@@ -1,5 +1,6 @@
 ---
 slug: client-launch-dialogs
+deps: [harness-device-network-block]
 track: client
 title: no first-run dialogs at launch (Got it, Stay signed out, Accept, No thanks)
 kind: change

@@ -1,5 +1,6 @@
 ---
 slug: client-launch-measure
+deps: [harness-device-network-block]
 track: client
 title: 'measure client-launch: launch-to-gameplay timeline from logcat and devtools'
 kind: change

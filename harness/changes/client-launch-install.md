@@ -1,5 +1,6 @@
 ---
 slug: client-launch-install
+deps: [harness-device-network-block]
 track: client
 title: 'up: install the APK only when the device''s copy differs'
 kind: change

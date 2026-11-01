@@ -1,5 +1,6 @@
 ---
 slug: client-launch-boot
+deps: [harness-device-network-block]
 track: client
 title: 'up: emulator boots from a snapshot instead of cold'
 kind: change

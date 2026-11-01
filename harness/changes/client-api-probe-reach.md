@@ -5,7 +5,7 @@ kind: change
 title: 'api-probe: set up the game state that reaches unreached interfaces (combat
   effects, clan/FC, world entities, UI nodes; 79 rows)'
 priority: P2
-deps: []
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

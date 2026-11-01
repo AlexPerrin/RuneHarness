@@ -69,11 +69,12 @@ def upstream(slug, head):
     if rc:
         sys.exit(f"push failed: {err}")
     print(f"pushed {head[:9]} to fork {branch}")
-    rc, out, _ = sh("gh", "pr", "list", "-R", up, "--head", f"{owner}:{branch}", "--state", "open", "--json", "number")
-    prs = json.loads(out) if rc == 0 and out else []
-    if prs:
-        number = prs[0]["number"]
-    else:
+    number = ch.get("pr")
+    if not number:  # gh's --head matches the branch name only: keep the fork owner's PR
+        rc, out, _ = sh("gh", "pr", "list", "-R", up, "--head", branch, "--state", "open", "--json", "number,headRepositoryOwner")
+        number = next((p["number"] for p in (json.loads(out) if rc == 0 and out else [])
+                       if (p.get("headRepositoryOwner") or {}).get("login") == owner), None)
+    if not number:
         rc, out, err = sh("gh", "pr", "create", "-R", up, "--draft", "--base", "main", "--head", f"{owner}:{branch}",
                           "--title", text(slug, "pr-title.txt"), "--body", text(slug, "pr-body.md") + ATTRIBUTION)
         if rc:

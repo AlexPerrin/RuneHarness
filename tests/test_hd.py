@@ -832,6 +832,34 @@ class R4(Sandbox):
         s.assertIn("stays draft, no comment", str(e.exception))
         s.assertNotIn(("gh", "pr", "comment"), calls); s.assertNotIn(("gh", "pr", "ready"), calls)
 
+    def test_hd_public_finds_the_fork_owners_existing_pr_and_creates_none(s):
+        import importlib.util, hashlib
+        spec = importlib.util.spec_from_loader("hd_public", importlib.machinery.SourceFileLoader("hd_public", str(Path(__file__).parent.parent / "hd-public")))
+        pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+        pub.ROOT, pub.STATE, pub.EVID, pub.DEFS = s.root, s.root / "state", s.root / "evidence", s.root / "harness"
+        s.change("s1"); hd.put("s1", "approval", {"head": A, "body": hashlib.sha256(b"").hexdigest()[:16]})
+        calls = []
+        def fake_sh(*args, inp=None):
+            calls.append(args)
+            if args[:3] == ("gh", "pr", "list"):     # gh filters by branch name only: another owner's PR on the same name is listed too
+                return 0, json.dumps([{"number": 9, "headRepositoryOwner": {"login": "x"}}, {"number": 354, "headRepositoryOwner": {"login": "o"}}]), ""
+            if args[:3] == ("gh", "pr", "view") and "headRefOid,statusCheckRollup" in args:
+                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}]}), ""
+            if args[:3] == ("gh", "pr", "view"): return 0, json.dumps({"comments": []}), ""
+            return 0, "", ""
+        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit) as e:
+            pub.upstream("s1", A)
+        s.assertEqual(e.exception.code, 0)
+        lst = [c for c in calls if c[:3] == ("gh", "pr", "list")][0]
+        s.assertEqual(lst[lst.index("--head") + 1], "content/s1")
+        s.assertNotIn(("gh", "pr", "create"), [c[:3] for c in calls])
+        s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
+        calls.clear(); s.change("s1", pr=354)                                   # the change's pr: is used, no list
+        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit):
+            pub.upstream("s1", A)
+        s.assertEqual([c[:3] for c in calls if c[:3] in (("gh", "pr", "list"), ("gh", "pr", "create"))], [])
+        s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
+
 
 class R7(Sandbox):
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):

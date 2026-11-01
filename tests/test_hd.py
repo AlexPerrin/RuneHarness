@@ -1334,6 +1334,10 @@ class R3(Sandbox):
         st = s.state(F, "c1"); st["act"]()
         s.assertEqual(s.state(F, "c1")["actor"], "dev")  # derived contract: straight to the dev
 
+    def test_a_contract_row_needs_no_dependent_change(s):  # the contract writer proves a change through its own build and its dependencies
+        qa = (Path(__file__).parent.parent / ".claude" / "agents" / "qa.md").read_text().replace("\n", " ")
+        s.assertIn("a proof that needs a change depending on this one is that change's row", qa)
+
     def test_merged_change_is_done_before_any_contract(s):
         s.change("s1")
         F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract

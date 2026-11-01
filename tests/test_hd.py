@@ -895,6 +895,19 @@ class R8(Sandbox):
         F.f["refs"].update({"harness/h1": "h" * 40, "fork/dev/s3": C}); F.f["merges"][(B, C)] = ("ok", E)
         s.assertEqual(s.ctx(F).T(hd.defs("changes")["s3"], C), ("ok", E))
 
+    def test_t_commit_is_dated_from_its_newest_parent(s):
+        import subprocess
+        repo = Path(tempfile.mkdtemp()) / "r"
+        git = lambda d, *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True,
+                                           check=True, env={**os.environ, "GIT_AUTHOR_DATE": d, "GIT_COMMITTER_DATE": d}).stdout.strip()
+        subprocess.run(["git", "init", "-q", "-b", "v8", str(repo)], check=True)
+        git("@1700000000 +0000", "commit", "-q", "--allow-empty", "-m", "root")
+        git("@1700000100 +0000", "commit", "-q", "--allow-empty", "-m", "base"); base = git("", "rev-parse", "HEAD")
+        git("", "checkout", "-q", "HEAD~1"); git("@1700000200 +0000", "commit", "-q", "--allow-empty", "-m", "head"); head = git("", "rev-parse", "HEAD")
+        T1, T2 = (hd.Facts().merge(str(repo), base, head, "T") for _ in range(2))
+        s.assertEqual(T1, T2)                                                       # the same inputs give the same commit
+        s.assertEqual(git("", "show", "-s", "--format=%at %ct", T1[1]), "1700000200 1700000200")
+
     def test_conflict_lists_dev(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**{**FACTS, "merges": {(B, A): ("conflict", "CONFLICT (content): Merge conflict in x.kt")}})

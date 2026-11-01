@@ -14,7 +14,7 @@ STATE, EVID, DEFS = ROOT / "state", ROOT / "evidence", ROOT / "harness"
 AUTHOR = ("Alex Perrin", "44126061+AlexPerrin@users.noreply.github.com")
 TRAILER = "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 GIT_ENV = {"GIT_AUTHOR_NAME": AUTHOR[0], "GIT_AUTHOR_EMAIL": AUTHOR[1], "GIT_COMMITTER_NAME": AUTHOR[0],
-           "GIT_COMMITTER_EMAIL": AUTHOR[1], "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
+           "GIT_COMMITTER_EMAIL": AUTHOR[1]}
 TRACK = {  # derived, not configured: the repo, the remotes fetched, the base, the dev ref of a change, the public act
     "client": {"repo": "client", "fetch": ["origin"], "base": "origin/HEAD", "dev": "origin/client/{slug}", "public": "release"},
     "server": {"repo": "fork", "fetch": ["origin", "fork"], "base": "origin/HEAD", "dev": "fork/dev/{slug}", "public": "upstream"},
@@ -98,8 +98,8 @@ class Facts:
         return hashlib.sha1("".join(l + "\n" for l in r[1].splitlines() if l.split("\t", 1)[-1] != drop).encode()).hexdigest() if r and r[0] == 0 else None
 
     def merge(s, clone, base, head, msg):
-        """R8: ('ok', commit) | ('conflict', detail) | None. The merged tree becomes a commit with fixed author and
-        dates, so the same inputs give the same commit; a build copy checks it out, its tree sha keys every artefact."""
+        """R8: ('ok', commit) | ('conflict', detail) | None. The merged tree becomes a commit with a fixed author, dated
+        the newest of its parents' committer dates, so the same inputs give the same commit; a build copy checks it out, its tree sha keys every artefact."""
         def f():
             c = s.contains(clone, base, head)
             if c is None:
@@ -113,7 +113,12 @@ class Facts:
                 return None
             if r[0] == 1:
                 return "conflict", "\n".join(l for l in r[1].splitlines() if l.startswith("CONFLICT"))[:2000]
-            r = s.sh(["git", "-C", clone, "commit-tree", r[1].split()[0], "-p", base, "-p", head, "-m", msg + "\n\n" + TRAILER], env=GIT_ENV)
+            d = s.sh(["git", "-C", clone, "show", "-s", "--format=%ct", base, head])
+            if d is None or d[0]:
+                return None
+            date = f"@{max(map(int, d[1].split()))} +0000"
+            r = s.sh(["git", "-C", clone, "commit-tree", r[1].split()[0], "-p", base, "-p", head, "-m", msg + "\n\n" + TRAILER],
+                     env={**GIT_ENV, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date})
             return ("ok", r[1].strip()) if r and r[0] == 0 else None
         return s._m(("merge", clone, base, head), f)
 

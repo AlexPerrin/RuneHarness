@@ -53,7 +53,7 @@ state/briefs/<run>.md          the prompt; state/events.jsonl  one line per stat
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T_int while both are current
 ```
-T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`
+T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit),
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Build and gate are keyed by T's tree joined with `-<tip12>` of the track's tools branch when it has one (a tools fix re-builds and re-gates; T_int admits a gate whose tree part is the hand-over's). Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK
 `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition

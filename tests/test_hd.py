@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import json, os, shutil, sys, tempfile, unittest
+import json, os, re, shutil, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -166,6 +166,14 @@ class R1(Sandbox):
         hd.put("client-api", "measure", {"tree": TB + "+none", "value": 100, "report": "r"})
         s.assertNotIn("planning due", hd.tick(s.ctx(F))["goal"][0])   # met: measured, nothing planned
 
+
+    def test_server_content_inventory_rows_are_kinds_of_its_goal(s):
+        g = Path(__file__).parent.parent / "harness" / "goals"
+        rows = json.loads((g / "server-content.json").read_text())
+        kinds = re.findall(r"^\| (\w+) \| \w+", (g / "server-content.md").read_text(), re.M)[1:]   # past the header
+        s.assertTrue(rows); s.assertEqual(len({r["unit"] for r in rows}), len(rows))
+        s.assertEqual(sorted({r["unit"].split(":")[0] for r in rows}), sorted(kinds))
+        s.assertTrue(all(set(r) == {"unit", "source", "passes"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
     def test_defined_to_live_with_no_person(s):

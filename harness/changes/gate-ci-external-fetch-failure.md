@@ -8,6 +8,7 @@ priority: P0
 mechanism: build-gate
 limit-of:
 - goblin-367-rsprox-dump
+- harness-github-reads-budget
 deps: []
 created: '2026-11-01T22:46:42Z'
 ---
@@ -18,3 +19,6 @@ Orchestrator: moved to the harness track (gate-ci is harness tooling). Root caus
 It blocks #367 now: goblin-367-rsprox-dump-4 re-handed over the same head, but the failed gate stands for that head and its step stays due with no run listable (alert 2026-11-01). Acceptance adds: a CI failure in a step the head does not touch (cache/gameval generation, checkout, setup) re-runs the gate on the same head instead of failing it.
 
 Monitor sweep 6 adds (same mechanism, cache fetch): server-cache-clientscript-name-hash gate CI (run 41357793032) failed on the same openrs2 HTTP 500; nine more gate CI runs were in flight on the same download. Every CI run and every deploy downloads the cache fresh.
+
+Also (harness-github-reads-budget): gate-ci: CI status reads fit the GitHub quota and a quota refusal holds the row
+Found by harness-github-reads-budget. tools/gate/gate.sh gate_ci (fork local/harness) polls 'gh run list' (REST core) every 30 s per workflow per gate in flight, unconditionally, so concurrent gates drain the 5000/h core quota; on a 403 rate-limit refusal the row fails (genie-355-bank-lamp's gate failed 'HTTP 403: API rate limit exceeded' at 22:55:53Z), a head's FAIL for an infrastructure fact. hd now keeps one conditional cache of GitHub REST reads (state/gh/<hash>.json, If-None-Match its ETag, 304s free) and state/gh/quota.json {reset} while GitHub refuses on quota. Acceptance: gate_ci reads its run status conditionally (through that cache, e.g. repos/<fork>/actions/runs?branch=gate/<slug>&head_sha=<sha> with If-None-Match), and a quota refusal leaves the row held (no result recorded, re-run once GitHub's reset passes), never a failed gate.

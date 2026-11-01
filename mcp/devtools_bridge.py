@@ -12,6 +12,7 @@ A desktop walk_to walks to its tile at any distance in minimap clicks of at most
 A live tools list is cached in ~/.cache/osrs-devtools/tools-<name>.json; without a live client the cache, else
 mcp/devtools-snapshot.json, answers it. A call with no client returns the backend's error, not a dead server.
 A desktop call's answer names a dropped session (the client back at the login screen) after its own content.
+Every request with an id is answered: the netstat probe is bounded, its start included, and an exception is an error.
 """
 import json
 import math
@@ -33,6 +34,27 @@ def reply(msg_id, **body):
         print(json.dumps({"jsonrpc": "2.0", "id": msg_id, **body}, separators=(",", ":")), flush=True)
 
 
+NETSTAT_WAIT = 20   # seconds netstat has to answer before the call connects without its word
+
+
+def listening(port):
+    """netstat's word on whether a Windows process listens on the port: True, False, or None when it says nothing (it
+    failed, or hung: a loaded host's WSL interop can block netstat.exe's start, the exec from /mnt/c, before any
+    subprocess timeout applies, so the probe runs in its own thread and the call waits NETSTAT_WAIT at most)."""
+    out = []
+    def probe():
+        try:
+            ns = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True, timeout=NETSTAT_WAIT)
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if ns.returncode == 0:
+            out.append(bool(re.search(rf":{port}\s+\S+\s+LISTENING", ns.stdout)))
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(NETSTAT_WAIT)
+    return out[0] if out else None
+
+
 def post(url, method, params):
     """The desktop devtools endpoint's JSON-RPC reply (JSON or SSE framed); the tool's `port` argument picks the client."""
     port = (params.get("arguments") or {}).pop("port", None)
@@ -40,11 +62,7 @@ def post(url, method, params):
         url = re.sub(r":\d+/", f":{int(port)}/", url, count=1)
     # mirrored WSL drops a connect to a closed Windows port instead of refusing it: ask netstat, as the bring-up does
     port = re.search(r":(\d+)/", url).group(1)
-    try:   # a loaded host's WSL interop can leave netstat.exe hanging (accept4 failed 110): no answer then, so connect
-        ns = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        ns = None
-    if ns and ns.returncode == 0 and not re.search(rf":{port}\s+\S+\s+LISTENING", ns.stdout):   # a failed netstat (now and then) says nothing: connect
+    if listening(port) is False:
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
     req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
                                  {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
@@ -180,6 +198,13 @@ def handle(name, cmd, line):
         return
     if "id" not in msg:   # notifications need no answer
         return
+    try:
+        answer(name, cmd, msg)
+    except Exception as e:   # every request is answered: an exception left in a call's thread would leave it hanging
+        reply(msg["id"], error={"code": -32000, "message": f"{type(e).__name__}: {e}"})
+
+
+def answer(name, cmd, msg):
     method, params = msg.get("method"), msg.get("params") or {}
     if method == "initialize":
         reply(msg["id"], result={**SNAPSHOT["initialize"], "protocolVersion": params.get("protocolVersion")

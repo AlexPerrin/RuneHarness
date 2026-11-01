@@ -107,7 +107,7 @@ verdict passes every row; the script gets them as PASSES. Below target, the plan
 **The pass** (`hd tick`, a systemd user timer and after every run end): fetch each remote once; for every change
 compute `next`; start the script step of each change whose process is not alive (pid with start time), one ship at a
 time; write an event only when `next` differs from the last event; end the runs whose console is gone and remove what
-they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once. **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
+they own; drop a listed, unspawned run once its change's `next` is no longer that run's step; repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity). **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session
 the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the
 user's console with their transcripts (a subagent cannot spawn; a headless session's agents are not shown). A watch
 on `state/wake` wakes it; it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a

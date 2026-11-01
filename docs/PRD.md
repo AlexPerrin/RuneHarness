@@ -41,7 +41,7 @@ gh, docker and the process table; a live check reads the real state.
 5. **R5** `tests.test_hd.R5`: console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; a dead ship
    process → rerun; a script dead twice on the same args → raised once, a new args or a landed result restarts the count; a yes recorded then main gone → the ship completes; a repair whose effect is not observed is not
    logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused; a fix a dev
-   files with `hd new --blocks` holds the change with no question raised.
+   files with `hd new --blocks` holds the change with no question raised; a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env.
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
    no more than the configured agents are listed, the planner outside that count; two passes over unchanged facts append no event; a run over the
    context limit is told to hand off and its successor is listed with the hand-off file; main past it is told once per session to hand off to a fresh session; every run record carries

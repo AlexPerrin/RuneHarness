@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | decline | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, pwd, re, subprocess, sys
+import fcntl, hashlib, json, os, pwd, re, subprocess, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -313,11 +313,16 @@ def result(slug, name):
 
 
 def put(slug, name, obj):
-    d = STATE / slug
-    d.mkdir(parents=True, exist_ok=True)
-    tmp = d / f".{name}.tmp"
-    tmp.write_text(json.dumps({**obj, "ts": now()}, indent=1, sort_keys=True))
-    os.replace(tmp, d / f"{name}.json")
+    write(STATE / slug / f"{name}.json", json.dumps({**obj, "ts": now()}, indent=1, sort_keys=True))
+
+
+def write(f, text):
+    """R5: a state record is replaced whole (a temp file renamed over it), so a reader never sees it half-written."""
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=f.parent, prefix=f".{f.name}.", suffix=".tmp")
+    with os.fdopen(fd, "w") as o:
+        o.write(text)
+    os.replace(tmp, f)
 
 
 def drop(slug, name):
@@ -337,10 +342,7 @@ def runs():
 
 
 def save_run(r):
-    (STATE / "runs").mkdir(parents=True, exist_ok=True)
-    tmp = STATE / "runs" / f".{r['name']}.tmp"
-    tmp.write_text(json.dumps(r, indent=1, sort_keys=True))
-    os.replace(tmp, STATE / "runs" / f"{r['name']}.json")
+    write(STATE / "runs" / f"{r['name']}.json", json.dumps(r, indent=1, sort_keys=True))
 
 
 def event(**e):
@@ -362,9 +364,9 @@ def wake(view):
         seen = json.loads(f.read_text()) if f.exists() else {}
         new = [l.splitlines()[0] for k in keys if k in view for l in view[k] if l not in seen.get(k, [])]
         seen.update({k: view[k] for k in keys if k in view})
-        f.write_text(json.dumps(seen))
+        write(f, json.dumps(seen))
         if new:
-            (STATE / f"wake.{who}").write_text("\n".join(new) + "\n")
+            (STATE / f"wake.{who}").write_text("\n".join(new) + "\n")   # in place: the watch fires on its close_write, not a rename
 
 
 class lock:

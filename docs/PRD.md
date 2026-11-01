@@ -39,7 +39,7 @@ gh, docker and the process table; a live check reads the real state.
    to Central's upstream through its own fork. Live: `gh auth
    status` in an agent's shell shows the token scoped to AlexPerrin/*; `sudo -n -l` lists only the public-act helper
    under user `hd`; `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.
-5. **R5** `tests.test_hd.R5`: console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; a dead ship
+5. **R5** `tests.test_hd.R5`: a state record read while hd or a track script writes it is whole; console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; a dead ship
    process → rerun; a script dead twice on the same args → raised once, a new args or a landed result restarts the count; a yes recorded then the orchestrator gone → the ship completes; a repair whose effect is not observed is not
    logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer; a fix a dev
    files with `hd new --blocks` holds the change with no question raised; a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env; docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.

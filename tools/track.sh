@@ -11,7 +11,8 @@ root=${HD_ROOT:-$repo}
 state=$root/state/$slug
 record() {  # record <ok> <name> <<< detail  → state/<slug>/<name>.json {T, ok, detail}
   mkdir -p "$state"
-  python3 -c 'import json,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:]}))' "${T:-}" "$1" > "$state/$2.json"
+  python3 -c 'import json,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:]}))' "${T:-}" "$1" > "$state/.$2.$$.tmp"
+  mv -f "$state/.$2.$$.tmp" "$state/$2.json"   # whole or not at all: hd reads it at any moment
 }
 copy() {  # the build copy at TCOMMIT, never the tree anyone commits from
   wt=$repo/.worktrees/$slug-build

@@ -62,6 +62,7 @@ state/briefs/<run>.md          the prompt; state/events.jsonl  one line per stat
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while both are current
 ```
+Every `state/` JSON record is written to a temp file beside it and renamed over it (`hd.write`, each track script's writers), so a reader sees the old record or the new one, never a partial one.
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit),
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Build and gate are keyed by T's tree joined with `-<tip12>` of the track's tools branch when it has one (a tools fix re-builds and re-gates; T_int admits a gate whose key starts with the hand-over's T). A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`; `hd tree` prints it third); T_int carries the one of its heads' central dependencies. Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK

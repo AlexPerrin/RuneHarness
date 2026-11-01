@@ -867,6 +867,29 @@ class R5(Sandbox):
         F.f["procs"] = {(7, "1")}
         s.assertEqual(len([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")]), 1)   # listed again for a live console
 
+    def test_a_reader_racing_the_writers_never_sees_a_half_written_record(s):
+        import threading
+        sh = Path(__file__).parent.parent / "tools" / "track.sh"
+        rec_fn = re.search(r"^record\(\).*?^}", sh.read_text(), re.S | re.M).group(0)   # the track script's own writer
+        loop = f'state={hd.STATE / "s1"}; T=t; {rec_fn}\nfor i in $(seq 40); do record true gate <<< "x$i"; done'
+        stop, seen = threading.Event(), []
+        def read():
+            while not stop.is_set():
+                try:
+                    seen.append(hd.rec("s1", "gate"))
+                except ValueError as e:                                           # an empty or partial file
+                    seen.append(e)
+        r = threading.Thread(target=read); r.start()
+        try:
+            subprocess.run(["bash", "-c", loop], check=True)
+            for i in range(200):
+                hd.put("s1", "gate", {"T": "t", "ok": True, "detail": "y" * 4000})
+        finally:
+            stop.set(); r.join()
+        s.assertEqual([x for x in seen if not (x is None or isinstance(x, dict) and x["T"] == "t")][:1], [])
+        s.assertTrue(any(seen))
+        s.assertEqual(sorted(f.name for f in (hd.STATE / "s1").iterdir()), ["gate.json"])   # no temp file left behind
+
     def test_a_run_the_head_stops_ends_and_frees_its_slot(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

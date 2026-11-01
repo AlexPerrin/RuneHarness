@@ -39,7 +39,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 ```
 harness/goals/<slug>.md        slug, track, target; measured by the track's `tools/track.sh measure`
-harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding, network, version, closed; body
+harness/changes/<slug>.md      slug, track, kind (change|release|local), priority, deps, goal, pr, finding (comment ids carried), network, version, closed; body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>}; rows `- id | text | check: <cmd> | judge`
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
@@ -48,13 +48,14 @@ state/<slug>/approval.json     {head, body}                    state/<slug>/ask.
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, events_at, agent_id, transcript, started, ended, record, last, usage, handoff_told}; runs/by-agent/<id> → name
 state/briefs/<run>.md          the prompt; state/events.jsonl  one line per state change (rotated at 20 MB); state/wake  its size
-state/<slug>/proc-<script>.json {pid, start, attempts}; repair-<name>.json {attempts}: a script or repair in flight
+state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b, used by T_int while both are current
 ```
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`
 so a copy can check it out; the integration tree T_int is the same over every gated open server head plus the
 permanent pins. Builds are artefacts named by T: a server image `or:<T>` (jar and game cache), a client APK
-`evidence/<slug>/<T>.apk` with its repack log, a harness test run. The game cache is keyed by the hash of its inputs
+`evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by T's tree without `harness/`, so a definition
+commit on the live branch re-builds, re-gates and blocks the ship of nothing; ship fast-forwards to the current T). The game cache is keyed by the hash of its inputs
 (OpenRS2 cache id, pack configs, gamevals) in a named docker volume. The build copy is `<repo>/.worktrees/<slug>-build`, the
 dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo; a track's `tools/` sit on its repo's `tools` branch
 (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing. A harness change carries
@@ -79,7 +80,9 @@ next(change):
                                     against a change, resolve in its own branch; against a permanent pin or a union, push local/merge/<a>-<b>
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push
-  wait                              upstream merged; a maintainer finding files a new change on the pr with deps [this], contract inherited plus the finding
+  wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no
+                                    definition's `finding` carries files a P0 change on the pr with deps [the pr's root changes],
+                                    their contract unagreed plus a judged `finding` row
   done
 ```
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in); a fresh dev ref cut at a base commit is neither. A contract's rule rows carry the upstream rule files' blob shas; when a sha moves, only those rows are re-judged. A reviewer is listed only where the contract has `judge:` rows (client changes have none; releases do). A
@@ -101,7 +104,8 @@ change that a harness dev run remediates. It writes no product code.
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N clients started and
-logged in by widget actions, blocks until every devtools endpoint answers), and hands over. The hook tells a run past
+logged in by widget actions, blocks until every devtools endpoint answers), and hands over. A harness dev runs the
+unit tests in its worktree; the harness track's `build` refuses without the loop's T and TCOMMIT. The hook tells a run past
 the context limit to write `handoff.md` and hand back; the successor is listed with it.
 
 **Authority**: main, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so

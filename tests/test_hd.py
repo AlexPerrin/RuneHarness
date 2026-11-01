@@ -34,7 +34,7 @@ class Fake(hd.Facts):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
     def on_line(s, clone, tip, sha): return sha in s.f.get("line", ())
-    def tree(s, clone, commit): return s.f.get("trees", {}).get(commit)
+    def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def proc_start(s, pid): return "1"
@@ -42,6 +42,7 @@ class Fake(hd.Facts):
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def events_count(s): return 0
+    def review_comments(s, repo, pr): return s.f.get("comments", {}).get(pr, [])
 
 
 class Sandbox(unittest.TestCase):
@@ -234,6 +235,23 @@ class R2(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["h1"])
         s.assertEqual(s.state(F, "h1")["state"], "done")                          # handed over: its own work
+
+    def test_maintainer_inline_comment_files_a_change_once(s):
+        s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")
+        s.change("s1-old", pr=354, deps=["s1"], finding=7)                 # filed by hand: carried
+        com = lambda i, who="a-thoren", **k: {"id": i, "author": who, "bot": False, "reply": None, "path": "N.kt", "line": 265, "body": "reset | the varp?", **k}
+        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9, reply=8), com(10, "O"), com(11, "ci", bot=True)]}})
+        hd.tick(s.ctx(F), act=False)
+        s.assertFalse((s.root / "harness" / "changes" / "s1-c8.md").exists())  # a dry run files nothing
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
+        s.assertEqual(list(new), ["s1-c8"])                                # one change, once: replies, ours, bots, carried skipped
+        c = new["s1-c8"]
+        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1"], 354, 8, "P0", "content/cannon"))
+        con = hd.contract("s1-c8")
+        s.assertIsNone(con["agreed"])                                      # the inherited contract is agreed again by qa
+        s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
+        s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
 
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")
@@ -481,6 +499,18 @@ class R5(Sandbox):
         s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
         s.assertTrue(any("build died twice" in a for a in v["alert"]))
 
+    def test_attempts_reset_on_new_args_or_a_landed_result(s):
+        F = Fake(**FACTS)
+        ctx = s.ctx(F)
+        ctx.start("s1", "build", ["b", "T1"]); ctx.start("s1", "build", ["b", "T1"])
+        ctx.start("s1", "build", ["b", "T1"])                                    # died twice on T1: raised, not rerun
+        s.assertEqual(len(F.spawned), 2)
+        ctx.start("s1", "build", ["b", "T2"])                                    # a new tree: one death is not two
+        s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
+        hd.put("s1", "build", {"T": "T2", "ok": True})                           # the result lands
+        ctx.start("s1", "build", ["b", "T2"])
+        s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
+
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -640,6 +670,29 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_harness_build_refuses_without_the_loops_env(s):
+        import subprocess
+        script = Path(__file__).parent.parent / "tools" / "track.sh"
+        env = {k: v for k, v in os.environ.items() if k not in ("T", "TCOMMIT")}
+        r = subprocess.run([str(script), "build", "s1", "HEAD"], env={**env, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
+        s.assertEqual((r.returncode, hd.rec("s1", "build")), (2, None), r.stdout + r.stderr)   # no record written, no copy moved
+
+    def test_harness_key_leaves_out_definitions(s):
+        import subprocess
+        repo = Path(tempfile.mkdtemp())
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q"); (repo / "hd.py").write_text("v1"); git("add", "."); git("commit", "-qm", "code")
+        c1 = git("rev-parse", "HEAD")
+        (repo / "harness" / "changes").mkdir(parents=True); (repo / "harness" / "changes" / "x.md").write_text("a definition")
+        git("add", "."); git("commit", "-qm", "harness: change x"); c2 = git("rev-parse", "HEAD")
+        (repo / "hd.py").write_text("v2"); git("commit", "-qam", "code moves"); c3 = git("rev-parse", "HEAD")
+        s.change("h1", track="harness")
+        ctx = hd.Ctx(hd.Facts(), {**hd.cfg(), "repos": {**hd.cfg()["repos"], "harness": {"name": "o/h", "path": str(repo)}}})
+        k = [ctx.tree(hd.defs("changes")["h1"], c) for c in (c1, c2, c3)]
+        s.assertEqual((k[0] == k[1], k[1] == k[2]), (True, False))                 # a definition commit keeps the key; code moves it
+        s.assertNotEqual(hd.Facts().tree(str(repo), c1), hd.Facts().tree(str(repo), c2))   # other tracks: the plain tree sha
+        shutil.rmtree(repo, ignore_errors=True)
+
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
         hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream
@@ -648,6 +701,9 @@ class R8(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["s2"])
         s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
+        s.change("h1", "harness"); s.change("s3", deps=["h1"]); s.agreed("s3")       # a harness dep is in another repo: not merged
+        F.f["refs"].update({"harness/h1": "h" * 40, "fork/dev/s3": C}); F.f["merges"][(B, C)] = ("ok", E)
+        s.assertEqual(s.ctx(F).T(hd.defs("changes")["s3"], C), ("ok", E))
 
     def test_conflict_lists_dev(s):
         s.change("s1"); s.agreed("s1")

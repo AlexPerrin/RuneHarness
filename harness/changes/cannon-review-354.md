@@ -1,5 +1,7 @@
 ---
 slug: cannon-review-354
+pr: 354
+finding: [4345861694]
 track: server
 kind: change
 title: 'Cannon #354: address maintainer review'

@@ -19,7 +19,10 @@ copy() {  # the build copy at TCOMMIT, never the tree anyone commits from
   echo "$wt"
 }
 
-build() { wt=$(copy); record true build <<< "build copy $wt at $tc"; }
+build() {  # the loop's verb alone: a dev's run would overwrite the loop's record and move the copy a running gate reads
+  [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
+  wt=$(copy); record true build <<< "build copy $wt at $tc"
+}
 check_tests() { (cd "$BUILD" && python3 -m unittest discover -s tests 2>&1 | tail -3); }
 gate() {  # every check: and gate: row of the contract at T, from the build copy (hd rows applies the hand-over's rules)
   wt=$(copy)

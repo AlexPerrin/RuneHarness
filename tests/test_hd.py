@@ -1289,6 +1289,17 @@ class R6(Sandbox):
         s.assertTrue(any(c.startswith("p1 ") and "question open" in c for c in v["change"]))
         s.assertIn("q3-1", " ".join(v["spawn"]))                          # p1 only waits on the user: q3 is listed
 
+    def test_a_due_run_the_pass_cannot_list_holds_nothing_and_is_an_alert(s):
+        s.change("p1", priority="P1"); s.agreed("p1")
+        F = Fake(**FACTS)
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["p1-1"])
+        r = next(r for r in hd.runs() if r["name"] == "p1-1")
+        r.update(started=hd.now(), ended=hd.now(), record=True); hd.save_run(r)   # handed back, yet the facts still want the step
+        s.change("q2", priority="P2"); s.agreed("q2")
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"]], ["q2-1", "planner-1"])   # p1 cannot be listed: q2 is not held below it; the alert lists the planner
+        s.assertEqual([a for a in v["alert"] if a.startswith("p1: ")], ["p1: dev run p1-1 handed back its record, yet its step is still due on the same input: no run is listed"])
+
     def test_a_hand_off_is_replaced_in_the_same_pass_past_the_tier_hold_and_the_count(s):
         s.change("p1", priority="P1"); s.agreed("p1")
         s.change("q2", priority="P2"); s.agreed("q2")

@@ -34,7 +34,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 | `hd tell <text>` | main, with the user's message | appends it to `state/inbox.jsonl`; `hd` lists it under `message` |
 | `hd heard <n>` | the orchestrator, once it acted on the message | messages up to n leave the view |
 | `hd new <slug> ... [--blocks <change>]` | a planner, the orchestrator, a dev, the user | writes a definition; `--blocks` adds it to that change's deps (a dev's fix outside its track) |
-| `hd show <slug>` | agents | the definition, contract, every verdict, gate and build result, the hand-off file |
+| `hd show <slug>` | the orchestrator, main | the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead) |
 | `hd handover <slug>` | dev | reads the dev ref (pushed; a harness one local, never pushed; no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`; anything else runs as `false`), refuses on any failure, a conflict or an empty evidence dir, records {head, T} |
 | `hd verdict <slug> <head> <rows.json>` | qa | every row pass or fail, appended; refused if a row is missing |
 | `hd tree <slug> <commit>` | a track script | the T commit and tree of a working-copy snapshot, so a dev builds T |
@@ -122,7 +122,9 @@ an alert for the user lists none), outside the agent count (one at most); a plan
 files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in
 operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness
 change that a harness dev run remediates. Its hand-back is its record, filed or not. It writes no product code.
-**Runs**: the brief holds the definition, contract, prior verdicts and hand-off; the role file holds the nevers; the
+**Runs**: the brief is a run's one read of its change: the definition, the contract with the user's answers, the last
+verdict, the build and gate lines (each its verdict and key, the log in the `state/<slug>/<name>.log` it names) and the
+hand-off, each once; `hd show` is not read again. The role file holds the nevers; the
 track file holds the rules. A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working
 copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings
 the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each

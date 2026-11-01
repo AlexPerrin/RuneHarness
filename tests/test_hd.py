@@ -540,6 +540,24 @@ class R2(Sandbox):
         s.assertEqual(len(orc), 1)
         s.assertIn("s1 [server P2]: gate failed: dev", json.loads(orc[0]["input"]))
 
+    def test_a_run_reads_its_change_once(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        ho = s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j1": "fail: no"}, F)
+        hd.put("s1", "build", {"T": ho["T"], "ok": False, "detail": "> Task :gradle noise"})   # a failed build with its log tail
+        (s.root / "evidence" / "s1" / "handoff.md").write_text("done: half")
+        hd.tick(s.ctx(F))
+        b = open([r for r in hd.runs() if r["change"] == "s1"][-1]["brief"]).read()
+        for once in ("## Definition", "## Contract", "## Hand-off", "## Last verdict", "- ok | always passes", "done: half"):
+            s.assertEqual(b.count(once), 1, once)
+        s.assertNotIn("hd.py show", b)                                  # the brief alone: hd show is not read again
+        s.assertNotIn("gradle noise", b)                                # the build line is its verdict and key, the log in its file
+        s.assertIn(f"build: failed at {ho['T']} (log {hd.STATE / 's1' / 'build.log'})", b)
+        root = Path(__file__).parent.parent
+        for f in ["tools/track.md", *map(str, root.glob(".claude/agents/*.md"))]:   # the roles say the same
+            s.assertNotIn("run `hd show", (root / f).read_text().replace("\n", " "), f)
+
     def test_planner_record_and_unmatched_stop(s):
         s.change("s1"); s.agreed("s1"); s.change("s0", deps=["gone"])       # an alert lists the planner
         F = Fake(**FACTS)

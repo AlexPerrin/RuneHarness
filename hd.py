@@ -286,6 +286,12 @@ def rec(slug, name):
     return json.loads(f.read_text()) if f.exists() else None
 
 
+def result(slug, name):
+    """R2 R7: a build or gate record as one line, its verdict and key (the image's tag); the log stays in the file it names."""
+    r = rec(slug, name)
+    return r and f"{name}: {'ok' if r['ok'] else 'failed'} at {r['T']} (log {STATE / slug / f'{name}.log'})"
+
+
 def put(slug, name, obj):
     d = STATE / slug
     d.mkdir(parents=True, exist_ok=True)
@@ -607,7 +613,7 @@ def nxt(ctx, ch):
     if not b or b["T"] != tree:
         return step(f"building {tree[:9]}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env))
     if not b["ok"]:
-        return step("build failed: dev", "dev", mode="code", input=["build", tree, con["hash"]], detail=b.get("detail", ""))
+        return step("build failed: dev", "dev", mode="code", input=["build", tree, con["hash"]], detail=result(slug, "build"))
     g = rec(slug, "gate")
     if not g or g["T"] != tree:
         return step(f"gate on {tree[:9]}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], env))
@@ -764,9 +770,9 @@ def brief(ctx, ch, st, name, role):
     if base == "HEAD":  # the harness base: name the live checkout's branch, not a ref every clone reads as its own
         r = ctx.F.sh(["git", "-C", ctx.clone(ch), "branch", "--show-current"])
         base = (r and r[0] == 0 and r[1].strip()) or base
-    v = [x for x in verdicts(ch["slug"]) if x["head"] == ctx.head(ch)] if ch.get("path") else []
+    v = verdicts(ch["slug"]) if ch.get("path") else []
     lines = [f"# {role} run {name}: {ch['slug']} ({ch['track']}, {st.get('mode', role)})", "",
-             f"Read {root}/tools/track.md, then run `python3 {ROOT}/hd.py show {ch['slug']}`.",
+             f"Read {root}/tools/track.md. This brief is the change's whole record (hd show prints the same): do not run hd show.",
              f"Change: {ch.get('path', '')}  Evidence: {EVID / ch['slug']}  Contract: {EVID / ch['slug'] / 'contract.md'}",
              f"Clone: {ctx.clone(ch)}/.worktrees/{ch['slug']}  Build copy: {ctx.clone(ch)}/.worktrees/{ch['slug']}-build  Script: {root}/tools/track.sh",
              f"Dev ref: {TRACK[ch['track']]['dev'].format(slug=ch['slug'])}  Base: {base} at {(ctx.base(ch) or 'unknown')[:9]}  Head now: {ctx.head(ch) or 'none'}",
@@ -778,8 +784,10 @@ def brief(ctx, ch, st, name, role):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
         lines += [f"## Hand-off from your predecessor (its work in progress: {ctx.head(ch) or 'no commit on the dev ref'})", hoff.read_text(), ""]
-    if v and st.get("mode") == "code":
-        lines += ["## Last verdict at this head", json.dumps(v[-1]["rows"], indent=1), ""]
+    if v:
+        lines += [f"## Last verdict (head {v[-1]['head'][:9]}, run {v[-1].get('run', '')})", json.dumps(v[-1]["rows"], indent=1), ""]
+    if (res := [x for n in ("build", "gate") if (x := result(ch["slug"], n))]):
+        lines += ["## Results", *res, ""]
     lines += ["## Definition", f"title: {ch.get('title', '')}  priority: {ch.get('priority', '')}  deps: {ch.get('deps', [])}  pr: {ch.get('pr', '')}", ch.get("body", ""), ""]
     if con:
         lines += ["## Contract", con["text"], ""]
@@ -1099,7 +1107,10 @@ def cmd_show(a):
     print(Path(ch["path"]).read_text())
     con = contract(slug)
     print("\n## Contract\n" + (con["text"] if con else "none"))
-    for n in ("handover", "build", "gate", "approval", "ask", "state"):
+    for n in ("build", "gate"):
+        if (r := result(slug, n)):
+            print("\n" + r)
+    for n in ("handover", "approval", "ask", "state"):
         if (r := rec(slug, n)):
             print(f"\n## {n}\n" + json.dumps(r, indent=1))
     for v in verdicts(slug):

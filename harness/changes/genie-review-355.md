@@ -7,7 +7,7 @@ priority: P0
 created: '2026-10-24T19:31:52Z'
 branch: content/genie
 network: true
-deps: []
+deps: [harness-dupes-integration-tests, harness-server-build-tree]
 ---
 ## Change
 Upstream #355 (draft) has two review findings from eaglepurerocketgrape (2026-10-22 11:42). Head content/genie 1d9b6fa49. Folds in the pending gate findings held on `genie`.

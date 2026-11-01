@@ -103,7 +103,9 @@ next(change):
   public (upstream, release)?       an open change of the same PR (finding, joined dependent) outside head? yes → wait: a card is
                                     a complete PR, one card and one ship for the head holding them all, its texts covering them
                                     approval at head? no → card (naming the base)
-  ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; a reply change (one `finding`,
+  ship                              upstream: PR lookup, push, PR, CI green, comment naming head, ready, review requested (CODEOWNERS
+                                    on ready, read back), each step a ship.log line before and after, the CI wait naming the checks it
+                                    waits on and ending on their result or a failed read; a reply change (one `finding`,
                                     its head a same-track dependency's: no commit of its own): pr-comment.md posted in that finding's thread,
                                     quoting it and naming only its author; release: gh release; else merge and push. hd-public's last
                                     step on success writes ship.json at head (a PR already at head, ready, with our comment naming

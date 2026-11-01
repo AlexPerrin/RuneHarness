@@ -806,10 +806,12 @@ class R4(Sandbox):
             if args[:3] == ("gh", "pr", "create"): return 0, "https://github.com/u/f/pull/42", ""
             if args[:3] == ("gh", "pr", "view") and "headRefOid,statusCheckRollup" in args:
                 st = ci.pop(0)
-                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"status": "COMPLETED" if st != "pending" else "IN_PROGRESS", "conclusion": st.upper()}]}), ""
+                return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"name": "build", "detailsUrl": "https://ci/1", "status": "COMPLETED" if st != "pending" else "IN_PROGRESS", "conclusion": st.upper()}]}), ""
+            if args[:3] == ("gh", "pr", "view") and "reviewRequests" in args: return 0, json.dumps({"reviewRequests": [{"login": "m"}]}), ""
             if args[:3] == ("gh", "pr", "view"): return 0, json.dumps({"comments": []}), ""
             return 0, "", ""
-        with mock.patch.object(pub, "sh", fake_sh), mock.patch.object(pub.time, "sleep", lambda n: None):
+        out = io.StringIO()
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch.object(pub.time, "sleep", lambda n: None), mock.patch("sys.stdout", out):
             with s.assertRaises(SystemExit) as e:
                 pub.upstream("s1", A)
             s.assertIn("no approval", str(e.exception))
@@ -823,13 +825,23 @@ class R4(Sandbox):
                 pub.upstream("s1", A)
         s.assertEqual(e.exception.code, 0)
         s.assertEqual(calls[1][:3], ("git", "-C", str(s.root / "fork")))
-        s.assertEqual([c[1:] for c in calls[:1] + calls[2:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready")])
+        s.assertEqual([c[1:] for c in calls[:1] + calls[2:]], [("pr", "list"), ("pr", "create"), ("pr", "view"), ("pr", "view"), ("pr", "view"), ("pr", "comment"), ("pr", "ready"), ("pr", "view")])
         s.assertEqual({k: v for k, v in hd.rec("s1", "ship").items() if k != "detail"}, {"T": A, "ok": True})   # the last step: its result
         hd.drop("s1", "ship")
+        steps = [l.split(" ", 1)[1] for l in out.getvalue().splitlines()]          # ship.log: a line before and after each step, in order
+        want = ["PR lookup: o:content/s1", "PR lookup: none open", f"push {A[:9]}", f"pushed {A[:9]}", "opening draft PR", "opened draft PR #42",
+                "CI wait: every check", "CI wait: pending: build https://ci/1", f"CI green at {A[:9]}: build https://ci/1", f"comment on PR #42 naming {A[:9]}",
+                f"posted our comment naming {A[:9]}", "ready PR #42", "PR #42 ready", "review requested from m", "done: PR #42 ready"]
+        s.assertEqual(len(steps), len(want)); [s.assertTrue(l.startswith(w), (l, w)) for l, w in zip(steps, want)]
         calls.clear(); ci[:] = ["failure"]
-        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit) as e:
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
             pub.upstream("s1", A)
-        s.assertIn("stays draft, no comment", str(e.exception))
+        s.assertIn("stays draft, no comment", str(e.exception)); s.assertIn("build https://ci/1", str(e.exception))
+        calls.clear()                                                            # a CI read that fails ends the wait, never loops on it
+        with mock.patch.object(pub, "sh", lambda *a, inp=None: (1, "", "HTTP 502") if "headRefOid,statusCheckRollup" in a else fake_sh(*a)), \
+                mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
+            pub.upstream("s1", A)
+        s.assertIn("CI unreadable on PR #42: HTTP 502", str(e.exception))
         s.assertNotIn(("gh", "pr", "comment"), calls); s.assertNotIn(("gh", "pr", "ready"), calls)
 
     def test_hd_public_finds_the_fork_owners_existing_pr_and_creates_none(s):
@@ -847,7 +859,7 @@ class R4(Sandbox):
                 return 0, json.dumps({"headRefOid": A, "statusCheckRollup": [{"status": "COMPLETED", "conclusion": "SUCCESS"}]}), ""
             if args[:3] == ("gh", "pr", "view"): return 0, json.dumps({"comments": []}), ""
             return 0, "", ""
-        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit) as e:
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit) as e:
             pub.upstream("s1", A)
         s.assertEqual(e.exception.code, 0)
         lst = [c for c in calls if c[:3] == ("gh", "pr", "list")][0]
@@ -855,7 +867,7 @@ class R4(Sandbox):
         s.assertNotIn(("gh", "pr", "create"), [c[:3] for c in calls])
         s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])
         calls.clear(); s.change("s1", pr=354)                                   # the change's pr: is used, no list
-        with mock.patch.object(pub, "sh", fake_sh), s.assertRaises(SystemExit):
+        with mock.patch.object(pub, "sh", fake_sh), mock.patch("sys.stdout", io.StringIO()), s.assertRaises(SystemExit):
             pub.upstream("s1", A)
         s.assertEqual([c[:3] for c in calls if c[:3] in (("gh", "pr", "list"), ("gh", "pr", "create"))], [])
         s.assertIn(("gh", "pr", "ready", "354"), [c[:4] for c in calls])

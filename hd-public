@@ -4,7 +4,8 @@
 
   hd-public upstream <slug> <head>        push head to the public branch on the change's fork (server or central); create the draft PR if none;
                                           wait for CI at head (a fact, polled); stop before anything public when it
-                                          is not green; post or edit our comment naming the head; mark ready. Each verb's last step on
+                                          is not green; post or edit our comment naming the head; mark ready; read the review requests.
+                                          Each step logs a line before and after (ship.log). Each verb's last step on
                                           success writes state/<slug>/ship.json {T: head, ok, detail}; a PR already at head,
                                           ready, with our comment naming it is recorded so, with no act.
   hd-public reply <slug> <head>           post pr-comment.md as a reply in the thread of the change's finding on its PR
@@ -25,6 +26,11 @@ def sh(*args, inp=None):
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
+def log(msg):
+    """ship.log is the act's progress, one line before and after each step, written at once (stdout to a file is block-buffered)."""
+    print(time.strftime("%H:%M:%SZ", time.gmtime()), msg, flush=True)
+
+
 def done(slug, head, detail):
     """The last step of a public act that completed: state/<slug>/ship.json, whole or not at all (the pass reads it at any moment)."""
     f = STATE / slug / "ship.json"
@@ -32,7 +38,7 @@ def done(slug, head, detail):
     tmp = f.with_name(f".ship.{os.getpid()}.tmp")
     tmp.write_text(json.dumps({"T": head, "ok": True, "detail": detail}))
     os.replace(tmp, f)
-    print(detail)
+    log(f"done: {detail}")
     sys.exit(0)
 
 
@@ -54,19 +60,21 @@ def text(slug, name):
 
 
 def checks(upstream, number, head):
-    """'success' | 'failure' | 'pending' | 'none' for the PR's head."""
-    rc, out, _ = sh("gh", "pr", "view", str(number), "-R", upstream, "--json", "headRefOid,statusCheckRollup")
+    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at)."""
+    rc, out, err = sh("gh", "pr", "view", str(number), "-R", upstream, "--json", "headRefOid,statusCheckRollup")
     if rc:
-        return "none"
+        sys.exit(f"CI unreadable on PR #{number}: {err}")
     v = json.loads(out)
     if v.get("headRefOid") != head:
-        return "none"
-    states = set()
+        return "none", f"PR #{number} head at {(v.get('headRefOid') or '')[:9]}, not yet {head[:9]}"
+    by = {}
     for c in v.get("statusCheckRollup") or []:
         k = (c.get("conclusion") or c.get("state") or "").upper()
-        states.add("pending" if c.get("status", "COMPLETED") != "COMPLETED" or k in ("", "PENDING", "EXPECTED")
-                   else "success" if k in ("SUCCESS", "NEUTRAL", "SKIPPED") else "failure")
-    return "failure" if "failure" in states else "pending" if "pending" in states else "success" if states else "none"
+        st = ("pending" if c.get("status", "COMPLETED") != "COMPLETED" or k in ("", "PENDING", "EXPECTED")
+              else "success" if k in ("SUCCESS", "NEUTRAL", "SKIPPED") else "failure")
+        by.setdefault(st, []).append(f"{c.get('name') or c.get('context')} {c.get('detailsUrl') or c.get('targetUrl') or ''}".strip())
+    state = next((k for k in ("failure", "pending", "success") if k in by), "none")
+    return state, ", ".join(by.get(state, [])) or f"no check reported at {head[:9]}"
 
 
 def upstream(slug, head):
@@ -80,42 +88,61 @@ def upstream(slug, head):
     mark = f"<!-- hd:{head[:12]} -->"
     number = ch.get("pr") or os.environ.get("PR")
     if not number:  # gh's --head matches the branch name only: keep the fork owner's PR
+        log(f"PR lookup: {owner}:{branch} on {up}")
         rc, out, _ = sh("gh", "pr", "list", "-R", up, "--head", branch, "--state", "open", "--json", "number,headRepositoryOwner")
         number = next((p["number"] for p in (json.loads(out) if rc == 0 and out else [])
                        if (p.get("headRepositoryOwner") or {}).get("login") == owner), None)
+        log(f"PR lookup: #{number}" if number else "PR lookup: none open")
     if number:  # every act already observed upstream (head pushed, our comment naming it, ready): record, act on nothing
+        log(f"PR #{number}: reading head, draft, comments")
         rc, out, _ = sh("gh", "pr", "view", str(number), "-R", up, "--json", "headRefOid,isDraft,comments")
         v = json.loads(out) if rc == 0 and out else {}
         if v.get("headRefOid") == head and v.get("isDraft") is False and any(mark in x.get("body", "") for x in v.get("comments") or []):
             done(slug, head, f"PR #{number} ready for review at {head[:9]}")
+    log(f"push {head[:9]} to fork {branch}")
     rc, _, err = sh("git", "-C", str(Path(fork["path"]).expanduser()), "push", "-q", "fork", f"{head}:refs/heads/{branch}")
     if rc:
         sys.exit(f"push failed: {err}")
-    print(f"pushed {head[:9]} to fork {branch}")
+    log(f"pushed {head[:9]} to fork {branch}")
     if not number:
+        log(f"opening draft PR {owner}:{branch} on {up}")
         rc, out, err = sh("gh", "pr", "create", "-R", up, "--draft", "--base", "main", "--head", f"{owner}:{branch}",
                           "--title", text(slug, "pr-title.txt"), "--body", text(slug, "pr-body.md") + ATTRIBUTION)
         if rc:
             sys.exit(f"pr create failed: {err}")
         number = int(out.rstrip("/").rsplit("/", 1)[1])
-        print(f"opened draft PR #{number}")
-    while (state := checks(up, number, head)) in ("pending", "none"):
+        log(f"opened draft PR #{number}")
+    log(f"CI wait: every check of PR #{number} completed at {head[:9]}")
+    seen = None
+    while (cur := checks(up, number, head))[0] in ("pending", "none"):
+        if cur != seen:  # each new fact the wait stands on, once
+            log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
         time.sleep(30)  # the fact decides; the sleep only spaces the reads
-    if state != "success":
-        sys.exit(f"CI {state} at {head[:9]} on PR #{number}: stays draft, no comment")
-    print(f"CI green at {head[:9]}")
+    if cur[0] != "success":
+        sys.exit(f"CI {cur[0]} at {head[:9]} on PR #{number}: {cur[1]}: stays draft, no comment")
+    log(f"CI green at {head[:9]}: {cur[1]}")
     comment = text(slug, "pr-comment.md")
     body = (comment if head[:9] in comment else f"Updated to {head[:9]}.") + ATTRIBUTION + f"\n{mark}"
-    rc, out, _ = sh("gh", "pr", "view", str(number), "-R", up, "--json", "comments")
-    mine = [x for x in (json.loads(out).get("comments") if rc == 0 else []) if mark in x.get("body", "")]
+    log(f"comment on PR #{number} naming {head[:9]}")
+    rc, out, err = sh("gh", "pr", "view", str(number), "-R", up, "--json", "comments")
+    if rc:
+        sys.exit(f"comments unreadable: {err}")
+    mine = [x for x in json.loads(out).get("comments") or [] if mark in x.get("body", "")]
     if mine:
-        sh("gh", "api", "graphql", "-f", "query=mutation($id:ID!,$b:String!){updateIssueComment(input:{id:$id,body:$b}){issueComment{id}}}", "-f", f"id={mine[0]['id']}", "-f", f"b={body}")
+        rc, _, err = sh("gh", "api", "graphql", "-f", "query=mutation($id:ID!,$b:String!){updateIssueComment(input:{id:$id,body:$b}){issueComment{id}}}", "-f", f"id={mine[0]['id']}", "-f", f"b={body}")
     else:
-        sh("gh", "pr", "comment", str(number), "-R", up, "--body", body)
-    print("commented, naming the head")
+        rc, _, err = sh("gh", "pr", "comment", str(number), "-R", up, "--body", body)
+    if rc:
+        sys.exit(f"comment failed: {err}")
+    log(f"{'edited' if mine else 'posted'} our comment naming {head[:9]}")
+    log(f"ready PR #{number}")
     rc, _, err = sh("gh", "pr", "ready", str(number), "-R", up)
     if rc:
         sys.exit(f"ready failed: {err}")
+    log(f"PR #{number} ready")
+    rc, out, _ = sh("gh", "pr", "view", str(number), "-R", up, "--json", "reviewRequests")  # GitHub refuses the fork author's own request: CODEOWNERS asks on ready
+    asked = [r.get("login") or r.get("name") or r.get("slug") for r in (json.loads(out).get("reviewRequests") or [] if rc == 0 and out else [])]
+    log(f"review requested from {', '.join(asked)}" if asked else "review request: none listed (the upstream's CODEOWNERS)")
     done(slug, head, f"PR #{number} ready for review at {head[:9]}")
 
 
@@ -139,6 +166,7 @@ def reply(slug, head):
         sys.exit(f"review comments unreadable: {err}")
     if out:
         done(slug, head, f"replied already on {finding} (#{pr})")
+    log(f"reply on {finding} (#{pr})")
     rc, _, err = sh("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{finding}/replies", "-f", f"body={body}{ATTRIBUTION}")
     if rc:
         sys.exit(f"reply failed: {err}")
@@ -153,6 +181,7 @@ def release(slug, head, tag):
     assets = [str(ev / n) for n in ("osrs-runelite.apk", "THIRD_PARTY_NOTICES.md") if (ev / n).exists()] + [str(f) for f in ev.glob("repack*.log")]
     if len(assets) < 2:
         sys.exit(f"refused: {ev} lacks the APK or the notices")
+    log(f"release {tag} at {head[:9]}")
     rc, out, err = sh("gh", "release", "create", tag, "-R", c["repos"]["client"]["name"], "--target", head, "--title", tag,
                       "--notes", text(slug, "release-notes.md") + ATTRIBUTION, *assets)
     if rc:

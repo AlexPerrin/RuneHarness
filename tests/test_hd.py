@@ -923,6 +923,17 @@ class R5(Sandbox):
         s.assertIsNone(hd.rec("s1", "ask"))
         hd.cmd_ask(["s1", "another?"])                                          # after the answer, a new question may open
 
+    def test_open_question_holds_gate_and_ship_until_answered(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F); hd.drop("s1", "gate")                                 # built, its gate due
+        hd.cmd_ask(["s1", "hold before ship?"])
+        hd.tick(s.ctx(F))
+        s.assertEqual((s.state(F, "s1")["state"], F.spawned), ("question open: hold before ship?", []))
+        hd.cmd_answer(["s1", "go"])
+        hd.tick(s.ctx(F))
+        s.assertEqual([a[1] for a in F.spawned], ["gate"])                      # the answer releases it
+
 
 class R6(Sandbox):
     def test_devtools_servers_start_with_no_client(s):

@@ -40,7 +40,7 @@ gh, docker and the process table; a live check reads the real state.
    under user `hd`; `hd approve` or `hd close` from a subagent or the orchestrator session is denied.
 5. **R5** `tests.test_hd.R5`: console gone → its runs end and their artefacts are removed in one pass; a run the orchestrator stops (`hd stop`) ends and frees its slot; a dead ship
    process → rerun; a script dead twice on the same args → raised once, a new args or a landed result restarts the count; a yes recorded then main gone → the ship completes; a repair whose effect is not observed is not
-   logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused; a fix a dev
+   logged; the same repair twice raises once; a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer; a fix a dev
    files with `hd new --blocks` holds the change with no question raised; a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env; docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice; the same head and contract never judge twice;
    no more than the configured agents are listed, the planner outside that count; two passes over unchanged facts append no event; a run over the

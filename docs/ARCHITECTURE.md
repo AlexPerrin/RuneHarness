@@ -82,6 +82,7 @@ head holds its tip, or the change is closed; `swept.json` keeps the head the dev
 next(change):
   closed by the user?               yes → done
   deps live or closed?              no → wait on them
+  question open (hd ask)?           yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   carried tools head behind branch? rebase it in the pass, record it in the hand-over; conflict → dev

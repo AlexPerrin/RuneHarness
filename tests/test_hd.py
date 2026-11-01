@@ -119,8 +119,18 @@ def payload(run, agent_id, event, root, last=None, usage=None, context=1000, han
 
 
 class R1(Sandbox):
-    def goal(s, slug="client-api", track="client", target=100):
-        (s.root / "harness" / "goals" / f"{slug}.md").write_text(f"---\nslug: {slug}\ntrack: {track}\ntarget: {target}\n---\nthe goal")
+    def goal(s, slug="client-api", track="client", target=100, deps=()):
+        (s.root / "harness" / "goals" / f"{slug}.md").write_text(f"---\nslug: {slug}\ntrack: {track}\ntarget: {target}\ndeps: {list(deps)}\n---\nthe goal")
+
+    def test_a_goal_dep_not_live_holds_its_measure(s):
+        s.change("s1"); s.agreed("s1"); s.goal(deps=["s1"])
+        F = Fake(**FACTS)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(v["goal"], ["client-api: waiting on s1"])
+        s.assertEqual([x for x in F.spawned if x[1] == "measure"], [])
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # the dep is live: the goal is measured
+        hd.tick(s.ctx(F))
+        s.assertEqual([x[1:] for x in F.spawned if x[1] == "measure"], [["measure", "client-api", B]])
 
     def test_target_move_lists_measure_once(s):
         s.goal()

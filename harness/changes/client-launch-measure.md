@@ -1,6 +1,7 @@
 ---
 slug: client-launch-measure
 track: harness
+mechanism: mobile
 title: 'measure client-launch: launch-to-gameplay timeline from logcat and devtools'
 kind: change
 priority: P1

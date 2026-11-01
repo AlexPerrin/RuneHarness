@@ -1,6 +1,7 @@
 ---
 slug: harness-hold-stale-line
 track: harness
+mechanism: carry
 title: 'A held: line whose head no longer matches is removed when the head moves'
 kind: change
 priority: P1

@@ -1,6 +1,7 @@
 ---
 slug: harness-spawn-for-ended-run-refused
 track: harness
+mechanism: runs
 title: An agent spawned for a run that has already ended is refused at its start
 kind: change
 priority: P1

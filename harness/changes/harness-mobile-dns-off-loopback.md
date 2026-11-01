@@ -1,6 +1,7 @@
 ---
 slug: harness-mobile-dns-off-loopback
 track: harness
+mechanism: mobile
 title: The mobile's DNS reaches mobile-allow without Windows udp 53 on the loopback
 kind: change
 priority: P1

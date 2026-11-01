@@ -1,6 +1,7 @@
 ---
 slug: harness-mechanism-required
 track: harness
+mechanism: contract
 title: Every change names its mechanism; the one-change-per-mechanism rule is enforced
   on that fact
 kind: change

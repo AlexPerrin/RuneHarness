@@ -5,7 +5,7 @@ title: 'gate-ci: a CI run failed by an external download error is not the head''
   failure'
 kind: change
 priority: P0
-mechanism: gate-ci
+mechanism: build-gate
 limit-of:
 - goblin-367-rsprox-dump
 deps: []

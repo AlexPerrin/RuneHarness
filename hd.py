@@ -1458,7 +1458,8 @@ def shut_changes(ctx):
 
 
 def mechanism(c):
-    """The mechanism a change fixes (its definition's `mechanism`, else its own slug): the scope its limits fall in."""
+    """The mechanism a change fixes: its definition's `mechanism` (a harness change's is one of hd.yaml's `mechanisms`;
+    a product change's, unnamed, is its own slug): the scope its limits fall in."""
     return c.get("mechanism") or c["slug"]
 
 
@@ -2129,6 +2130,11 @@ def cmd_answer(a):
     waive = a[2] if len(a) > 2 and a[1] == "--waive" else None
     slug, text = a[0], " ".join(a[3:] if waive else a[1:])
     ch = defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
+    add_answer(slug, ch, text, waive=waive)
+
+
+def add_answer(slug, ch, text, by="the user", waive=None):
+    """An answer row: the user's word, or a filing joined to the change (`by` names its filer)."""
     f = EVID / slug / "contract.md"
     if not f.exists():
         write_contract(cfg(), slug, ch["track"], "")
@@ -2136,8 +2142,9 @@ def cmd_answer(a):
         refuse(f"no script row {waive} in the contract")
     n = sum(1 for l in f.read_text().splitlines() if l.startswith("- answer-")) + 1
     with open(f, "a") as o:
-        o.write(f"- answer-{n} | {now()} the user: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}{f' | waive: {waive}' if waive else ''}\n")
-    drop(slug, "ask")
+        o.write(f"- answer-{n} | {now()} {by}: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}{f' | waive: {waive}' if waive else ''}\n")
+    if by == "the user":  # a joined filing answers no question
+        drop(slug, "ask")
     event(change=slug, record="answer", text=text[:300])
     print(f"answer-{n} added to the contract")
 
@@ -2230,7 +2237,7 @@ def cmd_new(a):
     p.add_argument("--version"); p.add_argument("--network", action="store_true"); p.add_argument("--body", default="")
     p.add_argument("--units", default="", help="the goal's content units the change makes pass, comma-separated")
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
-    p.add_argument("--mechanism", help="the mechanism the change fixes (default: its slug)")
+    p.add_argument("--mechanism", help="the mechanism the change fixes: one of hd.yaml's `mechanisms`, required on the harness track (else its slug)")
     p.add_argument("--limit-of", help="the change whose run found this limit, outside that change's scope")
     p.add_argument("--supersedes", default="", help="open harness changes this root-cause change replaces, comma-separated: each is closed as superseded")
     o = p.parse_args(a)
@@ -2245,6 +2252,8 @@ def cmd_new(a):
     sup = [k for k in o.supersedes.split(",") if k]
     if (bad := [k for k in sup if k not in graph or graph[k]["track"] != "harness" or shut(k, graph[k])]):
         refuse("supersedes only open harness changes: " + ", ".join(bad))
+    if o.track == "harness" and o.mechanism not in (ms := cfg()["mechanisms"]):
+        refuse(f"--mechanism names the harness mechanism the change fixes, one of: {', '.join(ms)}")
     m = o.mechanism or o.slug
     if o.limit_of:
         if o.limit_of not in graph:
@@ -2277,13 +2286,15 @@ def cmd_new(a):
 
 
 def merge_limit(c, o):
-    """A filing on a mechanism that has an open change joins it: its text appended, a limit's finder in `limit-of`."""
+    """A filing on a mechanism that has an open change joins it: its text appended, a limit's finder in `limit-of`, and an
+    answer row on its contract, so a change already handed over gets its dev run for the joined text."""
     f = Path(c["path"])
     m, body = _frontmatter(f.read_text())
     if o.limit_of and o.limit_of not in m.setdefault("limit-of", []):
         m["limit-of"].append(o.limit_of)
     f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + f"\n\nAlso ({o.limit_of or 'filed'}): {o.title}\n{o.body}\n")
     event(change=c["slug"], action="limit", by=o.limit_of or o.slug)
+    add_answer(c["slug"], c, " ".join(f"{o.title}: {o.body}".replace("|", "/").split()).rstrip(":"), by=f"filed by {o.limit_of or o.slug}")
     print(f"merged into {c['slug']} ({mechanism(c)})")
 
 

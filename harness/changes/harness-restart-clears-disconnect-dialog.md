@@ -1,6 +1,7 @@
 ---
 slug: harness-restart-clears-disconnect-dialog
 track: harness
+mechanism: desktop
 title: restart logs desktops back in past the disconnected dialog
 kind: change
 priority: P1

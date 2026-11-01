@@ -1,6 +1,7 @@
 ---
 slug: harness-dev-delegates-reads
 track: harness
+mechanism: roles
 title: Dev and QA runs delegate read-heavy work to a read-only reader role; nested
   agents are part of their parent run
 kind: change

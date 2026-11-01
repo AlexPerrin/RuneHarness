@@ -1,6 +1,7 @@
 ---
 slug: harness-spotless-row-complete
 track: harness
+mechanism: build-gate
 title: 'Finish harness-spotless-check-row: the verb creates its gradle volume, agreed
   contracts get the row, proven against real gradle'
 kind: change

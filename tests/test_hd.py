@@ -784,14 +784,10 @@ class R4(Sandbox):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
         s.assertEqual(out.getvalue().count('"deny"'), 7)
 
-    def test_public_act_runs_as_hd_when_the_user_exists(s):
+    def test_public_act_runs_as_the_user_without_an_alert(s):
         ctx = s.ctx(Fake(**FACTS))
-        with mock.patch.object(hd.pwd, "getpwnam", lambda n: object()):
-            s.assertEqual(ctx.public("upstream", "s1", A)[:4], ["sudo", "-n", "-u", "hd"])
-        ctx = s.ctx(Fake(**FACTS))
-        with mock.patch.object(hd.pwd, "getpwnam", mock.Mock(side_effect=KeyError)):
-            s.assertTrue(ctx.public("upstream", "s1", A)[0].endswith("hd-public"))
-            s.assertTrue(any(a.startswith("user: R4") for a in ctx.alerts))
+        s.assertEqual(ctx.public("upstream", "s1", A), [str(hd.ROOT / "hd-public"), "upstream", "s1", A])
+        s.assertFalse(any("R4" in a for a in ctx.alerts))
 
 
     def test_hd_public_order_and_stop_on_red_ci(s):

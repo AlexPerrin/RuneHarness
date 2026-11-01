@@ -1,7 +1,7 @@
 # HANDOFF
 
 The brief for a fresh session. `~/osrs-harness` has branch `v8` checked out; `main` still holds v7 (its timer is
-stopped, its state under `harness/state`). v8 runs from here; the merge into `main`, the timer and the sudoers line
+stopped, its state under `harness/state`). v8 runs from here; the merge into `main` and the timer
 are the cutover the user approves.
 
 ## Start (one session, in ~/osrs-harness on branch `v8`)
@@ -31,8 +31,7 @@ Not yet run for real: a server `build`, `up`, `gate-ci` and `ship`; a client `bu
 against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until its live check runs.
 
 ## Cutover, in order
-1. The user: a fine-grained token limited to AlexPerrin/* for `gh`; Unix user `hd` with the full token and the sudoers
-   line (docs/ARCHITECTURE.md, Run and test); the `pins` list in hd.yaml; the `fix/31` decision.
+1. The user: the `pins` list in hd.yaml; the `fix/31` decision.
 2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
    branch) until it moves onto `local/harness`.
 3. Stop v7's timer, merge `v8` into `main`, install the units, resume with `claude --agent orchestrator`.

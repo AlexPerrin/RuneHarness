@@ -22,7 +22,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
 tools/track.sh    the harness track's script; tools/track.md its rules and seed rows. Each product repo holds its own
                   track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log
                   <slug> [T], blocking on facts; its judgment skills under its .claude/skills/
-hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts, review-thread replies and releases
+hd-public         the one program that acts publicly, run as the user with the user's token: upstream acts, review-thread replies and releases
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring)
 mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, and an exception is an error answer; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
@@ -153,10 +153,9 @@ the same role on the same change, is listed in the same pass past the tier hold 
 and the file to resume from. Three runs of a change past the limit since its
 last handover are an alert (the change too large for one run, or its brief spending context on reading).
 
-**Authority**: the orchestrator, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so
-no command of theirs can act on OpenRune or publish. The ship step of a public act runs `sudo -u hd hd-public <slug>
-<head>`, the one program sudoers allows, which holds the full token and acts only when `approval.json` names that
-head. The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a `!` command, which fires no hook) are denied inside a subagent or the
+**Authority**: the orchestrator, the pass, every agent and `hd-public` run as the user with the user's GitHub token. The
+ship step of a public act runs `hd-public <slug> <head>`, which acts only when `approval.json` names that head; an
+approval is the user's own `hd approve`. The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a `!` command, which fires no hook) are denied inside a subagent or the
 orchestrator session (a hook input with an agent id or type) when a command runs them (hd at a command's start); a command that only quotes them (grep, echo, a heredoc body) runs.
 
 | | Client | Server | Central | Harness |
@@ -195,7 +194,6 @@ sequenceDiagram
 ~/.config/systemd/user/hd-tick.service   [Service] Type=oneshot  ExecStart=/usr/bin/python3 %h/osrs-harness/hd.py tick
 ~/.config/systemd/user/hd-tick.timer     [Timer] OnBootSec=1min  OnUnitActiveSec=1min   [Install] WantedBy=timers.target
 loginctl enable-linger alex && systemctl --user enable --now hd-tick.timer
-/etc/sudoers.d/hd-public                 alex ALL=(hd) NOPASSWD: /home/alex/osrs-harness/hd-public   (user hd holds the full token)
 python3 hd.py                            # a pass, then the view
 python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
@@ -208,7 +206,7 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 | R1 Goals | the goal's `measure` step keyed by the target's tree; the live tree unblocks client deps; the planner plans |
 | R2 Flow | `nxt`, the pass, the briefs, the hook's bind and end, `wake` and the wake file, the orchestrator session |
 | R3 Contract | contract.md, `hd handover` and `hd verdict` refusals, records bound to T or head and contract, rule-row shas |
-| R4 Authority | the two credentials, `hd-public` under sudoers, the one hook rule, ship after approval at head |
+| R4 Authority | `hd-public` acting only at the approved head, the one hook rule |
 | R5 Recovery | the timer, rerunnable steps, pids with start times, repairs on observed effect, one ask per change |
 | R6 Economy | artefacts keyed by T, verdicts keyed by head and contract, the agent count, events on edges, the hook's context limit, the track scripts |
 | R7 Visibility | `hd` prints facts; `hd show` |

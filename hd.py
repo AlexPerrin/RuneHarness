@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | decline | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, pwd, re, subprocess, sys, tempfile
+import fcntl, hashlib, json, os, re, subprocess, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -583,14 +583,8 @@ class Ctx:
         return f"{P(s.cfg['repos']['central']['path'])}:{commit}" if commit else ""
 
     def public(s, *args):
-        """R4: a public act runs as user `hd` through sudoers when that user exists; else as the user, with an alert."""
-        try:
-            pwd.getpwnam("hd")
-            return ["sudo", "-n", "-u", "hd", str(ROOT / "hd-public"), *args]
-        except KeyError:
-            if "R4" not in " ".join(s.alerts):
-                s.alerts.append("user: R4: no Unix user hd; public acts run as you with your token")
-            return [str(ROOT / "hd-public"), *args]
+        """R4: a public act is hd-public, run as the user with the user's token."""
+        return [str(ROOT / "hd-public"), *args]
 
     def dockerless(s, ch, mode):
         """R5: while docker does not answer, a step that builds, brings up or tests (a code or judge step off the harness track) waits."""

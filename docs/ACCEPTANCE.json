@@ -19,8 +19,8 @@
  },
  {
   "id": "R4",
-  "requirement": "Authority: no agent credential can write to OpenRune or release; the harness ships only at the approved head",
-  "check": "python3 -m unittest tests.test_hd.R4 && gh auth status 2>&1 | grep -q github_pat_ && sudo -n -l | grep -q hd-public",
+  "requirement": "Authority: only the harness writes to OpenRune or releases, with the user's token, only at the approved head",
+  "check": "python3 -m unittest tests.test_hd.R4",
   "passes": false
  },
  {

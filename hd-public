@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""hd-public: the one program that performs a public act, run as Unix user `hd` through sudoers with the full GitHub
-token (docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval.json names the head it is given.  R4
+"""hd-public: the one program that performs a public act, run as the user with the user's GitHub token
+(docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval.json names the head it is given.  R4
 
   hd-public upstream <slug> <head>        push head to the public branch on the change's fork (server or central); create the draft PR if none;
                                           wait for CI at head (a fact, polled); stop before anything public when it
@@ -10,7 +10,6 @@ token (docs/ARCHITECTURE.md, Authority). It acts only when state/<slug>/approval
   hd-public reply <slug> <head>           post pr-comment.md as a reply in the thread of the change's finding on its PR
                                           (quoting it, @ only its author); nothing when our reply is there.
   hd-public release <slug> <head> <tag>   gh release create with the APK, the notices and the log from the evidence dir.
-Until the `hd` user exists the pass runs it as the user and `hd` shows the R4 alert.
 """
 import hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path

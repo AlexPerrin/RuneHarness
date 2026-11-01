@@ -2259,6 +2259,40 @@ class R3(Sandbox):
         for doc in ("tools/track.md", ".claude/agents/dev.md"):
             s.assertIn("never push it", (repo / doc).read_text().replace("\n", " "), doc)
 
+    def test_a_limit_is_fixed_in_its_scope_and_filed_once_per_mechanism(s):
+        s.change("h1", track="harness", mechanism="dispatch"); s.agreed("h1", track="harness")
+        (s.root / "evidence" / "h1" / "proof.md").write_text("ok")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with s.assertRaises(SystemExit) as e:                                     # a limit in the mechanism it touched: fixed here
+            hd.cmd_new(["x1", "--track", "harness", "--title", "dispatch drops a run", "--mechanism", "dispatch", "--limit-of", "h1"])
+        s.assertIn("fix it there", str(e.exception)); s.assertNotIn("x1", hd.defs("changes"))
+        s.change("h2", track="harness", mechanism="carry")                       # an open change on the other mechanism
+        hd.cmd_new(["x2", "--track", "harness", "--title", "carry retries", "--body", "seen twice", "--mechanism", "carry", "--limit-of", "h1"])
+        g = hd.defs("changes")
+        s.assertNotIn("x2", g); s.assertEqual(g["h2"]["limit-of"], ["h1"]); s.assertIn("carry retries", g["h2"]["body"])
+        with s.assertRaises(SystemExit):                                         # converges: h2 now owns h1's mechanism too
+            hd.cmd_new(["x3", "--track", "harness", "--title", "back again", "--mechanism", "dispatch", "--limit-of", "h2"])
+        s.change("x4", track="harness", mechanism="dispatch")
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["h1", "limit:x4"])                                  # a hand-back naming an in-scope limit
+        s.assertIn("in this change's scope", str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1", "limit:h2"])
+        s.assertEqual(hd.rec("h1", "handover")["head"], A)
+
+    def test_planner_merges_changes_on_one_mechanism(s):
+        s.change("h1", track="harness"); s.change("h2", track="harness"); s.change("s1")
+        with s.assertRaises(SystemExit):
+            hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--supersedes", "h1,s1"])   # only open harness changes
+        hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1,h2"])
+        g = hd.defs("changes")
+        s.assertEqual((g["h1"]["closed"], g["h2"]["closed"], g["r1"]["mechanism"]), ("superseded by r1", "superseded by r1", "hold"))
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # a later issue on it joins it
+        g = hd.defs("changes")
+        s.assertNotIn("p9", g); s.assertIn("hold drops a run", g["r1"]["body"])
+        for role in ("dev", "qa", "planner"):
+            s.assertIn("root cause", (Path(__file__).parent.parent / ".claude" / "agents" / f"{role}.md").read_text(), role)
+
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

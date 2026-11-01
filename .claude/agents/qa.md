@@ -36,6 +36,9 @@ read-only subagent that returns the conclusion. At the context limit start no ne
 hand-off steps in order: record what you judged, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`, hand
 back.
 
+Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. A limit you find in the mechanism the change touches fails the row it breaks (or the change's definition row), never a
+note for later.
+
 Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; a mobile unless
 the brief is a client release; the tester account's items; a process you did not start; the live server.
 

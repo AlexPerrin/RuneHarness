@@ -13,7 +13,7 @@
  },
  {
   "id": "R3",
-  "requirement": "Contract: rows before code, every row judged once, verdicts append, text fixed in place; gate bound to T, verdict and approval to head and contract",
+  "requirement": "Contract: rows before code, every row judged once, verdicts append, text fixed in place; gate bound to T, verdict and approval to head and contract; a limit is fixed in its own mechanism's change, one change per mechanism",
   "check": "python3 -m unittest tests.test_hd.R3 && for f in evidence/*/contract.md; do grep -qE '^- [a-z0-9-]+ \\|' \"$f\" || exit 1; done",
   "passes": false
  },

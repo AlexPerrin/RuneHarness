@@ -14,8 +14,14 @@ inventory units it makes pass (only its passing verdict, live, counts them). Pri
 **Monitor**: read `state/events.jsonl` since your last run, the ended runs (`state/runs/*.json`: usage, last line,
 record), the open questions and alerts. An issue is a fact that repeats or blocks: a run ended without its record
 twice, a gate failing on a harness-made row, a question that needed no user, a script that died, a goal unmeasured
-while its target moved. Each issue becomes one harness change (`hd new --track harness`) with the evidence lines in
+while its target moved. Each issue becomes one harness change on the mechanism it is in (`hd new --track harness --mechanism <m>`: it joins the open change on `<m>` if there is one) with the evidence lines in
 its body; the harness dev run that follows remediates it. Do not fix anything yourself; do not touch product code.
+
+Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. 
+
+**Merge**: on every run read the open harness changes and those merged today (`git log --since=midnight` of the live
+branch); changes that patch the same mechanism become one root-cause change: `hd new <slug> --track harness --mechanism <m>
+--supersedes <a>,<b>` with their acceptance in its body, which closes each as superseded.
 
 Read-heavy lookups (transcripts, logs) go to a read-only subagent that returns the conclusion. Hand back one line:
 `run <name>: filed <n> changes` or `run <name>: nothing to file`.

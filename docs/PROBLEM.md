@@ -33,6 +33,7 @@ docs/ARCHITECTURE.md is the one solution we build.
 | P8 | **Know-how is a script, judgment is a rule.** Bring-up, builds, in-game scenarios and lookups are scripts that block on facts and return results; an agent reads rules and results, never procedures. | A3 A1 |
 | P9 | **Scarce things are counted**, and every artefact is named after the change or run that owns it. | A7 |
 | P10 | **The user sees derived facts only**: what runs, what waits for them, each goal's number, what happened; and every agent session, live in their console. | A1 A2 A3 |
+| P11 | **Fix at the root.** A limit is a bug of the mechanism that has it, fixed in the change on that mechanism, one change per mechanism; the cause is stated against the workflow below in its simplest terms and fixed there, the mechanism rewritten when the cause is in its design, never a rule stacked on a rule. | A3 |
 
 ## Goals
 
@@ -46,6 +47,8 @@ a goal is measured whenever its target moves and stays measured once met.
 | Harness | the machinery that moves both and itself (this repo) | simpler and faster each iteration: per upstream change at most 5 runs and 1 build per tree; an agent's first edit within 10 tool calls; peak context at most 200k tokens; a due spawn waits one turn of the orchestrator |
 
 ## Process
+
+The workflow in its simplest terms: agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR. Everything below is how that runs unattended.
 
 Every **change** has one shape on every track: defined, given a contract, built by a dev agent into one commit against
 a tree built once, gated by scripts, judged once by a reviewer against the contract, and shipped. A server change

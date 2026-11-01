@@ -16,3 +16,5 @@ goblin-367-rsprox-dump's gate failed at a correct head: CI run 41357682052 on ga
 Orchestrator: moved to the harness track (gate-ci is harness tooling). Root cause to address with it: the fork CI downloads the 213 MB cache from archive.openrs2.org on every gate run (see harness-live-deploy-evidence, which shares the cache for live builds); a cached copy in CI (actions/cache keyed by cache id) removes the external dependency, and a failed fetch is then reported as an infrastructure failure that re-runs, never as the head's FAIL.
 
 It blocks #367 now: goblin-367-rsprox-dump-4 re-handed over the same head, but the failed gate stands for that head and its step stays due with no run listable (alert 2026-11-01). Acceptance adds: a CI failure in a step the head does not touch (cache/gameval generation, checkout, setup) re-runs the gate on the same head instead of failing it.
+
+Monitor sweep 6 adds (same mechanism, cache fetch): server-cache-clientscript-name-hash gate CI (run 41357793032) failed on the same openrs2 HTTP 500; nine more gate CI runs were in flight on the same download. Every CI run and every deploy downloads the cache fresh.

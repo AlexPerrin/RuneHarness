@@ -33,8 +33,7 @@ gate() {  # every check: and gate: row of the contracts of NAMES (the batch's ch
   if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
   cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }
-check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute); both read GitHub from the passes' cache alone (HD_GH=cache), never the network
-  export HD_GH=cache
+check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute); a dry-run reads GitHub from the passes' cache and git from the local refs alone (HD_OFFLINE), never the network
   mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
   theirs=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
   mine=$( (echo "$mine"; python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act

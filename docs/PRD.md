@@ -160,7 +160,7 @@ a live check reads the real state.
    Live: `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.
 
 5. **R5** `tests.test_hd.R5`: a state record read while hd or a track script writes it is whole;
-   two passes and a gate over the same state read each GitHub resource once, then only revalidate (304s), the gate from the cache alone, the carry's CI wait through the same cache (no GitHub read bypasses it), and an exhausted quota is an alert that holds every GitHub read;
+   two passes and a gate over the same state read each GitHub resource once, then only revalidate (304s), a dry-run (the gate's included) from the cache and the local refs alone, never the network, the carry's CI wait through the same cache (no GitHub read bypasses it), and an exhausted quota is an alert that holds every GitHub read;
    a pass on the live state peaks under 200 MB;
    console gone → its runs end and their artefacts are removed in one pass;
    a run the orchestrator stops (`hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;

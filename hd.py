@@ -67,7 +67,9 @@ class Facts:
 
     def fetch(s, clone, remote, ref=""):
         """R5: one fetch of a clone's remote (with ref: that one ref's objects, an upstream PR's pull/N/head) at a time: a pass
-        that finds one in flight waits for it and takes its result."""
+        that finds one in flight waits for it and takes its result. HD_OFFLINE (a dry-run): the local refs as they stand, no fetch."""
+        if os.environ.get("HD_OFFLINE"):
+            return True
         def f():
             lk = STATE / "fetch" / hashlib.sha1(f"{clone}\0{remote}\0{ref}".encode()).hexdigest()[:16]
             lk.parent.mkdir(parents=True, exist_ok=True)
@@ -284,8 +286,8 @@ class Facts:
     def api(s, path):
         """R5: a GitHub REST GET of every page of path through the one cache of GitHub reads, state/gh/, keyed by URL, which
         passes, gates and dry-runs share: each page is read conditionally (If-None-Match its cached ETag; a 304 costs no
-        quota). (200, the pages' JSON, lists joined) | (404, None) | None when GitHub cannot be read: HD_GH=cache (a dry-run
-        inside a gate) reads the cache alone, and an exhausted quota (state/gh/quota.json, until GitHub's reset) reads nothing."""
+        quota). (200, the pages' JSON, lists joined) | (404, None) | None when GitHub cannot be read: HD_OFFLINE (a dry-run)
+        reads the cache alone, and an exhausted quota (state/gh/quota.json, until GitHub's reset) reads nothing."""
         out, url = None, path + ("&" if "?" in path else "?") + "per_page=100"
         while url:
             p = s.page(url)
@@ -304,7 +306,7 @@ class Facts:
             c = json.loads(f.read_text())
         except (OSError, ValueError):
             c = None
-        if os.environ.get("HD_GH") == "cache":
+        if os.environ.get("HD_OFFLINE"):
             return c and (c["code"], c["body"], c["next"])
         if quota():
             return None
@@ -2622,6 +2624,8 @@ def cmd_commit(a):
 
 
 def cmd_tick(a):
+    if "--dry-run" in a:
+        os.environ["HD_OFFLINE"] = "1"  # R5: a dry-run never reaches the network: GitHub from its cache, git from the local refs
     v = tick(act="--dry-run" not in a)
     me = f"orchestrator {Facts().console()[0]}:"
     if any(l.startswith(me + " replaced") for l in v["alert"]):  # R2: a replaced session sees only its own lines, so it spawns nothing

@@ -1201,6 +1201,22 @@ class R8(Sandbox):
         F.f["merges"][(C, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt")
         s.assertEqual(hd.integration(s.ctx(F))["conflict"], "local/x")
 
+    def test_every_pin_conflict_in_one_pass(s):
+        F, R = s.integration_fixture(with_ref=False)
+        P_, Y = "p" * 40, "y" * 40
+        c = json.loads((s.root / "hd.yaml").read_text()); c["pins"] = ["local/x", "local/y"]; (s.root / "hd.yaml").write_text(json.dumps(c))
+        F.f["refs"]["fork/local/y"] = Y
+        F.f["merges"][(B, P_)] = ("conflict", "CONFLICT (content): MusicTabScript.kt"); F.f["merges"][(B, Y)] = ("conflict", "CONFLICT (content): z.kt")
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual([(x["conflict"], x["change"]["slug"]) for x in t["conflicts"]], [("local/x", "s1"), ("local/y", "s1")])
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len([x for x in v["spawn"] if x.startswith("s1-")]), 1)       # one dev run for both
+        brief = open(hd.runs()[0]["brief"]).read()
+        for ref in (f"local/merge/{P_[:7]}-{B[:7]}", f"local/merge/{Y[:7]}-{B[:7]}", "MusicTabScript.kt", "z.kt",
+                    f"base {B[:7]}, then local/x {P_[:7]}, local/y {Y[:7]}, s1 {A[:7]}"):
+            s.assertIn(ref, brief)
+
     def test_artefacts_named_by_change(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

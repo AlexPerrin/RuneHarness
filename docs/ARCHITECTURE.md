@@ -89,7 +89,8 @@ next(change):
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
   live? (central: its gate at T)    server: live.json ⊇ head? no → ship test server (T_int built once, deployed); a conflict → the younger change's dev
                                     (a pin's: the oldest one at this step): against a change, resolve in its own branch; against a
-                                    permanent pin, the base or a union, push local/merge/<a>-<b>
+                                    permanent pin, the base or a union, push local/merge/<a>-<b>; every conflicting head is left out
+                                    and the rest merged on, so one dev step lists them all with the merge order
   public (upstream, release)?       approval at head? no → card
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; release: gh release; else merge and push
   wait                              upstream merged; each maintainer inline review comment on the pr (no reply, no bot) that no

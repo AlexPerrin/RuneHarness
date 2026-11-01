@@ -676,7 +676,8 @@ def integration(ctx):
     """R8: T_int = upstream main + the permanent pins + every gated open server head whose deps are live, in order of
     creation. On a conflict a fork ref local/merge/<a7>-<b7> (a recorded resolution of that pair) stands in for both
     heads (the base is one partner: local/merge/<pin7>-<base7>); else the conflict belongs to the younger side, and a pin's
-    to the oldest gated change at the test server deploy step. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with} | None."""
+    to the oldest gated change at the test server deploy step. A conflicting head is left out and the merge goes on, so
+    one pass names every conflict. → {commit, tree, heads, names} | {conflict, change, head, base, detail, with, conflicts, order} | None."""
     srv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}
     clone, base = ctx.clone(srv), ctx.base(srv)
     if not base:
@@ -693,7 +694,7 @@ def integration(ctx):
         if head and ho and ho["head"] == head and g and g["ok"] and (g["T"] + "-").startswith(ho["T"] + "-") and not ch.get("closed") and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
             heads.append((ch["slug"], head, ch))
-    cur, included = base, []
+    cur, included, conflicts = base, [], []
     for name, h, ch in heads:
         r = ctx.F.merge(clone, cur, h, f"T_int: {name} {h[:9]}")
         if r is None:
@@ -708,9 +709,12 @@ def integration(ctx):
             if r is None or r[0] != "ok":
                 # a pin's conflict is owned by the oldest gated change whose step is this deploy: only that step dispatches its dev
                 owner = ch or next((c for _, _, c in heads if c and nxt(ctx, c)["actor"] == "ship-test"), None)
-                return {"conflict": name, "change": owner, "head": h, "base": base, "detail": r[1] if r else "", "with": [n for n, _, _ in included]}
+                conflicts.append({"conflict": name, "change": owner, "head": h, "detail": r[1] if r else "", "with": [n for n, _, _ in included]})
+                continue  # every conflict in one pass: the rest merge without this head
         cur = r[1]
         included.append((name, h, ch))
+    if conflicts:
+        return {**conflicts[0], "base": base, "conflicts": conflicts, "order": [(n, h) for n, h, _ in heads]}
     tree, cen = ctx.F.tree(clone, cur), ctx.central(srv, [d for _, _, c in included if c for d in c["deps"]])
     return {"commit": cur, "tree": tree + (f"-c{cen[:12]}" if cen else ""), "central": cen, "heads": [h for _, h, _ in included],
             "names": [n for n, _, _ in included]} if tree and cen is not None else None
@@ -721,22 +725,30 @@ def ship_test(ctx, ch, st, tint, act):
     if tint is None:
         st["state"] = "integration tree unknown"
     elif "conflict" in tint:
-        if tint["change"] and tint["change"]["slug"] == ch["slug"]:
-            h7, b7, mine = tint["head"][:7], tint["base"][:7], tint["conflict"] == ch["slug"]
-            how = ("\nAgainst a change: add it to your deps or resolve in your branch. Against a permanent pin or a union: "
-                   "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only.") if mine else (
-                  f"\nThe permanent pin {tint['conflict']} ({h7}) conflicts on base {b7}; you own its resolution, your head stays as it is. "
-                  f"Merge the pin into the base (or the head it conflicts with) and push the merge to the fork as local/merge/{h7}-{b7} "
-                  f"(or local/merge/{h7}-<that head7>); it serves the integration tree only, bound to those two commits. "
-                  "Report whether the base supersedes the pin; the pin list is the user's.")
-            st.update(step(f"{'conflicts' if mine else 'pin ' + tint['conflict'] + ' conflicts'} with the integration tree "
-                           f"({', '.join(tint['with'][-3:]) or 'the base'}): dev", "dev", mode="code",
-                           input=["integration", ctx.head(ch), tint["head"], tint["base"], tint["detail"][:200]], detail=tint["detail"] + how))
+        mine, b7 = [c for c in tint["conflicts"] if c["change"] and c["change"]["slug"] == ch["slug"]], tint["base"][:7]
+        if mine:
+            def how(c):
+                h7 = c["head"][:7]
+                return f"{c['conflict']} ({h7}), after {', '.join(c['with']) or 'the base alone'}:\n{c['detail']}\n" + ((
+                    "Against a change: add it to your deps or resolve in your branch. Against a permanent pin or a union: "
+                    "push the resolution to the fork as local/merge/<yours7>-<theirs7>; it serves the integration tree only.") if c["conflict"] == ch["slug"] else (
+                    f"The permanent pin {c['conflict']} ({h7}) conflicts on base {b7}; you own its resolution, your head stays as it is. "
+                    f"Merge the pin into the base (or the head it conflicts with) and push the merge to the fork as local/merge/{h7}-{b7} "
+                    f"(or local/merge/{h7}-<that head7>); it serves the integration tree only, bound to those two commits. "
+                    "Report whether the base supersedes the pin; the pin list is the user's."))
+            order = ", ".join(f"{n} {h[:7]}" for n, h in tint["order"])
+            detail = "\n\n".join(map(how, mine)) + (f"\n\nhd's merge order, the one to reproduce by hand: base {b7}, then {order}; "
+                                                    "a conflicting head is left out and the rest merge on.")
+            c = mine[0]
+            st.update(step(f"{'conflicts' if c['conflict'] == ch['slug'] else 'pin ' + ', '.join(x['conflict'] for x in mine) + (' conflicts' if len(mine) == 1 else ' conflict')} "
+                           f"with the integration tree ({', '.join(c['with'][-3:]) or 'the base'}): dev", "dev", mode="code",
+                           input=["integration", ctx.head(ch), tint["base"]] + [x["head"] for x in mine] + [x["detail"][:200] for x in mine], detail=detail))
             dispatch(ctx, ch, st, act)
         else:
             st["state"] = f"test server deploy blocked by {tint['conflict']}'s conflict"
-            if tint["change"] is None and f"pin {tint['conflict']}" not in " ".join(ctx.alerts):
-                ctx.alerts.append(f"pin {tint['conflict']} conflicts with the integration tree ({', '.join(tint['with'][-3:])}): a resolution ref or a change is needed")
+            for c in tint["conflicts"]:
+                if c["change"] is None and f"pin {c['conflict']}" not in " ".join(ctx.alerts):
+                    ctx.alerts.append(f"pin {c['conflict']} conflicts with the integration tree ({', '.join(c['with'][-3:])}): a resolution ref or a change is needed")
     elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
                   {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),

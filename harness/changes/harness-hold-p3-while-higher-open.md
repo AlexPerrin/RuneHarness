@@ -16,3 +16,5 @@ Acceptance:
 - hd lists no spawn for a change while a change of a higher tier is open (not closed), waiting or not, except a change that a higher open change depends on (it already inherits that tier). A test covers: lower held while higher waits; a dependency of a higher change still spawns; lower spawns once no higher is open.
 
 The user's word: "all harness track changes are atleast P1". A harness-track change is never below P1, including one made by `hd new` without --priority.
+
+The user's word on the harness tiers: "a fix is something blocking, P1 is for nonblocking (login flow works but, would significantly reduce time to P2)". P0 = a harness fix that blocks work; P1 = a non-blocking harness improvement (the work proceeds without it, but it significantly reduces the time to reach the P2 work).

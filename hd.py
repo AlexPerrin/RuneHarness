@@ -786,6 +786,8 @@ def brief(ctx, ch, st, name, role):
         lines += [f"## Hand-off from your predecessor (its work in progress: {ctx.head(ch) or 'no commit on the dev ref'})", hoff.read_text(), ""]
     if v:
         lines += [f"## Last verdict (head {v[-1]['head'][:9]}, run {v[-1].get('run', '')})", json.dumps(v[-1]["rows"], indent=1), ""]
+        if (o := [k for k, r in v[-1]["rows"].items() if str(r).startswith("not-judged")]):
+            lines += ["Open rows (the judge's, not judged at that head): " + ", ".join(o), ""]
     if (res := [x for n in ("build", "gate") if (x := result(ch["slug"], n))]):
         lines += ["## Results", *res, ""]
     lines += ["## Definition", f"title: {ch.get('title', '')}  priority: {ch.get('priority', '')}  deps: {ch.get('deps', [])}  pr: {ch.get('pr', '')}", ch.get("body", ""), ""]
@@ -1192,7 +1194,7 @@ def cmd_rows(a):
 
 
 def cmd_verdict(a):
-    """R3: every contract row 'pass' or 'fail: <note>', appended, bound to head and the contract hash."""
+    """R3: every contract row 'pass', 'fail: <note>' or 'not-judged' (a FAIL verdict only), appended, bound to head and the contract hash."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     head = ctx.head(ch)
@@ -1201,18 +1203,21 @@ def cmd_verdict(a):
     con = contract(ch["slug"]) or refuse("no contract")
     rows = json.loads(Path(a[2]).read_text())
     why = ["rows missing: " + ", ".join(m)] if (m := [r["id"] for r in con["rows"] if r["id"] not in rows]) else []
-    if (bad := [k for k, v in rows.items() if not (v == "pass" or str(v).startswith("fail"))]):
-        why.append("rows must be 'pass' or 'fail: <note>': " + ", ".join(bad))
+    if (bad := [k for k, v in rows.items() if not (v == "pass" or str(v).startswith(("fail", "not-judged")))]):
+        why.append("rows must be 'pass', 'fail: <note>' or 'not-judged': " + ", ".join(bad))
+    open_ = [k for k, v in rows.items() if str(v).startswith("not-judged")]
+    if open_ and not any(str(v).startswith("fail") for v in rows.values()):
+        why.append("a PASS verdict judges every row; not judged: " + ", ".join(open_))
     if why:
         refuse(*why)
     (STATE / ch["slug"]).mkdir(parents=True, exist_ok=True)
     rules = {k: ctx.F.blob(ctx.clone(ch), TRACK[ch["track"]]["base"], k) for k in con["rules"]}
     with open(STATE / ch["slug"] / "verdicts.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "rows": rows, "rules": rules, "run": os.environ.get("HD_RUN", "")}, sort_keys=True) + "\n")
-    failed = [k for k, v in rows.items() if v != "pass"]
+    failed = [k for k, v in rows.items() if str(v).startswith("fail")]
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="verdict", head=head, failed=len(failed))
-    print(f"verdict at {head[:9]}: {'PASS' if not failed else f'FAIL {len(failed)} rows'}")
+    print(f"verdict at {head[:9]}: {'PASS' if not failed else f'FAIL {len(failed)} rows'}" + (f", {len(open_)} not judged" if open_ else ""))
 
 
 def cmd_ask(a):

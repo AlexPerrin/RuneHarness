@@ -7,6 +7,7 @@ kind: change
 priority: P0
 deps: []
 created: '2026-11-01T21:43:49Z'
+closed: 'answer-2: superseded by harness-pass-lock-followup'
 ---
 Root cause found by the monitor sweep (2026-11-01 ~21:45Z), and the user's report: "hd also hold 3-4 GB of memory." A pass holds hd's state lock across all its git and GitHub reads: 20-74 s per pass, back to back (journal 21:32-21:38Z, 3.6G memory peak); one pass took >120 s. hook.py bind() (and, once harness-hook-writes-locked ships, end_run) waits on that lock, but PreToolUse/SubagentStart hooks time out at 10 s and SubagentStop at 30 s, so they are cancelled: agents never bind (a57c2d6... cancelled 5 times from 21:28:13Z; harness-e2e-test-flaky-1 10 times, harness-limits-are-bugs-root-cause-1 7 times), their runs are dropped 'no longer due' while the agents work (21:29:33Z, 21:34:41Z), -2 runs are listed for live agents, hand-backs land untracked (stop-unmatched 21:31:58Z), and a cancelled PreToolUse runs none of its deny rules (hd approve/close refusal, cycle commit refusal) - a hole in the user's authority. Against the workflow: 'the orchestrator spawns every run; every run is a visible agent' needs the agent-run binding recorded as a fact at spawn, never a write racing a slow pass.
 

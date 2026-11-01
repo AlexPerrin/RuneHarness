@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import io, json, os, re, shutil, sys, tempfile, unittest
+import io, json, os, re, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +19,8 @@ class Fake(hd.Facts):
         s.f, s.spawned, s.ran, s.envs = f, [], [], []
 
     def sh(s, args, cwd=None, env=None, timeout=600):
+        if args[3:] == ["config", "user.email"]:
+            return 0, hd.AUTHOR[1] + "\n", ""                                  # every repo has the noreply identity; a read, not an act
         s.ran.append(args)
         if args[3:5] == ["worktree", "remove"] and args[-1] not in s.f.get("dirty", ()) and ("--force" in args or args[-1] not in s.f.get("links", ())):
             s.f["worktrees"][args[2]] = [w for w in s.f["worktrees"][args[2]] if w[0] != args[-1]]
@@ -838,6 +840,17 @@ class R5(Sandbox):
         F = Fake(**FACTS)
         hd.repairs(hd.Ctx(F, c), True)
         s.assertIn(["git", "-C", str(s.root / "client"), "worktree", "add", str(s.root / "client" / ".worktrees" / "harness-v8"), "client/harness-v8"], F.ran)
+
+    def test_a_repo_without_the_noreply_identity_gets_it(s):
+        repo = s.root / "central"; repo.mkdir(exist_ok=True); subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        c = hd.cfg(); c["repos"] = {"central": {**c["repos"]["central"], "path": str(repo)}}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        with mock.patch.dict(os.environ, {**env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}, clear=True):
+            hd.repairs(hd.Ctx(hd.Facts(), c), True)
+            r = subprocess.run(["git", "-C", str(repo), "commit-tree", "-m", "snapshot", "4b825dc642cb6eb9a060e54bf8d69288fbee4904"], capture_output=True, text=True)
+            s.assertEqual(r.returncode, 0, r.stderr)                            # a commit with no per-run env
+            s.assertEqual(subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>", r.stdout.strip()], capture_output=True, text=True).stdout.strip(),
+                          "|".join(["%s <%s>" % hd.AUTHOR] * 2))
 
     def test_docker_down_is_one_alert_and_no_script_starts(s):
         s.change("s1"); s.agreed("s1")

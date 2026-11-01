@@ -896,8 +896,12 @@ def repair(ctx, slug, name, args, check, act):
 
 def repairs(ctx, act):
     """R5: end the runs whose console is gone (their agents died with it); bring down a server no run uses; make a
-    missing tools worktree."""
+    missing tools worktree; give a repo without the noreply identity that identity (its worktrees share it)."""
     for name, r in ctx.cfg["repos"].items():
+        p = str(P(r["path"]))
+        if act and (ctx.F.sh(["git", "-C", p, "config", "user.email"]) or [1, ""])[1].strip() != AUTHOR[1]:
+            for k, v in zip(("user.name", "user.email"), AUTHOR):
+                ctx.F.sh(["git", "-C", p, "config", k, v])
         wt = tools_wt(r)
         if wt and not wt.exists() and act:
             ok = ctx.F.sh(["git", "-C", str(P(r["path"])), "worktree", "add", str(wt), r["tools"]])

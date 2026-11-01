@@ -1,6 +1,6 @@
 ---
 slug: client-launch-boot
-track: client
+track: harness
 title: 'up: emulator boots from a snapshot instead of cold'
 kind: change
 priority: P2

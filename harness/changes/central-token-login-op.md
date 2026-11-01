@@ -18,3 +18,5 @@ The user's word (2026-11-01): hold off on this PR until all login flow work is c
 The user (2026-11-01): "No we will bundle the auth pr later when all of our login work clears". Held by the dependency on harness-desktop-login-devtools; the card is not asked again until then.
 
 Orchestrator (2026-11-01): the dependency on harness-desktop-login-devtools was the user's hold on this PR's card, but it closed a cycle (central-token-login-op -> harness-desktop-login-devtools -> client-devtools-login -> server-token-auth -> central-token-login-op) that deadlocked the whole login chain. Removed. The hold stays the user's: this card ships only on their yes, and they bundle the auth PRs when all login work clears.
+
+The user's word (2026-11-01): "central-token-login-op wait for other auth changes to land before considering upstream". Its card is not approved until server-token-auth, client-devtools-login, harness-desktop-login-devtools and harness-live-issuer-cutover have landed; the orchestrator does not ask for it before then.

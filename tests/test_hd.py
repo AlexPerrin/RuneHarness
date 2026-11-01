@@ -51,6 +51,7 @@ class Fake(hd.Facts):
     def on_line(s, clone, tip, sha): return sha in s.f.get("line", ())
     def unmerged(s, clone, base, head): return frozenset(s.f.get("commits", {}).get(head, {head}) - {base})  # a head's own commits: itself unless a test says
     def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
+    def tools_files(s, clone, commit): return s.f.get("tools_files", {}).get(commit, {})
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
@@ -1101,18 +1102,42 @@ class R5(Sandbox):
 
     def test_a_tools_fix_reruns_a_failed_gate(s):
         s.change("s1"); s.agreed("s1")
-        F = Fake(**FACTS)
-        s.gated("s1", F)
-        hd.put("s1", "gate", {**hd.rec("s1", "gate"), "ok": False, "detail": "FAIL: ci: a tools bug"})
+        sh = "build() {\n  record true build\n}\ngate() { build; }\nrecord() { echo; }\nup() {\n  echo up\n}\n"
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": sh}}})
+        k = f"{s.gated('s1', F)['T']}-{hd.tools_run(F.f['tools_files'][B], [])[:12]}"
+        hd.put("s1", "build", {"T": k, "ok": True})
+        hd.put("s1", "gate", {"T": k, "ok": False, "detail": "FAIL: ci: a tools bug"})
         s.assertEqual(s.state(F, "s1")["actor"], "dev")                      # the failure stands while the tools stand
-        F.f["refs"] = {**F.f["refs"], "local/harness": B}                    # the tools fix ships
+        F.f["tools_files"][C] = {"tools/track.sh": sh.replace("echo up", "echo up again"), "tools/server/README.md": "x"}
+        F.f["refs"] = {**F.f["refs"], "local/harness": C}                    # a tools commit outside what build and gate run
+        s.assertEqual(hd.tools_run(F.f["tools_files"][B], []), hd.tools_run(F.f["tools_files"][C], []))
+        s.assertEqual(s.state(F, "s1")["actor"], "dev")                      # the failure still stands
+        F.f["tools_files"][D] = {"tools/track.sh": sh.replace("echo;", "echo 2;")}
+        F.f["refs"] = {**F.f["refs"], "local/harness": D}                    # the tools fix ships: record, which build calls
         st = s.state(F, "s1")
         s.assertEqual((st["actor"], st["state"]), ("script", f"building {hd.rec('s1', 'build')['T'][:9]}"))
         hd.tick(s.ctx(F))
         s.assertEqual([x[1] for x in F.spawned], ["build"])                 # build and gate re-run under the new tools
-        s.assertEqual(F.envs[0]["T"], f"{hd.rec('s1', 'handover')['T']}-{B[:12]}")
+        s.assertEqual(F.envs[0]["T"], f"{hd.rec('s1', 'handover')['T']}-{hd.tools_run(F.f['tools_files'][D], [])[:12]}")
         hd.put("s1", "gate", {"T": F.envs[0]["T"], "ok": True})
         s.assertIn("s1", hd.integration(s.ctx(F))["names"])                  # the re-run gate still admits the hand-over to T_int
+
+    def test_the_tools_key_holds_only_what_build_and_gate_run(s):
+        sh = ("#!/usr/bin/env bash\n# verbs: build gate up\nself=x\n"
+              "build() {\n  py=$(cat <<'EOF'\nprint(1)\nEOF\n)\n  docker build -f \"$self/server/Dockerfile\"; echo \"no image: up first\"\n}\n"
+              "gate() { build && ci; }\nci() { echo ci; }\nup() {\n  python3 \"$self/server/login.py\"\n}\n"
+              "case $verb in build|gate|up) \"$verb\" ;; esac\n")
+        f = {"tools/track.sh": sh, "tools/server/Dockerfile": "FROM a", "tools/server/login.py": "x", "tools/server/text.py": "t", "tools/server/test_tools.py": "u"}
+        k = lambda g, rows=(): hd.tools_run({**f, **g}, list(rows))
+        for g in ({"tools/track.sh": sh.replace("echo ci", "echo ci2")}, {"tools/track.sh": sh.replace("print(1)", "print(2)")},
+                  {"tools/server/Dockerfile": "FROM b"}):
+            s.assertNotEqual(k({}), k(g), g)                                   # what build and gate run: a function, a here-document, a file
+        for g in ({"tools/track.sh": sh.replace("# verbs: build gate up", "# verbs")}, {"tools/track.sh": sh.replace("build|gate|up", "build|gate|up|down")},
+                  {"tools/track.sh": sh.replace('"$self/server/login.py"', '"$self/server/login.py" -v')}, {"tools/server/login.py": "y"},
+                  {"tools/server/text.py": "t2"}, {"tools/server/test_tools.py": "u2"}):
+            s.assertEqual(k({}), k(g), g)                                      # a comment, the dispatch, up (named only in a message), other files
+        s.assertNotEqual(k({}, ["tools/server/text.py texts"]), k({"tools/server/text.py": "t2"}, ["tools/server/text.py texts"]))  # a row's file
+        s.assertNotEqual(k({}, ["tools/track.sh up"]), k({"tools/server/login.py": "y"}, ["tools/track.sh up"]))                    # a row's verb
 
     def test_track_root_and_repair_on_the_tools_branch_worktree(s):
         c = hd.cfg()

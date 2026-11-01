@@ -125,6 +125,23 @@ class Facts:
         r = s.sh(["git", "-C", clone, "ls-tree", commit])
         return hashlib.sha1("".join(l + "\n" for l in r[1].splitlines() if l.split("\t", 1)[-1] != drop).encode()).hexdigest() if r and r[0] == 0 else None
 
+    def tools_files(s, clone, commit):
+        """{path: text} of every file under tools/ at the commit; None unknown."""
+        def f():
+            r = s.sh(["git", "-C", clone, "ls-tree", "-r", "--name-only", "-z", commit, "--", "tools"])
+            if r is None or r[0]:
+                return None
+            names = [n for n in r[1].split("\0") if n]
+            b = subprocess.run(["git", "-C", clone, "cat-file", "--batch"], input="".join(f"{commit}:{n}\n" for n in names).encode(), capture_output=True)
+            if b.returncode:
+                return None
+            out, i = {}, 0
+            for n in names:  # each entry: "<sha> <type> <size>\n<content>\n"
+                j = b.stdout.index(b"\n", i); size = int(b.stdout[i:j].split()[2])
+                out[n] = b.stdout[j + 1:j + 1 + size].decode(errors="replace"); i = j + 2 + size
+            return out
+        return s._m(("tools_files", clone, commit), f)
+
     def merge(s, clone, base, head, msg):
         """R8: ('ok', commit) | ('conflict', detail) | None. The merged tree becomes a commit with a fixed author, dated
         the newest of its parents' committer dates, so the same inputs give the same commit; a build copy checks it out, its tree sha keys every artefact."""
@@ -286,6 +303,44 @@ defs.bad = []
 def tools_wt(r):
     """A repo's tools branch worktree, <repo>/.worktrees/<the branch's last segment>; None without a tools branch."""
     return P(r["path"]) / ".worktrees" / r["tools"].rsplit("/", 1)[-1] if r.get("tools") else None
+
+
+def tools_run(files, cmds):
+    """The hash of the tools a build and gate run: tools/track.sh's top-level code (comment lines dropped) and each function
+    reachable from build, gate and the verbs the contract's commands name (not through the verb dispatch), plus every tools file whose name that code or
+    those commands mention, transitively. A misparse only adds code; a commit outside these files keeps the hash."""
+    sh, chunks, fns, doc = files.get("tools/track.sh", ""), [], {}, None
+    for l in sh.splitlines():
+        if doc is not None:  # a here-document's lines belong to the code that opened it
+            chunks[-1].append(l); doc = None if l.strip() == doc else doc
+            continue
+        if re.match(r"\s*#", l) or not l.strip():
+            continue
+        if not l[0].isspace() and not l.startswith("}"):
+            chunks.append([])
+            m = re.match(r"([A-Za-z_]\w*)\(\)\s*\{", l)
+            if m:
+                fns[m.group(1)] = chunks[-1]
+        if chunks:
+            chunks[-1].append(l)
+            m = re.search(r"<<-?\s*['\"]?(\w+)", l)
+            doc = m.group(1) if m and "<<<" not in l else None
+    words = lambda t: set(re.findall(r"(?:^|[;&|({!]|\$\(|\b(?:then|do|else|if|elif|while|until))[ \t]*([A-Za-z_]\w*)\b(?![=\w])", re.sub(r"\s#\s.*", "", t), re.M))  # the words in command position
+    todo = {"build", "gate"} | {c.split()[1].replace("-", "_") for c in cmds if c.startswith("tools/track.sh ") and len(c.split()) > 1}
+    used = [c for c in chunks if not any(c is f for f in fns.values())]
+    routed = [c for c in used if not c[0].startswith("case $verb")]  # the verb dispatch names every verb: it routes, it calls none
+    text, seen, paths = "\n".join(cmds) + "\n" + "\n".join("\n".join(c) for c in routed), set(), set()
+    while True:
+        new = {n for n in (todo | words(text)) & set(fns) if n not in seen}
+        newp = {p for p in files if p != "tools/track.sh" and p not in paths and p.rsplit("/", 1)[-1] in text}
+        if not new and not newp:
+            break
+        seen |= new; paths |= newp
+        text += "".join("\n" + "\n".join(fns[n]) for n in sorted(new)) + "".join("\n" + files[p] for p in sorted(newp))
+        todo = set()
+    # shortcut: a change to the dispatch's own build or gate line keeps the hash; hash those lines if one ever does more than route
+    body = ["\n".join(c) for c in routed] + [f"{n}\n" + "\n".join(fns[n]) for n in sorted(seen)] + [f"{p}\n{files[p]}" for p in sorted(paths)]
+    return hashlib.sha1("\0".join(body).encode()).hexdigest()
 
 
 def track_root(c, track):
@@ -602,13 +657,17 @@ class Ctx:
         return None if k is None else g["T"] == k
 
     def key(s, ch, tree):
-        """The build and gate key: T's tree, plus the tip of the track's tools branch when it has one, so a tools fix
-        re-runs both. `-` joins it: the server tags its image by the key."""
+        """The build and gate key: T's tree, plus (on a track with a tools branch) the hash of the tools its build and gate
+        run (tools_run), so a tools commit outside them re-runs neither. `-` joins it: the server tags its image by the key."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         if tree is None or not r.get("tools"):
             return tree
         t = s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
-        return None if t is None else tree + (f"-{t[:12]}" if t else "")
+        if not t:
+            return None if t is None else tree
+        files = s.F.tools_files(str(P(r["path"])), t)
+        con = contract(ch["slug"])
+        return None if files is None else tree + "-" + tools_run(files, [x for row in (con or {}).get("rows", []) for x in (row["check"], row["gate"]) if x])[:12]
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")

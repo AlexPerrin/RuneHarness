@@ -85,21 +85,21 @@ head holds its tip, or the change is closed; `swept.json` keeps the head the dev
 ```
 next(change):
   closed by the user?               yes → done
-  deps live or closed?              no → wait on them
+  deps live or closed?              no → wait on them (a same-track dependency of another upstream PR: merged upstream; of the same PR, its pr or branch: gated)
   question open (hd ask)?           yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?                      no → qa run (server, central) | derived from the definition and seed rows (client, harness)
   handover at the dev ref's tip?    no → dev run (a hand-off file lists its successor; FAIL findings and gate details in the brief)
   carried tools head behind branch? rebase it in the pass, record it in the hand-over; conflict → dev
-  T                                 conflict → dev
+  T                                 conflict → dev; an upstream head holding unmerged commits of another PR's change (stacked) → dev
   build(T)                          not built → tools/track.sh build; failed → dev
   gate(T)                           not run → tools/track.sh gate (script rows, fork CI on gate/<slug> at T, probe, tests); failed → dev
   verdict(head, contract)           none → qa run; FAIL with a code row → dev; text-only rows: qa fixes the text, re-marks
-  live? (central: its gate at T)    server: live.json ⊇ head? no → ship test server (T_int built once, deployed); a conflict → the later-merged change's dev
+  test server? (server, beside) live.json ⊇ head? no → deploy T_int (built once) in the same pass, holding neither card nor ship (a local change: its target, then done); a conflict → the later-merged change's dev
                                     (a pin's: the oldest one at this step): against a change, resolve in its own branch; against a
                                     permanent pin, the base or a union, push local/merge/<a>-<b>; every conflicting head is left out
                                     and the rest merged on (pins first, then heads by priority, then creation), so one dev step lists them all with the merge
                                     order; only a pin's conflict holds the deploy, the tree without a conflicting head deploys
-  public (upstream, release)?       approval at head? no → card
+  public (upstream, release)?       approval at head? no → card (naming the base)
   ship                              upstream: push, PR, CI green, comment naming head, ready, review requested; a reply change (one `finding`,
                                     its head a same-track dependency's: no commit of its own): pr-comment.md posted in that finding's thread,
                                     quoting it and naming only its author; release: gh release; else merge and push. hd-public's last

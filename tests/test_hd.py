@@ -872,10 +872,12 @@ class R8(Sandbox):
             subprocess.run(["git", "init", "-q", "-b", b, str(d)], check=True); commit(d, "base")
         (repo / "tools").mkdir(); shutil.copy(Path(__file__).parent.parent / "tools" / "track.sh", repo / "tools")
         run(repo, "add", "."); run(repo, "commit", "-qm", "tools"); run(repo, "remote", "add", "origin", str(origin)); run(repo, "push", "-q", "origin", "v8")
+        for name, url in (("origin", tmp / "OpenRune" / "OpenRune-Server.git"), ("fork", tmp / "AlexPerrin" / "OpenRune-Server.git")):   # upstream is origin
+            subprocess.run(["git", "init", "-q", "--bare", str(url)], check=True); run(fork, "remote", "add", name, str(url))
         run(fork, "branch", "local/harness"); wt = fork / ".worktrees" / "harness"; run(fork, "worktree", "add", "-q", str(wt), "local/harness")
         run(fork, "checkout", "-q", "-b", "harness/s1", "local/harness"); C = commit(fork, "carried fix"); run(fork, "checkout", "-q", "main")
         run(repo, "checkout", "-q", "--detach"); T = commit(repo, "T"); run(repo, "checkout", "-q", "v8"); live = run(repo, "rev-parse", "v8")
-        ship = lambda: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T], env={**os.environ, "HD_ROOT": str(s.root), "TOOLS": f"{fork}:local/harness:{C}"}, capture_output=True, text=True)
+        ship = lambda: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T], env={**os.environ, "HD_ROOT": str(s.root), "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server"}, capture_output=True, text=True)
         moved = commit(wt, "another change shipped to local/harness")
         hd.put("s1", "gate", {"T": "t", "ok": True}); hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
         r = ship()
@@ -884,6 +886,7 @@ class R8(Sandbox):
         run(wt, "reset", "-q", "--hard", "HEAD~1")
         r = ship()
         s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")), (0, T, C), r.stdout + r.stderr)
+        s.assertEqual((run(fork, "ls-remote", "fork", "local/harness").split()[:1], run(fork, "ls-remote", "origin")), ([C], ""))   # pushed to the fork, never upstream
         shutil.rmtree(tmp, ignore_errors=True)
 
     def test_harness_build_refuses_without_the_loops_env(s):
@@ -1105,7 +1108,7 @@ class R3(Sandbox):
         ho = s.gated("h1", F)
         s.assertEqual((ho["tools"], ho["T"]), ({"fork": C}, TA + "+" + C[:12]))  # build and gate are keyed by the carried head too
         hd.tick(s.ctx(F))
-        s.assertEqual(F.spawned[-1][1], "ship"); s.assertEqual(F.envs[-1]["TOOLS"], f"{fork}:local/harness:{C}")
+        s.assertEqual(F.spawned[-1][1], "ship"); s.assertEqual(F.envs[-1]["TOOLS"], f"{fork}:local/harness:{C}:o/f")
         F.f["refs"][f"{fork}:harness/h1"] = D
         s.assertEqual(s.state(F, "h1")["actor"], "dev")                          # a moved tools ref is handed over again
         F.f["refs"][f"{fork}:harness/h1"] = C; F.f["anc"].add((B, A))

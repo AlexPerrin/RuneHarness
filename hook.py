@@ -7,7 +7,10 @@ PreToolUse      bind if the start found no prompt yet; the one rule (R4): `hd ap
 PostToolUse     the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 write evidence/<slug>/handoff.md and hand back.                                                            R6
 SubagentStop    end the run: ended, usage, last message, record (the role's record newer than the start), then start the
-                pass without waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`).     R2 R6
+                pass without waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`).
+                A stop fires at every idle turn (a wait on a build, before the hand-back nudge): the agent's next tool
+                call (PreToolUse) makes the run alive again and its next stop ends it afresh, so the last stop (after
+                SubagentHandback) holds the record.                                                                        R2 R6
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
 """
 import json, re, subprocess, sys, time
@@ -69,6 +72,10 @@ def bind(p):
     if not p.get("agent_id") or p.get("agent_type") not in ROLES:
         return
     r = find_run(p)
+    if r and r.get("ended") and not r.get("reason") and r.get("agent_id") == p["agent_id"]:   # resumed after an idle stop
+        r["ended"] = None
+        hd.save_run(r)
+        return hd.event(change=r["change"], run=r["name"], action="resumed")
     if not r or r.get("started"):
         return
     cpid, cstart = hd.Facts().console()
@@ -124,11 +131,11 @@ def end_run(p):
     r = find_run(p)
     if not r:
         return hd.event(action="stop-unmatched", agent=p.get("agent_id"), role=p.get("agent_type"))
-    if r.get("ended"):
+    if r.get("reason"):   # ended by the pass or the head, not by a stop
         return
     u, last, handed = usage_of(transcript(p))
     rec = produced(r) or (handed and r["role"] == "orchestrator")  # the orchestrator's hand-back is its record, filed or not
-    r.update(ended=hd.now(), usage=u, last=(p.get("last_assistant_message") or last)[-500:], record=rec, events_at=hd.Facts().events_count())
+    r.update(ended=hd.now(), usage=u, last=(last if handed else p.get("last_assistant_message") or last)[-500:], record=rec, events_at=hd.Facts().events_count())
     hd.save_run(r)
     hd.event(change=r["change"], run=r["name"], action="ended", record=r["record"], turns=u["turns"])
     start_pass()

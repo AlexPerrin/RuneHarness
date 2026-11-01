@@ -344,6 +344,21 @@ class R2(Sandbox):
         s.assertTrue(any("ended without a record" in a for a in v["alert"]))
         s.assertTrue(any(x.startswith("orchestrator-") for x in v["spawn"]))  # the alert lists the orchestrator, not the user
 
+    def test_a_run_ends_at_its_last_stop_and_is_alive_while_resumed(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="Waiting for the build to finish.", usage=2))   # an idle turn
+            hook.bind(payload(run, "ag1", "PreToolUse", s.root))          # the build notification resumes it
+            v = hd.tick(s.ctx(F))
+            s.assertEqual(([x for x in v["spawn"] if x.startswith("s1-")], len(hd.runs())), ([], 1))   # alive: no second run
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, last="I'll hand back.", usage=5, handback="run s1-1: handoff"))
+        r = hd.runs()[0]
+        s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the last stop's record
+
     def test_hook_binds_by_brief_path_and_wakes_main(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s2": A}})

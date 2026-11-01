@@ -146,7 +146,9 @@ unit tests in its worktree; the harness track's `build` refuses without the loop
 the context limit (set below the bound with room for a clean hand-off, measured under 11000 tokens) to start no new work,
 then in order: commit its work in progress on the dev ref (pushed off the harness track), record what it judged (a judge:
 `hd verdict` when a row failed, else the judged rows in `handoff.md`), collect its subagents and stop its processes, write
-`handoff.md` and hand back; the successor is listed with it, its brief naming that commit. Three runs of a change past the limit since its
+`handoff.md` (what is proven, what is left, the exact next step, whether a server or desktop is up) and hand back; the successor,
+the same role on the same change, is listed in the same pass past the tier hold and the agent count, its brief naming that commit
+and the file to resume from. Three runs of a change past the limit since its
 last handover are an alert (the change too large for one run, or its brief spending context on reading).
 
 **Authority**: the orchestrator, the pass and every agent run as the user with a fine-grained token limited to AlexPerrin/*, so

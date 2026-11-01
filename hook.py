@@ -242,8 +242,9 @@ def context_limit(p):
           f"command in hand, then hand off cleanly, in this order: {save}{judged}"
           "collect every subagent you started (SendMessage it to return its answer now, then block until its task "
           "notification; TaskStop cannot stop it) and stop every process you started (TaskStop, your track script's `down "
-          f"{r['change']}`); write evidence/{r['change']}/handoff.md (your commit, what is done, what is next, the facts you "
-          "rely on); then hand back with `run " + r["name"] + ": handoff`. A fresh run continues from your commit and file."}}))
+          f"{r['change']}`); write evidence/{r['change']}/handoff.md (your commit, what is proven and by "
+          "which evidence, what is left, the exact next step, whether a server or desktop is still up, the facts you rely on); "
+          "then hand back with `run " + r["name"] + ": handoff`. A fresh run, listed in the same pass, resumes from your commit and file."}}))
     return True
 
 

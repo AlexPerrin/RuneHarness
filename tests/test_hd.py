@@ -1209,6 +1209,25 @@ class R6(Sandbox):
         s.change("p1", priority="P1", deps=["b4"], closed="answer-1: done")
         s.assertIn("q3-1", " ".join(hd.tick(s.ctx(F))["spawn"]))          # no higher change open: q3 is listed
 
+    def test_a_hand_off_is_replaced_in_the_same_pass_past_the_tier_hold_and_the_count(s):
+        s.change("p1", priority="P1"); s.agreed("p1")
+        s.change("q2", priority="P2"); s.agreed("q2")
+        F = Fake(**FACTS)
+        q = {"name": "q2-1", "role": "dev", "change": "q2", "input": "[]", "listed": hd.now(), "started": hd.now(), "ended": None}
+        hd.save_run(q)                                                 # q2's run, started before p1 opened
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["p1-1"])
+        c = json.loads((s.root / "hd.yaml").read_text()); c["agents"] = 2; (s.root / "hd.yaml").write_text(json.dumps(c))
+        q.update(ended=hd.now(), handoff_told=160000); hd.save_run(q)  # q2's run hands off at the limit; p1-1 fills the count
+        (s.root / "evidence" / "q2").mkdir(parents=True, exist_ok=True)
+        (s.root / "evidence" / "q2" / "handoff.md").write_text("proven: A1; next: A2")
+        hd.save_run({"name": "x9-1", "role": "dev", "change": "x9", "input": "[]", "listed": hd.now(), "started": hd.now(), "ended": None})
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(sorted(x.split(":")[0] for x in v["spawn"]), ["p1-1", "q2-2"])   # replaced at once, though P1 is open and 2 runs are alive
+        b = open(next(r for r in hd.runs() if r["name"] == "q2-2")["brief"]).read()
+        s.assertIn(f"Resume from {s.root / 'evidence' / 'q2' / 'handoff.md'}", b)
+        s.assertIn("proven: A1; next: A2", b)
+        s.assertIn("q2-2", " ".join(hd.tick(s.ctx(F))["spawn"]))      # kept while unstarted, not dropped as held
+
     def test_a_held_band_lists_no_run_below_it(s):
         s.change("q3", priority="P3"); s.agreed("q3")
         F = Fake(**FACTS)

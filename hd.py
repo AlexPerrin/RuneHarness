@@ -912,7 +912,8 @@ def brief(ctx, ch, st, name, role):
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
-        lines += [f"## Hand-off from your predecessor (its work in progress: {ctx.head(ch) or 'no commit on the dev ref'})", hoff.read_text(), ""]
+        lines += [f"## Hand-off from your predecessor (its work in progress: {ctx.head(ch) or 'no commit on the dev ref'})",
+                  f"Resume from {hoff}: take its next step first; redo nothing it proves.", hoff.read_text(), ""]
     if v:
         lines += [f"## Last verdict (head {v[-1]['head'][:9]}, run {v[-1].get('run', '')})", json.dumps(v[-1]["rows"], indent=1), ""]
         if (o := [k for k, r in v[-1]["rows"].items() if str(r).startswith("not-judged")]):
@@ -928,6 +929,14 @@ def brief(ctx, ch, st, name, role):
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("\n".join(lines))
     return str(f)
+
+
+def relay(ctx, slug, role):
+    """R6: the change's last started run, of this role, ended in a hand-off (told at the context limit, handoff.md
+    written): its successor is listed in the same pass, past the tier hold and the agent count."""
+    ran = [r for r in ctx.runs if r["change"] == slug and r.get("started")]
+    last = max(ran, key=lambda r: r["started"]) if ran else {}
+    return bool(last.get("ended") and last.get("handoff_told") and last["role"] == role and (EVID / slug / "handoff.md").exists())
 
 
 def dispatch(ctx, ch, st, act):
@@ -953,7 +962,7 @@ def dispatch(ctx, ch, st, act):
             ctx.alerts.append(f"{slug}: {len(same)} {role} runs ended without a record on the same input; last: {(same[-1].get('last') or '')[:200]}")
             return
     busy = len([r for r in ctx.runs if not r.get("ended") and r["role"] != "planner"]) >= ctx.cfg.get("agents", 3)
-    if (busy and role != "planner") or not act:
+    if (busy and role != "planner" and not relay(ctx, slug, role)) or not act:
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
@@ -1199,7 +1208,7 @@ def tick(ctx=None, act=True):
         hold = "P%d" % min([PRIO.get(prio[k], 9) for k in ctx.changes if k not in shut] + [PRIO.get(ctx.cfg.get("hold"), 9)])
         for ch in sorted(ctx.changes.values(), key=key):
             st = nxt(ctx, ch)
-            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9)
+            held = PRIO.get(prio[ch["slug"]], 9) > PRIO.get(hold, 9) and not relay(ctx, ch["slug"], st["actor"])
             if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
                 open_prs.add((ch["track"], ch["pr"]))
             if st["actor"] == "ship-test":

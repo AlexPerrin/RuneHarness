@@ -952,6 +952,29 @@ class R6(Sandbox):
             s.assertTrue(r["result"]["isError"])                      # a tile it cannot reach: stops where it stood, says so
             s.assertIn("stuck", r["result"]["content"][0]["text"])
 
+    def test_desktop_answer_names_a_dropped_session_and_a_hung_netstat_never_blocks(s):  # quest-sheepshearer-3: a call hung 30 min, then an idle logout
+        import importlib.util, subprocess as sp
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        game = ["LOGGED_IN"]
+        def backend(cmd, method, params):
+            if params["name"] == "get_client_state":
+                s.assertEqual(params["arguments"], {"port": 7786})
+                return {"result": {"content": [{"type": "text", "text": json.dumps({"gameState": game[0]})}]}}
+            return {"result": {"content": [{"type": "text", "text": "[]"}]}}
+        out = []
+        call = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_npcs", "arguments": {"port": 7786}}})
+        with mock.patch.object(b, "backend", backend), mock.patch.object(b, "reply", lambda i, **r: out.append(r)):
+            b.handle("desktop", ["http://127.0.0.1:7780/mcp"], call)
+            game[0] = "LOGIN_SCREEN"
+            b.handle("desktop", ["http://127.0.0.1:7780/mcp"], call)
+        s.assertEqual(len(out[0]["result"]["content"]), 1)              # logged in: the answer as it came
+        s.assertIn("7786 is at LOGIN_SCREEN", out[1]["result"]["content"][1]["text"])
+        def hang(*a, **k):
+            s.assertIn("timeout", k); raise sp.TimeoutExpired(a[0], k["timeout"])
+        with mock.patch.object(b.subprocess, "run", hang), mock.patch.object(b.urllib.request, "urlopen", side_effect=OSError("refused")):
+            s.assertIn("no desktop client answers", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {}})["error"]["message"])
+
     def test_harness_changes_dispatch_before_product_changes(s):
         s.change("s1", priority="P0"); s.agreed("s1")
         s.change("h1", track="harness", priority="P3"); s.agreed("h1", track="harness")

@@ -20,7 +20,7 @@ tools/track.sh    the harness track's script; tools/track.md its rules and seed 
 hd-public         the one program run as user `hd` with the full token (sudoers-limited): upstream acts and releases
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring);
                   .claude/skills/head/  main's relay
-mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
+mcp/              osrs-mcp (cache, wiki, gamevals); the devtools front (desktop: POST to a desktop's devtools port, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, and every answer names a session that dropped to the login screen; mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
 ```

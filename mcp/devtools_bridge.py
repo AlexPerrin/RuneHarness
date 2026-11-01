@@ -10,6 +10,7 @@ on its next call.
 A desktop walk_to walks to its tile at any distance in minimap clicks of at most STEP tiles (walk below).
 A live tools list is cached in ~/.cache/osrs-devtools/tools-<name>.json; without a live client the cache, else
 mcp/devtools-snapshot.json, answers it. A call with no client returns the backend's error, not a dead server.
+A desktop call's answer names a dropped session (the client back at the login screen) after its own content.
 """
 import json
 import math
@@ -35,9 +36,9 @@ def post(url, method, params):
         url = re.sub(r":\d+/", f":{int(port)}/", url, count=1)
     # mirrored WSL drops a connect to a closed Windows port instead of refusing it: ask netstat, as the bring-up does
     port = re.search(r":(\d+)/", url).group(1)
-    try:
-        ns = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True)
-    except OSError:
+    try:   # a loaded host's WSL interop can leave netstat.exe hanging (accept4 failed 110): no answer then, so connect
+        ns = subprocess.run([NETSTAT, "-anp", "TCP"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
         ns = None
     if ns and ns.returncode == 0 and not re.search(rf":{port}\s+\S+\s+LISTENING", ns.stdout):   # a failed netstat (now and then) says nothing: connect
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
@@ -124,6 +125,23 @@ def walk(cmd, params):
     return {"result": {"content": [{"type": "text", "text": msg}], **({"isError": True} if stuck else {})}}
 
 
+DROPPED = ("LOGIN_SCREEN", "LOGIN_SCREEN_AUTHENTICATOR", "CONNECTION_LOST")
+
+
+def session(cmd, port, r):
+    """A desktop call's result, flagged when the session behind it has dropped (the server's idle logout, a disconnect):
+    an empty answer from a logged-out client reads like an empty scene."""
+    try:
+        g = text(backend(cmd, "tools/call", {"name": "get_client_state", "arguments": dict(port)})).get("gameState")
+    except (RuntimeError, AttributeError):
+        return r
+    if g not in DROPPED:
+        return r
+    note = {"type": "text", "text": f"desktop {port.get('port', 'default')} is at {g}: its session dropped; log it in again "
+            "(tools/server/desktop_login.py <port> <account> <account>, the accounts in up.json)"}
+    return {"result": {**r["result"], "content": [*r["result"].get("content", []), note]}}
+
+
 def tools(name, cmd):
     cache = os.path.expanduser(f"~/.cache/osrs-devtools/tools-{name}.json")
     live = backend(cmd, "tools/list", {})
@@ -167,8 +185,11 @@ def handle(name, cmd, line):
     elif method == "ping":
         reply(msg["id"], result={})
     else:
-        far = cmd[0].startswith("http") and method == "tools/call" and params.get("name") == "walk_to"
-        r = walk(cmd, params) if far else backend(cmd, method, params)
+        desk = cmd[0].startswith("http") and method == "tools/call"
+        port = {"port": a["port"]} if "port" in (a := params.get("arguments") or {}) else {}
+        r = walk(cmd, params) if desk and params.get("name") == "walk_to" else backend(cmd, method, params)
+        if desk and params.get("name") != "get_client_state" and "result" in r:
+            r = session(cmd, port, r)
         reply(msg["id"], **({"result": r["result"]} if "result" in r else {"error": r.get("error")}))
 
 

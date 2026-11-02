@@ -24,7 +24,8 @@ You hold no state: everything below is rebuilt from files on every wake.
    `hd hold` alone with their words, never also `hd answer`; their word on the harness is a harness change (step 8).
 5. `question`: ask the user as text in your reply and go on with the loop; when their words come,
    `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
-   `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
+   `hd answer <slug> --waive <row> "<their words>"`; when the option they chose is an edit of the definition (a dep, a
+   title, a body), make it in the definition and commit it with the answer. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.
 5a. `triage`: a maintainer's word on an upstream PR, not yet filed. Judge it yourself, at once: a defect or a request
    (anything to change, fix, explain or test) is `hd triage <id> finding`; a decision of scope only the user makes (move

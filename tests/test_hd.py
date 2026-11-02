@@ -4557,6 +4557,14 @@ class R3(Sandbox):
         s.assertEqual(F.ran, ["true"])
         s.assertEqual(hd.rec("s1", "handover")["head"], A)
 
+    def test_an_answer_row_quotes_the_question_it_closes(s):  # sweep 85: 'the user: a' lost '(a) add deps [x]'
+        s.change("s1"); s.agreed("s1")
+        hd.cmd_ask(["s1", "(a) add deps [x] | or (b)\nkeep"]); hd.cmd_answer(["s1", "a"])
+        s.assertTrue(hd.contract("s1")["rows"][-1]["text"].endswith('the user, to "(a) add deps [x] / or (b) keep": a'))
+        s.assertIsNone(hd.rec("s1", "ask"))
+        hd.cmd_answer(["s1", "b"])   # no open question: the row is the word alone
+        s.assertTrue(hd.contract("s1")["rows"][-1]["text"].endswith("the user: b"))
+
     def test_answer_ids_are_unique_after_a_rewrite_and_a_duplicate_fails(s):  # goblin-367: a rewrite dropped answer-1, the next answer was answer-2 again
         s.change("s1"); s.agreed("s1", extra="- answer-2 | 2026-11-01T00:28:13Z the user: kept | note\n")
         hd.cmd_answer(["s1", "a", "finding"])

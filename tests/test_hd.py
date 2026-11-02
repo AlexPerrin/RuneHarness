@@ -4267,8 +4267,10 @@ class R3(Sandbox):
                 hook.handover_line({**p, "tool_input": {"message": msg}})
             return out.getvalue() and json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecisionReason"]
         s.assertIn("`hd handover` first", says(f"run {name}: handed over {A[:9]} Limits: none"))   # no hand-over recorded
-        hd.put("s1", "handover", {"head": A, "limits": "Limits: none"})
-        s.assertEqual(says(f"run {name}: handed over {A[:9]} Limits: none"), "")                  # its one line goes
+        with mock.patch.object(hd, "Facts", lambda: Fake(**FACTS)), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        s.assertEqual(out.getvalue().splitlines()[-1], f"run {name}: handed over {A[:9]} Limits: none")   # sweep-65 P4-a: hd handover prints the line to copy
+        s.assertEqual(says(out.getvalue().splitlines()[-1]), "")                                           # its one line goes
         s.assertEqual(says(f"run {name}: handoff\nthe server is down"), "")                         # no hand-over: free text
         for bad in (f"run {name}: handed over {A[:9]} Limits: none\nrisk: -F still writes", f"run {name}: handed over {B[:9]} Limits: none",
                     f"run {name}: handed over {A[:9]} Limits: limit:x1"):

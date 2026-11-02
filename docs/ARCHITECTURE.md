@@ -21,6 +21,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   a run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by none of these starts with a line `hd scope <run>`;
                   a run's SubagentHandback is denied while a background command, monitor or subagent it started has no task notification, TaskStop result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is kept as evidence/<slug>/subagent-<id>.md;
                   a run's `handed over` hand-back is denied unless it is the one line its hand-over recorded, `run <name>: handed over <head> Limits: ...`;
+                  `hd handover` prints that one line, its run's name filled in, to copy;
                   SessionStart (startup, compact): an orchestrator session whose start-time definition is not the live one is given the live one (hd.reread), and a new one its predecessor's state/orchestrator-handoff.md;
                   PostToolUse: the orchestrator's TaskStop of a run's agent (one a SendMessage resumed after its hand-back too) ends the run as `hd stop` does, a fact the pass folds;
                   a run hands off at the context limit;

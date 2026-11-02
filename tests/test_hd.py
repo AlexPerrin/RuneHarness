@@ -2959,6 +2959,27 @@ class R6(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual([x[1] for x in F.spawned], ["gate"])
 
+    def test_a_failure_its_dev_hands_over_again_runs_again(s):  # sweep-60 P3-b: a flake blamed on a member stuck at its tree: a same-head hand-over could not re-gate
+        s.change("s1"); s.agreed("s1", extra="- t | tests | gate: tools/track.sh test\n")
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        F = Fake(refs={**FACTS["refs"], "HEAD": B, "harness/h1": A}, trees=FACTS["trees"], merges=FACTS["merges"])
+        ho, past = s.gated("s1", F), time.time() - 10
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        hd.put("s1", "gate", {"T": ho["T"], "ok": False}); hd.put("ship-harness", f"gate-{TA}", {"T": TA, "ok": False}); hd.put("ship-harness", f"gate-{TB}", {"T": TB, "ok": True})
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.spawned, [])                                                   # each failure is its dev's (h1's: the live branch passes its own gate)
+        for slug, f in (("s1", "s1/gate"), ("h1", f"ship-harness/gate-{TA}")):
+            os.utime(s.root / "state" / f"{f}.json", (past, past))
+            hd.put(slug, "handover", hd.rec(slug, "handover"))                         # its dev hands the same head over again
+        hd.tick(s.ctx(F))
+        s.assertEqual(sorted(x[1:] for x in F.spawned), [["gate", "s1", A], ["gate", "ship-harness", A]])   # each gated again, at the same tree
+        F.ran.clear(); ch, con = s.ctx(F).changes["s1"], hd.contract("s1")
+        hd.put("s1", "row-gate-t", {"keys": {"k": {"rc": 1, "out": "flake", "ts": "2000-01-01T00:00:00Z"}}})
+        with mock.patch.dict(os.environ, {"ROWKEYS": json.dumps({"s1/t": "k"})}):
+            hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=True)
+        s.assertIn("tools/track.sh test", F.ran)                                        # and its row's kept failure runs again
+
     def test_same_head_and_contract_never_judges_twice(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -3362,6 +3383,8 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
         s.assertTrue(hd.rec("s1", "gate-g")["ok"])                                    # sweep-21: but the shipped tree's own gate (G), which the live branch's gate reads
         s.assertFalse(hd.rec("s1", "gate-f")["ok"])                                   # sweep-59 P4-d: and a failed prefix's, whose tree recurs on the new base
+        r = subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T1], env={**os.environ, "HD_ROOT": str(s.root), "G": "g"}, capture_output=True, text=True)
+        s.assertEqual((r.returncode, hd.rec("s1", "gate-f")), (0, None), r.stdout + r.stderr)   # sweep-60 P3-c: for one ship: a flake never sticks to its tree
         s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
         hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})

@@ -316,7 +316,8 @@ next(change):
     failing, an alert and the batch waits, no member blamed.
     A ship runs under `state/ship.lock`, a T already on the live branch moves only the carried tools branches not yet holding (and pushed at) their heads;
     it clears the kept passed gates but the one of the tree it shipped (`gate-<G>`);
-    a failed gate stays, since its tree recurs on the new base (the members after the shipped prefix) and is never gated again
+    a failed gate stays for one ship (state/<batch>/shipped marks the last), since its tree recurs on the new base (the members after the shipped prefix) and is never gated again;
+    a failure (a build, gate or row record) older than a hand-over of one of its members counts as no result (outcome, rehanded): a member blamed for a failure not its own (a flake) hands over again and is gated again
   wait
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;

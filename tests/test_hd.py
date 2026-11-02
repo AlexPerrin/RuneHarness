@@ -2991,6 +2991,17 @@ class R3(Sandbox):
             hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("row lint failed", str(e.exception))
 
+    def test_an_upstream_seed_row_seeds_only_a_change_that_opens_a_pr(s):  # server-world-entities: a local raft gained subject and texts
+        s.change("s1", kind="local"); s.agreed("s1")
+        t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
+        t.write_text(t.read_text() + "- subject | feat: subjects | check: false | upstream\n- lint | spotless | check: false\n")
+        st = s.state(Fake(**FACTS), "s1")
+        s.assertEqual(st["state"], "contract: seed rows lint added"); st["act"]()   # the PR's row is not the local change's
+        s.assertNotIn("subject", [r["id"] for r in hd.contract("s1")["rows"]])
+        hd.write_contract(hd.cfg(), "s2", "server", "", up=False); hd.write_contract(hd.cfg(), "s3", "server", "")
+        s.assertEqual(([r["id"] for r in hd.contract("s2")["rows"]], [r["id"] for r in hd.contract("s3")["rows"]]),
+                      (["ok", "j1", "lint"], ["ok", "j1", "subject", "lint"]))
+
     def test_check_rows_run_before_gate_rows_which_wait_on_them(s):  # a seed spotless appended after ci ran only after a CI round
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- lint | spotless | check: false\n- late | local | check: true\n")
         F = Fake(**FACTS)
@@ -3093,7 +3104,7 @@ class R3(Sandbox):
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # a later issue on it joins it
         g = hd.defs("changes")
         s.assertNotIn("p9", g); s.assertIn("hold drops a run", g["r1"]["body"])
-        s.assertIn("filed by p9: hold drops a run", (s.root / "evidence" / "r1" / "contract.md").read_text())   # an answer row: a handed-over r1 gets its dev run
+        s.assertIn("filed by p9: hold drops a run", (s.root / "evidence" / "r1" / "contract.md").read_text())   # an answer row: scope r1's next hand-over takes
         for bad in ([], ["--mechanism", "r1"]):                                 # a harness filing names one of hd.yaml's mechanisms
             with s.assertRaises(SystemExit) as e:
                 hd.cmd_new(["p8", "--track", "harness", "--title", "y", *bad])
@@ -3160,6 +3171,21 @@ class R3(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])                                                          # the dev's new hand-over releases the head
         s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))
+
+    def test_a_filing_joined_after_the_handover_keeps_its_gate(s):  # sweep-15 B1: a join read as the user's word dropped a passing gate
+        s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])
+        s.assertIn("filed by p9: hold drops a run", hd.contract("h1")["text"])
+        s.assertFalse(any(e.get("record") == "answer" for e in hd.evs(b'"record": "answer"')))   # no run's record is outdated by it
+        s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))           # the handed-over head is still gated and shipped
+        D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")   # its scope, on top
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertEqual(s.state(D, "h1")["state"], "done")
 
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")

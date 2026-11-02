@@ -64,7 +64,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
-  a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>`, so a change already handed over gets a dev run for it;
+  a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;
   every dependency on a superseded change or on the filing (`--blocks`) is rewritten to the change that carries the fix, the new one or the one it joined, cycle-checked
@@ -107,7 +107,8 @@ harness/changes/<slug>.md      slug, track, kind (change|release|local), priorit
                                body
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>};
                                rows `- id | text | check: <cmd> | judge`;
-                               a track seed row the file lacks (by id) is written into it by the pass at a head not carried upstream (`hd.unseeded`)
+                               a track seed row the file lacks (by id) is written into it by the pass at a head not carried upstream (`hd.unseeded`);
+                               a row tagged `| upstream` (it judges or checks the upstream PR's texts or commits) seeds only a change that opens one (`hd.upstream`)
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}

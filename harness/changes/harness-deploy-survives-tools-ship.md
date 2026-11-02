@@ -4,7 +4,7 @@ track: harness
 title: a tools ship kills an in-flight deploy of the same tree; its cache download
   restarts from zero
 kind: change
-priority: P1
+priority: P0
 mechanism: build-gate
 deps: []
 created: '2026-11-02T02:53:48Z'

@@ -495,8 +495,8 @@ def deny_self_pgrep(p):
 def deny_time_bound(p):
     """R5: a subagent's step ends on its observed outcome, never on a bound of time or tries: a `timeout` command is denied,
     and so is a sleeping loop that counts (a `for` loop, or a `while`/`until` loop with a counter), a time bound by
-    another name; a loop that sleeps until its condition, the fact, holds is the wait (the Bash call's own `timeout`
-    parameter is the call's limit; when it ends first, the same wait is issued again)."""
+    another name; a loop that sleeps until its condition, the fact, holds is the wait (a step still running at 180 s
+    moves to the background and keeps running; its task notification ends the wait)."""
     if p.get("tool_name") != "Bash" or not p.get("agent_id"):
         return
     cmd = bare(p)
@@ -509,7 +509,7 @@ def deny_time_bound(p):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           "a step ends on its own outcome, never under a bound of time or tries (`timeout N`, a `for`/`seq` loop of sleeps, a sleep counter): "
           + (f"run `{unbound}` as it is, in the foreground " if unbound != raw else "run it in the foreground ")
-          + "(Bash `timeout` 600000 is the call's limit; when it ends first, issue the same wait again), "
+          + "(one still running at 180 s moves to the background and keeps running: wait for its task notification), "
           "or wait on the fact the step makes with one `until <fact>; do sleep N; done` (a state file, a log line, a port)."}}))
     return True
 

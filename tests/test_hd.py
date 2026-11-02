@@ -2003,6 +2003,21 @@ class R5(Sandbox):
         s.assertEqual([F.contains(r, b, a), F.contains(r, b, b), F.contains(r, a, b), F.contains(r, b, "f" * 40)], [True, True, False, None])
         s.assertEqual(spawns, ["rev-list", "rev-list", "merge-base", "merge-base"])                   # outside the ancestors: git tells held from unknown
 
+    def test_a_fetch_forgets_the_reads_of_its_clone(s):
+        """A ref read before a fetch of the same clone is read again after it; the fetch itself is not repeated."""
+        up, cl = s.root / "up", s.root / "cl"
+        git = lambda d, *a: subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True, check=True).stdout.strip()
+        commit = lambda: git(up, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c") or git(up, "rev-parse", "HEAD")
+        up.mkdir(); git(up, "init", "-q", "-b", "main"); a = commit()
+        subprocess.run(["git", "clone", "-q", str(up), str(cl)], check=True)
+        F = hd.Facts()
+        with mock.patch.dict(os.environ, {"HD_OFFLINE": ""}):
+            s.assertEqual(F.rev(str(cl), "origin/main"), a)
+            b = commit()
+            s.assertTrue(F.fetch(str(cl), "origin"))
+            s.assertEqual(F.rev(str(cl), "origin/main"), b)
+            s.assertIn(("fetch", str(cl), "origin", ""), F.memo)
+
     def test_github_reads_are_conditional_shared_and_held_on_an_exhausted_quota(s):
         """Two passes and a gate over the same state: the first pass reads each GitHub resource once, the second only
         revalidates (304s, no quota), the gate's dry-run reads the cache alone; an exhausted quota is an alert and reads nothing."""

@@ -18,7 +18,7 @@ a done or closed change leaves no worktree or local branch.
 The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on);
 the user's yes (`hd approve`) and close are the user's own;
 with no orchestrator session the user is told to start one;
-a session started on another orchestrator definition than the live one hands off to a fresh session on it, its runs alive across the swap;
+a session started on another orchestrator definition than the live one wraps up and restarts itself on it with no user step, no run or hand-back lost and what it learned carried in files and memory;
 its watch wakes it only when a line it acts on appears (spawn, card, question, alert);
 planning across tracks belongs to a planner run listed by facts, and the orchestrator keeps one read-only monitor sweep running that validates shipped harness changes landed and finds harness bugs, each session restarting it from the last sweep's report;
 nothing depends on any session staying alive.
@@ -128,8 +128,9 @@ a live check reads the real state.
    a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command or monitor it started has not reported its end, and its record newer than its change's last answer;
    an alert an open change carries or a planner hand-back answered lists no planner until the trigger changes (a gate failure at a new T, an alert with a new count), and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive);
    `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps and denies it the AskUserQuestion tool;
-   with no `claude --agent orchestrator` process the user is told to start one, and no planner is listed for it;
-   an orchestrator process whose start-time orchestrator.md blob (the live checkout's HEAD then, by its reflog) differs from HEAD's is alerted to write `state/orchestrator-handoff.md` and ask for a fresh session, and once one on the live blob is up it is told it is replaced and its `hd` prints only its own lines (no spawn), while the fresh one is told to read the hand-off while it exists;
+   with no `claude --agent orchestrator` process the user is told to start its supervisor `tools/orchestrator.sh`, and no planner is listed for it;
+   an orchestrator process whose start-time orchestrator.md blob (the live checkout's HEAD then, by its reflog) differs from HEAD's is alerted to wrap up and its `hd` prints only its own lines (no spawn);
+   `hd restart` refuses while a run bound to it is alive, while `state/orchestrator-handoff.md` is unwritten or outside the supervisor, else marks `state/orchestrator.restart` and ends the session, and the supervisor starts a fresh one, which is told to read the hand-off while it exists;
    a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
 
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;

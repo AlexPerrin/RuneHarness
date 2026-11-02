@@ -6,7 +6,7 @@ are the cutover the user approves.
 
 ## Start (one session, in ~/osrs-harness on branch `v8`)
 Its `.claude/settings.json` wires v8's hooks and its `.claude/agents/` holds the roles; a session started elsewhere
-binds no run. The driver and the user's chat: `cd ~/osrs-harness && claude --agent orchestrator`, told "drive": it
+binds no run. The driver and the user's chat: `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` and restarts it on a new definition): it
 arms the watch on `state/wake.orchestrator`, runs `python3 hd.py`, spawns each listed run, handles hand-backs, shows cards,
 questions and alerts and acts on the user's words; the user types the yes and the close themselves
 (`! python3 ~/osrs-harness/hd.py approve <slug> <head>` / `close <slug> <text>`). The planner run the pass lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same
@@ -34,4 +34,4 @@ against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until it
 1. The user: the `pins` list in hd.yaml; the `fix/31` decision.
 2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
    branch) until it moves onto `local/harness`.
-3. Stop v7's timer, merge `v8` into `main`, install the units, resume with `claude --agent orchestrator`.
+3. Stop v7's timer, merge `v8` into `main`, install the units, resume with `~/osrs-harness/tools/orchestrator.sh`.

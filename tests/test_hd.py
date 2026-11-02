@@ -3057,6 +3057,20 @@ class R8(Sandbox):
         s.gated("s1", F)
         return F, R
 
+    def test_a_tools_ship_keeps_a_gated_head_in_integration(s):  # sweep-31 P1-a: a tools ship dropped every head not yet re-gated from the deploy
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/gate/gate.sh": "1"}}})
+        t = s.gated("s1", F)["T"]; ctx = s.ctx(F); k = ctx.key(ctx.changes["s1"], t)
+        hd.put("s1", "gate", {"T": k, "ok": True})
+        F.f["tools_files"][C] = {"tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = C   # the tools ship: a new gate key
+        ctx = s.ctx(F)
+        s.assertFalse(ctx.gated(ctx.changes["s1"], A))                          # nxt re-gates it
+        s.assertIn("s1", hd.integration(ctx)["names"])                          # its passed gate at the same tree still holds in T_int
+        hd.put("s1", "gate", {"T": ctx.key(ctx.changes["s1"], t), "ok": False}) # the re-gate fails
+        s.assertNotIn("s1", hd.integration(s.ctx(F))["names"])
+        hd.put("s1", "gate", {"T": k.replace(t, "other", 1), "ok": True})     # a pass at another tree never holds
+        s.assertNotIn("s1", hd.integration(s.ctx(F))["names"])
+
     def test_merge_ref_stands_in_for_pair_in_integration(s):
         F, R = s.integration_fixture(with_ref=True)
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")

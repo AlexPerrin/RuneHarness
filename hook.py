@@ -10,11 +10,12 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 A bare `hd` or `hd tick` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.  R5
                 A run's kill of a pid outside its own slice, and its pkill or killall, is denied.                          R5
                 A Bash command's `pgrep -f` whose pattern matches the command's own text (its own `bash -c` line) is denied. R5
+                The denial names `hd ps`, which lists the run's own processes (pid, command line) for its `kill`.          R5
                 A run's own agent whose run the pass, the head or `hd stop` ended only reads, writes its evidence/<slug>/ and hands back.  R2
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
                 none of these, starts with `hd scope <run>`: its shell joins a scope of the run's systemd slice named by its task, which the pass stops
-                once the run ended (hd stop stops it at once).                                                           R5
+                once the run ended (hd stop stops it at once), with TMPDIR the slice's temp root, removed with it.          R5
                 A run's desktop devtools call (or one of an agent it spawned) acts only on a desktop of its change's up.json:
                 one naming no port is given the run's one desktop; any other is denied, its reason naming the run's ports. R5
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
@@ -30,7 +31,8 @@ PostToolUse     the orchestrator's TaskStop of a run's agent (one resumed after 
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
                 role's record newer than the start and the change's last answer; each subagent's hand-back is kept as
                 evidence/<slug>/subagent-<id>.md). Any other stop leaves the run live,
-                and is refused while a background command the agent started has not reported its end: the agent
+                and is refused while a background command or subagent the agent started has not reported its end, the
+                refusal naming each as what it is (a command to block on, a subagent to wait for): the agent
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by the orchestrator's TaskStop of its agent, `hd stop` or its console's death.                                      R2 R6
@@ -230,13 +232,13 @@ def owner_run(p):
 
 def in_run_slice(p):
     """R5: a run's Bash command, and each of the agents it spawned, starts with `hd scope <run>` on a line of its own: its
-    shell moves into the run's slice, so every process it starts ends with the run (the permission rules still judge the
-    command's own lines)."""
+    shell moves into the run's slice, so every process it starts ends with the run, and its temp files go under the slice's
+    temp root, removed with it (the permission rules still judge the command's own lines)."""
     if p.get("tool_name") != "Bash" or not (r := owner_run(p)):
         return
     ti = p.get("tool_input") or {}
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput":
-          {**ti, "command": f"python3 {Path(__file__).resolve().parent / 'hd.py'} scope {r['name']}\n{ti.get('command') or ''}"}}}))
+          {**ti, "command": f"python3 {Path(__file__).resolve().parent / 'hd.py'} scope {r['name']}\nexport TMPDIR={shlex.quote(str(hd.run_tmp(hd.run_slice(r['name']))))}\n{ti.get('command') or ''}"}}}))
 
 
 def own_desktop(p):
@@ -308,11 +310,16 @@ def end_run(p):
     u, last, handed = usage_of(entries)
     if not handed and (ids := running(entries)):   # R2: never idle on its own work
         hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
-        return print(json.dumps({"decision": "block", "reason":
-            f"Your background command(s) {', '.join(ids)} are still running. Never end a turn on your own work: block on it in the "
+        subs = [i for i in ids if i in subagents(entries)]
+        cmds = [i for i in ids if i not in subs]
+        return print(json.dumps({"decision": "block", "reason": " ".join(filter(None, (
+            subs and f"Your subagent(s) {', '.join(subs)} have not returned: wait for each one's task notification (SendMessage it to "
+            "return its answer now; you cannot TaskStop it), then go on.",
+            cmds and f"Your background command(s) {', '.join(cmds)} are still running. Never end a turn on your own work: block on it in the "
             "foreground with one until-loop on the fact the step makes (a state file, a log line, a port; never the task's output file, never "
-            "a bound of time or tries, never `pgrep -f` on text the waiting command itself carries, which matches its own loop). A step that cannot "
-            "finish (a hang, a refused login) is an error: stop it and hand back."}))
+            "a bound of time or tries, never `pgrep -f` on text the waiting command itself carries, which matches its own loop; `hd ps` lists "
+            "your run's processes). A step that cannot finish (a hang, a refused login) is an error: stop it (TaskStop, or `kill` a pid "
+            "`hd ps` names) and hand back.")))}))
     rec = handed and bool(hd.produced(r) or r["role"] == "planner")  # the planner's hand-back is its record, filed or not
     if handed:   # an idle stop leaves the run live
         keep_answers(p, r, entries)
@@ -418,7 +425,8 @@ def deny_self_pgrep(p):
             hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"self-matching pgrep -f {args[-1][:60]}")
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
                   f"`pgrep -f {args[-1]!r}` matches this command's own shell (its text is in the `bash -c` line), so it never ends. "
-                  "Run the step in the foreground (it ends on its own fact), or wait on the fact the step makes: a state file, a log line, a port (never the task's output file)."}}))
+                  "Run the step in the foreground (it ends on its own fact), or wait on the fact the step makes: a state file, a log line, a port (never the task's output file). "
+                  f"To find a process of your run (a hung step), `python3 {Path(__file__).resolve().parent / 'hd.py'} ps` lists your run's processes, pid and command line; `kill <pid>` stops one."}}))
             return True
 
 

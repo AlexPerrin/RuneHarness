@@ -293,20 +293,24 @@ class Facts:
 
     @_read
     def slices(s):
-        """R5: the active run slices (systemd user units hd-*.slice), or None when systemd cannot be read."""
-        r = s.sh(["systemctl", "--user", "list-units", "--plain", "--no-legend", "hd-*.slice"], timeout=60)
-        return None if r is None or r[0] else {l.split()[0] for l in r[1].splitlines() if l.strip()}
+        """R5: the active slices (systemd user units hd-*.slice, a run's or a test's) and the tasks each holds, or None when systemd cannot be read."""
+        r = s.sh(["systemctl", "--user", "show", "-p", "Id", "-p", "ActiveState", "-p", "TasksCurrent", "hd-*.slice"], timeout=60)
+        if r is None or r[0]:
+            return None
+        us = [dict(l.split("=", 1) for l in b.splitlines() if "=" in l) for b in r[1].split("\n\n")]
+        return {u["Id"]: int(u["TasksCurrent"]) if u.get("TasksCurrent", "").isdigit() else -1 for u in us if u.get("ActiveState") == "active"}
 
-    def end_procs(s, name):
-        """R5: every process the run started is stopped: its slice (systemctl returns once they are gone), then each Windows
+    def end_procs(s, sl):
+        """R5: every process a slice holds is stopped and all it left removed: the slice (systemctl returns once they are gone), then each Windows
         process a track script started in it through WSL interop (its Windows pid and image, recorded in state/winpids/<slice>/),
-        which no Linux signal reaches."""
-        r = s.sh(["systemctl", "--user", "stop", run_slice(name)], timeout=120)
-        for f in sorted((d := STATE / "winpids" / run_slice(name)).glob("*")):
+        which no Linux signal reaches, then its temp root (state/tmp/<slice>/, every Bash command's TMPDIR)."""
+        r = s.sh(["systemctl", "--user", "stop", sl], timeout=120)
+        for f in sorted((d := STATE / "winpids" / sl).glob("*")):
             s.sh([os.environ.get("WINDOWS_SYSTEM32", "/mnt/c/Windows/System32") + "/taskkill.exe", "/F", "/PID", f.name, "/FI", f"IMAGENAME eq {f.read_text().strip()}"], timeout=60)
             f.unlink(missing_ok=True)
         if d.exists():
             d.rmdir()
+        shutil.rmtree(run_tmp(sl), ignore_errors=True)
         return r
 
     def console(s):
@@ -858,6 +862,30 @@ def own_slice():
         return None
 
 
+def run_tmp(sl):
+    """R5: the temp root of a slice's commands (hook.in_run_slice exports it as TMPDIR), removed with the slice."""
+    return STATE / "tmp" / sl
+
+
+def cmd_ps(a):
+    """R5: the processes of this shell's run slice, pid and command line, its own ancestry excepted: a run finds
+    its own hung step to `kill`, which a `pgrep -f` of the step's text cannot (it matches the asking shell)."""
+    sl = own_slice() or refuse("this shell is in no run's slice")
+    me, pid = {os.getpid()}, os.getppid()
+    while pid > 1 and pid not in me:   # the asking command's shells, a subshell's too
+        me.add(pid)
+        try:
+            pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        except OSError:
+            break
+    for d in sorted(Path("/proc").glob("[0-9]*"), key=lambda d: int(d.name)):
+        try:
+            if int(d.name) not in me and f"/{sl}/" in (d / "cgroup").read_text():
+                print(d.name, " ".join((d / "cmdline").read_bytes().decode(errors="replace").replace("\0", " ").split()))   # one line each, a multi-line script too
+        except OSError:
+            pass
+
+
 def scope_unit(run, task):
     """R5: the scope a run's Bash command runs in, named by its task (the command's output file, `<task>.output`), so a TaskStop of that task stops it."""
     return f"{run_slice(run)[:-6]}-{task}.scope"
@@ -869,6 +897,7 @@ def cmd_scope(a):
     Never fails the command: a failure is one stderr line and the command runs where it is."""
     if not a:
         return print("hd scope: no run named", file=sys.stderr)
+    run_tmp(run_slice(a[0])).mkdir(parents=True, exist_ok=True)   # the command's TMPDIR (hook.in_run_slice)
     pid = os.getppid()
     try:
         out = Path(os.readlink(f"/proc/{pid}/fd/1"))
@@ -2486,11 +2515,14 @@ def _pass(ctx, act):
         if act and (not last or last["state"] != st["state"]):
             put(ch["slug"], "state", {"state": st["state"]})
             event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
-    if act and ((live := ctx.F.slices() or set()) or (STATE / "winpids").exists()):   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes
-        for r in ctx.runs:
-            if r.get("ended") and (run_slice(r["name"]) in live or (STATE / "winpids" / run_slice(r["name"])).exists()):
-                ctx.F.end_procs(r["name"])
-                event(change=r["change"], run=r["name"], action="processes-ended")
+    if act:   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes and removes what they left; an empty slice no live run holds (a test's) goes too
+        live, ended = ctx.F.slices() or {}, {run_slice(r["name"]): r for r in ctx.runs if r.get("ended")}
+        mine = {run_slice(r["name"]) for r in ctx.runs if not r.get("ended")}
+        left = {d.name for k in ("winpids", "tmp") if (STATE / k).is_dir() for d in (STATE / k).iterdir()}
+        for sl in sorted((set(live) | left) - mine):
+            if sl in ended or sl in left or live[sl] == 0:
+                ctx.F.end_procs(sl)
+                event(**({"change": ended[sl]["change"], "run": ended[sl]["name"]} if sl in ended else {"slice": sl}), action="processes-ended")
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
     if q := quota():
@@ -3001,7 +3033,7 @@ def cmd_stop(a):
         refuse(f"{r['name']} already ended")
     r["ended"], r["reason"] = now(), "stopped by the head"
     save_run(r)
-    Facts().end_procs(r["name"])
+    Facts().end_procs(run_slice(r["name"]))
     event(change=r["change"], run=r["name"], action="ended", reason=r["reason"])
     print(f"{r['name']} ended")
 
@@ -3287,7 +3319,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "ps": cmd_ps, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

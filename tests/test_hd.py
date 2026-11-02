@@ -64,7 +64,7 @@ class Fake(hd.Facts):
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
     def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
     def proc_start(s, pid): return "1"
-    def slices(s): return s.f.get("slices", set())                       # the active run slices
+    def slices(s): return s.f.get("slices", {})                          # the active slices and the tasks each holds
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
     def stop(s, pid, start): s.stopped.append(pid); s.f["procs"] = set(s.f.get("procs", {(7, "1")})) - {(pid, start)}
@@ -697,6 +697,15 @@ class R2(Sandbox):
         with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             hook.end_run(p)
         s.assertEqual(json.loads(out.getvalue())["decision"], "block")        # the build still runs: the stop is refused
+        s.assertIn("background command(s) b1 are still running", out.getvalue()); s.assertNotIn("subagent", out.getvalue())
+        with open(tp, "a") as f:                                               # sweep-48 P2-a: a reader it started is a subagent to wait for, never a command
+            f.write(json.dumps({"type": "user", "toolUseResult": {"isAsync": True, "agentId": "rd1"}}) + "\n")
+        with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.end_run(p)
+        why = json.loads(out.getvalue())["reason"]
+        s.assertIn("subagent(s) rd1 have not returned", why); s.assertIn("command(s) b1 are", why); s.assertNotIn("rd1 are still running", why)
+        with open(tp, "a") as f:
+            f.write(json.dumps({"type": "attachment", "attachment": {"prompt": "<task-notification>\n<task-id>rd1</task-id>"}}) + "\n")
         with open(tp, "a") as f:
             f.write(json.dumps({"type": "attachment", "attachment": {"prompt": "<task-notification>\n<task-id>b1</task-id>"}}) + "\n")
         with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
@@ -1858,6 +1867,9 @@ class R5(Sandbox):
                   'while pgrep -af "track.sh up s1" >/dev/null; do sleep 1; done', "kill $(pgrep -u alex -f mobile_login)",
                   "bash -c 'until ! pgrep -f \"up s1\"; do sleep 1; done'"):
             s.assertTrue(denied(c), c)
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.deny_self_pgrep({"tool_name": "Bash", "tool_input": {"command": "pgrep -f 'track.sh down s1'"}})
+        s.assertIn("hd.py ps` lists your run's processes", out.getvalue())     # sweep-49 P2-a: the denial names the way to find a hung step
         for c in ("pgrep -f '[t]rack.sh up s1'", "pgrep -f 'up (x|y)'", "pgrep java", "until [ -f state/s1/up.json ]; do sleep 5; done",
                   "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f"):
             s.assertFalse(denied(c), c)
@@ -1873,6 +1885,14 @@ class R5(Sandbox):
         for c in ("grep timeout hook.py", "echo 'timeout 5'", "curl --max-time 5 x", "cat <<'EOF' > x\ntimeout 5 y\nEOF", "tools/track.sh test s1"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("timeout 5 x", agent=None))                         # the user's own session: not a run's step
+
+    def test_hd_ps_lists_the_slice_s_processes_but_its_own(s):  # sweep-49 P2-a: a run finds its own hung step
+        sl = Path("/proc/self/cgroup").read_text().strip().split("/")[-2]      # a slice holding this process and the child
+        child = subprocess.Popen(["sleep", "600"]); s.addCleanup(child.wait); s.addCleanup(child.kill)
+        with mock.patch.object(hd, "own_slice", lambda: sl), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hd.cmd_ps([])
+        pids = [l.split()[0] for l in out.getvalue().splitlines()]
+        s.assertIn(f"{child.pid} sleep 600", out.getvalue().splitlines()); s.assertNotIn(str(os.getpid()), pids)
 
     def test_a_run_waits_on_the_fact_never_a_task_output_or_a_bound(s):  # sweep-45 P2-c: timeout 175 ... until grep <task output>
         root = Path(__file__).parent.parent
@@ -1907,7 +1927,7 @@ class R5(Sandbox):
             s.hook(p)
         o = json.loads(out.getvalue())["hookSpecificOutput"]
         s.assertNotIn("permissionDecision", o)                                  # the permission rules still judge the command
-        s.assertEqual(o["updatedInput"], {"command": f"python3 {Path(hook.__file__).resolve().parent / 'hd.py'} scope {run['name']}\nmake\nmake test", "timeout": 5})
+        s.assertEqual(o["updatedInput"], {"command": f"python3 {Path(hook.__file__).resolve().parent / 'hd.py'} scope {run['name']}\nexport TMPDIR={hd.run_tmp(hd.run_slice(run['name']))}\nmake\nmake test", "timeout": 5})
         out = io.StringIO()
         with mock.patch("sys.stdout", out):
             s.hook({**p, "tool_input": {"command": "hd approve s1"}})
@@ -2008,15 +2028,17 @@ class R5(Sandbox):
         F = Fake(**FACTS)
         a, b = s.started(F, "s1"), s.started(F, "s2")
         hd.write(hd.STATE / "runs" / f"{a['name']}.json", json.dumps({**hd.runs(a["name"])[0], "ended": hd.now(), "reason": "stopped by the head"}))
-        F.f["slices"] = {hd.run_slice(a["name"]), hd.run_slice(b["name"])}
+        F.f["slices"] = {hd.run_slice(a["name"]): 3, hd.run_slice(b["name"]): 0, "hd-t1.slice": 0, "hd-t2.slice": 2}   # a test's slice, empty or still busy
         w = hd.STATE / "winpids"
-        for r, pid in ((a, "4812"), (b, "5120")):                              # a Windows process a track script started in each slice
+        for r, pid in ((a, "4812"), (b, "5120")):                              # a Windows process a track script started in each slice, and a temp file of each
             (w / hd.run_slice(r["name"])).mkdir(parents=True); (w / hd.run_slice(r["name"]) / pid).write_text("java.exe\n")
+            hd.run_tmp(hd.run_slice(r["name"])).mkdir(parents=True); (hd.run_tmp(hd.run_slice(r["name"])) / "hd-suite-x").mkdir()
         hd.tick(s.ctx(F))
-        s.assertEqual([x for x in F.ran if x[:3] == ["systemctl", "--user", "stop"]], [["systemctl", "--user", "stop", hd.run_slice(a["name"])]])
+        s.assertEqual([x for x in F.ran if x[:3] == ["systemctl", "--user", "stop"]], [["systemctl", "--user", "stop", sl] for sl in (hd.run_slice(a["name"]), "hd-t1.slice")])
         s.assertEqual([x[1:] for x in F.ran if x[0].endswith("taskkill.exe")], [["/F", "/PID", "4812", "/FI", "IMAGENAME eq java.exe"]])
         s.assertFalse((w / hd.run_slice(a["name"])).exists()); s.assertTrue((w / hd.run_slice(b["name"]) / "5120").exists())
-        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"])}; hd.tick(s.ctx(F))
+        s.assertFalse(hd.run_tmp(hd.run_slice(a["name"])).exists()); s.assertTrue(hd.run_tmp(hd.run_slice(b["name"])).exists())   # sweep-48 P2-c: a run's temp dirs go with it
+        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 2}; hd.tick(s.ctx(F))
         s.assertEqual([x for x in F.ran if "stop" in x or x[0].endswith("taskkill.exe")], [])   # ended once, stopped once
 
     @unittest.skipUnless(shutil.which("busctl") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")

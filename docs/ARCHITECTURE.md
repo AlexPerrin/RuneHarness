@@ -60,11 +60,14 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd close <slug> <text>`, by the user, as a `!` command in the orchestrator's window: the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent
 
-- `hd stop <run>` (the orchestrator's TaskStop of the run's agent ends it the same way, by the hook's stopped fact): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`
+- `hd stop <run>` (the orchestrator's TaskStop of the run's agent ends it the same way, by the hook's stopped fact): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`, then removes the slice's temp root `state/tmp/<slice>/`
 
 - `hd scope <run>`, by the hook, as the first line of each Bash command of a run: moves the command's shell (its parent) into a scope of the run's systemd user slice `hd-<run>.slice` (each `-` of the name a `_`) and returns once the shell is in it: every process the command starts, reparented or not, is the run's;
   the scope is `hd-<run>-<task>.scope`, the task the basename of the shell's output file `<task>.output`, so the hook's PostToolUse on the run's TaskStop of that task stops the scope (Claude Code ends only the shell);
+  the hook's next line exports TMPDIR as the slice's temp root `state/tmp/<slice>/` (hd scope makes it), so every temp file of the run goes with its slice;
   a failure is one stderr line, the command runs on
+
+- `hd ps`, by a run: lists the processes of its shell's run slice, pid and command line, the asking command's own excepted, so a run finds its own hung step and kills it
 
 - `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
   each change it makes wait has its listed, unspawned runs ended by a `waits` fact at once, so their spawn is refused;
@@ -338,7 +341,7 @@ a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, to
 a deploy alive is never stopped, a newer tree or tools ship included: the pass deploys the newest tree after its end (openrs2 serves no ranges, so a stopped download restarts from 0);
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
-stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
+stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every empty `hd-*.slice` no live run holds (a test's);
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
@@ -404,7 +407,8 @@ The one hook rule: `hd approve` and `hd close` (the user's word, typed by the us
 a command that only quotes them (grep, echo, a heredoc body) runs.
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.
-A Bash command's `pgrep -f <pattern>` (outside a heredoc body) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and a wait on it never ends.
+A Bash command's `pgrep -f <pattern>` (outside a heredoc body) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and a wait on it never ends;
+the denial names `hd ps`, which lists the run's own processes for its `kill`.
 A subagent's `timeout` command (outside a heredoc body or a quoted argument) is denied: a step ends on its observed outcome, the Bash call's own limit re-issued when it ends first.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
 A desktop's devtools endpoint answers only a request carrying its up's token (up.json `token`, sent as `Authorization: Bearer`), any other 401: every JVM of the instance loads the server tools' DevtoolsOwner, the JDK's HttpServer provider filtering the devtools port, and the bridge and desktop_login.py send the token of the up whose instance owns the port.

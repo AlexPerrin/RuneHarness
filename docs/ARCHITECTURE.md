@@ -445,6 +445,7 @@ A `while`/`until` loop's `pgrep -f <pattern>` (in its condition or body, outside
 a one-shot `pgrep` listing ends, so it runs;
 the denial names `hd ps`, which lists the run's own processes for its `kill`.
 A subagent's `timeout` command (outside a heredoc body or a quoted argument) is denied: a step ends on its observed outcome, the Bash call's own limit re-issued when it ends first.
+The denial names the step without its `timeout` prefix, for the run to issue as it is.
 A subagent's sleeping loop that counts (a `for` loop, or a `while`/`until` loop with a counter) is denied as the same bound by another name;
 a loop that sleeps until its condition, the fact, holds is the wait.
 A sleep counts against the innermost loop that holds it, so a `for` loop wrapping an `until <fact>` wait is that wait.

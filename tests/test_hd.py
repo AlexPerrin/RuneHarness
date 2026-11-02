@@ -2023,6 +2023,11 @@ class R5(Sandbox):
         for c in ("grep timeout hook.py", "echo 'timeout 5'", "curl --max-time 5 x", "cat <<'EOF' > x\ntimeout 5 y\nEOF", "tools/track.sh test s1"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("timeout 5 x", agent=None))                         # the user's own session: not a run's step
+        for c, run in (("timeout 600 tools/track.sh test s1", "`tools/track.sh test s1`"),          # sweep-64 P4-b: the denial names the bare step
+                       ("cd x && timeout -s KILL 300 python3 hd.py tick --dry-run", "`cd x && python3 hd.py tick --dry-run`")):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_time_bound({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
+            s.assertIn(f"run {run} as it is", out.getvalue())
 
     def test_hd_ps_lists_the_slice_s_processes_but_its_own(s):  # sweep-49 P2-a: a run finds its own hung step
         sl = Path("/proc/self/cgroup").read_text().strip().split("/")[-2]      # a slice holding this process and the child

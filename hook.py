@@ -469,9 +469,12 @@ def deny_time_bound(p):
     if not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", cmd) and not any(k == "for" or COUNTED.search(t) for k, t in loops):
         return
     hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="time bound on a step")
+    raw = (p.get("tool_input") or {}).get("command") or ""
+    unbound = re.sub(r"\btimeout\s+(?:-[ks]\s+\S+\s+|-\S+\s+)*\d\S*\s+", "", raw)   # the step itself, for the run to issue as it is
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           "a step ends on its own outcome, never under a bound of time or tries (`timeout N`, a `for`/`seq` loop of sleeps, a sleep counter): "
-          "run it in the foreground (Bash `timeout` 600000 is the call's limit; when it ends first, issue the same wait again), "
+          + (f"run `{unbound}` as it is, in the foreground " if unbound != raw else "run it in the foreground ")
+          + "(Bash `timeout` 600000 is the call's limit; when it ends first, issue the same wait again), "
           "or wait on the fact the step makes with one `until <fact>; do sleep N; done` (a state file, a log line, a port)."}}))
     return True
 

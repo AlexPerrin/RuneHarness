@@ -18,7 +18,9 @@ itself carries (it matches its own loop and never ends); never end a turn while 
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle. A desktop is up only while you play
 in it: `up` when you are about to act in game, `down <slug>` as soon as you stop playing (to build, read or write), and
 `RESUME=1 up` brings the accounts back as down saved them; the hook tells you once when your desktops sit through a
-stretch of tool calls with no devtools call. Any number of desktops may be up at once.
+stretch of tool calls with no devtools call. Any number of desktops may be up at once. A script of yours that calls a desktop's
+devtools endpoint itself sends `Authorization: Bearer <token>`, the `token` of your change's `state/<slug>/up.json`: the endpoint
+answers no other caller.
 
 A **contract** brief (server or central, before any code): write `evidence/<slug>/accuracy.md` from RSProx recordings and the
 wiki, then `evidence/<slug>/contract.md`: the seed rows of the track's `tools/track.md`, one row per accuracy rule, the rows the

@@ -1952,6 +1952,23 @@ class R5(Sandbox):
             b.handle("desktop", ["http://127.0.0.1:7780/mcp"], json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "type_chat", "arguments": {}}}))
         s.assertEqual((be.called, "port" in out[0]["error"]["message"]), (False, True))   # the bridge never picks a desktop itself
 
+    def test_a_desktop_call_carries_the_token_of_the_up_owning_its_port(s):   # sweep-43: a run's helper with a default port drove another run's desktop
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        desk = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, desk, True); (desk / "run" / "3").mkdir(parents=True)
+        (desk / "run" / "3" / "owner").write_text("s1 1-2\n")                  # the instance on 7782 is s1's
+        (s.root / "state" / "s1").mkdir(parents=True, exist_ok=True); (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop3:7782", "token": "tk"}')
+        ok = mock.MagicMock(); ok.__enter__.return_value.read.return_value = b'{"result": {}}'
+        with mock.patch.object(b, "HERE", str(s.root / "mcp")), mock.patch.dict(os.environ, {"DESKTOP_DIR": str(desk)}), \
+             mock.patch.object(b, "listening", lambda p: True), mock.patch.object(b.urllib.request, "urlopen", return_value=ok) as u:
+            b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {"port": 7782}})
+            b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {"port": 7783}})
+        s.assertEqual([c.args[0].get_header("Authorization") for c in u.call_args_list], ["Bearer tk", "Bearer "])   # an instance no up owns: no token, refused
+        no = b.urllib.error.HTTPError("u", 401, "Unauthorized", {}, io.BytesIO(b'{"jsonrpc": "2.0", "id": null, "error": {"code": -32001, "message": "answers only the up that started it"}}'))
+        with mock.patch.object(b, "listening", lambda p: True), mock.patch.object(b.urllib.request, "urlopen", side_effect=no):
+            s.assertIn("answers only the up", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "x", "arguments": {}})["error"]["message"])   # the refusal as the client said it
+
     def test_a_failing_test_leaves_no_temp_dir(s):
         with tempfile.TemporaryDirectory() as t:
             r = subprocess.run([sys.executable, "-c", "import sys, tempfile, pathlib; sys.path.insert(0, sys.argv[1]); import test_hd\n"

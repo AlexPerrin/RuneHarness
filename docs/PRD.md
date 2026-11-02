@@ -213,6 +213,7 @@ a live check reads the real state.
    a run's record is what it handed back, a change filed by another is not, and a run the pass ended neither settles its step nor counts as a try, so its step is listed again;
    a subagent never runs the acting pass (a bare `hd` or `hd tick`), and a run signals no process outside its own slice;
    a run's desktop devtools call acts only on a desktop its change brought up;
+   a desktop's devtools endpoint answers only the up that started it, whatever process calls it;
    a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;

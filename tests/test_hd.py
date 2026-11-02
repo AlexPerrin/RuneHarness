@@ -1253,10 +1253,14 @@ class R4(Sandbox):
         s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun")), (False, "head", [])); s.assertIn("Generate cache and gameval sources", sh["detail"])
         s.assertNotIn("step", sh)                                                # the vouch reads heads and order alone: any record's vintage
         st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"FAIL upstream at {A[:9]}: dev"))
+        rerun = "re-run the CI jobs failed at the head (gh run rerun --failed"
+        card = lambda: hd.card(ctx := s.ctx(F), ctx.changes["s1"], A)
+        s.assertNotIn(rerun, card())                                             # unvouched: no re-run the carry would not do
         ho = hd.rec("s1", "handover")
         with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):    # its dev hands the same head over: the cause is outside it, filed
             hd.put("s1", "handover", {k: v for k, v in ho.items() if k != "ts"})
         st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("script", "carrying upstream"))   # the upstream check runs again
+        s.assertIn(rerun, card())                                                # the card names the re-run its yes triggers (sweep-34 P2-b)
         F.f["ci"] = [b("failure"), b("success")]; g = GH()
         with classify(1):                                                        # the step it vouched for is re-run, though the classifier reads it
             s.ship(F, g)

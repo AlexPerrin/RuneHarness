@@ -60,6 +60,8 @@ until it does the change goes back to its dev with the commits it misses, and no
 A PR already at the head, ready, with nothing left to post gets no card;
 only a commit waits on CI.
 A maintainer's word is a finding (a defect or a request) or an acknowledgement, judged by the orchestrator before anything is filed;
+a finding that asks a decision of scope (move the PR to another repo, close it) opens its round with the user's question, the round waiting on the answer;
+a target repo is added as a repo with its upstream in hd.yaml, a track of its own;
 an acknowledgement files no change, lists no run and is never answered.
 A PR round is one change: each maintainer finding, and each fix filed on the PR, joins the PR's one open change not yet carried as a judged row (a change filed when none is open);
 its dev answers every finding (a commit stacked on the PR for each that needs code, a reply for each), one qa run judges every row at its last head, and one card's one comment answers every finding;
@@ -210,6 +212,8 @@ a live check reads the real state.
    a round with no dev ref has its PR tip's head and no gate;
    a maintainer's word not yet triaged is a view line that wakes the orchestrator and files nothing;
    `hd triage <id> ack` files nothing for it ever and closes a round filed from it alone with no hand-over, `finding` joins or files the round;
+   `ask` joins or files it too and opens it with the word as the user's question, no run listed for it until the user's answer;
+   a repo of hd.yaml with an upstream that no track's repo names is a track of its own, shaped as central's;
    the comment quotes every finding of the round no comment of ours answers yet, else the round's dev step and no card;
    a central change is carried to Central's upstream;
    the dry-run check fails a candidate only on a public act main plans neither before nor after it.

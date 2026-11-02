@@ -1764,7 +1764,7 @@ class R4(Sandbox):
         s.assertEqual(tri(hd.tick(s.ctx(F), act=False)), ["IC_a", "IC_b"])
         v = hd.tick(s.ctx(F))
         s.assertEqual(sorted(hd.defs("changes")), ["s1"])                           # untriaged: nothing filed, no run
-        s.assertIn("IC_b: server #354 rev on the PR: the varp resets: hd triage IC_b finding|ack", v["triage"])
+        s.assertIn("IC_b: server #354 rev on the PR: the varp resets: hd triage IC_b finding|ask|ack", v["triage"])
         s.assertIn("IC_a: server #354", (s.root / "state" / "wake.orchestrator").read_text())   # it wakes the orchestrator
         run = lambda *a: hd.cmd_triage(list(a))
         with mock.patch("sys.stdout", new_callable=io.StringIO):
@@ -1784,6 +1784,29 @@ class R4(Sandbox):
             s.change("server-354-cicz", pr=354, finding=["IC_z"])
             run("IC_z", "ack")                                                     # a round filed for an acknowledgement alone closes
         s.assertTrue(hd.defs("changes")["server-354-cicz"]["closed"].startswith("triage: IC_z"))
+
+    def test_a_maintainer_word_only_the_user_decides_opens_its_round_with_the_users_question(s):
+        F = Fake(**{**FACTS, "comments": {354: []}, "talk": {354: [{"id": "IC_m", "author": "rev", "body": "could you PR this to\nu/filestore instead"}]}})
+        s.change("s1", pr=354); s.agreed("s1"); hd.put("s1", "handover", {"head": A})
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_triage(["IC_m", "ask"])                                         # a move to another repo: a decision of scope
+        hd.tick(s.ctx(F))
+        r = next(c for c in hd.defs("changes").values() if "IC_m" in hd.fids(c))
+        q = hd.tick(s.ctx(F), act=False)
+        s.assertIn(f"{r['slug']}: rev on #354 (IC_m): could you PR this to u/filestore instead: the user decides", " ".join(q["question"]))
+        s.assertFalse([l for l in q["spawn"] if r["slug"] in l])                    # its dev waits on the user's answer
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_answer([r["slug"], "keep", "it", "here"])
+        s.assertFalse(hd.tick(s.ctx(F), act=False)["question"])
+
+    def test_a_repo_with_an_upstream_in_hd_yaml_is_a_target_of_its_own(s):
+        c = json.loads((s.root / "hd.yaml").read_text())
+        c["repos"]["filestore"] = {"name": "o/fs", "path": str(s.root / "fs"), "tools": "local/harness", "upstream": "u/fs"}
+        (s.root / "hd.yaml").write_text(json.dumps(c))
+        s.addCleanup(hd.TRACK.pop, "filestore", None)
+        hd.cfg()
+        s.assertEqual(hd.TRACK["filestore"], {**hd.TRACK["central"], "repo": "filestore"})   # its PRs upstream, its gate its test target
+        s.assertEqual(sorted(hd.TRACK), ["central", "client", "filestore", "harness", "server"])   # fork and central stay their tracks
 
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")

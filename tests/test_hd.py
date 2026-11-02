@@ -522,6 +522,7 @@ class R2(Sandbox):
             hook.end_run(payload(run, "ag1", "SubagentStop", s.root, handback="run s1-1: gave up"))
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)            # one retry on the same input
         run2 = hd.runs()[1]
+        s.assertTrue(run2["step"].endswith("(again after s1-1: its hand-back)"), run2["step"])   # it names its cause
         hook.bind(payload(run2, "ag2", "SubagentStart", s.root))
         with mock.patch.object(hook, "start_pass"):
             hook.end_run(payload(run2, "ag2", "SubagentStop", s.root, handback="run s1-2: gave up"))
@@ -2199,6 +2200,61 @@ class R6(Sandbox):
         s.assertIn(f"Resume from {s.root / 'evidence' / 'q2' / 'handoff.md'}", b)
         s.assertIn("proven: A1; next: A2", b)
         s.assertIn("q2-2", " ".join(hd.tick(s.ctx(F))["spawn"]))      # kept while unstarted, not dropped as held
+
+    def test_a_listed_run_takes_its_moved_input_and_binds(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["s1-1"])
+        old = hd.runs()[0]["input"]
+        with open(s.root / "evidence" / "s1" / "contract.md", "a") as f:
+            f.write("- joined | a filing joined after the listing | judge: see it\n")   # the contract hash, so the dev step's input, moves
+        s.assertEqual([x.split(":")[0] for x in hd.tick(s.ctx(F))["spawn"]], ["s1-1"])   # the same run, not ended and listed again
+        r = hd.runs()[0]
+        s.assertEqual((len(hd.runs()), r["ended"]), (1, None)); s.assertNotEqual(r["input"], old)
+        s.assertIn("a filing joined after the listing", open(r["brief"]).read())         # its brief rewritten: the agent reads the moved row
+        hook.bind(payload(r, "ag1", "SubagentStart", s.root))
+        s.assertEqual(hd.runs()[0]["agent_id"], "ag1")                                     # its spawn binds, never refused
+
+    def test_a_pr_with_n_findings_and_one_head_move_takes_three_runs_and_one_per_finding(s):
+        """R6: a modeled PR: its contract, one head move (handed over, built, gated), its review, and N maintainer findings
+        each answered with no code; a row joined while its dev run is listed. Every listed run is spawned and does its role's
+        work: the change takes 3 runs and each finding 1, every run named by its step."""
+        N = 3
+        s.change("s0", pr=7)
+        for i in range(N):
+            s.change(f"s{i + 1}", deps=["s0"], pr=7, finding=90 + i)
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, **{f"fork/dev/s{i + 1}": "" for i in range(N)}},
+                    "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
+        passed = lambda r: s.verdict(r["change"], A, {x["id"]: "pass" for x in hd.contract(r["change"])["rows"]}, F)
+        work = {("qa", "contract"): lambda r: (hd.write_contract(hd.cfg(), r["change"], "server", r["name"]), (s.root / "evidence" / r["change"] / "pr-body.md").write_text("body"),
+                                              (s.root / "evidence" / r["change"] / "pr-comment.md").write_text(PUSHED)),
+                ("dev", "code"): lambda r: s.gated(r["change"], F),
+                ("qa", "judge"): passed}
+        reply = lambda r: (work["qa", "contract"](r), (s.root / "evidence" / r["change"] / f"pr-reply-{hd.defs('changes')[r['change']]['finding']}.md").write_text("> x\n\n@rev kept."),
+                           s.gated(r["change"], F), passed(r))
+        joined = False
+        for _ in range(12):
+            v = hd.tick(s.ctx(F))
+            for x in v["spawn"]:
+                r = hd.runs(x.split(":")[0])[0]
+                if r["role"] == "planner":
+                    continue
+                if r["role"] == "dev" and not joined:   # a filing joins while the dev run is listed: the run takes it
+                    joined = True
+                    with open(s.root / "evidence" / "s0" / "contract.md", "a") as f:
+                        f.write("- joined | a joined filing | judge: see it\n")
+                    continue
+                hook.bind(payload(r, "ag-" + r["name"], "SubagentStart", s.root))
+                (reply if r["step"].startswith("reply") else work[r["role"], r["mode"]])(r)
+                with mock.patch.object(hook, "start_pass"):
+                    hook.end_run(payload(r, "ag-" + r["name"], "SubagentStop", s.root, handback=f"run {r['name']}: done"))
+            if not v["spawn"] and all(s.state(F, k)["actor"] not in ("dev", "qa", "script") for k in hd.defs("changes")):
+                break
+        rs = [r for r in hd.runs() if r["role"] != "planner"]
+        count = {k: len([r for r in rs if r["change"] == k]) for k in hd.defs("changes")}
+        s.assertEqual(count, {"s0": 3, **{f"s{i + 1}": 1 for i in range(N)}}, [(r["name"], r["step"], r.get("reason")) for r in rs])
+        s.assertTrue(joined and all(r["step"] and r["record"] for r in rs))                 # each run did its step, none ended unspent
+        s.assertEqual(len(hd.tick(s.ctx(F), act=False)["card"]), 1)                         # done: the PR's one card waits for the user
 
     def test_a_listed_run_stays_listed_when_a_higher_change_appears(s):
         s.change("q2", priority="P2"); s.agreed("q2")

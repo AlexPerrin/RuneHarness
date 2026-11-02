@@ -72,6 +72,7 @@ P2 our upstream changes;
 P3 features;
 P4 new quests), a harness change never below P1;
 no run is listed for a change below the best tier of a change with a run due and not yet listed, a change whose run is listed or alive or only waiting (on a dependency, a gate, the user) holding nothing, nor one whose due run the pass cannot list (an alert names why), nor below the band the user holds until the user lifts it, that band alone dropping a listed run not yet started;
+a change's runs are one dev and one qa run per head move and one qa run per finding answered with no code, a listed run not yet started taking its step's moved input under its name, and any other run names its cause in its step;
 the pass acts and logs only when a change's state changes;
 a run hands off to a fresh run at the context limit, listed at once whatever the tier or the count;
 a run keeps a desktop up only while it plays in it;

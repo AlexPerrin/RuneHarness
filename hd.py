@@ -1952,7 +1952,10 @@ def dispatch(ctx, ch, st, act):
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
     listed = now()  # before the brief reads the contract: a row written while it is written is late (late_answers)
-    r = {"name": name, "role": role, "change": slug, "step": st["state"], "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
+    again = max([x for x in ctx.runs if x["change"] == slug and x["role"] == role and x.get("started") and x.get("input") == inp], key=lambda x: x["listed"], default=None)
+    cause = again and (again.get("reason") or ("a hand-off at the context limit" if again.get("handoff_told") else "its hand-back"))
+    why = f"{st['state']} (again after {again['name']}: {cause})" if again else st["state"]   # R6: a run beyond one per input names its cause
+    r = {"name": name, "role": role, "change": slug, "step": why, "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
          "console_pid": None, "console_start": None, "listed": listed, "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
@@ -2299,6 +2302,13 @@ def _pass(ctx, act):
                 if r["change"] != ch["slug"] or r.get("ended"):
                     continue
                 if gone or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+                    if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
+                        # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
+                        r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now())
+                        r["brief"] = brief(ctx, ch, work, r["name"], r["role"])
+                        save_run(r)
+                        event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
+                        continue
                     r["ended"], r["reason"] = now(), gone or (f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
                     if r.get("started"):
                         r["record"] = produced(r)

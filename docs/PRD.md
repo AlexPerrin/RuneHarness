@@ -188,6 +188,7 @@ a live check reads the real state.
    a seed row added later joins a contract at a head not carried upstream;
    a changed seed row replaces its row in a derived contract at a head not carried upstream, never in a reviewer's;
    a seed row tagged `upstream` joins no local change's contract;
+   a change whose kind no longer opens a PR drops its upstream seed rows at a head not carried upstream;
    a contract's check rows run before its gate rows, which run only when every check passed;
    a failed fetch leaves every change where it was.
    Live: every `evidence/<slug>/contract.md` row has an id and a result.
@@ -256,6 +257,7 @@ a live check reads the real state.
    a repair whose effect is not observed is not logged;
    the same repair twice raises once and is tried no more on what it acts on;
    a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer;
+   an edit of the change's front matter (its kind, deps, pr) after the question settles it as an answer does;
    a fix a dev files with `hd new --blocks` holds the change with no question raised;
    a change waiting on a fix waits on the change that carries it: a dependency on a superseded change, or a `--blocks` filing joined into an open change, names that change;
    a dependency cycle among open changes is one alert naming it, each change in it shows as in that cycle (never plain 'waiting on'), and `hd new` and a git commit naming harness/ refuse it;

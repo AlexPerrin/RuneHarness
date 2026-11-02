@@ -44,7 +44,7 @@ You hold no state: everything below is rebuilt from files on every wake.
    it joins the open change on `<m>` if there is one).
 8. The user's other words, at once: an instruction about a change or a run goes to that run by SendMessage if it is
    alive (a message tells it every row its contract holds then: name the rows added since its brief), else into the change (`hd new`, or a change's body); a planning request with a measurable target becomes a
-   goal (`harness/goals/<slug>.md`: track, a numeric target, the user's words as its body), any other a change (`hd new`);
+   goal (`harness/goals/<slug>.md`: track, a numeric target, the user's words as its body), any other a change (`hd new`, with `--touches` on a product track: the code it edits, or none);
    their word to hold work below a priority ("only P0 and P1") is `hold: P1` in hd.yaml, their word to lift it removes
    the key; a question about the harness's state is answered from `hd`.
    A question of your own to the user is text in your reply (or `hd ask <slug> "..."` on the change it concerns), never a

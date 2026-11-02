@@ -729,18 +729,20 @@ def row_id(l):
 
 
 def unseeded(c, slug, track, up=True):
-    """The track's seed rows the contract file lacks (by id) or, when the pass wrote it from them (derived or not yet agreed), holds otherwise;
-    a reviewer's contract keeps its own wording of a seed row."""
+    """The track's seed rows the contract file lacks (by id) or, when the pass wrote it from them (derived or not yet agreed), holds otherwise
+    (a reviewer's contract keeps its own wording of a seed row); and, as a bare id, each upstream seed row the file holds for a change that opens no PR (its kind changed)."""
     con = contract(slug)
     rows = {row_id(l): l for l in con["text"].splitlines() if l.startswith("- ")}
     own = con["agreed"] in (None, "derived")
-    return [l for l in seed_rows(c, track, up).splitlines() if row_id(l) not in rows or own and rows[row_id(l)] != l]
+    seeds = seed_rows(c, track, up).splitlines()
+    gone = {row_id(l) for l in seed_rows(c, track).splitlines()} - {row_id(l) for l in seeds}
+    return [l for l in seeds if row_id(l) not in rows or own and rows[row_id(l)] != l] + [k for k in rows if k in gone]
 
 
 def add_seeds(slug, new):
-    """Each row replaces the file's row of its id, or is appended."""
-    f, by = EVID / slug / "contract.md", {row_id(l): l for l in new}
-    lines = [by.pop(row_id(l), l) if l.startswith("- ") else l for l in f.read_text().rstrip("\n").splitlines()]
+    """Each row replaces the file's row of its id, or is appended; a bare id drops its row."""
+    f, by, gone = EVID / slug / "contract.md", {row_id(l): l for l in new if l.startswith("- ")}, {l for l in new if not l.startswith("- ")}
+    lines = [by.pop(row_id(l), l) if l.startswith("- ") else l for l in f.read_text().rstrip("\n").splitlines() if not (l.startswith("- ") and row_id(l) in gone)]
     f.write_text("\n".join(lines + list(by.values())) + "\n")
 
 
@@ -774,6 +776,18 @@ def result(slug, name):
     """R2 R7: a build or gate record as one line, its verdict and key (the image's tag); the log stays in the file it names."""
     r = rec(slug, name)
     return r and f"{name}: {'ok' if r['ok'] else 'failed'} at {r['T']} (log {STATE / slug / f'{name}.log'})"
+
+
+def settled(ch):
+    """The definition's front matter as a key: a question asked on one key is settled by an edit of it (its kind, deps, pr), never by a finding joining it."""
+    m = _frontmatter(Path(ch["path"]).read_text())[0]
+    return hashlib.sha1(json.dumps({k: v for k, v in m.items() if k != "finding"}, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def asked(ch):
+    """R3: the open question of a change or goal: its ask record until the user's answer, or a definition edit that settles it."""
+    q = rec(ch["slug"], "ask")
+    return q if q and q.get("def", "") in ("", settled(ch)) else None
 
 
 def put(slug, name, obj):
@@ -1643,7 +1657,7 @@ def nxt(ctx, ch):
     joined = joined if done or upstream(ch) or not work else []  # R3: a joined filing is the dev's once the head it did not reach is done or when no head is in flight; on a PR round (its gate is the round's last head), at once
     if done and not late and not joined:  # R3: a late answer or joined filing reopens a done change: the dev acts on it
         return step("done", "done")
-    if (q := rec(slug, "ask")):  # the user's answer releases it: no run, gate, ship or upstream step until then
+    if (q := asked(ch)):  # the user's answer, or a definition edit that settles it, releases it: no run, gate, ship or upstream step until then
         return step(f"question open: {q['text'][:200]}", "wait")
     con = contract(slug)
     if con is None:
@@ -1652,7 +1666,7 @@ def nxt(ctx, ch):
         if upstream(ch) and ctx.upstream_pr(ch) is None:
             return step("upstream PR unknown", "unknown")
         if not shipped(ctx, ch, head):
-            return step(f"contract: seed rows {', '.join(map(row_id, new))} written", "script", act=lambda: add_seeds(slug, new))
+            return step("contract: seed rows " + "; ".join(f"{', '.join(ks)} {w}" for ks, w in (([row_id(l) for l in new if l.startswith("- ")], "written"), ([l for l in new if not l.startswith("- ")], "dropped")) if ks), "script", act=lambda: add_seeds(slug, new))
     if (miss := [f for f in fids(ch) if f"finding {f} by " not in con["text"]]) and not carried(ctx, ch, head):  # R6: each finding of the round is a judged row (a carried head keeps its verdict)
         cs, talk = (ctx.comments(track, ch["pr"]), ctx.talk(track, ch["pr"])) if ch.get("pr") else ([], [])
         if cs is None or talk is None:
@@ -2051,7 +2065,7 @@ def findings(ctx, open_prs, act):
                 write_contract(ctx.cfg, slug, track, "derived")  # the track's seed rows and its findings: the dev answers, qa judges once
             if verdict[c["id"]] == "ask":  # a decision of scope (move the PR to another repo, close it): the round opens with it as the user's question
                 q = f"{c['author']} on #{pr} ({c['id']}): {' '.join(c['body'].split())[:300]}: the user decides (a move to another repo is a target added in hd.yaml repos, then a change on its track)"
-                put(rnd["slug"], "ask", {"text": (rec(rnd["slug"], "ask") or {}).get("text", "") + (" Also: " if rec(rnd["slug"], "ask") else "") + q})
+                put(rnd["slug"], "ask", {"text": (a["text"] + " Also: " if (a := asked(rnd)) else "") + q, "def": settled(rnd)})
                 event(change=rnd["slug"], record="ask", text=q[:300])
     return untriaged
 
@@ -2640,7 +2654,7 @@ def _pass(ctx, act):
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
     per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
     for k, c in ctx.changes.items():
-        if c["track"] == "harness" and not shut(k, c) and not rec(k, "ask"):  # one held on a question merges nothing until answered
+        if c["track"] == "harness" and not shut(k, c) and not asked(c):  # one held on a question merges nothing until answered
             per.setdefault(c.get("mechanism") or "", []).append(k)
     per = {m: v if not m else [k for k in v if any(not ordered(ctx.changes, k, o) for o in v)] for m, v in per.items()}
     view["alert"] += [f"mechanism {m}: {len(v)} open changes {', '.join(sorted(v))}: merge them into one root-cause change" if m else
@@ -2691,7 +2705,7 @@ def _pass(ctx, act):
             view["alert"].append(f"user: {ch['slug']} is superseded by {ch['superseded']} and holds until closed: ! python3 {ROOT}/hd.py close {ch['slug']} superseded by {ch['superseded']}")
         if act and (h := rec(ch["slug"], "hold")) and h["head"] != ctx.head(ch):  # R4: a no lapses with its head
             drop(ch["slug"], "hold")
-        if (a := rec(ch["slug"], "ask")):
+        if (a := asked(ch)):
             view["question"].append(f"{ch['slug']}: {a['text']}")
         last = rec(ch["slug"], "state")
         if act:
@@ -3281,12 +3295,12 @@ def cmd_verdict(a):
 
 def cmd_ask(a):
     slug, text = a[0], " ".join(a[1:])
-    defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
-    if rec(slug, "ask"):
+    ch = defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
+    if asked(ch):
         refuse("a question is already open on this change; it is answered first")
     if not text:
         refuse("empty question")
-    put(slug, "ask", {"text": text})
+    put(slug, "ask", {"text": text, "def": settled(ch)})
     event(change=slug, record="ask", text=text[:300])
     print("asked")
 
@@ -3479,7 +3493,7 @@ def cmd_new(a):
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
     for k in held:
         tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
-    into = next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not rec(k, "ask") and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
+    into = next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not asked(c) and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
     if not into and o.pr and TRACK[o.track]["public"] == "upstream" and o.kind == "change":  # R6: a fix on a PR joins its one open round
         on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and k not in sup and not shut(k, c)
               and not (rec(k, "state") or {}).get("state", "").startswith("carried")}
@@ -3523,7 +3537,7 @@ def reach(graph, o):
     """R3: the filing's deps, each piece of code it touches reachable from its track's base or a dep's branch: code only an open
     change's branch holds makes that change a dep (the one its other holders wait on), code no branch holds is refused."""
     deps = [d for d in o.deps.split(",") if d]
-    if o.kind == "change" and TRACK[o.track]["fetch"] and not o.touches:
+    if TRACK[o.track]["fetch"] and not o.touches:
         refuse("--touches names the existing code the change edits (a path, or path:text the file holds), or none: hd new makes it reachable from the base and the deps")
     F, repo = Facts(), TRACK[o.track]["repo"]
     clone = str(P(cfg()["repos"][repo]["path"]))

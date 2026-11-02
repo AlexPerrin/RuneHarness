@@ -5,7 +5,7 @@
 
 `initialize` is answered here; `tools/list` and every other request run `<backend> --call <method> <params>` one at a
 time (the Android bridge takes it), or are POSTed to the desktop client's devtools endpoint (the bring-up's ports 7780+;
-a tool's optional `port` argument picks the client, default the URL's), so a client started after the session is used
+a tool's `port` argument names the client, and a call naming none is refused: one bridge serves every run), so a client started after the session is used
 on its next call. Desktop requests run each in its own thread: one session's runs share this process, and a call
 answers as soon as its client does, never queued behind another run's long walk_to or wait_for.
 A desktop walk_to walks to its tile at any distance in minimap clicks of at most STEP tiles (walk below).
@@ -173,7 +173,7 @@ def session(cmd, port, r):
         return r
     if g not in DROPPED:
         return r
-    note = {"type": "text", "text": f"desktop {port.get('port', 'default')} is at {g}: its session dropped; log it in again "
+    note = {"type": "text", "text": f"desktop {port['port']} is at {g}: its session dropped; log it in again "
             "(tools/server/desktop_login.py <port> <account> <account>, the accounts in up.json)"}
     return {"result": {**r["result"], "content": [*r["result"].get("content", []), note]}}
 
@@ -193,12 +193,12 @@ def tools(name, cmd):
 
 
 def listed(name, cmd):
-    """The tools list; a desktop tool takes an optional `port`, the devtools port of the client it acts on."""
+    """The tools list; a desktop tool takes `port`, the devtools port of the client it acts on."""
     t = tools(name, cmd)
     if cmd[0].startswith("http"):
         for x in t.get("tools", []):
             x.setdefault("inputSchema", {"type": "object"}).setdefault("properties", {})["port"] = {
-                "type": "integer", "description": "devtools port of the desktop (up.json desktops), default " + re.search(r":(\d+)/", cmd[0]).group(1)}
+                "type": "integer", "description": "devtools port of your desktop (your change's up.json desktops); a call naming none is refused"}
             if x["name"] == "walk_to":
                 x["description"] = ("Walk to the tile at world x,y on the current plane, at any distance: minimap clicks of at most "
                                     f"{STEP} tiles until the player stands on it; an error names where it stopped when a click moves it no closer.")
@@ -230,6 +230,8 @@ def answer(name, cmd, msg):
     else:
         desk = cmd[0].startswith("http") and method == "tools/call"
         port = {"port": a["port"]} if "port" in (a := params.get("arguments") or {}) else {}
+        if desk and not port:   # the URL's port is any run's desktop, never the caller's by default
+            return reply(msg["id"], error={"code": -32602, "message": "name your desktop's devtools `port` (your change's up.json desktops)"})
         r = walk(cmd, params) if desk and params.get("name") == "walk_to" else backend(cmd, method, params)
         if desk and params.get("name") != "get_client_state" and "result" in r:
             r = session(cmd, port, r)

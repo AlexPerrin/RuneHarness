@@ -1835,6 +1835,31 @@ class R5(Sandbox):
         with mock.patch("sys.stdin", io.StringIO(json.dumps(p))):
             hook.main()
 
+    def test_a_run_s_desktop_call_acts_only_on_its_own_desktop(s):   # npc-examine-6: a call naming no port drove 7780, another run's desktop
+        s.change("s1"); s.agreed("s1")
+        run = s.started(Fake(**FACTS), "s1")
+        p = {**payload(run, "ag-" + run["name"], "PreToolUse", s.root), "tool_name": "mcp__osrs-devtools-desktop__type_chat", "tool_input": {"text": "hi"}}
+        def hook_out(**ti):
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out):
+                s.hook({**p, "tool_input": {"text": "hi", **ti}})
+            return json.loads(out.getvalue() or "{}").get("hookSpecificOutput", {})
+        s.assertIn("no desktop up", hook_out()["permissionDecisionReason"])     # none up: no port is its own
+        (s.root / "state" / "s1").mkdir(exist_ok=True)
+        (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop3:7782"}')
+        s.assertEqual(hook_out()["updatedInput"], {"text": "hi", "port": 7782})  # one desktop: the call is given it
+        s.assertEqual(hook_out(port=7782), {})                                   # its own: unchanged
+        s.assertIn("ports 7782", hook_out(port=7780)["permissionDecisionReason"])   # another run's: denied, naming its own
+        (s.root / "state" / "s1" / "up.json").write_text('{"desktops": "desktop3:7782 desktop4:7783"}')
+        s.assertEqual(hook_out()["permissionDecision"], "deny")                 # two: the call names one
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        out = []
+        with mock.patch.object(b, "backend") as be, mock.patch.object(b, "reply", lambda i, **r: out.append(r)):
+            b.handle("desktop", ["http://127.0.0.1:7780/mcp"], json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "type_chat", "arguments": {}}}))
+        s.assertEqual((be.called, "port" in out[0]["error"]["message"]), (False, True))   # the bridge never picks a desktop itself
+
     def test_a_failing_test_leaves_no_temp_dir(s):
         with tempfile.TemporaryDirectory() as t:
             r = subprocess.run([sys.executable, "-c", "import sys, tempfile, pathlib; sys.path.insert(0, sys.argv[1]); import test_hd\n"
@@ -2351,7 +2376,7 @@ class R6(Sandbox):
             s.assertIn("result", b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "get_timeline", "arguments": {}}))   # it connects
         stuck.set()
         out = []
-        call = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_timeline", "arguments": {}}})
+        call = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_timeline", "arguments": {"port": 7780}}})
         with mock.patch.object(b, "backend", side_effect=ValueError("truncated body")), mock.patch.object(b, "reply", lambda i, **r: out.append((i, r))):
             b.handle("desktop", ["http://127.0.0.1:7780/mcp"], call)
         s.assertEqual((out[0][0], "truncated body" in out[0][1]["error"]["message"]), (7, True))   # an exception is an error answer
@@ -2380,7 +2405,7 @@ class R6(Sandbox):
             return {"result": {"content": [{"type": "text", "text": json.dumps({"gameState": "LOGGED_IN", "name": params["name"]})}]}}
         def reply(i, **r):
             out.append(i); shot.set() if i == 2 else None
-        call = lambda i, n: json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": n, "arguments": {}}}) + "\n"
+        call = lambda i, n: json.dumps({"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": n, "arguments": {"port": 7780}}}) + "\n"
         with mock.patch.object(b, "backend", backend), mock.patch.object(b, "reply", reply), \
              mock.patch.object(b.sys, "argv", ["bridge", "desktop", "http://127.0.0.1:7780/mcp"]), mock.patch.object(b.sys, "stdin", io.StringIO(call(1, "wait_for") + call(2, "screenshot"))):
             b.main()

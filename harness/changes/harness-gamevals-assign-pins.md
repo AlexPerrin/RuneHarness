@@ -4,7 +4,7 @@ track: harness
 title: gamevals.py assign sees the pins without the hd env
 kind: change
 priority: P1
-mechanism: server
+mechanism: tree
 deps: []
 created: '2026-11-02T04:53:30Z'
 ---

@@ -1731,10 +1731,10 @@ class R5(Sandbox):
         F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2}, trees={B: "t0", H1: "t1", H2: "t2", M2: "t12"},
                  merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (H1, H2): ("ok", M2)})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         hd.tick(s.ctx(F)); F.f["procs"] = {(7, "1"), (4242, "99")}               # h1 alone: its gate runs
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h2"])
+            hd.cmd_handover(["h2", "Limits:", "none"])
         s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t1", "waiting for the batch ahead (gate on t1)"])
         hd.tick(s.ctx(F)); s.assertEqual((len(F.spawned), F.stopped), (1, []))  # the running gate holds: nothing restarted
         hd.put("ship-harness", "gate-t1", {"ok": True}); F.f["procs"] = {(7, "1")}
@@ -1743,7 +1743,7 @@ class R5(Sandbox):
         F.f["refs"]["harness/h1"] = "9" * 40                                     # h1's head moves: the running gate's prefix is gone
         F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), ("9" * 40, H2): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
         hd.tick(s.ctx(F))
         s.assertEqual((F.stopped, F.envs[-1]["G"]), ([4242], "t92"))           # stopped, the current batch's gate started
 
@@ -2343,6 +2343,19 @@ class R8(Sandbox):
         s.assertEqual((hd.rec("h1", "handover")["tools"], hd.rec("h1", "handover")["T"]), ({"fork": D}, TA + "+" + D[:12]))
         s.assertEqual(s.state(F, "h1")["state"], f"gate on {TA[:9]}")          # the new head is recorded and re-gated in its batch
 
+    def test_the_hand_over_runs_the_carried_tools_heads_tests(s):  # a fork head failing its own tests showed only at the batch gate
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork = str(s.root / "fork")
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)}, anc={(C, "local/harness")},
+                 rows={"tools/track.sh check-tools": (1, "FAIL: test_x (test_tools.BuildAttempts.test_x)")})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertIn("a carried tools head's tests fail: FAIL: test_x", str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
+        F.f["rows"] = {}
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertEqual(hd.rec("h1", "handover")["tools"], {"fork": C})
+
     def test_a_batch_merges_its_members_tools_heads_in_one_go(s):  # one carrying the fork's tools waited for another's ship, then rebased
         for k in ("h1", "h2"):
             s.change(k, track="harness"); s.agreed(k, track="harness")
@@ -2350,7 +2363,7 @@ class R8(Sandbox):
         F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2, f"{fork}:harness/h1": T1, f"{fork}:harness/h2": T2}, trees={B: "t0", H1: "t1", H2: "t2", M2: "t12"},
                  merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (H1, H2): ("ok", M2), (T1, T2): ("ok", TM)}, anc={(T1, "local/harness"), (T2, "local/harness")})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1"]); hd.cmd_handover(["h2"])
+            hd.cmd_handover(["h1", "Limits:", "none"]); hd.cmd_handover(["h2", "Limits:", "none"])
         s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], [f"gate on t12+{TM[:5]}"] * 2)   # one batch: both tools heads merged
         hd.tick(s.ctx(F))
         s.assertEqual((F.envs[-1]["NAMES"], F.envs[-1]["TOOLS"]), ("h1,h2", f"{fork}:local/harness:{TM}:o/f"))   # ship fast-forwards the branch to the merge
@@ -2968,6 +2981,18 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.assertEqual(hd.rows(s.ctx(F), ch, {**con, "rows": [r for r in con["rows"] if r["id"] != "lint"]}, A, TA, TA, "", gate=True), [])
         s.assertEqual(F.ran, ["true", "true", "tools/track.sh gate-ci"])     # the gate rows after every check passed
+
+    def test_a_row_held_by_its_source_records_no_result(s):  # openrs2's HTTP 500 and GitHub's quota failed heads they never touched
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n")
+        F = Fake(**FACTS, rows={"tools/track.sh gate-ci": (hd.HELD, "CI failed at 'Set up Gradle' in 3 attempts: no result")})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_rows(["s1", A, ""])
+        s.assertEqual(e.exception.code, hd.HELD)                               # the gate script records nothing: hd starts it again
+        F.f["rows"]["true"] = (1, "nope")
+        s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- bad | fails | gate: true\n")
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_rows(["s1", A, ""])
+        s.assertEqual(e.exception.code, 1)                                     # a row that failed outright is the head's
 
     def test_handover_refused_on_failing_script_row(s):
         s.change("s1"); s.agreed("s1", extra="- bad | fails | check: false\n")

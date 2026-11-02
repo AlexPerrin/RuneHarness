@@ -27,8 +27,9 @@ nothing depends on any session staying alive.
 What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added later joins it at its next head not carried upstream), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
 a closed change takes none) and prior findings;
 a row is proved through the change's own tree, never through a change that depends on it.
-The hand-over passes every script row;
+The hand-over passes every script row and the carried tools heads' tests;
 the gate runs the local script rows first and fork CI only once they pass;
+a step failing outside the head (a source down, a quota refusal) records no result and is re-run once its source answers, never the head's failure;
 the reviewer judges every row once, pass or fail, a row it did not check is not judged and never passes, and verdicts append;
 a text-only failure is fixed in place.
 A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves.
@@ -136,6 +137,7 @@ a live check reads the real state.
 
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;
    a hand-over with a failing script row, or whose pushed ref is not the head it names, is refused;
+   a gate whose only failing rows are held (exit 75) exits 75, recording no result;
    a harness hand-over reads its local dev ref, never a pushed one;
    a script row the user's answer waives is not run;
    an answer recorded after a hand-over and the head's last verdict, on any track and on a done change, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over, and one a verdict on the head already judged does not;
@@ -221,6 +223,7 @@ a live check reads the real state.
    two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
    one change editing a fact line and another inserting a fact on the line before it merge in either order, while a code conflict beside them stays the dev's;
    a carried tools head its branch moved past is rebased by the pass and re-gated with no dev run, a rebase that stops listing the dev with its files;
+   a harness hand-over whose carried tools heads' tests fail is refused;
    a build is keyed by T and tools/build/ alone, a gate by the build key, tools/gate/ and the rows' files: a gate-only tools edit rebuilds nothing;
    a batch merges its members' heads on one tools branch, a tools conflict with an earlier member waiting;
    a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;

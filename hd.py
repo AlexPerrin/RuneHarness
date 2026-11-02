@@ -2495,6 +2495,10 @@ def cmd_handover(a):
                 why.append(f"{w}: in this change's scope ({mechanism(graph[k])}): fix it here, rewriting the mechanism if the limit is in its design")
     tree = ctx.tree(ch, T[1])
     why += rows(ctx, ch, con, head, T[1], tree, "", gate=False)
+    if tools and not why:  # R3: the carried tools heads' own tests, as the gate's check-tools runs them, before any gate is spent on them
+        rc, out = ctx.F.run("tools/track.sh check-tools", str(track_root(ctx.cfg, "harness")), ctx.env(ch, head, T[1], tree))
+        if rc:
+            why.append(f"a carried tools head's tests fail: {out.strip()[-400:]}")
     if why:
         refuse(*why)
     put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:])})
@@ -2503,6 +2507,9 @@ def cmd_handover(a):
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
     print(f"handed over {head} (tree {tree[:9]})")
+
+
+HELD = 75  # a row's exit when the step that failed reads nothing of the head (its source down): no result, never the head's FAIL
 
 
 def rows(ctx, ch, con, head, tc, tree, build, gate):
@@ -2524,9 +2531,9 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
         for row in con["rows"]:
             if row[kind] and row["id"] not in waived:
                 rc, out = ctx.F.run(row[kind], root, env)
-                print(f"{'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (f"\n{out.strip()[-800:]}" if rc else ""))
+                print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
-                    why.append(f"row {row['id']} failed: {out.strip()[-400:]}")
+                    why.append(f"row {row['id']} {'held' if rc == HELD else 'failed'}: {out.strip()[-400:]}")
     return why
 
 
@@ -2539,7 +2546,7 @@ def cmd_rows(a):
         print(f"## {slug}") if "," in a[0] else None
         con = contract(ch["slug"]) or refuse("no contract")
         why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], os.environ.get("T") or ctx.key(ch, ctx.tree(ch, a[1]), build=True) or "", a[2], gate=True)  # T: the build key the gate built
-    sys.exit(1 if why else 0)
+    sys.exit(HELD if why and all(re.match(r"row \S+ held: ", w) for w in why) else 1 if why else 0)  # only held rows: no result, the gate is run again
 
 
 def cmd_verdict(a):

@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
+import fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time, traceback
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -1665,8 +1665,14 @@ def public(ctx, ch, head):
         if dep and not dep.get("closed") and upstream(dep) and TRACK[dep["track"]]["repo"] != TRACK[ch["track"]]["repo"]:
             dh = ctx.head(dep)
             m = ctx.done(dep, dh) if dh else False
-            if not m:
-                return step(f"waiting on {d}'s upstream merge", "unknown" if m is None else "wait")
+            if m is None:
+                return step(f"waiting on {d}'s upstream merge", "unknown")
+            if not m:  # the user's hold on that card closes the wait on the user: one alert names it, the deploy goes on
+                if (why := user_hold(dep, dh)) is not None:
+                    a = f"{slug}'s card waits on {d}'s upstream merge, whose card the user holds{why and ': ' + why}: lift it (hd hold {d} --lift) or hold this card too"
+                    ctx.alerts += [a] if a not in ctx.alerts else []
+                    return step(f"waiting on {d}'s upstream merge; its card is held by the user", "wait")
+                return step(f"waiting on {d}'s upstream merge", "wait")
     if (out := outside(ctx, ch, head)):
         return step(f"gated; the PR waits for {', '.join(out)}", "wait")
     if (first := min(o["slug"] for o in group(ctx, ch) if ctx.head(o) == head and not outside(ctx, o, head))) != slug:
@@ -1676,8 +1682,7 @@ def public(ctx, ch, head):
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head":  # the carry found the head's defect
         return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
     if not approved(ctx, ch, head):
-        at, _, why = str(ch.get("held") or (rec(slug, "hold") or {}).get("held") or "").partition(": ")
-        if at in ("all", head):  # the user's no or word: no card until a new head or their lift (`hd hold`)
+        if (why := user_hold(ch, head)) is not None:  # the user's no or word: no card until a new head or their lift (`hd hold`)
             return step("held by the user" + (f": {why}" if why else ""), "wait")
         miss = unnamed(ctx, ch, head)
         if miss is None:
@@ -1689,6 +1694,12 @@ def public(ctx, ch, head):
         return step("gated; waiting for the user's yes", "user", input=head)
     return step(f"publishing v{ch['version']}" if ch["kind"] == "release" else "carrying upstream", "script",
                 act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd.py"), "ship", slug, head]))
+
+
+def user_hold(ch, head):
+    """R4: the user's why ('' for none) while they hold the change's card at head (`hd hold`); None when not held."""
+    at, _, why = str(ch.get("held") or (rec(ch["slug"], "hold") or {}).get("held") or "").partition(": ")
+    return why if at in ("all", head) else None
 
 
 def unnamed(ctx, ch, head):
@@ -3097,7 +3108,14 @@ def main(argv):
         return cmd_tick([])
     if argv[0] not in cmds:
         sys.exit(f"hd: commands: {' '.join(cmds)}")
-    cmds[argv[0]](argv[1:])
+    f = cmds[argv[0]]
+    try:
+        f(argv[1:])
+    except IndexError as e:  # an argument the command reads is missing: its usage, never a traceback
+        if traceback.extract_tb(e.__traceback__)[-1].name != f.__name__:
+            raise
+        u = re.search(r"`(hd [^`]*)`", f.__doc__ or "")
+        sys.exit(f"usage: {u[1] if u else 'hd ' + argv[0] + ' <slug> ...'}")
 
 
 if __name__ == "__main__":

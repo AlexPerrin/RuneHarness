@@ -1324,6 +1324,19 @@ class R4(Sandbox):
         F.f["anc"] = {(B, D)}                                                    # Central's main holds z1: the hold lifts (the server rebuilds without it)
         s.assertEqual(s.state(F, "s1")["state"], "building tatatatat-cbbbbbbbb")   # the state names the key: the Central part too
 
+    def test_a_card_waiting_on_a_held_dependency_card_is_one_alert_and_holds_no_dev_work(s):
+        s.change("z1", "central"); s.agreed("z1", "central"); s.change("c1", "client", deps=["s1"])
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D}, "trees": {**FACTS["trees"], D: TC}, "merges": {(B, D): ("ok", D)}})
+        s.gated("z1", F)
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_hold(["z1", "the", "auth", "bundle"])                         # the user holds Central's card until the auth bundle
+        s.ready(F, deps=["z1"])                                                  # gated on the fork, live on the test server
+        s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("waiting on z1's upstream merge; its card is held by the user", "wait"))
+        v = hd.tick(s.ctx(F), act=False)
+        s.assertEqual([a for a in v["alert"] if "z1's upstream merge" in a],
+                      ["s1's card waits on z1's upstream merge, whose card the user holds: the auth bundle: lift it (hd hold z1 --lift) or hold this card too"])
+        s.assertNotEqual(s.state(F, "c1")["actor"], "wait")                     # dev work goes on past the contribution queue: s1 is on the fork
+
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> get the cutscene in\n\n@rev it is in.")
@@ -1373,6 +1386,12 @@ class R4(Sandbox):
 
 
 class R7(Sandbox):
+    def test_a_command_missing_an_argument_prints_its_usage(s):
+        for argv, u in ((["rows"], "usage: hd rows <slug>[,<slug>...] <tcommit> <build copy>"), (["show"], "usage: hd show <slug> ...")):
+            with s.assertRaises(SystemExit) as e:
+                hd.main(argv)
+            s.assertEqual(str(e.exception.code), u)
+
     def test_view_has_only_the_seven_sections_and_states_are_facts(s):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client"); hd.put("s1", "ask", {"text": "scope?"})
         v = hd.tick(s.ctx(Fake(**FACTS)))

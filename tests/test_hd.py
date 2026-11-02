@@ -142,9 +142,19 @@ class Sandbox(unittest.TestCase):
             hd.cmd_handover([slug, "Limits:", "none"])
         ho = hd.rec(slug, "handover")
         hd.put(slug, "build", {"T": ho["T"], "ok": True})
-        hd.put(slug, "gate", {"T": ho["T"], "ok": True})
-        hd.put(f"ship-{hd.defs('changes')[slug]['track']}", f"gate-{ho['T']}", {"T": ho["T"], "ok": True})  # a batched change alone in its batch
+        s.regate(slug, F, {"ok": True})
         return ho
+
+    def gk(s, slug, F, t=None):
+        """The gate key at the hand-over's tree (or t): the tree and, on a track with a public act, the texts."""
+        ctx = s.ctx(F)
+        return ctx.key(ctx.changes[slug], t or hd.rec(slug, "handover")["T"])
+
+    def regate(s, slug, F, g=None):
+        """The gate record moved to the current key (the texts written after it gated again with its result)."""
+        k = s.gk(slug, F)
+        hd.put(slug, "gate", {**(g or hd.rec(slug, "gate")), "T": k})
+        hd.put(f"ship-{hd.defs('changes')[slug]['track']}", f"gate-{k}", {"T": k, "ok": True})  # a batched change alone in its batch
 
     def approve(s, F, slug, head):
         """The user's yes at head and the card's current texts (as `hd approve` records it at the user step)."""
@@ -1366,7 +1376,7 @@ class R4(Sandbox):
         s.approve(F, "s1", A)
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
         hd.tick(s.ctx(F)); s.assertEqual(F.spawned[-1], [str(hd.ROOT / "hd.py"), "ship", "s1", A])
-        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body")      # new texts: the yes is withdrawn, the card shown again
+        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body"); s.regate("s1", F)   # new texts: the yes is withdrawn, the card shown again
         s.assertEqual(s.state(F, "s1")["actor"], "user")
         s.approve(F, "s1", A)
         F.f["refs"]["fork/dev/s1"] = D                                           # a new head: the yes is withdrawn
@@ -1413,7 +1423,7 @@ class R4(Sandbox):
         s.change("rel", "client", kind="release", version="0.1.3"); hd.write_contract(hd.cfg(), "rel", "client", "derived")
         (s.root / "evidence" / "rel").mkdir(parents=True, exist_ok=True); (s.root / "evidence" / "rel" / "release-notes.md").write_text("notes")
         F = Fake(**FACTS)
-        hd.put("rel", "build", {"T": TB, "ok": True}); hd.put("rel", "gate", {"T": TB, "ok": True})
+        hd.put("rel", "build", {"T": TB, "ok": True}); hd.put("rel", "gate", {"T": s.gk("rel", F, TB), "ok": True})
         s.assertEqual(s.state(F, "rel")["actor"], "user")
         c = hd.tick(s.ctx(F))["card"][0]
         s.assertIn(f"1. publish release v0.1.3 of o/c at {B}", c); s.assertIn("### release notes\nnotes", c)
@@ -1435,7 +1445,7 @@ class R4(Sandbox):
     def test_the_card_shows_every_act_and_exact_text_and_finds_an_open_pr_by_its_branch(s):
         F = Fake(**FACTS); s.ready(F)
         ev = s.root / "evidence" / "s1"
-        (ev / "pr-title.txt").write_text("feat: x"); (ev / "pr-body.md").write_text("Fixes #354 thanks @rev")
+        (ev / "pr-title.txt").write_text("feat: x"); (ev / "pr-body.md").write_text("Fixes #354 thanks @rev"); s.regate("s1", F)
         c = hd.tick(s.ctx(F), act=False)["card"][0]
         for want in (f"head {A}", f"1. push {A} to o:content/s1 (no force)", f"2. open a draft PR on u/f from content/s1 into main (base {B[:9]})",
                      "### title\nfeat: x", "### body\nFixes #354 thanks @rev", f"### comment\n{PUSHED}", "rows pass",
@@ -1645,7 +1655,7 @@ class R4(Sandbox):
         ev = s.root / "evidence" / "s1"
         (ev / "pr-body.md").write_text("new body")
         (ev / "pr-comment.md").write_text(f"Pushed {C[:9]} and {A[:9]} on top of {D[:9]} (head {A[:9]}).\n\n- {C[:9]}: one.\n- {A[:9]}: two.")
-        (ev / "pr-reply-99.md").write_text("> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION)   # a text already signed: signed once
+        (ev / "pr-reply-99.md").write_text("> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION); s.regate("s1", F)   # a text already signed: signed once
         t = {w: x for w, _, x in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])}
         s.assertEqual(sorted(t), ["body", "comment"])   # the title is live already: no title step
         s.assertTrue(C[:9] in t["comment"] and A[:9] in t["comment"])
@@ -1671,13 +1681,13 @@ class R4(Sandbox):
         F = Fake(**{**FACTS, "commits": {A: {C, A}}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
         s.ready(F, pr=7)                                                         # the push adds C and A on top of the live head D
         ev = s.root / "evidence" / "s1" / "pr-comment.md"
-        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}.")                      # stale: written before the head moved to A
+        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}."); s.regate("s1", F)                      # stale: written before the head moved to A
         st = s.state(F, "s1")
         s.assertEqual((st["actor"], st["input"]), ("dev", ["comment", A, [A]])); s.assertIn(A[:9], st["detail"])
         s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])
-        ev.write_text("")                                                        # no comment: no generic text, back to dev
+        ev.write_text(""); s.regate("s1", F)                                                        # no comment: no generic text, back to dev
         s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A, C]])
-        ev.write_text(f"Pushed {C[:9]} and {A[:9]}.")
+        ev.write_text(f"Pushed {C[:9]} and {A[:9]}."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["actor"], "user")
         s.assertIn(f"### comment\nPushed {C[:9]} and {A[:9]}.", hd.tick(s.ctx(F), act=False)["card"][0])
         s.assertIn(["fetch", "origin", "pull/7/head"], F.ran)                   # the live head D, absent from the clone, is fetched by the PR
@@ -1687,9 +1697,9 @@ class R4(Sandbox):
         F = Fake(**{**FACTS, "commits": {A: {E, C, A}, (A, B): {C, A}}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
         s.ready(F, pr=7)                                                         # live head D..A holds E, C, A; main B..A holds C, A
         ev = s.root / "evidence" / "s1" / "pr-comment.md"
-        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}.")
+        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A]])            # E is main's, already upstream: never asked for
-        ev.write_text(f"Pushed {C[:9]} and {A[:9]} (merges main).")
+        ev.write_text(f"Pushed {C[:9]} and {A[:9]} (merges main)."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["actor"], "user")
 
     def test_the_rounds_one_comment_answers_every_open_finding_before_its_card(s):
@@ -1697,10 +1707,10 @@ class R4(Sandbox):
         F = Fake(**{**FACTS, "commits": {A: {A}}, "comments": {7: [com(98), com(99)]}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
         s.ready(F, pr=7, finding=[98, 99])
         ev = s.root / "evidence" / "s1"
-        (ev / "pr-reply-98.md").write_text("> point 98\n\n@rev fixed.")                # 99 answered nowhere
+        (ev / "pr-reply-98.md").write_text("> point 98\n\n@rev fixed."); s.regate("s1", F)                # 99 answered nowhere
         st = s.state(F, "s1")
         s.assertEqual((st["actor"], st["input"]), ("dev", ["findings", A, [99]])); s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])
-        (ev / "pr-reply-99.md").write_text("> point 99\n\n@rev fixed too.")
+        (ev / "pr-reply-99.md").write_text("> point 99\n\n@rev fixed too."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["actor"], "user")
         s.assertEqual([f for w, f, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"]) if w == "comment"], [[98, 99]])
 
@@ -1716,9 +1726,9 @@ class R4(Sandbox):
         F = Fake(**{**FACTS, "commits": {A: {C, A}}})                            # main..head holds C and A: a new PR names only A
         s.ready(F)
         ev = s.root / "evidence" / "s1" / "pr-comment.md"
-        ev.write_text(f"Opens the PR at {C[:9]}.")
+        ev.write_text(f"Opens the PR at {C[:9]}."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A]])
-        ev.write_text(f"Opens the PR at {A[:9]}.")
+        ev.write_text(f"Opens the PR at {A[:9]}."); s.regate("s1", F)
         s.assertEqual(s.state(F, "s1")["actor"], "user")
 
     def test_a_central_change_is_carried_to_centrals_upstream(s):
@@ -2583,8 +2593,8 @@ class R5(Sandbox):
         s.change("s1"); s.agreed("s1")
         bs, gs = "build() {\n  record true build\n}\n", "gate() { build; }\nrecord() { echo; }\n"
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "up() { :; }\n", "tools/build/build.sh": bs, "tools/gate/gate.sh": gs}}})
-        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x]   # the contract's script rows are in the gate key
         t = s.gated("s1", F)["T"]
+        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x] + [hd.texts_key("s1")]   # the contract's script rows and the texts are in the gate key
         bk = lambda c: f"{t}-{hd.tools_run(F.f['tools_files'][c], 'tools/build/')[:12]}"
         gk = lambda c: f"{bk(c)}-{hd.tools_run(F.f['tools_files'][c], 'tools/gate/', rows)[:12]}"
         hd.put("s1", "build", {"T": bk(B), "ok": True})
@@ -3136,7 +3146,7 @@ class R6(Sandbox):
                 if st.startswith("building"):
                     hd.put(k, "build", {"T": ho["T"], "ok": True})
                 elif st.startswith("gate on"):
-                    hd.put(k, "gate", {"T": ho["T"], "ok": True}); gates += 1
+                    s.regate(k, F, {"ok": True}); gates += 1
             for x in v["spawn"]:
                 r = hd.runs(x.split(":")[0])[0]
                 if r["role"] == "planner":
@@ -3193,7 +3203,7 @@ class R6(Sandbox):
         ho, past = s.gated("s1", F), time.time() - 10
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["h1", "Limits:", "none"])
-        hd.put("s1", "gate", {"T": ho["T"], "ok": False}); hd.put("ship-harness", f"gate-{TA}", {"T": TA, "ok": False}); hd.put("ship-harness", f"gate-{TB}", {"T": TB, "ok": True})
+        hd.put("s1", "gate", {"T": s.gk("s1", F), "ok": False}); hd.put("ship-harness", f"gate-{TA}", {"T": TA, "ok": False}); hd.put("ship-harness", f"gate-{TB}", {"T": TB, "ok": True})
         hd.tick(s.ctx(F))
         s.assertEqual(F.spawned, [])                                                   # each failure is its dev's (h1's: the live branch passes its own gate)
         for slug, f in (("s1", "s1/gate"), ("h1", f"ship-harness/gate-{TA}")):
@@ -4044,8 +4054,7 @@ class R8(Sandbox):
         F.f["refs"]["origin/HEAD"] = E                                               # the base moves; T is recomputed and re-gated
         F.f["trees"][X] = "tx" * 20
         F.f["merges"].update({(E, A): ("ok", X), (E, "p" * 40): ("conflict", "CONFLICT (content): ObjTakePlugin.kt")})
-        for k in ("build", "gate"):
-            hd.put("s1", k, {"T": "tx" * 20, "ok": True})                            # the hand-over keeps the old T
+        hd.put("s1", "build", {"T": "tx" * 20, "ok": True}); hd.put("s1", "gate", {"T": s.gk("s1", F, "tx" * 20), "ok": True})   # the hand-over keeps the old T
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
         s.assertNotEqual(hd.rec("s1", "handover")["T"], "tx" * 20)
         t = hd.integration(s.ctx(F))
@@ -4376,6 +4385,19 @@ class R3(Sandbox):
         s.assertEqual(moved({"tools/build/build.sh": "build() { echo; }\n"}), ["ci", "j1", "lint", "ok", "subj", "t"])                    # the build: every row
         s.assertEqual(moved({"tools/server/text.py": "t2"}), ["subj"])
         s.assertNotEqual(s.ctx(F).key(ch, "tr"), (lambda: (keys({"tools/gate/gate.sh": gate + "\n"}), s.ctx(F).key(ch, "tr"))[1])())   # the gate's own key: the whole of tools/gate/
+
+    def test_a_check_row_is_keyed_on_the_texts_the_carry_posts(s):  # sweep-74 P3-a: three pr-reply-*.md written after the gate went on the card with texts: ok kept at its key
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- texts | texts | check: tools/server/text.py texts\n")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/gate/gate.sh": "gate_ci() { :; }\n", "tools/server/text.py": "t"}}})
+        ch, ev = s.ctx(F).changes["s1"], hd.EVID / "s1"
+        keys = lambda: (s.ctx(F).key(ch, "tr", each=True), s.ctx(F).key(ch, "tr"), s.ctx(F).key(ch, "tr", build=True))
+        k0, g0, b0 = keys()
+        for f, t in (("pr-reply-IC_1.md", "a reply"), ("pr-reply-IC_1.md", "another reply"), ("pr-comment.md", "Updated"), ("release-notes.md", "notes")):
+            (ev / f).write_text(t); k, g, b = keys()
+            s.assertEqual(k["s1/ci"], k0["s1/ci"], f); s.assertEqual(b, b0, f)      # CI and the build kept
+            s.assertNotEqual(k["s1/texts"], k0["s1/texts"], f); s.assertNotEqual(g, g0, f)  # the text row and the gate: run again
+            k0, g0 = k, g
+        (ev / "accuracy.md").write_text("spec"); s.assertEqual(keys()[:2], (k0, g0))  # a file the carry never posts
 
     def test_the_live_branch_s_gate_keeps_the_member_s_row_results(s):  # sweep-21: the base's gate overwrote a member's row-gate-tests.json
         s.change("s1"); s.agreed("s1", extra="- t | tests | gate: tools/track.sh test\n")
@@ -4756,7 +4778,8 @@ class R3(Sandbox):
         s.approve(F, "s1", A)
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
         (s.root / "evidence" / "s1" / "pr-body.md").write_text("fixed body")  # qa fixed the text in place: the verdict holds, the yes does not
-        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
+        s.assertTrue(s.state(F, "s1")["state"].startswith("gate on"))           # the rows that read the texts check the new one first
+        s.regate("s1", F); s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 
     def test_gate_bound_to_tree(s):
         s.change("s1"); s.agreed("s1")

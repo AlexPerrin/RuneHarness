@@ -124,6 +124,10 @@ class Sandbox(unittest.TestCase):
     def ctx(s, F):
         return hd.Ctx(F, hd.cfg())
 
+    def triaged(s, *ids, verdict="finding"):
+        for i in ids:  # the orchestrator's `hd triage`
+            hd.put("triage", str(i), {"verdict": verdict})
+
     def state(s, F, slug):
         ctx = s.ctx(F)
         return hd.nxt(ctx, ctx.changes[slug])
@@ -574,6 +578,7 @@ class R2(Sandbox):
         com = lambda i, who="a-thoren", **k: {"id": i, "author": who, "bot": False, "reply": None, "path": "N.kt", "line": 265, "body": "reset | the varp?", **k}
         F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9), com(10, reply=9), com(11, "O", reply=9), com(12, "ci", bot=True)]},
                     "prs": {"u/f": [{"number": 354, "branch": "content/cannon", "owner": "o", "head": A, "draft": False}]}})
+        s.triaged(*range(7, 15))
         hd.tick(s.ctx(F), act=False)
         s.assertFalse((s.root / "harness" / "changes" / "server-354-c8.md").exists())  # a dry run files nothing
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
@@ -597,7 +602,7 @@ class R2(Sandbox):
         s.change("cannon-b", pr=354); s.agreed("cannon-b", extra="- acc-A1 | the reclaim | judge\n")
         talk = lambda i, who, body: {"id": i, "author": who, "body": body}
         F = Fake(**{**FACTS, "comments": {354: []}, "talk": {354: [talk("IC_x", "a-thoren", "mcannonmulti resets"), talk("IC_y", "eagle", "Nulodion's reclaim")]}})
-        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        s.triaged("IC_x", "IC_y"); hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         s.assertEqual(sorted(hd.defs("changes")), ["cannon-a", "cannon-b"])        # no change per finding
         s.assertEqual(hd.defs("changes")["cannon-a"]["finding"], ["IC_x", "IC_y"])   # the open round: the least tip
         rows = hd.contract("cannon-a")["rows"]
@@ -612,7 +617,7 @@ class R2(Sandbox):
                                                 {**com(52, "O", reply=50), "body": "> rename  it\n> now\n\n@rev renamed."}]},
                     "talk": {354: [talk("IC_a", "rev", "the varp\nresets"), talk("IC_b", "O", "> the varp resets\n\n@rev fixed."), talk("IC_c", "rev", "still wrong"),
                                    talk("PRR_d", "rev", "please split it"), talk("PRR_e", "rev", ""), talk("PRR_f", "O", "ours"), talk("PRR_g", "rev", "rename it now, please")]}})
-        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        s.triaged(8, 9, 11, 12, "IC_a", "IC_c", "PRR_d", "PRR_e", "PRR_g"); hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         s.assertEqual(sorted(hd.defs("changes")), ["s1", "s1-c8"])
         s.assertEqual(hd.defs("changes")["s1-c8"]["finding"], [8, 11, "IC_c", "PRR_d"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
         s.assertIn("> please split it", hd.defs("changes")["s1-c8"]["body"])       # each joined finding's quote in the round's definition
@@ -629,6 +634,7 @@ class R2(Sandbox):
         F = Fake(**{**FACTS, "comments": {354: [{"id": 8, "author": "ci-x", "bot": False, "reply": None, "path": "N.kt", "line": 1, "body": "lint"}]},
                     "talk": {354: [talk("IC_a", "rev"), talk("IC_b", "rev"), talk("IC_c", "coderabbitai[bot]", True), talk("IC_d", "helper", True),
                                    talk("PRR_e", "copilot-pull-request-reviewer[bot]", True)]}})
+        s.triaged(8, "IC_a", "IC_b", "IC_c", "IC_d", "PRR_e", "IC_z")
         ctx = s.ctx(F); ctx.cfg["bots"] = ["CI-X"]                                      # hd.yaml's bots: a bot GitHub does not mark
         hd.tick(ctx, act=False); s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), [])
         hd.tick(ctx)
@@ -912,7 +918,7 @@ class R2(Sandbox):
         f = s.root / "state" / "seen.orchestrator.json"
         f.write_text(json.dumps({**json.loads(f.read_text()), "message": ["old"], "card": ["old"]}))
         hd.wake({"spawn": []})
-        s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "spawn"])   # a key no longer watched is dropped
+        s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "spawn", "triage"])   # a key no longer watched is dropped
 
     def test_hooks_during_a_long_pass_never_wait_and_their_facts_are_folded(s):
         """The three cancelled-hook cases: a bind (a57c2d6..., cancelled 5 times), a run dropped 'no longer due' while its
@@ -1714,6 +1720,35 @@ class R4(Sandbox):
             hd.cmd_hold(["s1", "bundled", "later"])                              # the user holds this card too: the alert's other way out
         s.assertFalse([a for a in hd.tick(s.ctx(F), act=False)["alert"] if "z1's upstream merge" in a])
 
+    def test_a_maintainer_word_files_only_once_the_orchestrator_triages_it_a_finding(s):
+        talk = lambda i, body: {"id": i, "author": "rev", "body": body}
+        F = Fake(**{**FACTS, "comments": {354: []}, "talk": {354: [talk("IC_a", "good pushback, I'll test it"), talk("IC_b", "the varp\nresets")]}})
+        s.change("s1", pr=354, finding=["IC_y"]); s.agreed("s1"); hd.put("s1", "handover", {"head": A})   # the PR's change, answered
+        tri = lambda v: sorted(l.split(":")[0] for l in v["triage"])
+        s.assertEqual(tri(hd.tick(s.ctx(F), act=False)), ["IC_a", "IC_b"])
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(sorted(hd.defs("changes")), ["s1"])                           # untriaged: nothing filed, no run
+        s.assertIn("IC_b: server #354 rev on the PR: the varp resets: hd triage IC_b finding|ack", v["triage"])
+        s.assertIn("IC_a: server #354", (s.root / "state" / "wake.orchestrator").read_text())   # it wakes the orchestrator
+        run = lambda *a: hd.cmd_triage(list(a))
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            run("IC_a", "ack"); run("IC_b", "finding")
+            for bad in (("IC_a", "finding"), ("IC_c", "maybe")):
+                with s.assertRaises(SystemExit):
+                    run(*bad)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual((v["triage"], sorted(hd.defs("changes")), hd.defs("changes")["s1"]["finding"]), ([], ["s1"], ["IC_y", "IC_b"]))   # the ack files nothing, ever; the finding joins the round
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            with s.assertRaises(SystemExit):
+                run("IC_b", "finding")                                              # already triaged
+            hd.drop("triage", "IC_b")
+            for c in (("IC_b", "finding"), ("IC_b", "ack"), ("IC_y", "ack")):
+                with s.assertRaises(SystemExit):
+                    run(*c)                                                # carried, joined to a change of its own, or answered: its dev's
+            s.change("server-354-cicz", pr=354, finding=["IC_z"])
+            run("IC_z", "ack")                                                     # a round filed for an acknowledgement alone closes
+        s.assertTrue(hd.defs("changes")["server-354-cicz"]["closed"].startswith("triage: IC_z"))
+
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> get the cutscene in\n\n@rev it is in.")
@@ -1791,10 +1826,10 @@ class R7(Sandbox):
                 hd.main(argv)
             s.assertEqual(str(e.exception.code), u)
 
-    def test_view_has_only_the_seven_sections_and_states_are_facts(s):
+    def test_view_has_only_the_eight_sections_and_states_are_facts(s):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client"); hd.put("s1", "ask", {"text": "scope?"})
         v = hd.tick(s.ctx(Fake(**FACTS)))
-        s.assertEqual(list(v), ["spawn", "card", "question", "run", "goal", "change", "alert"])
+        s.assertEqual(list(v), ["spawn", "card", "question", "triage", "run", "goal", "change", "alert"])
         for line in v["change"]:
             state = line.split("]: ", 1)[1]
             s.assertTrue(" " in state or state == "done", line)                 # a sentence of facts, never a bare step name
@@ -2950,6 +2985,7 @@ class R6(Sandbox):
                     "anc": {(C, A)}, "comments": {7: [com(90 + i) for i in range(N)]}, "talk": {7: []},
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
         s.gated("s0", F); s.verdict("s0", A, {"ok": "pass", "j1": "pass"}, F); hd.put("s0", "ship", {"head": A, "ok": True})   # the PR's last round, carried
+        s.triaged(*range(90, 100))
         def dev(r):  # one commit answering every finding on the PR's head, the push comment and each reply
             F.f["refs"][f"fork/dev/{r['change']}"] = C
             ev = s.root / "evidence" / r["change"]

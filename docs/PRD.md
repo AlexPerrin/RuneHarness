@@ -22,7 +22,7 @@ The orchestrator, a top-level session visible in the user's console, spawns and 
 the user's yes (`hd approve`) and close are the user's own;
 with no orchestrator session under the supervisor that starts its successor the user is told to start one there, and a session outside it is never restarted;
 a session acting on another orchestrator definition than the live one is given the live one to read and acts on it from then on, with no user step, no session ended, no spawn held and no run stopped;
-its watch wakes it only when a line it acts on appears (spawn, card, question, alert);
+its watch wakes it only when a line it acts on appears (spawn, card, question, triage, alert);
 planning across tracks belongs to a planner run listed by facts, and the orchestrator keeps one read-only monitor sweep running that validates shipped harness changes landed and finds harness bugs, each session restarting it from the last sweep's report;
 nothing depends on any session staying alive.
 
@@ -58,6 +58,8 @@ The comment is the dev's push summary (pr-comment.md): a new PR's names its head
 until it does the change goes back to its dev with the commits it misses, and no card shows.
 A PR already at the head, ready, with nothing left to post gets no card;
 only a commit waits on CI.
+A maintainer's word is a finding (a defect or a request) or an acknowledgement, judged by the orchestrator before anything is filed;
+an acknowledgement files no change, lists no run and is never answered.
 A PR round is one change: each maintainer finding, and each fix filed on the PR, joins the PR's one open change not yet carried as a judged row (a change filed when none is open);
 its dev answers every finding (a commit stacked on the PR for each that needs code, a reply for each), one qa run judges every row at its last head, and one card's one comment answers every finding;
 a round answered with no code has no gate.
@@ -156,7 +158,7 @@ a live check reads the real state.
    `hd restart` ends the orchestrator session it runs in only once no run of it is live and state/orchestrator-handoff.md is written;
    `tools/orchestrator.sh` starts the next session when one ends by `hd restart` or crashes after its start, and stops on the user's exit and on a claude that fails at its start;
    a new orchestrator session is given that hand-off at its start, and the file goes;
-   a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
+   a pass rewrites `state/wake.orchestrator` only when a spawn, card, question, triage or alert line appears, a repeated line not waking it.
 
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;
    a hand-over with a failing script row, or whose pushed ref is not the head it names, is refused;
@@ -204,6 +206,8 @@ a live check reads the real state.
    a rerun's card updates that PR, never opens a second;
    a PR already at the head, ready, with every reply posted, gets no card;
    a round with no dev ref has its PR tip's head and no gate;
+   a maintainer's word not yet triaged is a view line that wakes the orchestrator and files nothing;
+   `hd triage <id> ack` files nothing for it ever and closes a round filed from it alone with no hand-over, `finding` joins or files the round;
    the comment quotes every finding of the round no comment of ours answers yet, else the round's dev step and no card;
    a central change is carried to Central's upstream;
    the dry-run check fails a candidate only on a public act main plans neither before nor after it.
@@ -263,7 +267,7 @@ a live check reads the real state.
    every run record carries its usage and transcript.
    Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
 
-7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and prints no step name as a state;
+7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, triage lines, runs, goals and change facts, and prints no step name as a state;
    a command missing an argument it reads prints its usage, never a traceback.
    Live: `python3 hd.py` on the real state.
 

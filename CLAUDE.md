@@ -9,7 +9,7 @@ OpenRune/OpenRune-Server and OpenRune/OpenRune-Central-Server). It is neither pr
 docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.
 
 ```
-hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | rows | verdict | ask | answer | stop | close | approve | ship | tree | tick | restart)
+hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | rows | verdict | ask | answer | triage | stop | close | approve | ship | tree | tick | restart)
 hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the context limit)
 hd.yaml        the repos, the agent count, the context limit, the permanent pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop

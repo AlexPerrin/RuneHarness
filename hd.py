@@ -997,7 +997,7 @@ def evs(needle):
     return got
 
 
-WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
+WATCH = {"orchestrator": ("spawn", "card", "question", "triage", "alert")}
 
 
 def wake(view):
@@ -1947,6 +1947,11 @@ def stacked(ctx, ch, head):
     return on
 
 
+def round_slug(track, pr, cid):
+    """The round filed from a finding: the PR and the finding, so no other change names it."""
+    return f"{track}-{pr}-c{re.sub(r'[^a-z0-9]', '', str(cid).lower())}"
+
+
 def finding_rows(slug, ch, fs, by):
     """R6: a judged answer row per finding the round carries: `finding <id> by <author> on <where>: <its text>`."""
     for f in fs:
@@ -1960,8 +1965,9 @@ def findings(ctx, open_prs, act):
     comment of ours answers (an inline review comment, a review's body, a conversation comment; not a bot's: GitHub's
     mark or hd.yaml's `bots`) joins the PR's one open round: its open change not yet carried (the tip, least slug), else
     a P1 change <track>-<pr>-c<id> filed on the PR with deps [the PR's tip changes, so it builds on the whole PR] and the
-    track's seed rows, derived. Each finding is an id in the round's `finding`, which the pass makes a judged row."""
-    carried_ = {str(f) for c in ctx.changes.values() for f in fids(c)}
+    track's seed rows, derived. Each finding is an id in the round's `finding`, which the pass makes a judged row.
+    Only a word the orchestrator triaged a finding (`hd triage`) joins; one not yet triaged is returned as a view line."""
+    carried_, untriaged = {str(f) for c in ctx.changes.values() for f in fids(c)}, []
     for track, pr in sorted(open_prs):
         r = ctx.cfg["repos"][TRACK[track]["repo"]]
         owner, cs, talk = r["name"].split("/")[0].lower(), ctx.comments(track, pr), ctx.talk(track, pr)
@@ -1970,6 +1976,10 @@ def findings(ctx, open_prs, act):
         mine, bots = lambda c: str(c["author"]).lower() == owner, {b.lower() for b in ctx.cfg.get("bots") or []}
         new = [c for c in cs + talk if not c.get("bot") and str(c["author"]).lower() not in bots and c["body"].strip() and not replied(c, cs, talk, owner)
                and not mine(c) and str(c["id"]) not in carried_]
+        verdict = {c["id"]: (rec("triage", str(c["id"])) or {}).get("verdict") for c in new}  # the orchestrator's judgment: a finding or an acknowledgement
+        untriaged += [f"{c['id']}: {track} #{pr} {c['author']} on {c['path'] + ':' + str(c['line']) if c.get('path') else 'the PR'}: "
+                      f"{' '.join(c['body'].split())[:300]}: hd triage {c['id']} finding|ack" for c in new if not verdict[c["id"]]]
+        new = [c for c in new if verdict[c["id"]] == "finding"]
         if not new or not act:
             continue
         on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track and not c.get("closed") and not c.get("superseded")]
@@ -1990,13 +2000,14 @@ def findings(ctx, open_prs, act):
                 finding_rows(rnd["slug"], rnd, [c["id"]], {c["id"]: c})
                 event(change=rnd["slug"], action="joined", finding=c["id"], pr=pr)
             else:
-                slug = f"{track}-{pr}-c{re.sub(r'[^a-z0-9]', '', str(c['id']).lower())}"  # the PR and the finding: no other change names it
+                slug = round_slug(track, pr, c["id"])
                 rnd = {"slug": slug, "track": track, "title": f"#{pr}: review round from {c['author']} on {where}", "kind": "change", "priority": "P1",
                        "deps": [t["slug"] for t in tips(on)], "pr": pr, "finding": [c["id"]]}
                 if (b := next((o["branch"] for o in on if o.get("branch")), None)):  # the PR's head branch
                     rnd["branch"] = b
                 rnd["path"] = new_def(rnd, quote, finding=c["id"], pr=pr)
                 write_contract(ctx.cfg, slug, track, "derived")  # the track's seed rows and its findings: the dev answers, qa judges once
+    return untriaged
 
 
 def integration(ctx):
@@ -2567,7 +2578,7 @@ def tick(ctx=None, act=True):
 
 
 def _pass(ctx, act):
-    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
+    view = {"spawn": [], "card": [], "question": [], "triage": [], "run": [], "goal": [], "change": [], "alert": []}
     repairs(ctx, act)
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
     per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
@@ -2590,7 +2601,7 @@ def _pass(ctx, act):
             if (why := unlistable(ctx, c, st)) and why not in ctx.alerts:
                 ctx.alerts.append(why)
             due += [] if why else [prio[k]]
-    findings(ctx, open_prs, act)  # R6: before the changes' steps, so a joined finding's row reaches a listed run's brief in this pass
+    view["triage"] = findings(ctx, open_prs, act)  # R6: before the changes' steps, so a joined finding's row reaches a listed run's brief in this pass
     hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
     for ch in sorted(ctx.changes.values(), key=key):
         st = work = nxt(ctx, ch)
@@ -3213,6 +3224,30 @@ def cmd_ask(a):
     print("asked")
 
 
+def cmd_triage(a):
+    """R4: `hd triage <id> finding|ack`, the orchestrator's judgment of a maintainer's word: a finding (a defect or a
+    request) joins or files the PR's round; an acknowledgement files nothing and is never answered. An acknowledgement
+    already filed as its own round, its only finding with no hand-over yet, closes that round (the orchestrator commits it)."""
+    cid, verdict = a[0], a[1]
+    if verdict not in ("finding", "ack"):
+        refuse("the verdict is finding or ack")
+    if rec("triage", cid):
+        refuse(f"{cid} is already triaged: {rec('triage', cid)['verdict']}")
+    on = [c for c in defs("changes").values() if cid in map(str, fids(c)) and not c.get("closed")]
+    if on and verdict == "finding":
+        refuse(f"{cid} is already carried by {on[0]['slug']}")
+    for c in on:
+        if c["slug"] != round_slug(c["track"], c["pr"], cid) or len(fids(c)) > 1 or rec(c["slug"], "handover"):
+            refuse(f"{cid} is carried by {c['slug']}, which holds other work or a hand-over: its dev answers it")
+    put("triage", cid, {"verdict": verdict})
+    event(record="triage", finding=cid, verdict=verdict)
+    for c in on:
+        mark(c, "closed", f"triage: {cid} is an acknowledgement, no finding")
+        event(change=c["slug"], record="closed")
+        print(f"{c['slug']} closed: commit {c['path']}")
+    print(f"{cid}: {verdict}")
+
+
 def cmd_stop(a):
     """R5: a run the orchestrator stops (TaskStop fires no SubagentStop) ends here, or it would hold an agent slot for good."""
     r = next((r for r in runs() if a and r["name"] == a[0]), None) or refuse(f"no run {a[0] if a else ''}")
@@ -3506,7 +3541,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "ps": cmd_ps, "tick": cmd_tick, "restart": cmd_restart, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "triage": cmd_triage, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "ps": cmd_ps, "tick": cmd_tick, "restart": cmd_restart, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

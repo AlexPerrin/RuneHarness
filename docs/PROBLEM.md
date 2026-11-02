@@ -23,7 +23,7 @@ Evidence is a commit on a ref, a tree, a file on disk, GitHub state, docker stat
 An agent repeats work it cannot see was done, re-derives know-how written as prose, cannot see its own context size, and fixes a defect where it is named rather than as a rule across a diff.
 
 ### A4
-Two actions are public or irreversible: a write to OpenRune (OpenRune-Server, OpenRune-Central-Server) and a client release.
+Two actions are public or irreversible: a write to OpenRune (OpenRune-Server, OpenRune-Central-Server, OpenRune-FileStore) and a client release.
 The user alone authorizes them, each as one complete PR or release they can read on GitHub.
 Everything else is the user's own and reversible.
 

@@ -494,6 +494,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
 - Client: `origin/main`, `origin/client/<slug>`
 - Server: upstream `main`, fork `dev/<slug>`
 - Central: upstream `main` of OpenRune-Central-Server, its fork's `dev/<slug>`
+- FileStore: upstream `main` of OpenRune-FileStore, its fork's `dev/<slug>`
 - Harness: the live checkout's branch (`HEAD`), `harness/<slug>` (and `harness/<slug>` of each product repo whose tools it changes)
 
 **build(T)**
@@ -504,6 +505,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
   a tree whose settings name `.m2-rsprot` (the pin local/android's locally published rsprot) gets the fork clone's `.m2-rsprot`, and without it the build fails saying so;
   with a Central dependency `CENTRAL` names the Central tree, built in by the init script `central.init.gradle`, which substitutes every Central module (`openrune-central` by `:central-app`)
 - Central: Gradle `assemble` in container `build-<slug>`
+- FileStore: Gradle `assemble` in container `build-<slug>` (JDK 17)
 - Harness: the test suite at T
 
 **gate(T)**
@@ -517,6 +519,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
   each step carries the job's timeout-minutes, so a timeout names the step that ran out;
   a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, openrs2's download unless the head changes the revision, the packing when the head changes no cache input) is re-run once its source answers (openrs2: its newest cache of the revision yields bytes), held after its third attempt
 - Central: `gradle test`, evidence files, commit subjects
+- FileStore: `gradle test` against the server's live cache (its tests read `data/cache`), evidence files, commit subjects
 - Harness: tests;
   `hd tick --dry-run` plans no upstream action the live checkout's pass does not;
   each carried tools head's tests
@@ -525,6 +528,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
 - Client: release only
 - Server: every contract row
 - Central: every contract row, from `up`: the server's base built with this Central (the server track's build and up), `down` stops it
+- FileStore: every contract row, from the gated build and the diff (nothing comes up)
 - Harness: none
 
 **ship**

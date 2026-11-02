@@ -335,7 +335,7 @@ write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
-end a started run once its change's `next` is the other role's run (dev or qa): its agent stops at its next tool call;
+end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on limits the run filed since it started (`hd new --limit-of`): its agent stops at its next tool call;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
 remove a tools copy nothing uses.

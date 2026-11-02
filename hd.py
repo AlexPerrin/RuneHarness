@@ -1433,12 +1433,12 @@ def deps_held(ctx, ch):
         if "target" not in ch and dep["track"] == ch["track"] and upstream(ch) and upstream(dep):
             ok = ctx.done(dep, dh) or shipped(ctx, dep, dh) or ctx.gated(dep, dh)
             if not ok:
-                return step(f"waiting on {d}", "unknown" if ok is None else "wait")
+                return step(f"waiting on {d}", "unknown" if ok is None else "wait", dep=d)
         elif not ctx.live(dep, dh):
-            return step(f"waiting on {d}", "wait")
+            return step(f"waiting on {d}", "wait", dep=d)
         late, joined = late_answers(d, rec(d, "handover"), dh)
         if late or (joined and ctx.done(dep, dh)):  # R3: a dependency its own step reopened (as nxt does) is met only once its dev acts on it
-            return step(f"waiting on {d}", "wait")
+            return step(f"waiting on {d}", "wait", dep=d)
     return None
 
 
@@ -2238,6 +2238,14 @@ def repairs(ctx, act):
             repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
 
 
+def own_limit(ctx, ch, r, d):
+    """R6: d is a limit the run filed since it started (`hd new --limit-of` its change): a wait on it alone is still the run's step, as it hands over after the filing."""
+    dep = ctx.changes.get(d)
+    if not dep or ch["slug"] not in (dep.get("limit-of") or []):
+        return False
+    return str(dep.get("created", "")) >= r["started"] or any(e.get("change") == d and e.get("by") == ch["slug"] and e["ts"] >= r["started"] for e in evs(b'"action": "limit"'))
+
+
 def produced(r):
     """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
     hand-over, verdict, question, agreed contract or filed change."""
@@ -2411,7 +2419,8 @@ def _pass(ctx, act):
             for r in ctx.runs:
                 if r["change"] != ch["slug"] or r.get("ended"):
                     continue
-                moved = r.get("started") and work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role: a run never outlives its step
+                moved = r.get("started") and (work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role or to a wait: a run never outlives its step
+                                              or work["actor"] == "wait" and (not work.get("dep") or deps_held(ctx, {**ch, "deps": [d for d in ch["deps"] if not own_limit(ctx, ch, r, d)]})))
                 if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
                     if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
                         # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
@@ -2420,7 +2429,7 @@ def _pass(ctx, act):
                         save_run(r)
                         event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
                         continue
-                    r["ended"], r["reason"] = now(), gone or (f"step moved to {work['actor']}" if moved else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
+                    r["ended"], r["reason"] = now(), gone or ((f"step moved to {work['actor']}" if work["actor"] != "wait" else work["state"]) if moved else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
                     if r.get("started"):
                         r["record"] = produced(r)
                         event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])

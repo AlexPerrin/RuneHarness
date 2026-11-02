@@ -591,6 +591,19 @@ class R2(Sandbox):
         s.assertFalse(any(dev["name"] in x for x in v["run"]))                     # no longer shown as a live run
         s.assertTrue(any(x.startswith("s1-") for x in hd.tick(s.ctx(F))["spawn"]))   # the qa run is listed
 
+    def test_a_started_run_ends_when_its_change_starts_to_wait(s):  # sweep-37 P2-a: a run alive on 'waiting on <dep>'
+        s.change("s1", priority="P1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        hd.save_run({**hd.runs()[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
+        hd.cmd_new(["x2", "--track", "harness", "--title", "a limit s1's run found", "--limit-of", "s1", "--mechanism", "runs"])
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs()[0].get("reason"))                              # a wait on the run's own limit: it hands over next
+        hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1", "--mechanism", "loop"])
+        hd.tick(s.ctx(F))
+        s.assertTrue(hd.runs()[0].get("reason", "").startswith("waiting on x"))   # any other wait ends it, whichever dep the step names
+        s.assertTrue(hd.runs()[0]["ended"])
+
     def test_two_passes_list_a_run_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

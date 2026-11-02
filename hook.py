@@ -382,7 +382,7 @@ def deny_reader_write(p):
 
 def stop_ended(p):
     """R2 R5: an agent stops at its next tool call once its run has ended: a run's own agent when the pass, the head or
-    `hd stop` ended it (its step moved, its change went; the run's own hand-back ends it with no reason, and a resume
+    `hd stop` ended it (its step moved or waits, its change went; the run's own hand-back ends it with no reason, and a resume
     reopens it), an agent the run spawned whatever ended it (the orchestrator's TaskStop of a run leaves its agents
     running, and a subagent can TaskStop none). So no agent acts for an ended run: no verdict, no hand-over."""
     own = p.get("agent_id") and (hd.STATE / "runs" / "by-agent" / str(p["agent_id"])).exists()

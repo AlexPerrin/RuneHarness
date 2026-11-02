@@ -3,7 +3,7 @@ import hashlib, io, json, os, re, shutil, signal, subprocess, sys, tempfile, tim
 from pathlib import Path
 from unittest import mock
 
-for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS", "TOOLS_ROOT", "G", "NAMES", "LIVE"):
+for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "CENTRAL", "TOOLS", "TOOLS_ROOT", "G", "NAMES", "LIVE"):
     os.environ.pop(k, None)                                                   # hd's loop env (Hd.env): the gate's own change never reaches a test's track.sh
 NESTED = os.environ.get("HD_SUITE")                                           # "1" for every process this suite starts; "nested" for a test's deliberate inner suite
 if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse

@@ -1164,7 +1164,7 @@ class Ctx:
     def env(s, ch, head, tc, tree, build=""):
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
-                "PINS": " ".join(s.cfg.get("pins") or []), "HD_ROOT": str(ROOT), "CENTRAL": s.central_env(s.central(ch)),
+                "HD_ROOT": str(ROOT), "CENTRAL": s.central_env(s.central(ch)),
                 "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}:{s.cfg['repos'][n]['name']}" for n, h in (s.tools(ch) or {}).items())}
 
     def central_env(s, commit):

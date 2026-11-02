@@ -591,10 +591,11 @@ def track_root(c, track):
     return tools_wt(r) or P(r["path"])
 
 
-def seed_rows(c, track):
+def seed_rows(c, track, up=True):
+    """The track's seed rows; a row tagged `| upstream` judges or checks the upstream PR and seeds only a change that opens one (up)."""
     f = track_root(c, track) / "tools" / "track.md"
     part = f.read_text().split("## Seed rows", 1) if f.exists() else []
-    return "\n".join(l for l in part[1].splitlines() if l.startswith("- ")) if len(part) == 2 else ""
+    return "\n".join(l for l in part[1].splitlines() if l.startswith("- ") and (up or "upstream" not in [x.strip() for x in l.split("|")[2:]])) if len(part) == 2 else ""
 
 
 def contract(slug):
@@ -629,10 +630,10 @@ def contract(slug):
     return c
 
 
-def unseeded(c, slug, track):
+def unseeded(c, slug, track, up=True):
     """The track's seed rows the contract file lacks (by id)."""
     ids = {l[2:].split("|", 1)[0].strip() for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- ")}
-    return [l for l in seed_rows(c, track).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
+    return [l for l in seed_rows(c, track, up).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
 
 
 def add_seeds(slug, new):
@@ -640,12 +641,12 @@ def add_seeds(slug, new):
     f.write_text(f.read_text().rstrip("\n") + "".join("\n" + l for l in new) + "\n")
 
 
-def write_contract(c, slug, track, agreed, rules=None):
+def write_contract(c, slug, track, agreed, rules=None, up=True):
     if not seed_rows(c, track):
         raise RuntimeError(f"no seed rows: {track_root(c, track) / 'tools' / 'track.md'} missing or without a '## Seed rows' section")
     f = EVID / slug / "contract.md"
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(f"# Contract: {slug}\nrules: {' '.join(f'{k}={v}' for k, v in (rules or {}).items())}\nagreed: {agreed}\n\n{seed_rows(c, track)}\n")
+    f.write_text(f"# Contract: {slug}\nrules: {' '.join(f'{k}={v}' for k, v in (rules or {}).items())}\nagreed: {agreed}\n\n{seed_rows(c, track, up)}\n")
 
 
 def rec(slug, name):
@@ -1300,13 +1301,16 @@ def deps_held(ctx, ch):
 
 
 def late_answers(slug, ho, head):
-    """R3: the ids of the user's answers newer than the hand-over and than the last verdict on head (one a verdict
-    already judged is not): the dev's to act on, so the head is not built, gated or shipped until a new hand-over."""
+    """R3: the answer rows newer than the hand-over and than the last verdict on head (one a verdict already judged is
+    not), as (the user's, joined filings'): the user's word is the dev's before the head is built, gated or shipped; a
+    joined filing is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate."""
     con = contract(slug)
     if not (ho and con):
-        return []
+        return [], []
     since = max([ho["ts"]] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
-    return [r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["text"][:20] >= since]
+    late = [r for r in con["rows"] if r["id"].startswith("answer-") and r["text"][:20] >= since]
+    return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
+            [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
 
 
 def nxt(ctx, ch):
@@ -1326,15 +1330,16 @@ def nxt(ctx, ch):
     if done is None:
         return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
-    late = late_answers(slug, ho, head)
-    if done and not late:  # R3: a late answer reopens a done change: the dev acts on it
+    late, joined = late_answers(slug, ho, head)
+    joined = joined if done else []  # R3: a joined filing is the dev's once the head it did not reach is done
+    if done and not late and not joined:  # R3: a late answer or joined filing reopens a done change: the dev acts on it
         return step("done", "done")
     if (q := rec(slug, "ask")):  # the user's answer releases it: no run, gate, ship or upstream step until then
         return step(f"question open: {q['text'][:200]}", "wait")
     con = contract(slug)
     if con is None:
-        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else ""))
-    if (new := unseeded(ctx.cfg, slug, track)):  # R3: a seed row added later applies at a head not carried; a carried head keeps its verdict until it moves
+        return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" else "", up=upstream(ch)))
+    if (new := unseeded(ctx.cfg, slug, track, upstream(ch))):  # R3: a seed row added later applies at a head not carried; a carried head keeps its verdict until it moves
         if upstream(ch) and ctx.upstream_pr(ch) is None:
             return step("upstream PR unknown", "unknown")
         if not shipped(ctx, ch, head):
@@ -1346,10 +1351,11 @@ def nxt(ctx, ch):
     tools = ctx.tools(ch)
     if tools is None:
         return step("tools refs unknown", "unknown")
-    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late):  # a release has no dev: its head is the base tip
+    if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late or joined):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
-                    else f"dev run due: the user answered after the hand-over ({', '.join(late)})", "dev", mode="code",
+                    else f"dev run due: the user answered after the hand-over ({', '.join(late)})" if late
+                    else f"dev run due: a filing joined after the done head ({', '.join(joined)})", "dev", mode="code",
                     input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; only a rebase that stops is the dev's step
     for n, h in tools.items():
@@ -2632,15 +2638,15 @@ def add_answer(slug, ch, text, by="the user", waive=None):
     """An answer row: the user's word, or a filing joined to the change (`by` names its filer)."""
     f = EVID / slug / "contract.md"
     if not f.exists():
-        write_contract(cfg(), slug, ch["track"], "")
+        write_contract(cfg(), slug, ch["track"], "", up=upstream(ch))
     if waive and not any(r["id"] == waive and (r["check"] or r["gate"]) for r in contract(slug)["rows"]):
         refuse(f"no script row {waive} in the contract")
     n = sum(1 for l in f.read_text().splitlines() if l.startswith("- answer-")) + 1
     with open(f, "a") as o:
         o.write(f"- answer-{n} | {now()} {by}: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'note'}{f' | waive: {waive}' if waive else ''}\n")
-    if by == "the user":  # a joined filing answers no question
+    if by == "the user":  # a joined filing answers no question, nor outdates a run's record (merge_limit logs it)
         drop(slug, "ask")
-    event(change=slug, record="answer", text=text[:300])
+        event(change=slug, record="answer", text=text[:300])
     print(f"answer-{n} added to the contract")
 
 
@@ -2793,7 +2799,7 @@ def retarget(graph, old, new):
 
 def merge_limit(c, o):
     """A filing on a mechanism that has an open change joins it: its text appended, a limit's finder in `limit-of`, and an
-    answer row on its contract, so a change already handed over gets its dev run for the joined text."""
+    answer row `filed by` on its contract: scope its next hand-over takes, or the dev's on top of a head already done."""
     f = Path(c["path"])
     m, body = _frontmatter(f.read_text())
     if o.limit_of and o.limit_of not in m.setdefault("limit-of", []):

@@ -15,3 +15,6 @@ sweep-44 P2-a: server-clan-channels-5 needs cheats on several accounts; STAFF ta
 
 Also (joined): track.sh restart hangs: the restarted client never fills its inventory, NPC names read null
 cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq-8 (qa, 2026-11-02): its first `track.sh restart` hung at the login step, which waits for the inventory widget to fill; on the restarted client it never did, and the client showed NPC names as "null" with no options. The run stopped the restart and used `down` + `RESUME=1 up` instead. Same symptom as a second login sending no container 93.
+
+Also (filed): track.sh down loops forever when the server container is already gone
+Monitor sweep 48 P1-b: `track.sh down server-clan-guest` (pid 2850649, tools 771f13a41350) loops in offline() since ~06:35Z: sql() takes the port from docker logs (track.sh:59-60) and runs psql with -p "" against container:server-server-clan-guest, which no longer exists (docker ps -a); offline() loops until count = 0 (track.sh:70) and down() checks the server only before the loop (track.sh:219). server-clan-guest-3 is blocked on it. Acceptance: down ends, on an observed fact, when the server is gone at any point.

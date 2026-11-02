@@ -27,7 +27,16 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
 unit='import atexit, os, shutil, signal, sys, tempfile, unittest; d = tempfile.tempdir = os.environ["TMPDIR"] = tempfile.mkdtemp(prefix="hd-run-"); atexit.register(shutil.rmtree, d, True); signal.signal(signal.SIGTERM, lambda *a: (shutil.rmtree(d, True), os._exit(143))); unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3; every temp dir of its tests (and their processes) under one root it removes at its end and at its stop (SIGTERM: a stopped gate leaves none)
-summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
+summary() { python3 -c '
+import re, sys
+t = sys.stdin.read(); body, _, end = t.partition("\n" + "-" * 70 + "\nRan ")
+for b in re.split(r"^=+\n", body, flags=re.M)[1:]:   # each failing test: its name and its traceback tail (the assertion), so the gate record says why
+    head, _, tb = b.partition("-" * 70 + "\n")
+    if re.match(r"(FAIL|ERROR): ", head):
+        print(head.strip()); print("\n".join(tb.strip().splitlines()[-6:]))
+for l in ("Ran " + end if end else t).splitlines():
+    if re.match(r"(Ran |OK|FAILED)", l) or "refused: " in l: print(l)
+'; }   # unittest's verdict, each failing test with its traceback tail, and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
 check_tests() { (cd "$BUILD" && env -u ROWS python3 -c "$unit" discover -s tests 3>&1 >/dev/null 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>
   wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
@@ -58,7 +67,7 @@ check_tools() {  # each carried tools head: a fast-forward of its branch, its to
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)
   mkdir -p "$root/state"; exec 9> "$root/state/ship.lock"; flock 9   # one ship at a time on the live checkout, whatever started it
   if git -C "$repo" merge-base --is-ancestor "$tc" HEAD; then   # T already landed (a ship before this one): nothing to move
-    rm -f "$state/proc-ship.json" "$state"/gate-*.json; echo "${tc:0:9} is already on the live branch"; exit 0
+    rm -f "$state/proc-ship.json"; kept; echo "${tc:0:9} is already on the live branch"; exit 0
   fi
   [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
   moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch")
@@ -77,8 +86,9 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     git -C "$wt" merge -q --ff-only "$sha"; git -C "$path" push -q "$remote" "$branch"; echo "$branch at ${sha:0:9}, pushed to $remote"
   done
   flock "$root/state/.lock" git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
-  rm -f "$state"/gate-*.json   # every kept gate was of a tree on the old base
+  kept
 }
+kept() { local f; for f in "$state"/gate-*.json; do [ "$f" = "$state/gate-${G:-}.json" ] || rm -f "$f"; done; }   # every kept gate but the shipped tree's (G) was of a tree on the old base
 
 rowmemo() {  # within one gate (ROWS), a check whose input is the tree and the batch's TOOLS alone gives every member its first result
   [ -n "${ROWS:-}" ] || { "$1"; return; }

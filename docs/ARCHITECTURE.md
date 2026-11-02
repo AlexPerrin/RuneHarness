@@ -87,7 +87,12 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd rows <slug> <T commit> <build copy>`, by a track script's gate: every `check:` row, then every `gate:` row (fork CI among them) only when every check passed, whatever the file's order, at the track root with `BUILD` set;
   exit 1 names the failures;
-  a row exiting 75 is held (the step that failed reads nothing of the head: its source is down), and only held rows exit 75: the gate records no result and the pass starts it again
+  a row exiting 75 is held (the step that failed reads nothing of the head: its source is down), and only held rows exit 75: the gate records no result and the pass starts it again;
+  a build or a container check that fails for the host's cause, not the tree's (`hosted` in each server and Central tools/build/build.sh: 'cannot allocate memory', 'no space left' (a full disk), docker not answering, a container name a killed run left, exit 137 while the host's OOM killer logged a kill), exits 75 the same way, so it is never 'build failed: dev';
+  a tree's own failure (a compile error, a failing test, its container's own --memory limit) records ok:false
+
+- `hd room <docker run ...>`, by a track script, for each build and check container: under `state/room.lock`, runs it (exec, the same pid) once its --memory and --cpus fit beside every held entry of `state/room/` within the host's MemTotal and nproc (read from /proc/meminfo and the CPU affinity), else records itself waiting and blocks on the pidfds of the held ones until one ends, never a timer;
+  a dev's own `tools/track.sh build` goes through it as the pass's builds do
 
 - `hd ask <slug> <text>`, by agents: refused while a question is open on the change
 
@@ -135,7 +140,10 @@ state/briefs/<run>.md          the prompt;
                                read streamed, each byte once per process);
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
                                state/orchestrator-read/<pid>-<start>  the orchestrator.md blob `hd` last printed that session in full
-state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key since the last result or the script's last change);
+state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, room} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key since the last result or the script's last change, raised once at 3;
+                               room: a build's [memory, CPUs], the largest container its tools/build/ names);
+state/room/<pid>.json          {pid, start, mem, cpus, owner, held}: one container `hd room` admitted (held) or holds waiting;
+                               owner: HD_PROC, `<slug>/<script>` of the pass's process it runs under, '' for a dev's
 state/<slug>/tools-conflict-<repo>.json {head, onto, detail}: the pass's rebase of a carried tools head stopped, its files named; repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges
 ```
@@ -146,7 +154,11 @@ the integration tree T_int is the same over every gated open server head plus th
 Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).
 The build key is T's tree joined with `-<hash12>` of every file under `tools/build/` (the code a build runs: build.sh, the Dockerfile, central.init.gradle);
 the gate key is the build key joined with `-<hash12>` of every file under `tools/gate/` (the gate and every verb a contract row runs) and each other tools file a row's command names, with the contract's script rows;
-a row's key is the same hash over that row alone, given to the gate as `ROWKEYS`, and a gate keeps the result of a row recorded at its key (`state/<slug>/row-<kind>-<id>.json`, none for a held row) unrun, so a tools change to one row's file re-runs that row alone;
+a row's key is the same hash over that row alone, given to the gate as `ROWKEYS`, and a gate keeps the result of a row recorded at its key (`state/<slug>/row-<kind>-<id>.json`, the results of its last four keys, so the live branch's own gate never drops a member's;
+none for a held row) unrun, so a tools change to one row's file re-runs that row alone;
+in a row's key each tools/gate/*.sh is only the part the row runs (`hd.gate_part`): the functions its `tools/track.sh <verb>` reaches (the verb's own, its dispatch arm's, every function they call) and the file's code outside every function, comments dropped;
+a row running no verb of the file hashes none of it, a file without functions is whole;
+so an edit of one verb moves that verb's rows alone and the fork CI row keeps its result, while the shared code (the dispatch, the sourced build.sh in the build key) moves every row;
 a script gets the build key as `T` (the artefact it builds or uses) and the gate key as `G` (the gate's record);
 a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit outside both (docs, tests, up's code) neither;
 `hd tree` prints the build key, so a dev's build is the pass's;
@@ -156,7 +168,12 @@ A server change with central dependencies carries `-c<central12>` in its T: the 
 T_int carries the one of its heads' central dependencies.
 Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by its batch tree without `harness/`, so a definition commit on the live branch re-builds, re-gates and blocks the ship of nothing;
 ship fast-forwards to the current batch tree).
-A server build holds its slug's `state/<slug>/build.lock` while it builds alone, never through the gate's rows (gate-ci's CI wait), so a rekeyed build or a dev's build waits on no gate.
+A server build holds its slug's `state/<slug>/build.lock` while it builds alone, never through the gate's rows (gate-ci's CI wait), so a rekeyed build or a dev's build waits on no gate;
+under it the build removes a container of its name a killed build left running, and its own as it ends;
+every build and check container runs with `--init`, so a stop's SIGTERM, which docker run proxies, ends it with its script.
+The host bounds the builds and container steps alive at once, across every slug and track: the pass starts a build that takes room (`Ctx.room_of`) only while it fits beside its alive builds and every `state/room/` entry not of one of them (`Ctx.builds_fit`), so a tools ship moving every build key starts as many as the host holds and each further one on the observed end of one;
+each container then waits in `hd room`, a gate's checks and a dev's build included;
+build.lock stays one build per slug, never the bound.
 The game cache is keyed by the hash of its inputs (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned).
 The game data of a revision (the download, keyed by game.example.yml's blob12, the gate's release asset key) is stored once in that volume: a build missing the cache restores it and repacks, never downloading openrs2 again for that revision.
 A hand-over's check rows get the build key as `T`, as the pass's build, so a dev's build is the pass's.
@@ -260,7 +277,7 @@ next(change):
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
     A ship runs under `state/ship.lock`, a T already on the live branch moves nothing;
-    it clears the kept gates
+    it clears the kept gates but the one of the tree it shipped (`gate-<G>`)
   wait
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;
@@ -425,7 +442,7 @@ python3 hd.py                            # a pass, then the view
 python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
 the suite sets HD_SUITE=1 for every process it starts and refuses to load under it: a test's gate never runs the suite (a test's deliberate inner suite runs under HD_SUITE=nested, where EndToEnd skips)
-a gate's test row records unittest's runner alone (its own fd), never what the tests print: its detail names only the failed tests
+a gate's test row records unittest's runner alone (its own fd), never what the tests print: its detail names the failed tests, each with its traceback's last lines (the assertion)
 a gate's test runner (the harness suite's and each carried tools head's) puts every temp dir of its tests under one root it removes at its end and at its stop (SIGTERM)
 fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
 each tools branch ignores __pycache__/; no compiled cache is committed

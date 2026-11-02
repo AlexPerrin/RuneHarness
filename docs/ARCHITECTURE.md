@@ -215,6 +215,7 @@ next(change):
   reply-only, no verdict at head?
     yes → one qa run: contract, reply (pr-reply-<finding>.md), verdict, handover;
     a FAIL verdict → dev
+    a FAIL verdict newer than the last hand-over keeps it the dev's, though the PR tip moves
   handover at the dev ref's tip, no answer since (newer than it and the head's last verdict)?
     no → dev run, even on a done change (it reopens) (a hand-off file lists its successor;
     FAIL findings and gate details in the brief)
@@ -270,6 +271,7 @@ next(change):
     A failed check: its job's failing step asked of the track's `ci-step` (gate-ci's classifier); outside the head, `gh run rerun --failed` once its source answers (the classifier blocks until then), its old failure pending until GitHub lists the new attempt, up to the run's 3rd attempt.
     Failure: ship.json ok false, the PR as it is;
     fault head (a CI step the head reads, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
+    the dev handing the same head over after it vouches the failed step outside the head (its cause filed as a limit, the deps holding it until that lands): the carry runs again and re-runs that step's job, up to the run's 3rd attempt.
     fault carry (any other: a GitHub write refused, a 3rd attempt outside the head): the yes spent, the card again naming what stopped it.
     A GitHub read that fails: no result (carry held), the pass reruns it, a second death on the same args an alert
   batch (`hd.batch`: harness, and client code; a release is gated alone)

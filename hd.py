@@ -1458,7 +1458,9 @@ def nxt(ctx, ch):
             return step("upstream PR unknown", "unknown")
         if not shipped(ctx, ch, head):
             return step(f"contract: seed rows {', '.join(l[2:].split('|', 1)[0].strip() for l in new)} added", "script", act=lambda: add_seeds(slug, new))
-    if reply_only(ctx, ch) and not judged(slug, head, con):  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
+    v = (verdicts(slug) or [{}])[-1]
+    fixing = any(str(r).startswith("fail") for r in v.get("rows", {}).values()) and v["ts"] >= (ho or {}).get("ts", "")  # a FAIL verdict not yet handed over (the qa's own hand-over precedes it): the dev's
+    if reply_only(ctx, ch) and not judged(slug, head, con) and not fixing:  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
         return step("reply: qa run due", "qa", mode="contract", input=[head, con["hash"]])
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
@@ -1681,7 +1683,7 @@ def public(ctx, ch, head):
         return step(f"gated; the PR's card is {first}'s", "wait")  # same-head tips of one PR: one card
     if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
         return step("carrying upstream", "script", act=lambda: None)
-    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head":  # the carry found the head's defect
+    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head):  # the carry found the head's defect
         return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
     if not approved(ctx, ch, head):
         if (why := user_hold(ch, head)) is not None:  # the user's no or word: no card until a new head or their lift (`hd hold`)
@@ -2572,17 +2574,27 @@ class Defect(RuntimeError):
     """The change's own defect found by the carry (a CI step its head reads failed, a reply that names others): its dev step."""
 
 
+def vouched(slug, head):
+    """R4: the step of the carry's FAIL at head that its dev, handing the same head over after it, judged outside the head
+    (its cause filed as a limit, which the change's deps wait on); None when the FAIL stands."""
+    sh, ho = rec(slug, "ship") or {}, rec(slug, "handover") or {}
+    return sh.get("step") if sh.get("fault") == "head" and sh.get("head") == ho.get("head") == head and ho.get("ts", "") > sh.get("ts", "") else None
+
+
 def ci_fault(ctx, ch, up, head, cur, rerun):
     """R4: a failed upstream check is the head's (Defect) unless the track's classifier, the gate's own (`track.sh ci-step
-    <slug> <step>`: exit 0 when the step reads nothing the head changes, once that step's source answers), says its failing
-    step is outside the head: then its job is re-run (gh run rerun --failed), at most to the run's 3rd attempt."""
+    <slug> <step>`: exit 0 when the step reads nothing the head changes, once that step's source answers), or the dev's
+    same-head hand-over after a FAIL there (vouched) says its failing step is outside the head: then its job is re-run
+    (gh run rerun --failed), at most to the run's 3rd attempt."""
     for url in cur[2]:
         m = re.search(r"/actions/runs/(\d+)/job/(\d+)", url)
         j = m and known(ctx.F.job(up, m[2]), f"job {m[2]} of {up}")
-        r = j and subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]], env={**os.environ, **ctx.env(ch, head, "", "")},
-                                 capture_output=True, text=True)
-        if not r or r.returncode:
-            raise Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
+        r = j and (j["step"] == vouched(ch["slug"], head) or not subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]],
+                                                                               env={**os.environ, **ctx.env(ch, head, "", "")}, capture_output=True, text=True).returncode)
+        if not r:
+            e = Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
+            e.step = j and j["step"]
+            raise e
         if j["attempt"] >= 3:
             raise RuntimeError(f"CI failed at '{j['step']}' in {j['attempt']} attempts at {head[:9]}, a step the head does not read: {url}")
         must("gh", "run", "rerun", m[1], "--failed", "-R", up)
@@ -2940,7 +2952,7 @@ def cmd_ship(a):
     except Unread as e:
         sys.exit(f"carry held: {e}")   # no result: the pass starts it again once GitHub reads
     except RuntimeError as e:  # every other stop is the carry's result: the change's defect its dev step, any other fault the card again for a new yes
-        put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e)})
+        put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e), "step": getattr(e, "step", None)})
         if not isinstance(e, Defect):
             drop(ch["slug"], "approval")
         sys.exit(f"carry failed: {e}")

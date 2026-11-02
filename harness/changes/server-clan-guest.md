@@ -4,6 +4,7 @@ track: server
 kind: change
 title: 'Clans: guest clans (join, chat and leave another clan''s channel as a guest)'
 priority: P2
+branch: content/server-clan-guest
 created: '2026-10-31T18:03:38Z'
 deps:
 - harness-no-powershell

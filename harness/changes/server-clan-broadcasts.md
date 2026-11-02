@@ -4,6 +4,7 @@ track: server
 kind: change
 title: 'Clans: clan broadcasts'
 priority: P2
+branch: content/server-clan-broadcasts
 created: '2026-10-31T18:03:38Z'
 deps: [harness-no-powershell, server-clan-guest, harness-server-build-musicrepository, harness-desktop-first-login]
 ---

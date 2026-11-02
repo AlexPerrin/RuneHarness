@@ -3095,6 +3095,26 @@ class R8(Sandbox):
         F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": C, "draft": False}]}
         s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
 
+    def test_a_dependent_with_its_own_branch_is_its_own_pr_after_its_dependencys_merge(s):  # the user's answer-3 on server-clan-channels
+        s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"], branch="content/s2"); s.agreed("s2")
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}}, anc={(C, A)})
+        E = "e" * 40
+        s.assertEqual(s.ctx(F).changes["s2"]["branch"], "content/s2")          # its own PR: it joins none
+        s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.gated("s2", F); s.verdict("s2", C, {"ok": "pass", "j1": "pass"}, F)   # built and gated on T with s1's head, never stacked
+        s.assertEqual(s.state(F, "s2")["state"], "waiting on s1's upstream merge")
+        s.assertEqual([c.split(":")[0] for c in hd.tick(s.ctx(F), act=False)["card"]], ["s1"])  # s1's card alone
+        F.f["refs"]["fork/dev/s1"] = E; F.f["trees"][E] = TA                    # s1 moved before its merge: s2 must hold its new head
+        s.assertEqual(s.state(F, "s2")["state"], "builds on s1's PR without its head: dev")
+        F.f["refs"]["origin/HEAD"] = D; F.f["trees"][D] = "td" * 20; F.f["prs"] = {}   # s1 squash-merged: main holds neither A nor E, the PR reads merged at E
+        F.f["anc"] = {(C, A), (C, E)}; F.f["commits"] = {C: {C, A, E}, E: {E, A}}
+        F.f["pull"] = {5: {"merged": True, "head": E}}; hd.put("s1", "opened", {"pr": 5})
+        st = s.state(F, "s2")
+        s.assertEqual((st["actor"], st["state"]), ("dev", "s1 merged upstream; head not rebased onto main: dev"))   # C still holds A and E, which main never got
+        s.assertIn(f"upstream main ({D[:9]})", st["detail"])
+        F.f["refs"]["fork/dev/s2"] = G = "9" * 40; F.f["trees"][G] = TC; F.f["commits"][G] = {G}
+        s.assertNotIn("not rebased", s.state(F, "s2")["state"])                  # rebased onto main: its own commits alone
+
     def test_main_moving_never_regates_a_shipped_pr_and_its_pending_reply_shows_at_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev kept.")

@@ -3697,6 +3697,18 @@ class R8(Sandbox):
         hd.put("s1", "gate", {"T": k.replace(t, "other", 1), "ok": True})     # a pass at another tree never holds
         s.assertNotIn("s1", hd.integration(s.ctx(F))["names"])
 
+    def test_a_base_move_keeps_a_gated_head_in_integration(s):  # sweep-67 P3-b: a base move dropped every head from the deploy until its re-gate
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{k: dict(v) for k, v in FACTS.items()}); hd.put("s1", "gate", {"T": s.gated("s1", F)["T"], "ok": True, "head": A})   # the gate's record names the head it gated
+        F.f["refs"]["origin/HEAD"] = C; F.f["merges"][(C, A)] = ("ok", D); F.f["trees"].update({C: "tc" * 20, D: "td" * 20})   # the base moves: a new T and key
+        ctx = s.ctx(F)
+        s.assertFalse(ctx.gated(ctx.changes["s1"], A))                          # nxt re-gates it
+        s.assertIn("s1", hd.integration(ctx)["names"])                          # its pass of the same head still holds in T_int
+        hd.put("s1", "gate", {"T": "x", "ok": True, "head": B})                 # a pass of another head never holds
+        s.assertNotIn("s1", hd.integration(s.ctx(F))["names"])
+        hd.put("s1", "gate", {"T": "x", "ok": False, "head": A})                # the re-gate fails
+        s.assertNotIn("s1", hd.integration(s.ctx(F))["names"])
+
     def test_merge_ref_stands_in_for_pair_in_integration(s):
         F, R = s.integration_fixture(with_ref=True)
         (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")

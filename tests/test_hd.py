@@ -1249,6 +1249,11 @@ class R4(Sandbox):
         s.assertEqual([c[6] for c in g.calls if "POST" in c], ["body=> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION])
         F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
         s.assertNotIn("body", [w for w, _, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])])
+        live = {"branch": "content/s1", "head": A, "draft": False, "requested": [], "title": "T", "body": "new body" + hd.ATTRIBUTION}
+        F.f.update(pull={7: [live, live]}); g = GH()
+        with mock.patch.object(hd, "gh", g), mock.patch.object(hd, "log", lambda m: None):
+            hd.carry(s.ctx(F), s.ctx(F).changes["s1"], A, [("title", None, "T"), ("body", None, "new body")])
+        s.assertEqual(g.did("api -X"), [])                                      # the card's title and body are the live ones: no edit call (PR 448: 11 failed edits)
 
     def test_a_comment_not_naming_every_pushed_commit_goes_back_to_dev_with_no_card(s):
         F = Fake(**{**FACTS, "commits": {A: {C, A}}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})

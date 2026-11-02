@@ -446,7 +446,7 @@ class Facts:
         if r is None or r[0] != 200:
             return None
         p = r[1]
-        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"],
+        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body"),
                 "requested": [u.get("login") or u.get("slug") or u.get("name") or "" for u in (p.get("requested_reviewers") or []) + (p.get("requested_teams") or [])]}
 
     @_read
@@ -460,6 +460,15 @@ class Facts:
                  for c in runs[1].get("check_runs") or []]
                 + [{"name": c.get("context") or "", "url": c.get("target_url") or "", "state": "pending" if c.get("state") == "pending" else "success" if c.get("state") in ok else "failure"}
                    for c in st[1].get("statuses") or []])
+
+    @_read
+    def job(s, repo, job):
+        """R4: an Actions job {attempt: its run's attempt, step: the first step that failed or was stopped, or ''}, None unknown."""
+        r = s.api(f"repos/{repo}/actions/jobs/{job}")
+        if r is None or r[0] != 200:
+            return None
+        return {"attempt": r[1].get("run_attempt") or 1,
+                "step": next((x["name"] for x in r[1].get("steps") or [] if x.get("conclusion") in ("failure", "cancelled")), "")}
 
     @_read
     def containers(s):
@@ -1277,7 +1286,7 @@ def carried(ctx, ch, head):
 
     def held(o, h):  # a ship record GitHub contradicts (the PR moved, or the user returned it to draft) is not trusted
         p = ctx.upstream_pr(o) if upstream(o) else {"head": h, "draft": False}
-        return (rec(o["slug"], "ship") or {}).get("head") == h and bool(p) and (p["head"], p["draft"]) == (h, False)
+        return (r := rec(o["slug"], "ship") or {}).get("head") == h and r.get("ok", True) and bool(p) and (p["head"], p["draft"]) == (h, False)
     return bool(head) and (any(held(o, h) for o in ctx.changes.values()
                                if (o is ch or not o.get("closed") and one_pr(o, ch) and on(o)) and (h := head if o is ch else ctx.head(o)))
                            or upstream_at(ctx, ch, head) is True)
@@ -1661,6 +1670,8 @@ def public(ctx, ch, head):
         return step(f"gated; the PR's card is {first}'s", "wait")  # same-head tips of one PR: one card
     if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
         return step("carrying upstream", "script", act=lambda: None)
+    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head":  # the carry found the head's defect
+        return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
     if not approved(ctx, ch, head):
         at, _, why = str(ch.get("held") or (rec(slug, "hold") or {}).get("held") or "").partition(": ")
         if at in ("all", head):  # the user's no or word: no card until a new head or their lift (`hd hold`)
@@ -2446,6 +2457,8 @@ def card(ctx, ch, head):
     v = [x for x in verdicts(slug) if x["head"] == head]
     lines = [f"{slug}: {ch.get('title', '')}", f"head {head}  changes {', '.join(sorted(o['slug'] for o in group(ctx, ch)))}",
              *(f"{n}. {a}" for n, a in enumerate(acts, 1))]
+    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("ok") is False:  # the yes it spent: what stopped it
+        lines.append(f"the last carry at {head[:9]} stopped: {sh['detail']}")
     for w, f, t in txt:
         q = by.get(f)
         lines += [f"### {w}"] + ([f"(finding by {q['author']}" + (f" on {q['path']}:{q['line']}" if q.get("path") else " on the PR") + ": "
@@ -2484,25 +2497,51 @@ def log(msg):
     print(time.strftime("%H:%M:%SZ", time.gmtime()), msg, flush=True)
 
 
-def checks(F, up, number, head):
-    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at),
-    read afresh through Facts (conditional: an unchanged read costs no quota); a failed read ends the wait."""
+def checks(F, up, number, head, rerun=()):
+    """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at,
+    the urls of those checks), read afresh through Facts (conditional: an unchanged read costs no quota); a failed read ends
+    the wait. A failed check whose url is in rerun (its re-run asked for, not yet listed by GitHub) is pending."""
     F.forget("pr", "ci")
     v = known(F.pr(up, number), f"PR {number} of {up}")
     if v["head"] != head:
-        return "none", f"PR {number} head at {v['head'][:9]}, not yet {head[:9]}"
+        return "none", f"PR {number} head at {v['head'][:9]}, not yet {head[:9]}", []
     by = {}
     for c in known(F.ci(up, head), f"the checks of {up} at {head[:9]}"):
-        by.setdefault(c["state"], []).append(f"{c['name']} {c['url']}".strip())
+        by.setdefault("pending" if c["state"] == "failure" and c["url"] in rerun else c["state"], []).append(c)
     state = next((k for k in ("failure", "pending", "success") if k in by), "none")
-    return state, ", ".join(by.get(state, [])) or f"no check reported at {head[:9]}"
+    return state, ", ".join(f"{c['name']} {c['url']}".strip() for c in by.get(state, [])) or f"no check reported at {head[:9]}", [c["url"] for c in by.get(state, [])]
+
+
+class Unread(RuntimeError):
+    """GitHub did not answer a carry's read: no result, the pass starts the carry again once GitHub reads."""
+
+
+class Defect(RuntimeError):
+    """The change's own defect found by the carry (a CI step its head reads failed, a reply that names others): its dev step."""
+
+
+def ci_fault(ctx, ch, up, head, cur, rerun):
+    """R4: a failed upstream check is the head's (Defect) unless the track's classifier, the gate's own (`track.sh ci-step
+    <slug> <step>`: exit 0 when the step reads nothing the head changes, once that step's source answers), says its failing
+    step is outside the head: then its job is re-run (gh run rerun --failed), at most to the run's 3rd attempt."""
+    for url in cur[2]:
+        m = re.search(r"/actions/runs/(\d+)/job/(\d+)", url)
+        j = m and known(ctx.F.job(up, m[2]), f"job {m[2]} of {up}")
+        r = j and subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]], env={**os.environ, **ctx.env(ch, head, "", "")},
+                                 capture_output=True, text=True)
+        if not r or r.returncode:
+            raise Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
+        if j["attempt"] >= 3:
+            raise RuntimeError(f"CI failed at '{j['step']}' in {j['attempt']} attempts at {head[:9]}, a step the head does not read: {url}")
+        must("gh", "run", "rerun", m[1], "--failed", "-R", up)
+        rerun.add(url); log(f"CI: '{j['step']}' failed outside the head ({url}): re-ran its failed jobs once its source answered")
 
 
 def known(v, what):
     """A carry's GitHub read: the fact, or the carry stops (it reruns once GitHub reads again; an exhausted quota holds the pass's step)."""
     if v is None:
         q = quota()
-        raise RuntimeError(f"{what} cannot be read" + (f": GitHub's API quota is exhausted until {datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}" if q else ""))
+        raise Unread(f"{what} cannot be read" + (f": GitHub's API quota is exhausted until {datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}" if q else ""))
     return v
 
 
@@ -2512,11 +2551,11 @@ def reply(ctx, ch, up, pr, finding, body):
     cs, talk = ctx.F.review_comments(up, pr), ctx.F.pr_comments(up, pr)
     c = next((c for c in (cs or []) + (talk or []) if c["id"] == finding), None)
     if cs is None or talk is None or c is None:
-        raise RuntimeError(f"{finding} cannot be read on {up}#{pr}")
+        raise Unread(f"{finding} cannot be read on {up}#{pr}")
     author = c["author"]
     named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", re.sub(r"`[^`]*`", "", body))}
     if not re.search(r"(?m)^> ", body) or named != {author.lower()}:
-        raise RuntimeError(f"the reply to {finding} must quote it and name only {author} (it names {sorted(named)})")
+        raise Defect(f"the reply to {finding} must quote it and name only {author} (it names {sorted(named)})")
     if replied(c, cs, talk, ctx.owner(ch)):
         return
     if conversation(finding):
@@ -2529,7 +2568,7 @@ def reply(ctx, ch, up, pr, finding, body):
 
 def carry(ctx, ch, head, txt):
     """R4 R5: the upstream act exactly as its card shows it, each step logged and rerunnable: a release; or push
-    (no force), open the draft or update the open PR's title and body that differ, CI green, comment naming the head,
+    (no force), open the draft or update the open PR's title and body that differ, CI green (a failure outside the head re-run: ci_fault), comment naming the head,
     each reply, ready, the review requests read back."""
     r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
     up, owner, path, t = r.get("upstream"), r["name"].split("/")[0], str(P(r["path"])), {w: x for w, _, x in txt}
@@ -2537,7 +2576,7 @@ def carry(ctx, ch, head, txt):
         ev = EVID / ch["slug"]
         assets = [str(ev / n) for n in ("osrs-runelite.apk", "THIRD_PARTY_NOTICES.md") if (ev / n).exists()] + [str(f) for f in ev.glob("repack*.log")]
         if len(assets) < 2:
-            raise RuntimeError(f"{ev} lacks the APK or the notices")
+            raise Defect(f"{ev} lacks the APK or the notices")
         return must("gh", "release", "create", f"v{ch['version']}", "-R", r["name"], "--target", head, "--title", f"v{ch['version']}",
                     "--notes", t["release notes"] + ATTRIBUTION, *assets)
     pr = ch.get("pr")
@@ -2551,18 +2590,19 @@ def carry(ctx, ch, head, txt):
                       "--body", t["body"] + ATTRIBUTION).rstrip("/").rsplit("/", 1)[1])
         put(ch["slug"], "opened", {"pr": pr, "head": head})  # a rerun updates this PR, never opens a second
         log(f"opened the draft PR {pr}")
-    elif (edit := [x for w in ("title", "body") if w in t for x in (f"--{w}", t[w] + (ATTRIBUTION if w == "body" else ""))]):
-        must("gh", "pr", "edit", str(pr), "-R", up, *edit)
-        log(f"updated the {' and '.join(w for w in ('title', 'body') if w in t)} of PR {pr}")
+    elif (edit := [w for w in ("title", "body") if w in t and unsigned(v.get(w)) != t[w]]):  # REST: gh pr edit reads the retired Projects (classic)
+        must("gh", "api", "-X", "PATCH", f"repos/{up}/pulls/{pr}", *[x for w in edit for x in ("-f", f"{w}={t[w]}{ATTRIBUTION if w == 'body' else ''}")])
+        log(f"updated the {' and '.join(edit)} of PR {pr}")
     if pushed or v["draft"]:  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
         log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
-        seen = None
-        while (cur := checks(ctx.F, up, pr, head))[0] in ("pending", "none"):
+        seen, rerun = None, set()
+        while (cur := checks(ctx.F, up, pr, head, rerun))[0] != "success":
+            if cur[0] == "failure":
+                ci_fault(ctx, ch, up, head, cur, rerun)
+                continue
             if cur != seen:  # each new fact the wait stands on, once
                 log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
             time.sleep(30)  # the fact decides; the sleep only spaces the reads
-        if cur[0] != "success":
-            raise RuntimeError(f"CI {cur[0]} at {head[:9]}: {cur[1]}: the PR stays as it is")
         log(f"CI green at {head[:9]}: {cur[1]}")
     m = f"<!-- hd:{head[:12]} -->"
     if "comment" in t and not any(m in c["body"] for c in known(ctx.F.pr_comments(up, pr), f"the comments of PR {pr}")):
@@ -2852,7 +2892,12 @@ def cmd_ship(a):
         refuse(f"no yes at {head[:9]} and these texts")
     try:
         res = carry(ctx, ch, head, public_texts(ctx, ch))
-    except RuntimeError as e:
+    except Unread as e:
+        sys.exit(f"carry held: {e}")   # no result: the pass starts it again once GitHub reads
+    except RuntimeError as e:  # every other stop is the carry's result: the change's defect its dev step, any other fault the card again for a new yes
+        put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e)})
+        if not isinstance(e, Defect):
+            drop(ch["slug"], "approval")
         sys.exit(f"carry failed: {e}")
     put(ch["slug"], "ship", {"head": head, "ok": True, "detail": res})
     drop(ch["slug"], "approval")   # the yes is spent: a carry GitHub later contradicts waits for a new one

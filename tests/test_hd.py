@@ -74,6 +74,7 @@ class Fake(hd.Facts):
     def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
     def pr(s, repo, n): return s.next(s.f.get("pull", {}), n)    # pull {n: {branch, head, draft, requested}}
     def ci(s, repo, sha): return s.next(s.f, "ci")               # ci [the checks at each read]
+    def job(s, repo, j): return s.f.get("jobs", {}).get(j)         # jobs {id: {attempt, step}}
     def next(s, d, k):  # a list answers each read in turn, its last answer from then on
         v = d.get(k)
         return (v.pop(0) if len(v) > 1 else v[0]) if isinstance(v, list) else v
@@ -1148,6 +1149,42 @@ class R4(Sandbox):
             s.ship(F, g)
         s.assertIn(f"the checks of u/f at {A[:9]} cannot be read", str(e.exception)); s.assertEqual(g.did("pr ready"), [])
 
+    def test_every_carry_stop_is_its_result_and_a_ci_failure_outside_the_head_is_re_run(s):
+        F = Fake(**FACTS); s.ready(F); s.approve(F, "s1", A)
+        url = "https://github.com/u/f/actions/runs/5/job/6"
+        b = lambda st: [{"name": "build", "url": url, "state": st}]
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "requested": []}}, jobs={"6": {"attempt": 1, "step": "Generate cache and gameval sources"}})
+        classify = lambda rc: mock.patch.object(hd.subprocess, "run", lambda a, **k: subprocess.CompletedProcess(a, rc, "", ""))
+        F.f["ci"] = [b("failure"), b("failure"), b("success")]                   # the re-run's attempt not yet listed: the old failure, waited on
+        g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", "")})
+        with classify(0):                                                        # the gate's classifier: a step the head does not read
+            log = s.ship(F, g)
+        s.assertEqual(g.did("run rerun"), [("gh", "run", "rerun", "5", "--failed", "-R", "u/f")])   # once, never a FAIL
+        s.assertIn("failed outside the head", log); s.assertTrue(hd.rec("s1", "ship")["ok"])
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
+        hd.drop("s1", "ship"); s.approve(F, "s1", A)
+        F.f["ci"] = [b("failure")]; g = GH()
+        with classify(1), s.assertRaises(SystemExit):                            # a step the head reads: the change's FAIL, its dev step
+            s.ship(F, g)
+        sh = hd.rec("s1", "ship")
+        s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun")), (False, "head", [])); s.assertIn("Generate cache and gameval sources", sh["detail"])
+        st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"FAIL upstream at {A[:9]}: dev"))
+        hd.drop("s1", "ship")
+        F.f["jobs"]["6"]["attempt"] = 3; g = GH()
+        with classify(0), s.assertRaises(SystemExit):                            # outside the head at its 3rd attempt: the carry's result, no FAIL
+            s.ship(F, g)
+        s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))   # the yes spent: the card again
+        st = s.state(F, "s1"); s.assertEqual(st["actor"], "user")
+        s.assertIn(f"the last carry at {A[:9]} stopped: CI failed at 'Generate cache and gameval sources' in 3 attempts", hd.tick(s.ctx(F), act=False)["card"][0])
+        s.approve(F, "s1", A); F.f["ci"] = [b("success")]
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True, "title": "t", "body": "old"}]}
+        (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body"); s.approve(F, "s1", A)
+        g = GH(**{"api -X": (1, "", "GraphQL: Projects (classic) is being deprecated")})
+        with s.assertRaises(SystemExit) as e:                                    # a GitHub write refused: recorded, never relaunched by the pass
+            s.ship(F, g)
+        s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual(hd.rec("s1", "ship")["fault"], "carry")
+        s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
+
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")
@@ -1207,7 +1244,7 @@ class R4(Sandbox):
         F.f.update(pull={7: [{"branch": "content/s1", "head": h, "draft": False, "requested": []} for h in (D, A)]}, ci=[[{"name": "b", "url": "", "state": "success"}]])
         g = GH(**{"api repos/u/f/pulls/comments/99": (0, "rev", "")})
         s.ship(F, g)
-        s.assertEqual(g.did("pr edit")[0][-2:], ("--body", "new body" + hd.ATTRIBUTION))
+        s.assertEqual(g.did("api -X")[0][2:], ("-X", "PATCH", "repos/u/f/pulls/7", "-f", "body=new body" + hd.ATTRIBUTION))   # REST: gh pr edit reads Projects (classic)
         s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"]))
         s.assertEqual([c[6] for c in g.calls if "POST" in c], ["body=> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION])
         F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
@@ -1398,13 +1435,13 @@ class R5(Sandbox):
               f"repos/u/f/commits/{A}/check-runs?per_page=100": {"total_count": 1, "check_runs": [{"name": "build", "details_url": "https://ci/1", "status": "completed", "conclusion": "success"}]},
               f"repos/u/f/commits/{A}/status?per_page=100": {"state": "pending", "statuses": []}}
         api.update(cr); g = type("C", (GitHub,), {"pr": hd.Facts.pr, "ci": hd.Facts.ci})(**FACTS)
-        s.assertEqual(hd.checks(g, "u/f", 7, A), ("success", "build https://ci/1"))    # the carry's CI wait: the same cache
+        s.assertEqual(hd.checks(g, "u/f", 7, A), ("success", "build https://ci/1", ["https://ci/1"]))    # the carry's CI wait: the same cache
         s.assertEqual(sorted(u for u, _ in calls), sorted(cr))
         calls.clear(); hd.checks(g, "u/f", 7, A)                                # its next poll: each read afresh and conditional
         s.assertEqual(sorted(calls), sorted((u, True) for u in cr))
         s.assertEqual(g.pr("u/f", 7)["requested"], ["rev"])
         src = (Path(hd.__file__).read_text()).split("\n")                       # no GitHub read in hd.py bypasses Facts.page
-        s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "POST"|"(comment|create|edit|ready)"', l)
+        s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "(POST|PATCH)"|"(comment|create|ready)"', l)
                        and "If-None-Match" not in l], [])
         calls.clear()
         quota["reset"] = int(time.time()) + 3600

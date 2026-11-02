@@ -141,7 +141,7 @@ state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate
 state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
 state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
-state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
+state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names, modulus, key}
 state/runs/<name>.json         {role, change, step, input, brief, given, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
 state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|stopped|told|context-limit, run, ...}, one file each;
@@ -492,6 +492,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
 - Client: push the batch tree to `main`;
   release after the yes
 - Server: test server: deploy `or:<T_int>` with the live stack's key pair (`state/live/key`, seeded once with the key the released APKs carry), its modulus named in the live record `state/live/tree.json`, an image of another key refused before its boot and the tag;
+  the live record names the deploy key it ran under (the tree and the hash of `tools/track.sh`, `tools/build/`, `tools/server/`), and the pass deploys whenever the current key differs, from a gated change's step or, with none at it, from the pass itself;
   every APK's login modulus is that pair's (a cached APK of another rebuilt), and the client's `up` refuses an APK whose modulus is not the live record's, naming both;
   the issuer's secret in its game.yml, its sidecars serving `tools/server/jav_config.ws.template` (the APK's with params 11, 20, 22 and 28 naming `issuer.py`, its sign-in and tokens;
   `javcheck.py` after `up` and `ship`: local hosts only);

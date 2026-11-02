@@ -1226,10 +1226,13 @@ class Ctx:
 
     def deploy_key(s, ch, tree):
         """R5: a deploy's key: the tree and the hash of the tools files it runs (tools/track.sh, tools/build/, tools/server/), so a
-        tools fix restarts the count of a deploy that ended without its result; the tree alone without a tools branch."""
+        tools fix restarts the count of a deploy that ended without its result and deploys anew what the image carries; the tree alone
+        without a tools branch; None while the tools are unknown."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         t = r.get("tools") and s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
         files = t and s.F.tools_files(str(P(r["path"])), t)
+        if r.get("tools") and (t is None or files is None):
+            return None
         return tree + "-" + tools_run(files, ("tools/track.sh", "tools/build/", "tools/server/"))[:12] if files else tree
 
     def script(s, ch):
@@ -2064,13 +2067,13 @@ def ship_test(ctx, ch, st, tint, act):
             for c in tint["conflicts"]:
                 if c["change"] is None and f"pin {c['conflict']}" not in " ".join(ctx.alerts):
                     ctx.alerts.append(f"pin {c['conflict']} conflicts with the integration tree ({', '.join(c['with'][-3:])}): a resolution ref or a change is needed")
-    elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
+    elif (dk := ctx.deploy_key(ch, tint["tree"])) and (rec("live", "tree") or {}).get("key") != dk:  # live's record keeps the key it was deployed under: a tools fix of what the image carries deploys too
         if ctx.proc("live", "ship") == "alive":  # a deploy runs to its end (its revision download is lost if stopped): the next pass deploys the newest tree
             st["state"] = f"test server: a deploy runs, then {tint['tree'][:9]}"
             return
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
-                  {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
-                   "CENTRAL": ctx.central_env(tint["central"])}, act, key=ctx.deploy_key(ch, tint["tree"]))
+                  {"T": tint["tree"], "KEY": dk, "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
+                   "CENTRAL": ctx.central_env(tint["central"])}, act, key=dk)
         st["state"] = f"test server: deploying {tint['tree'][:9]}"
 
 
@@ -2595,6 +2598,10 @@ def _pass(ctx, act):
         if act and (not last or last["state"] != st["state"]):
             put(ch["slug"], "state", {"state": st["state"]})
             event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
+    srv, lv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}, rec("live", "tree") or {}
+    if "v" not in tint and lv.get("tree") and (dk := ctx.deploy_key(srv, lv["tree"])) and lv.get("key") != dk:  # R8: live's own deploy tools moved with no change at its step: deployed anew
+        ship_test(ctx, srv, dst := step("", "ship-test"), integration(ctx), act)
+        view["change"].append(f"live [server]: {dst['state']}")
     if act:   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes and removes what they left; a slice no live run holds goes once its owner is gone: a test's (hd-t<pid>) once <pid> is dead, never while it may still start a scope, any other once empty
         live, ended = ctx.F.slices() or {}, {run_slice(r["name"]): r for r in ctx.runs if r.get("ended")}
         mine = {run_slice(r["name"]) for r in ctx.runs if not r.get("ended")}

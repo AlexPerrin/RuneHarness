@@ -88,8 +88,9 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd handover <slug> Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
-  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a word before or a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, limits, given} (given: the count of answer rows the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own count when no run;
-  answer-n is the nth row, so a row above that count, and above every answer row the head's last verdict judged, is late for that hand-over: never ordered by time)
+  anything else runs as `false`;
+  a row whose id an earlier row has runs as `false`, but an answer row's is renumbered in the file one above the highest answer row), refuses on any failure, a conflict, an empty evidence dir, a word before or a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, limits, given, at} (given: the highest answer-n the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own when no run;
+  answer-n is numbered one above the highest answer row the contract holds, whatever rows a rewrite dropped, so a row above given, and above every answer row the head's last verdict judged, is late for that hand-over unless stamped before at, the earliest brief's time (a renumbered duplicate keeps its stamp, so it is never late): never ordered by time alone)
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
   keyed to the head and `judged`, the hash of the rows without a script (a check or gate row is gated, never judged);

@@ -681,7 +681,7 @@ def contract(slug):
         return None
     text = f.read_text()
     c = {"hash": hashlib.sha1(text.encode()).hexdigest()[:12], "rules": {}, "agreed": None, "rows": [], "text": text, "judged": []}
-    for l in text.splitlines():
+    for i, l in enumerate(text.splitlines()):
         if l.startswith("rules:"):
             c["rules"] = dict(kv.split("=", 1) for kv in l[6:].split() if "=" in kv)
         elif l.startswith("agreed:"):
@@ -696,6 +696,13 @@ def contract(slug):
             for k in ("check", "gate"):  # a row's command is a track script or a test run, never an arbitrary shell line
                 if row[k] and not re.match(r"((python3 )?tools/[\w./-]+|python3 -m unittest\b|true$)", row[k]):
                     row[k] = f"false # refused: '{row[k]}' is not a tools/ script"
+            if any(r["id"] == row["id"] for r in c["rows"]):  # R3: a row id names one row
+                if re.fullmatch(r"answer-\d+", row["id"]):  # a later duplicate answer is renumbered in the file, one above the highest (its verdicts lapse: the judged hash moves)
+                    ls = text.splitlines(keepends=True)
+                    ls[i] = f"- answer-{last_answer([{'id': x[2:].split('|', 1)[0].strip()} for x in ls if x.startswith('- ')]) + 1} |{l[2:].split('|', 1)[1]}\n"
+                    f.write_text("".join(ls))
+                    return contract(slug)
+                row["check"] = f"false # refused: row id {row['id']} is not unique"
             c["rows"].append(row)
             if not (row["check"] or row["gate"]):
                 c["judged"].append(l)
@@ -1514,12 +1521,13 @@ def late_answers(slug, ho, head):
     did) and than the last verdict on head (one a verdict already judged is not), as (the user's, joined filings'): a row
     its brief did not hold is late, though written before the hand-over; the user's word is the dev's before the head is built, gated or shipped; a
     joined filing or finding is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate
-    (on an upstream change at once: a PR round is gated at its last head). Ordered by the rows' sequence (answer-n), never by time."""
+    (on an upstream change at once: a PR round is gated at its last head). Ordered by the rows' sequence (answer-n), never by time alone:
+    a row stamped before the brief (`at`) was held, though a renumbered duplicate's id is above `given`."""
     con = contract(slug)
     if not (ho and con):
         return [], []
     since = max([seen(con, ho.get("given", ho["ts"]))] + [nth(k) for v in verdicts(slug) if v["head"] == head for k in v["rows"] if k.startswith("answer-")])
-    late = [r for r in con["rows"] if r["id"].startswith("answer-") and nth(r["id"]) > since]
+    late = [r for r in con["rows"] if r["id"].startswith("answer-") and nth(r["id"]) > since and r["text"][:20] >= ho.get("at", ho["ts"])]  # a renumbered row keeps its stamp
     return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
             [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
 
@@ -1529,14 +1537,19 @@ def nth(answer):
 
 
 def seen(con, mark):
-    """R3: how many answer rows a record was given: answer-n is the nth row written, so a count orders each row before or after it, with no tie.
+    """R3: the last answer row a record was given: answer-n is numbered above every row before it, so n orders each row before or after it, with no tie.
     shortcut: a record written before counts were kept marks a time instead; drop once no such record is live."""
-    return mark if isinstance(mark, int) else sum(r["id"].startswith("answer-") and r["text"][:20] <= mark for r in con["rows"])
+    return mark if isinstance(mark, int) else last_answer([r for r in con["rows"] if r["text"][:20] <= mark])
+
+
+def last_answer(rows):
+    """R3: the highest answer-n among rows (0 when none): the next answer row is numbered one above it, whatever rows a rewrite dropped."""
+    return max([nth(r["id"]) for r in rows if re.fullmatch(r"answer-\d+", r["id"])] or [0])
 
 
 def given_now(slug):
-    """The answer rows a contract holds now: what a brief, a message or a hand-over written now is given (seen)."""
-    return sum(r["id"].startswith("answer-") for r in (contract(slug) or {"rows": []})["rows"])
+    """The last answer row a contract holds now: what a brief, a message or a hand-over written now is given (seen)."""
+    return last_answer((contract(slug) or {"rows": []})["rows"])
 
 
 def nxt(ctx, ch):
@@ -3037,9 +3050,11 @@ def cmd_handover(a):
             why.append(f"a carried tools head's tests fail: {out.strip()[-400:]}")
     if why:
         refuse(*why)
-    given = max([seen(con, r.get("given", max(r["listed"], r.get("told") or ""))) for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")],
+    handing = [r for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")]
+    given = max([seen(con, r.get("given", max(r["listed"], r.get("told") or ""))) for r in handing],
                 default=given_now(ch["slug"]))  # given: the answer rows the handing run's brief or its last message held; the hand-over's own when no run did
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "limits": " ".join(a[1:]), "given": given})
+    at = min([r["listed"] for r in handing], default=now())  # given's time: a row stamped before it was held, whatever id a renumbering gave it
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "limits": " ".join(a[1:]), "given": given, "at": at})
     drop(ch["slug"], "ask")
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
@@ -3169,7 +3184,7 @@ def cmd_answer(a):
     ch = defs("changes").get(slug) or defs("goals").get(slug) or refuse(f"no change or goal {slug}")
     if ch.get("closed"):
         refuse(f"closed: file a change ({ch['closed']})")
-    add_answer(slug, ch, text, waive=waive)
+    return add_answer(slug, ch, text, waive=waive)
 
 
 def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
@@ -3179,7 +3194,7 @@ def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
         write_contract(cfg(), slug, ch["track"], "", up=upstream(ch))
     if waive and not any(r["id"] == waive and (r["check"] or r["gate"]) for r in contract(slug)["rows"]):
         refuse(f"no script row {waive} in the contract")
-    n = sum(1 for l in f.read_text().splitlines() if l.startswith("- answer-")) + 1
+    n = last_answer(contract(slug)["rows"]) + 1
     with open(f, "a") as o:
         o.write(f"- answer-{n} | {now()} {by}: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'judge' if fids(ch) else 'note'}{f' | waive: {waive}' if waive else ''}\n")
     if by == "the user":  # a joined filing answers no question, nor outdates a run's record (merge_limit logs it)
@@ -3187,6 +3202,7 @@ def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
         event(change=slug, record="answer", text=text[:300])
     if not quiet:
         print(f"answer-{n} added to the contract")
+    return n
 
 
 def cmd_close(a):
@@ -3195,8 +3211,7 @@ def cmd_close(a):
     ch = defs("changes").get(slug) or refuse(f"no change {slug}")
     if ch.get("closed"):
         refuse(f"already closed: {ch['closed']}")
-    cmd_answer(a)
-    n = sum(1 for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- answer-"))
+    n = cmd_answer(a)
     mark(ch, "closed", f"answer-{n}: {' '.join(a[1:])}")
     event(change=slug, record="closed")
     print(f"{slug} closed")

@@ -1438,8 +1438,9 @@ def batch(ctx, track):
     branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member waits for the next batch.
     Members' heads on one tools branch merge too, in the same order, the merged commit the batch's head there (a member whose
     tools conflict with an earlier member's waits). Each prefix of the batch is a tree, its gate keyed by that tree
-    (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships; with none, the whole batch is gated, and
-    after a failure the first half of the failing prefix, down to the first member alone. Its failure is its dev's, and it
+    (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships once the prefix one longer failed (or it is
+    the whole batch); until then the whole batch is gated, and after a failure the prefix halfway between the longest passing
+    one and the shortest failing one, down to the first member alone. Its failure is its dev's, and it
     leaves the batch, unless the live branch fails that member's rows alone (its own gate): an alert, no member blamed.
     All passing: one gate, one ship; a failure costs log2 of the batch's gates, one more for the live branch's."""
     if track in ctx.batched:
@@ -1510,9 +1511,10 @@ def batch(ctx, track):
     ctx.batched[track] = out
     if not pre:
         return out
-    ok = [i for i, g in enumerate(res) if g and g["ok"]]
-    bad = [i for i, g in enumerate(res) if g and not g["ok"]]
-    i = ok[-1] if ok else (bad[0] + 1) // 2 - 1 if bad else len(pre) - 1
+    lo = max((i for i, g in enumerate(res) if g and g["ok"]), default=-1)  # the longest passing prefix ships only once the next longer one failed
+    hi = next((i for i in range(lo + 1, len(pre)) if res[i] and not res[i]["ok"]), None)
+    i = len(pre) - 1 if hi is None else lo if hi == lo + 1 else (lo + hi) // 2
+    ok = i == lo
     run = rec(me["slug"], "proc-gate") or {}
     if not ok and ctx.proc(me["slug"], "gate") == "alive":  # a gate running on a prefix still current, not yet passed or failed, holds: the state names its key
         i = next((j for j, p in enumerate(pre) if p[2] == run.get("key") and res[j] is None), i)

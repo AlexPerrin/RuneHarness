@@ -13,6 +13,7 @@ deps:
 mechanism: server
 created: '2026-11-02T00:46:49Z'
 superseded: harness-server-stack-one-deploy
+closed: 'answer-7: merged into harness-server-stack-one-deploy'
 ---
 Root cause (PRD workflow: a change's stack is deployed so QA and the user test it; the live server runs what was carried): the server stack's facts are scattered across ship, track.sh up and docker-compose.yml, keyed by build tree instead of by instance and attempt, so each new requirement (evidence, cache, idle logout, token issuer) patched one path. One deploy step renders the stack for an instance (live | run) and an attempt from tools/server, and ship and track.sh up both call it.
 

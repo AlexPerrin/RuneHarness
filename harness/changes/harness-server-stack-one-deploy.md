@@ -17,7 +17,7 @@ Root cause (PRD workflow: a change's stack is deployed so QA and the user test i
 
 Merges harness-run-idle-logout-off (P0, the user's split) and harness-server-stack-deploy (the user's word "merge", 2026-11-01). P0: every qa run's client freezes at the login screen. The user (2026-11-01, ET): "qa idles for 5 mins, and it' client logs out, it freezes at the login screen"; earlier "genie qa has been sitting at the loggin screen, after idle logged out for 20+mins".
 
-Carries: harness-live-issuer-cutover's tools commit 67cf143 (T 4a13623), harness-live-deploy-evidence's idle-logout work (6ef5218), and whatever harness-run-idle-logout-off-1 and -2 hand over (their dev ref harness/harness-run-idle-logout-off): taken as this change's base, not discarded.
+Carries: harness-live-issuer-cutover's tools commit 67cf143 (T 4a13623), harness-live-deploy-evidence's idle-logout work (6ef5218). (harness-run-idle-logout-off-1 and -2 were stopped before any hand-over: no dev ref exists; the idle-logout work starts from 6ef5218's definition only.)
 
 Acceptance:
 1. A run's own server (tools/track.sh up) starts with idleLogout off; the live server keeps the official idle logout; a test checks the run's rendered game.yml.

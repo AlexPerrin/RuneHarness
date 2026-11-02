@@ -608,9 +608,9 @@ class R2(Sandbox):
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/d0": A}})
         hd.tick(s.ctx(F))
-        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1", "deps": ["d0"]})   # spawned and bound; its brief recorded d0
         s.change("d0", track="harness"); s.agreed("d0", "harness"); s.gated("d0", F)
-        s.change("s1", priority="P1", deps=["d0"])                                    # a dep older than the run, met at its start, now re-gating
+        s.change("s1", priority="P1", deps=["d0"])                                    # a dep its brief recorded, met at its start, now re-gating
         s.assertEqual((s.state(F, "s1")["state"], s.state(F, "d0")["actor"] in ("dev", "qa")), ("waiting on d0", False))
         hd.tick(s.ctx(F))
         s.assertIsNone(hd.runs("s1-1")[0].get("reason"))                              # sweep answer-1: a re-gating met dep never ends dev work
@@ -627,7 +627,7 @@ class R2(Sandbox):
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/d0": A}})
         hd.tick(s.ctx(F))
-        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1", "deps": ["d0"]})
         s.change("d0", track="harness"); s.agreed("d0", "harness"); s.gated("d0", F)
         s.change("s1", priority="P1", deps=["d0"])                                    # met at its start, only re-gating: the run lives
         hd.tick(s.ctx(F))
@@ -641,9 +641,8 @@ class R2(Sandbox):
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/l0": A}})
         hd.tick(s.ctx(F))
-        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
-        with mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):         # an earlier run of s1 filed limit l0, before this one started
-            hd.cmd_new(["l0", "--track", "harness", "--title", "an earlier limit", "--limit-of", "s1", "--mechanism", "runs"])
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1", "deps": ["l0"]})   # an earlier run filed l0: this run's brief recorded it
+        hd.cmd_new(["l0", "--track", "harness", "--title", "an earlier limit", "--limit-of", "s1", "--mechanism", "runs"])   # its dep event in the run's start second
         s.agreed("l0", "harness"); s.gated("l0", F)                                 # handed over and gated: it only re-gates
         hd.tick(s.ctx(F))
         s.assertIsNone(hd.runs("s1-1")[0].get("reason"))
@@ -654,6 +653,17 @@ class R2(Sandbox):
         s.assertEqual(s.state(F, "l0")["actor"], "dev")
         hd.tick(s.ctx(F))
         s.assertEqual(hd.runs("s1-1")[0].get("reason"), "waiting on l0")             # met at its start, a limit or not: the base moves, the run ends
+
+    def test_a_started_run_s_deps_at_start_are_those_its_brief_recorded(s):  # answer-2: a hand-edited dep records no event, yet was not met at the start
+        s.change("s1", priority="P1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/d0": A}})
+        hd.tick(s.ctx(F))
+        s.assertEqual(hd.runs("s1-1")[0]["deps"], [])                               # the listing records the deps its brief names
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        s.change("d0", track="harness"); s.agreed("d0", "harness"); s.gated("d0", F)
+        s.change("s1", priority="P1", deps=["d0"])                                    # hand-edited since its start: no dep event
+        hd.tick(s.ctx(F))
+        s.assertEqual(hd.runs("s1-1")[0].get("reason"), "waiting on d0")             # not in its brief, not its limit: the run ends
 
     def test_a_run_s_record_is_its_own_and_a_pass_end_settles_no_step(s):  # answer-2: the orchestrator's filing became three ended runs' record
         s.change("s1", priority="P1"); s.agreed("s1")

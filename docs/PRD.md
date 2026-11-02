@@ -27,7 +27,7 @@ planning across tracks belongs to a planner run listed by facts, and the orchest
 nothing depends on any session staying alive.
 
 ### R3 Contract (from P1 P2 P7 P11)
-What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added later joins it at its next head not carried upstream, one about the upstream PR only a change that opens one), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the brief of the run that handed over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
+What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added or changed later joins it at its next head not carried upstream, a changed one only where the pass wrote the contract from the seeds, one about the upstream PR only a change that opens one), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the brief of the run that handed over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
 a filing joined to the change is its scope, not the user's word: a head handed over before it is still gated and shipped, and the change reopens on top of it once done;
 a closed change takes none) and prior findings;
 a row is proved through the change's own tree, never through a change that depends on it.
@@ -180,6 +180,7 @@ a live check reads the real state.
    a seed check row added to a contract keeps its verdict;
    a hand-over without a `Limits:` section, with a word beside it, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, and so is a hand-back beside it other than its one recorded line, a mechanism with two open harness changes no dependency orders or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change unless it waits on or blocks it or a question holds it, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
    a seed row added later joins a contract at a head not carried upstream;
+   a changed seed row replaces its row in a derived contract at a head not carried upstream, never in a reviewer's;
    a seed row tagged `upstream` joins no local change's contract;
    a contract's check rows run before its gate rows, which run only when every check passed;
    a failed fetch leaves every change where it was.

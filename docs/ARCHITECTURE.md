@@ -134,6 +134,7 @@ harness/changes/<slug>.md      slug, track, kind (change|release|local), priorit
 evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob>};
                                rows `- id | text | check: <cmd> | judge`;
                                a track seed row the file lacks (by id) is written into it by the pass at a head not carried upstream (`hd.unseeded`);
+                               a changed seed row replaces its row (by id) in a file the pass wrote from the seeds (derived or not yet agreed), never in a reviewer's;
                                a row tagged `| upstream` (it judges or checks the upstream PR's texts or commits) seeds only a change that opens one (`hd.upstream`)
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md

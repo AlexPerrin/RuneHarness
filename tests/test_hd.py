@@ -3995,7 +3995,7 @@ class R3(Sandbox):
         st = s.state(Fake(**FACTS, prs={"u/f": [pr]}), "s1")
         s.assertNotIn("seed rows", st["state"])                                # carried at its head: no new row until it moves
         st = s.state(Fake(**FACTS, prs={"u/f": [{**pr, "head": B}]}), "s1")
-        s.assertEqual(st["state"], "contract: seed rows lint added"); st["act"]()   # by id: the file's own ok stands
+        s.assertEqual(st["state"], "contract: seed rows lint written"); st["act"]()   # by id: the file's own ok stands
         con = hd.contract("s1")
         s.assertEqual([r["id"] for r in con["rows"]], ["ok", "j1", "lint"]); s.assertNotEqual(con["hash"], before)
         F = Fake(**FACTS, rows={"false": (1, "nope")})
@@ -4003,12 +4003,22 @@ class R3(Sandbox):
             hd.cmd_handover(["s1", "Limits:", "none"])
         s.assertIn("row lint failed", str(e.exception))
 
+    def test_a_changed_seed_row_reaches_a_derived_contract(s):  # sweep 62: the harness tests row became a check, 290 contracts kept the gate
+        s.change("s1"); hd.write_contract(hd.cfg(), "s1", "server", "derived")
+        t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
+        t.write_text(t.read_text().replace("- ok | ", "- ok | redefined ", 1))
+        st = s.state(Fake(**FACTS), "s1")
+        s.assertEqual(st["state"], "contract: seed rows ok written"); st["act"]()
+        con = hd.contract("s1")
+        s.assertEqual([r["id"] for r in con["rows"]], ["ok", "j1"]); s.assertTrue(con["rows"][0]["text"].startswith("redefined"))
+        s.assertNotIn("seed rows", s.state(Fake(**FACTS), "s1")["state"])
+
     def test_an_upstream_seed_row_seeds_only_a_change_that_opens_a_pr(s):  # server-world-entities: a local raft gained subject and texts
         s.change("s1", kind="local"); s.agreed("s1")
         t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
         t.write_text(t.read_text() + "- subject | feat: subjects | check: false | upstream\n- lint | spotless | check: false\n")
         st = s.state(Fake(**FACTS), "s1")
-        s.assertEqual(st["state"], "contract: seed rows lint added"); st["act"]()   # the PR's row is not the local change's
+        s.assertEqual(st["state"], "contract: seed rows lint written"); st["act"]()   # the PR's row is not the local change's
         s.assertNotIn("subject", [r["id"] for r in hd.contract("s1")["rows"]])
         hd.write_contract(hd.cfg(), "s2", "server", "", up=False); hd.write_contract(hd.cfg(), "s3", "server", "")
         s.assertEqual(([r["id"] for r in hd.contract("s2")["rows"]], [r["id"] for r in hd.contract("s3")["rows"]]),

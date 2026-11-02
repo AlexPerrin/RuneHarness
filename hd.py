@@ -2426,7 +2426,7 @@ def _pass(ctx, act):
         elif st["actor"] == "alert":
             view["alert"].append(f"{ch['slug']}: {st['state']}")
         if ch.get("superseded") and not ch.get("closed"):  # R3: the wait is the user's word, so one user's alert names it
-            view["alert"].append(f"user: {ch['slug']} is superseded by {ch['superseded']} and holds until closed: `hd close {ch['slug']} superseded by {ch['superseded']}`")
+            view["alert"].append(f"user: {ch['slug']} is superseded by {ch['superseded']} and holds until closed: ! python3 {ROOT}/hd.py close {ch['slug']} superseded by {ch['superseded']}")
         if act and (h := rec(ch["slug"], "hold")) and h["head"] != ctx.head(ch):  # R4: a no lapses with its head
             drop(ch["slug"], "hold")
         if (a := rec(ch["slug"], "ask")):

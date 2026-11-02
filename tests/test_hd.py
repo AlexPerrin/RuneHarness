@@ -1005,6 +1005,25 @@ class R2(Sandbox):
         s.assertEqual(len(hd.runs()), 2)                                                            # nothing bound or listed for it
 
 
+    def test_mcp_server_restarts_on_an_mcp_change_once_none_of_its_calls_is_in_flight(s):
+        d = Path(tempfile.mkdtemp()); shutil.copy(Path(__file__).parent.parent / "mcp" / "serve.py", d)
+        srv = lambda v: ("import json, sys, time\nfor l in sys.stdin:\n    m = json.loads(l)\n    m['method'] == 'slow' and (print('{\"method\": \"started\"}', flush=True), time.sleep(0.3))\n"
+                         f"    if 'id' in m: print(json.dumps({{'id': m['id'], 'result': '{v}' + m['method']}}), flush=True)\n")
+        (d / "fake.py").write_text(srv("v1 "))
+        (d / "servers.json").write_text(json.dumps({"fake": [sys.executable, str(d / "fake.py")]}))
+        p = subprocess.Popen([sys.executable, str(d / "serve.py"), "fake"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        send = lambda *ms: (p.stdin.write("".join(json.dumps(m) + "\n" for m in ms)), p.stdin.flush())
+        send({"id": 1, "method": "initialize"}, {"method": "notifications/initialized"})
+        s.assertEqual(json.loads(p.stdout.readline()), {"id": 1, "result": "v1 initialize"})
+        send({"id": 2, "method": "slow"})                                        # in flight when the ship lands
+        s.assertEqual(json.loads(p.stdout.readline()), {"method": "started"})
+        (d / "fake.py").write_text(srv("v2 ")); os.utime(d / "fake.py", ns=(1, 1))   # a ship moves mcp/
+        send({"id": 3, "method": "tools/call"}, {"id": 4, "method": "tools/list"})
+        out = [json.loads(p.stdout.readline()) for _ in range(4)]
+        s.assertEqual(out, [{"id": 2, "result": "v1 slow"}, {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}, {"id": 3, "result": "v2 tools/call"},
+                            {"id": 4, "result": "v2 tools/list"}])   # the new server's own initialize answer is the session's no more
+        p.stdin.close(); p.wait(); p.stdout.close(); shutil.rmtree(d, ignore_errors=True)
+
 class GH:
     """A scripted gh and git for the public act: each call recorded, answered by the first rule whose key it starts with
     (gh: its first three words; git: its words after -C <path>)."""
@@ -2077,11 +2096,14 @@ class R6(Sandbox):
         home = Path(tempfile.mkdtemp()); (home / "netstat.exe").write_text("#!/bin/sh\n"); (home / "netstat.exe").chmod(0o755)   # nothing listens
         msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
                 {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "get_client_state", "arguments": {"port": 7781}}}]
-        for name, srv in json.loads((repo / ".mcp.json").read_text())["mcpServers"].items():
+        servers = json.loads((repo / "mcp" / "servers.json").read_text())
+        s.assertEqual({n: (v["command"], v["args"]) for n, v in json.loads((repo / ".mcp.json").read_text())["mcpServers"].items()},
+                      {n: ("/home/alex/osrs-harness/mcp/serve.py", [n]) for n in servers})   # each server runs under serve.py
+        for name, cmd in servers.items():
             if "devtools" not in name:
                 continue
-            s.assertTrue(srv["args"][1].startswith("http://") or os.path.exists(srv["args"][1]), srv)   # the backend exists
-            r = subprocess.run([str(repo / "mcp" / "devtools_bridge.py"), *srv["args"]], input="".join(json.dumps(m) + "\n" for m in msgs),
+            s.assertTrue(cmd[2].startswith("http://") or os.path.exists(cmd[2]), cmd)   # the backend exists
+            r = subprocess.run([str(repo / "mcp" / "devtools_bridge.py"), *cmd[1:]], input="".join(json.dumps(m) + "\n" for m in msgs),
                                env={**os.environ, "HOME": str(home), "WINDOWS_SYSTEM32": str(home)}, capture_output=True, text=True)
             out = sorted((json.loads(l) for l in r.stdout.splitlines()), key=lambda o: o["id"])   # desktop answers each as it comes
             s.assertEqual([("result" in o, "error" in o) for o in out], [(True, False), (True, False), (False, True)], r.stderr)

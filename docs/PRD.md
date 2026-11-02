@@ -17,6 +17,7 @@ a dependency upstream in another repo holds only its dependent's card until merg
 upstream contributions that belong together are bundled into one card by the user's word, and dev work goes on past the contribution queue;
 a change the user closes takes no further step and leaves the integration tree;
 a done or closed change leaves no worktree or local branch.
+A shipped mcp/ change is live in each running session's MCP servers from its next request, with no session restarted.
 The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on);
 the user's yes (`hd approve`) and close are the user's own;
 with no orchestrator session the user is told to start one;
@@ -131,6 +132,7 @@ a live check reads the real state.
    a dependency in another repo's upstream PR holds its dependent until live, its card until merged upstream, and one of the same PR until gated;
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a fresh dev ref the base contains is neither live nor done until handed over;
+   an MCP server whose mcp/ files change restarts at the session's next request once its requests in flight are answered, the session's initialize given to the new server and its tools list told changed;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
    `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run;
    a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command or monitor it started has not reported its end, and its record newer than its change's last answer;

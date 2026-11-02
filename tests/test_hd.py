@@ -1823,9 +1823,9 @@ class R5(Sandbox):
         s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t12"] * 2)   # its prefix passed: the whole batch gates before any ship
         hd.drop("ship-harness", "gate-t1"); F.f["procs"] = {(7, "1"), (4242, "99")}
         F.f["refs"]["harness/h1"] = "9" * 40                                     # h1's head moves: the running gate's prefix is gone
-        F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), ("9" * 40, H2): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
-        with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1", "Limits:", "none"])
+        F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), (H2, "9" * 40): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])                            # handed over last: the batch is h2, then h1
         hd.tick(s.ctx(F))
         s.assertEqual((F.stopped, F.envs[-1]["G"]), ([4242], "t92"))           # stopped, the current batch's gate started
 
@@ -2981,7 +2981,7 @@ class EndToEnd(unittest.TestCase):
                         continue
                     select.select([fd], [], []); os.close(fd)               # readable once the process exits
                 last = v
-            s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'ship-harness' / 'gate.json').read_text() if (root / 'state' / 'ship-harness' / 'gate.json').exists() else ''}")
+            s.fail(f"never reached {state!r}; last view:\n{v}\n{(root / 'state' / 'ship-harness' / 'gate.json').read_text() if (root / 'state' / 'ship-harness' / 'gate.json').exists() else ''}" + "".join(f"\n{f}: {f.read_text()}" for f in sorted((root / 'state').glob('*/gate*.json'))))   # every gate's record: an inner suite's failure names itself
         until("gate on")
         until("shipping")
         until("e2e [harness P1]: done")

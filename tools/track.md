@@ -5,7 +5,7 @@ the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_
 truth only, one fact per line (`python3 tools/docfmt.py docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md` writes it: a break after each '; ' and sentence, never re-wrapped; a blank line between requirements and paragraphs; a new fact on its own line beside the fact it refines, a new test beside the test it refines), so siblings merge and only the same fact changed two ways conflicts; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's
 pass does not). The dev ref stays local, as does each carried tools ref: hd reads the local ref and ship pushes only
-the live branch and the tools branches it moves, so rebase it onto the base at will and never push it. Commit, then `hd handover <slug> Limits: none` (or `Limits: limit:<slug> ...`).
+the live branch and the tools branches it moves, so rebase it onto the base at will and never push it. Commit, then `hd handover <slug> Limits: none` (or `Limits: limit:<slug> ...`): it runs the whole suite at T (`tests` is a check row) and refuses while it fails.
 
 A fix to a product repo's tools (the fork's `local/harness`, the client's `client/harness-v8`) is committed on branch
 `harness/<slug>` of that repo, from its tools branch, in a worktree `<repo>/.worktrees/<slug>`; the dev ref
@@ -13,7 +13,7 @@ A fix to a product repo's tools (the fork's `local/harness`, the client's `clien
 head; the gate runs that repo's `tools/**/test_*.py` at it; ship fast-forwards the tools branch to it and pushes it to that repo's own remote (the fork's `fork`, never `origin`).
 
 ## Seed rows
-- tests | the suite passes at T | gate: tools/track.sh check-tests
+- tests | the suite passes at T | check: tools/track.sh check-tests
 - dry-run | hd tick --dry-run at T plans no upstream action main's pass does not | gate: tools/track.sh check-dry-run
 - docs | every requirement has its test class and acceptance row, and the source docs hold one fact per line | gate: tools/track.sh check-docs
 - tools | every carried tools head is a fast-forward of its branch and its tests pass | gate: tools/track.sh check-tools

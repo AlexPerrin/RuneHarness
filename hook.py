@@ -220,6 +220,26 @@ def hold_handback(p):
     return True
 
 
+def handover_line(p):
+    """R3: a run that handed over hands back the one line its hand-over recorded, `run <name>: handed over <head> Limits: ...`:
+    a limit of its change stated beside it is in scope, fixed before the hand-over, never handed back in prose."""
+    if p.get("tool_name") != "SubagentHandback" or not is_run(p) or not (r := find_run(p)):
+        return
+    msg = ((p.get("tool_input") or {}).get("message") or "").strip()
+    if not re.match(r"run \S+: handed over ", msg):
+        return
+    ho = hd.rec(r["change"], "handover") or {}
+    m = re.fullmatch(r"run (\S+): handed over ([0-9a-f]{7,40}) (Limits: .+)", msg, re.I)
+    if m and m[1] == r["name"] and ho.get("head", "").startswith(m[2]) and m[3].lower() == (ho.get("limits") or "").lower():
+        return
+    hd.event(change=r["change"], run=r["name"], action="denied", rule="hand-back beside its hand-over")
+    want = f"`run {r['name']}: handed over {ho['head'][:9]} {ho['limits']}`" if ho.get("limits") else "none recorded: `hd handover` first"
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          f"A hand-over's hand-back is its one recorded line, nothing beside it: {want}. A limit of this change is fixed before "
+          "the hand-over, one in another mechanism filed and named as `limit:<slug>` in it; a risk stated in prose is a limit not fixed."}}))
+    return True
+
+
 def owner_run(p):
     """R5: the run whose processes an agent's are: its own, or, for an agent a run spawned (a reader, a fork, at any depth),
     the run of the nearest ancestor bound to one (parent_of, step by step)."""
@@ -660,7 +680,7 @@ def orchestrator_context(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or orchestrator_context(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or handover_line(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or orchestrator_context(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

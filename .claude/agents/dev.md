@@ -13,7 +13,7 @@ Your goal is one commit at the tip of your dev ref that passes every row of the 
 evidence dir, handed over with `hd handover <slug> Limits: ...`; it refuses while a script row fails. A planning brief asks for
 changes filed with `hd new`, no code. Build with `<repo>/tools/track.sh build <slug>`, bring up with `up`, read logs
 with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with the touched
-classes (`HD_ROOT=~/osrs-harness tools/track.sh test <slug> tests.test_hd.<Class>`, whose whole report is `state/<slug>/tests.txt`) in your worktree; the full suite runs at the gate. Read-heavy lookups go to a `reader`
+classes (`HD_ROOT=~/osrs-harness tools/track.sh test <slug> tests.test_hd.<Class>`, whose whole report is `state/<slug>/tests.txt`) in your worktree; `hd handover` runs the whole suite at T. Read-heavy lookups go to a `reader`
 (`Agent(subagent_type="reader")`, read-only, part of your run) with one question, and you keep only its conclusion:
 RSProx transcripts and recordings, cache and gameval dumps, decompiled code, CI and server logs, wiki transcripts.
 A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`. When the hook tells you the context limit is reached, start no new
@@ -24,10 +24,10 @@ Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md
 cannot arise, before you hand over. Only a limit in another mechanism is filed, once, as that mechanism's root-cause change:
 `hd new <new-slug> --track harness --title "..." --body "..." --mechanism <m> --limit-of <slug>` (it joins the open change
 on `<m>` if there is one, makes your change wait on it, and refuses `<m>` inside your scope); every hand-over ends with its Limits: section, `hd handover <slug> Limits: none` or `Limits: limit:<new-slug> ...`
-(it refuses any other entry: a limit in your scope is fixed, never stated), and your hand-back line carries the same section.
+(it refuses any other entry and any prose beside it: a limit in your scope is fixed, never stated), and your hand-back is that one line, `run <name>: handed over <sha> Limits: ...`, with nothing beside it (the hook denies any other).
 
-Run your own builds, ups and mobile or desktop steps in the foreground (Bash `timeout` 600000): the track script blocks on
-its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
+Run every step of yours (a build, an up, a test run, `hd tick --dry-run`, a mobile or desktop step) in the foreground, never under a
+`timeout` command (Bash `timeout` 600000 is the call's limit): the track script blocks on its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
 `wait_for`, a step you had to background with one until-loop on the fact the step makes (a state file, a log line, a port), never
 on the background task's output file, never under a bound of time or tries (`timeout N`, `seq 1 N`, a sleep count: a wait ends on
 its fact; when the call's own limit ends it first, issue the same wait again), never `pgrep -f` on text the waiting command
@@ -41,7 +41,7 @@ answers no other caller.
 
 Never: a public act (PR, release, upstream comment); a push to any ref but your dev ref; a forced push; Jagex;
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied
-action is reported in your hand-back, never worked around. A harness dev ref stays local (hd reads it there): rebase
+action is never worked around: the hook records it, and one your change cannot do without is reported in a `handoff` hand-back. A harness dev ref stays local (hd reads it there): rebase
 it at will, never push it. A fix that belongs to another track or repo is filed, never asked about: `hd new <new-slug>
 --track <t> --title "..." --body "..." --blocks <slug>` writes its definition and makes your change wait on it; hand back
 `run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change
@@ -49,6 +49,6 @@ should do): `hd ask <slug> "..."`, once, then hand back.
 
 Before the hand-back remove every temporary worktree and branch you made that is not the change's own (the loop removes
 the change's own once it is done), stop every process you started (`<repo>/tools/track.sh down <slug>`), record your result, then
-hand back one line: `run <name>: handed over <sha>`, `run <name>: filed <slug>`, `run <name>: ask <text>` or
+hand back one line: `run <name>: handed over <sha> Limits: ...`, `run <name>: filed <slug>`, `run <name>: ask <text>` or
 `run <name>: handoff`. Run
 nothing after it.

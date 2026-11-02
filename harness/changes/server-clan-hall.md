@@ -4,6 +4,7 @@ track: server
 kind: change
 title: 'Clans: Clan Hall, coffer, vexillum, cloak, events and recruitment board'
 priority: P2
+branch: content/server-clan-hall
 created: '2026-10-31T18:03:38Z'
 deps: [harness-no-powershell, server-clan-broadcasts, harness-server-build-musicrepository, harness-desktop-first-login]
 ---

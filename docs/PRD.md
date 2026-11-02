@@ -13,7 +13,7 @@ A server change unblocks the client once live on the test server.
 ### R2 Flow (from P3 P10)
 A defined change reaches its live target with no person involved once the changes it depends on are live (in the fork's integration tree: gated, merged and tested there;
 of the same PR: gated);
-a dependency upstream in another repo holds only its dependent's card until merged there, never its dev work;
+a dependency upstream in another PR (another repo, or one the dependent's own branch splits off) holds only its dependent's card until merged there, never its dev work;
 upstream contributions that belong together are bundled into one card by the user's word, and dev work goes on past the contribution queue;
 a change the user closes takes no further step and leaves the integration tree;
 a done or closed change leaves no worktree or local branch.
@@ -265,6 +265,7 @@ a live check reads the real state.
 8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head;
    a head holding another PR's unmerged commits is a dev step before its build (stacked);
    a change whose same-track upstream dependency has a PR (open or not yet opened) joins it, its head on top of the dependency's, and waits on no upstream merge, while one in another repo holds its card until merged there;
+   a dependent with a branch of its own is its own PR: built, gated and deployed on T with its dependency, its head holding the dependency's head and its card held until the dependency merges upstream, then holding none of the dependency's pre-merge commits (rebased onto main, a squash merge too) or a dev step;
    a PR has its card only when every open change of that PR is in its tip's head (one card, one carry);
    a head the upstream PR is at is not re-gated when main moves, and its pending reply's card shows at once;
    three handed-over harness changes merge into one batch tree, gated once and shipped once (a shorter prefix that passed ships only once the one longer fails), no second ship starting while one runs, and a failing batch is bisected to the change that fails alone, which leaves it once the live branch passes its rows alone (failing them, an alert and no member blamed), while one conflicting only with an earlier member waits, and the planner reads a batched member's failure from its batch's gate;

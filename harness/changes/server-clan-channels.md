@@ -4,6 +4,7 @@ track: server
 kind: change
 title: 'Clans: the server sends no clan channel or clan settings state'
 priority: P2
+branch: content/server-clan-channels
 created: '2026-10-31T03:20:17Z'
 deps:
 - harness-no-powershell

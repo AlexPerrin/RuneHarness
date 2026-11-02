@@ -1477,7 +1477,7 @@ def cycles(changes):
 
 def deps_held(ctx, ch):
     """The step a change or goal waits on while a dependency is neither live nor closed, or is reopened by a late answer or joined filing; None when none holds it. R8: a
-    same-track dependency that goes upstream holds until gated (the dependent joins its PR: nothing waits on an upstream merge)."""
+    same-track dependency that goes upstream holds until gated (the dependent joins its PR, or with a branch of its own its card waits on the dependency's merge)."""
     if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
         return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
     for d in ch["deps"]:
@@ -1615,17 +1615,28 @@ def nxt(ctx, ch):
                 return step(f"stacked on {', '.join(on)}: dev", "dev", mode="code", input=["stacked", head, con["hash"]] + on, detail=(
                     f"The head {head[:9]} holds unmerged commits of {', '.join(on)}, another PR. A PR is based on upstream main "
                     f"({ctx.base(ch)[:9]}) and holds only its own commits: rebase them onto it, or, when this change needs that one, "
-                    "add it to deps with no pr or branch of this change's own (it joins that PR)."))
-            for d in ch["deps"]:  # R8: a joined PR's tip carries every change of it: its head holds each one's head
+                    "add it to deps (with no pr or branch of this change's own it joins that PR; with its own branch its card waits on that PR's merge)."))
+            for d in ch["deps"]:  # R8: a dependent holds its open dependency's head (a joined PR's tip carries every change of it); a split PR, once that one merged, none of its pre-merge commits
                 dep = ctx.changes.get(d)
-                if dep and not dep.get("closed") and one_pr(ch, dep) and (dh := ctx.head(dep)) and not ctx.done(dep, dh):
-                    c = ctx.F.contains(ctx.clone(ch), head, dh)
-                    if c is None:
+                if not (dep and not dep.get("closed") and dep["track"] == track and upstream(dep) and (dh := ctx.head(dep))):
+                    continue
+                if (m := ctx.done(dep, dh)) is None:
+                    return step("tree unknown", "unknown")
+                if not m:
+                    if (c := ctx.F.contains(ctx.clone(ch), head, dh)) is None:
                         return step("tree unknown", "unknown")
                     if not c:
-                        return step(f"joins {d}'s PR without its head: dev", "dev", mode="code", input=["joined", head, dh, con["hash"]], detail=(
-                            f"This change ships in {d}'s PR ({ch.get('branch') or '#' + str(ch['pr'])}): its head {head[:9]} must hold {d}'s head {dh[:9]}; "
-                            "rebase its commits onto it. The PR's title, body and comment cover both changes."))
+                        return step(f"{'joins' if one_pr(ch, dep) else 'builds on'} {d}'s PR without its head: dev", "dev", mode="code", input=["joined", head, dh, con["hash"]], detail=(
+                            f"This change {'ships in' if one_pr(ch, dep) else 'builds on'} {d}'s PR: its head {head[:9]} must hold {d}'s head {dh[:9]}; rebase its commits onto it."
+                            + (" The PR's title, body and comment cover both changes." if one_pr(ch, dep) else "")))
+                elif not one_pr(ch, dep):  # a squash merge leaves the dependency's commits off main: the overlap, not containment, says pre-merge
+                    mine, theirs = (ctx.F.unmerged(ctx.clone(ch), ctx.base(ch), h) for h in (head, dh))
+                    if mine is None or theirs is None:
+                        return step("tree unknown", "unknown")
+                    if mine & theirs:
+                        return step(f"{d} merged upstream; head not rebased onto main: dev", "dev", mode="code", input=["split", head, dh, con["hash"]], detail=(
+                            f"{d}'s PR merged upstream at {dh[:9]}; this change's own PR ({ch.get('branch')}) still holds its pre-merge commits: "
+                            f"rebase this change's own commits onto upstream main ({ctx.base(ch)[:9]})."))
         t = ctx.tree(ch, tc)
         bk, gk = ctx.key(ch, t, build=True), ctx.key(ch, t)
         if bk is None or gk is None:
@@ -1772,9 +1783,9 @@ def public(ctx, ch, head):
         return step("upstream PR unknown", "unknown")
     if carried(ctx, ch, head):
         return step(f"carried at {head[:9]}; waiting on the maintainers", "wait")
-    for d in ch["deps"]:  # a dependency upstream in another repo is never in this PR: it waits on that repo's merge
+    for d in ch["deps"]:  # R8: a dependency upstream in another PR (another repo, or one the dependent's own branch splits off) merges first
         dep = ctx.changes.get(d)
-        if dep and not dep.get("closed") and upstream(dep) and TRACK[dep["track"]]["repo"] != TRACK[ch["track"]]["repo"]:
+        if dep and not dep.get("closed") and upstream(dep) and not one_pr(ch, dep):
             dh = ctx.head(dep)
             m = ctx.done(dep, dh) if dh else False
             if m is None:
@@ -1858,14 +1869,22 @@ def approved(ctx, ch, head):
 
 
 def stacked(ctx, ch, head):
-    """R8: the open same-track changes of other PRs whose unmerged commits head reaches; None unknown."""
+    """R8: the open same-track changes of other PRs whose unmerged commits head reaches, but those it builds on or that build
+    on it (a dependent's card waits on its dependency's merge, then its head holds the merged head); None unknown."""
     clone, base = ctx.clone(ch), ctx.base(ch)
+
+    def below(c):
+        out, todo = set(), list(c["deps"])
+        while todo:
+            if (d := todo.pop()) in ctx.changes and d not in out:
+                out.add(d); todo += ctx.changes[d]["deps"]
+        return out
     mine = ctx.F.unmerged(clone, base, head) if base else None
     if mine is None:
         return None
     on = []
     for o in ctx.changes.values():
-        if o["slug"] == ch["slug"] or o.get("closed") or o["track"] != ch["track"] or one_pr(ch, o) or not mine:
+        if o["slug"] == ch["slug"] or o["slug"] in below(ch) or ch["slug"] in below(o) or o.get("closed") or o["track"] != ch["track"] or one_pr(ch, o) or not mine:
             continue
         oh = ctx.head(o)
         if oh is None:

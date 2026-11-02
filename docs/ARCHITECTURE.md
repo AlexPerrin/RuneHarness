@@ -222,7 +222,8 @@ next(change):
     yes → done
   deps live or closed?
     no → wait on them (a same-track upstream dependency: gated;
-    the dependent with no pr or branch of its own joins its PR, a chain one PR)
+    the dependent with no pr or branch of its own joins its PR, a chain one PR;
+    one with a branch of its own is its own PR, its card waiting on the dependency's upstream merge)
     a dependency a late answer or joined filing reopened (its own step not done) → wait on it until its dev hands over
   question open (hd ask)?
     yes → wait for the answer: no run, gate, ship or upstream step
@@ -240,7 +241,9 @@ next(change):
     the step counts and lists its fail rows, and names its not-judged rows apart
   T
     conflict → dev;
-    an upstream head holding unmerged commits of another PR's change (stacked), or not holding the head of a same-PR dependency it joins → dev
+    an upstream head holding unmerged commits of another PR's change it neither builds on nor is built on (stacked), or not holding the head of a same-PR dependency it joins → dev
+    an upstream head not holding the head of an unmerged dependency of another PR it builds on → dev
+    an upstream head holding unmerged commits of a dependency of another PR once that one merged upstream (not rebased onto main; a squash merge leaves them off main) → dev
   build(T)
     not built → tools/track.sh build;
     failed → dev
@@ -265,9 +268,9 @@ next(change):
     one fact read per pass: the open PRs of the upstream (`gh pr list`), the review and conversation comments of a PR (REST, which marks bots)
     carried (its own ship.json, the PR open at it and ready, or a same-PR change's built on it; or the PR at head, ready, ours answering every finding)?
       yes → wait on the maintainers (a release: until its tag exists)
-    a dependency upstream in another repo, not merged there?
+    a dependency upstream in another PR (another repo, or one its own branch splits off), not merged there?
       merged: upstream main holds its head, or its PR (the definition's or opened.json's), no longer open, reads merged at a head holding it (`Ctx.done`)
-      yes → wait on its upstream merge (it is in no PR of this repo);
+      yes → wait on its upstream merge (it is in no PR of this one);
       its card held by the user: one user's alert naming that hold (lift it, or hold this card too), gone once this card is held too, the test server deploy going on
     an open change of the PR it waits for (head not in this head, or built on it)?
       yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips), its texts covering every change of it;

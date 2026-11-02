@@ -1632,9 +1632,9 @@ class R5(Sandbox):
         s.assertNotIn("x9", g); s.assertEqual(g["c1"]["deps"], ["h2"]); s.assertIn("runs drop", g["h2"]["body"])
         s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on h2")
         s.change("h3", track="harness", mechanism="tree", deps=["c1"])
-        with s.assertRaises(SystemExit) as e:                                    # joined, it is cycle-checked as a new one is
-            hd.cmd_new(["x8", "--track", "harness", "--title", "tree drop", "--mechanism", "tree", "--blocks", "c1"])
-        s.assertIn("cycle", str(e.exception)); s.assertEqual(hd.defs("changes")["c1"]["deps"], ["h2"]); s.assertNotIn("tree drop", hd.defs("changes")["h3"]["body"])
+        hd.cmd_new(["x8", "--track", "harness", "--title", "tree drop", "--mechanism", "tree", "--blocks", "c1"])   # h3 waits on it: ordered, its own change, no cycle
+        g = hd.defs("changes")
+        s.assertEqual(g["c1"]["deps"], ["h2", "x8"]); s.assertNotIn("tree drop", g["h3"]["body"])
 
     def test_a_dependency_cycle_is_one_alert_and_refused_by_hd_new_and_a_definition_commit(s):
         import io, contextlib
@@ -3229,9 +3229,15 @@ class R3(Sandbox):
             with s.assertRaises(SystemExit) as e:
                 hd.cmd_new(["p8", "--track", "harness", "--title", "y", *bad])
             s.assertIn("one of: loop, runs", str(e.exception)); s.assertNotIn("p8", hd.defs("changes"))
+        hd.cmd_new(["p7", "--track", "harness", "--title", "after r1", "--mechanism", "hold", "--deps", "r1"])     # a dependency orders it: its own change
+        hd.cmd_new(["p6", "--track", "harness", "--title", "before r1", "--mechanism", "hold", "--blocks", "r1"])
+        g = hd.defs("changes")
+        s.assertEqual((g["p7"]["deps"], g["r1"]["deps"]), (["r1"], ["p6"]))
+        alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # one chain p6 <- r1 <- p7: no merge
+        s.assertFalse([a for a in alerts if a.startswith("mechanism hold")], alerts)
         s.change("h3", track="harness", mechanism="hold"); s.change("h4", track="harness", mechanism="")
-        alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # two open on one mechanism, one naming none
-        s.assertIn("mechanism hold: 2 open changes h3, r1: merge them into one root-cause change", alerts)
+        alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # one no dependency orders on the mechanism, one naming none
+        s.assertIn("mechanism hold: 4 open changes h3, p6, p7, r1: merge them into one root-cause change", alerts)
         s.assertIn("no mechanism: h4: name each one's", alerts)
         hd.cmd_new(["s9", "--track", "server", "--title", "a quest"])           # a product change needs none
         s.assertEqual(hd.mechanism(hd.defs("changes")["s9"]), "s9")

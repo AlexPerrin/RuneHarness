@@ -1890,6 +1890,18 @@ def mechanism(c):
     return c.get("mechanism") or c["slug"]
 
 
+def ordered(graph, a, b):
+    """Whether a dependency orders two changes: one waits on the other, transitively (a change orders itself)."""
+    def after(k):
+        seen, todo = set(), [k]
+        while todo:
+            if (d := todo.pop()) not in seen:
+                seen.add(d)
+                todo += graph.get(d, {}).get("deps") or []
+        return seen
+    return b in after(a) or a in after(b)
+
+
 def scope(graph, slug):
     """The mechanisms a change owns: its own and those of the changes it was filed as a limit of, transitively;
     a limit on any of them is fixed in the change (the two are one rewrite), never filed again, so filing converges."""
@@ -2146,12 +2158,13 @@ def _pass(ctx, act):
     view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     repairs(ctx, act)
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
-    per = {}  # R3: one open harness change per mechanism, each naming one; the planner merges the rest
+    per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
     for k, c in ctx.changes.items():
         if c["track"] == "harness" and not shut(k, c):
             per.setdefault(c.get("mechanism") or "", []).append(k)
+    per = {m: v if not m else [k for k in v if any(not ordered(ctx.changes, k, o) for o in v)] for m, v in per.items()}
     view["alert"] += [f"mechanism {m}: {len(v)} open changes {', '.join(sorted(v))}: merge them into one root-cause change" if m else
-                      f"no mechanism: {', '.join(sorted(v))}: name each one's" for m, v in sorted(per.items()) if len(v) > 1 or not m]
+                      f"no mechanism: {', '.join(sorted(v))}: name each one's" for m, v in sorted(per.items()) if v]
     for g in ctx.goals.values():
         view["goal"].append(f"{g['slug']}: {measure(ctx, g, act)}")
     tint, open_prs = {}, set()
@@ -2791,7 +2804,10 @@ def cmd_new(a):
             refuse(f"no change {o.limit_of}")
         if m in (own := scope(graph, o.limit_of)):
             refuse(f"{m} is in {o.limit_of}'s scope ({', '.join(sorted(own))}): fix it there, rewriting the mechanism if the limit is in its design")
-    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c)), None)
+    tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
+    if o.blocks:
+        tie[o.blocks] = {**tie[o.blocks], "deps": [*tie[o.blocks]["deps"], o.slug]}
+    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c) and not ordered(tie, o.slug, k)), None)
     if into:
         o.deps = ""  # a joined filing adds no change of its own: only the --blocks edge follows it into `into`
     carrier = into or o.slug  # the change that carries the fix: every wait on the filing or a superseded change names it

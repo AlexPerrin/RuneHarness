@@ -38,8 +38,9 @@ A verdict covers the judged rows: a script row added or changed leaves it standi
 A claim with no record counts for nothing;
 an unknown fact stops a step.
 A limit in the mechanism a change touches is fixed in that change: a hand-over states its limits, each a filed change, and one naming an in-scope limit, or stating one otherwise, is refused;
-every open harness change names its mechanism, and the planner merges the open changes sharing one;
-a limit in another mechanism, and any filing on a mechanism with an open change, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges.
+every open harness change names its mechanism, and the planner merges the open changes sharing one that no dependency orders;
+changes on one mechanism a dependency orders stay apart, so a fix the user wants first is never held behind its follow-up;
+a limit in another mechanism, and any filing on a mechanism with an open change it neither waits on nor blocks, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges.
 
 ### R4 Authority (from P4 P5)
 Only a write to OpenRune and a client release need the user.
@@ -153,7 +154,7 @@ a live check reads the real state.
    a harness change's tools commits are handed over, gated and landed with it;
    a moved upstream rule file voids only the rule rows;
    a seed check row added to a contract keeps its verdict;
-   a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
+   a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes no dependency orders or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change unless it waits on or blocks it, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
    a seed row added later joins a contract at a head not carried upstream;
    a seed row tagged `upstream` joins no local change's contract;
    a contract's check rows run before its gate rows, which run only when every check passed;

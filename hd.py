@@ -1308,7 +1308,8 @@ class Ctx:
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
         it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
-        one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once, quoting the last failure lines of its log;
+        one that ended three times without its result (a host fault, a held row, a crash), on the same args and key or on the same
+        cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
@@ -1323,8 +1324,9 @@ class Ctx:
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
         res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
         newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
-        if p.get("args") != args or p.get("key") != key or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()):
-            p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
+        c = cause(STATE / slug / f"{name}.log") if st == "dead" else ""
+        if not p or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
+            p = {}  # the result landed, the script was fixed after the last start, or new args whose death is not the last one's cause: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 3:
             log = STATE / slug / f"{name}.log"
             fails = [l.strip() for l in (log.read_text(errors="replace") if log.exists() else "").splitlines() if re.search(r"(?i)error|fail", l)][-2:]
@@ -1347,7 +1349,18 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), **({"room": need} if need else {})})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), "cause": c or p.get("cause"), **({"room": need} if need else {})})
+
+
+def cause(log):
+    """R5: the last line a dead script logged, its hashes dropped: the fault it ended on, the same under every key the fault is not of."""
+    try:
+        with open(log, "rb") as f:
+            f.seek(max(0, f.seek(0, 2) - 4096))
+            lines = f.read().decode(errors="replace").strip().splitlines()
+    except OSError:
+        return ""
+    return re.sub(r"[0-9a-f]{7,}", "", lines[-1]).strip() if lines else ""
 
 
 def step(state, actor, **k):

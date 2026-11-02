@@ -158,7 +158,7 @@ state/briefs/<run>.md          the prompt;
                                read streamed, each byte once per process);
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
                                state/orchestrator-read/<pid>-<start>  the orchestrator.md blob `hd` last printed that session in full
-state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, room} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key since the last result or the script's last change, raised once at 3;
+state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, since, cause, room} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key, or across them while each death's cause (the last line its log holds, hashes dropped) is the last one's, since the last result or the script's last change, raised once at 3;
                                room: a build's [memory, CPUs], the largest container its tools/build/ names);
 state/room/<pid>.json          {pid, start, mem, cpus, owner, held}: one container `hd room` admitted (held) or holds waiting;
                                owner: HD_PROC, `<slug>/<script>` of the pass's process it runs under, '' for a dev's
@@ -355,7 +355,7 @@ a process alive under a key no longer its step's is stopped with its systemd sco
 a build or gate alive on a head its verdict failed is stopped (`Ctx.halt`), its record dropped, since that head is its dev's;
 a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
-a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, tools/build/, tools/server/), so a fix of them restarts its count;
+a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, tools/build/, tools/server/);
 a deploy alive is never stopped, a newer tree or tools ship included: the pass deploys the newest tree after its end (openrs2 serves no ranges, so a stopped download restarts from 0);
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
@@ -498,7 +498,7 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
   release after the yes
 - Server: test server: deploy `or:<T_int>` with the live stack's key pair (`state/live/key`, seeded once with the key the released APKs carry), its modulus named in the live record `state/live/tree.json`, an image of another key refused before its boot and the tag;
   the live record names the deploy key it ran under (the tree and the hash of `tools/track.sh`, `tools/build/`, `tools/server/`), and the pass deploys whenever the current key differs, from a gated change's step or, with none at it, from the pass itself;
-  a deploy recreates every container of the stack (`--force-recreate`), never restarts one, and the live record names them: the pass deploys again while one is not running (a WSL restart leaves a container with a file bind mount exited, Docker Desktop remounting it as a directory);
+  a deploy recreates every container of the stack (`--force-recreate`), never restarts one, the sidecars and the issuer first and the game server once they started, and the live record names them: the pass deploys again while one is not running (a WSL restart leaves a container with a file bind mount exited, Docker Desktop remounting it as a directory);
   every APK's login modulus is that pair's (a cached APK of another rebuilt), and the client's `up` refuses an APK whose modulus is not the live record's, naming both;
   the issuer's secret in its game.yml, its sidecars serving `tools/server/jav_config.ws.template` (the APK's with params 11, 20, 22 and 28 naming `issuer.py`, its sign-in and tokens;
   `javcheck.py` after `up` and `ship`: local hosts only);

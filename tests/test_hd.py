@@ -2400,6 +2400,18 @@ class R5(Sandbox):
         s.assertTrue(a.endswith("(state/s1/ship.log): Error response from daemon: not a directory / ship of T1 failed: up (exit 1)"), a)
         s.assertEqual(hd.trigger(a), "state/s1/ship.log")                       # the quote leaves the planner's subject as it was
 
+    def test_a_fault_of_no_key_is_counted_across_keys(s):  # sweep-66 P1-b: every newly gated server change moved the live ship's key, so its count of 30 http mount failures never reached 3
+        F = Fake(**FACTS)
+        ctx, log = s.ctx(F), hd.STATE / "s1" / "ship.log"
+        for k in ("K1", "K2", "K3"):
+            ctx.start("s1", "ship", ["sh", k], key=k)
+            with open(log, "a") as f: f.write(f"ship of {k.lower()}aaaaaaa failed: compose up (exit 1)\n")   # the same step fails under each key
+        ctx.start("s1", "ship", ["sh", "K4"], key="K4")
+        s.assertEqual(len(F.spawned), 3); s.assertTrue(any("ship ended 3 times" in a for a in ctx.alerts))   # raised once, not rerun
+        with open(log, "a") as f: f.write("ship of k4aaaaaaa failed: boot (exit 5)\n")
+        ctx.start("s1", "ship", ["sh", "K5"], key="K5")                        # another cause under a new key: counted afresh
+        s.assertEqual((len(F.spawned), hd.rec("s1", "proc-ship")["attempts"]), (4, 1))
+
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

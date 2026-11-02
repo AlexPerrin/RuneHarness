@@ -4569,6 +4569,20 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "Limits:", "limit:h2"])
         s.assertEqual((hd.rec("h1", "handover")["head"], hd.rec("h1", "handover")["limits"]), (A, "Limits: limit:h2"))
 
+    def test_a_limit_does_not_join_a_change_waiting_on_its_own_deps(s):  # sweep-82 P2-a: the 7790 limit joined a change waiting on a five-change chain
+        s.change("h1", track="harness", mechanism="dispatch")
+        s.change("b1", track="harness", mechanism="tree")
+        s.change("w1", track="harness", mechanism="carry", deps=["b1"])          # open on the mechanism, waiting on b1
+        hd.cmd_new(["x1", "--track", "harness", "--title", "carry retries", "--mechanism", "carry", "--limit-of", "h1"])
+        g = hd.defs("changes")
+        s.assertIn("x1", g); s.assertEqual(g["x1"]["deps"], [])                  # it stands as its own change, startable now
+        s.assertEqual(g["h1"]["deps"], ["x1"]); s.assertEqual(g["w1"]["deps"], ["b1", "x1"])   # ahead of the waiting change
+        s.assertNotIn("carry retries", g["w1"]["body"])
+        s.change("h2", track="harness", mechanism="loop")
+        hd.cmd_new(["x2", "--track", "harness", "--title", "carry drops", "--mechanism", "carry", "--limit-of", "h2"])
+        g = hd.defs("changes")
+        s.assertNotIn("x2", g); s.assertIn("carry drops", g["x1"]["body"])        # the next limit joins the startable one
+
     def test_a_hand_over_hands_back_its_one_recorded_line(s):  # sweep-59 P3-b: 'Limits: none' handed back beside its own risks in prose
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))

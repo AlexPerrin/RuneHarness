@@ -3,7 +3,7 @@ import hashlib, io, json, os, re, shutil, subprocess, sys, tempfile, time, unitt
 from pathlib import Path
 from unittest import mock
 
-for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS", "TOOLS_ROOT"):
+for k in ("SLUG", "HEAD", "T", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS", "TOOLS_ROOT", "G", "NAMES", "LIVE"):
     os.environ.pop(k, None)                                                   # hd's loop env (Hd.env): the gate's own change never reaches a test's track.sh
 NESTED = os.environ.get("HD_SUITE")                                           # "1" for every process this suite starts; "nested" for a test's deliberate inner suite
 if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse
@@ -2907,6 +2907,11 @@ class Tools(unittest.TestCase):
         s.assertEqual((r.returncode, rec["ok"]), (0, False), r.stderr)
         s.assertIn("FAIL: b: false # refused", rec["detail"]); s.assertIn("ok: a: true", rec["detail"]); s.assertIn("ok: c: tools/track.sh check-docs", rec["detail"])
         s.assertIn("FAIL: d: tools/track.sh check-tests", rec["detail"]); s.assertIn("refused: the test suite runs inside itself", rec["detail"])   # a test's gate cannot recurse
+        idx = root / "idx"; g = lambda *a, i=None: subprocess.run(["git", "-C", str(repo), *a], input=i, capture_output=True, text=True, env={**os.environ, "GIT_INDEX_FILE": str(idx)}).stdout.strip()
+        g("read-tree", snap); sh = (repo / "tools" / "track.sh").read_text().replace("check_docs() {", "check_docs() { echo the rows of T; exit 1\n", 1)
+        g("update-index", "--cacheinfo", f"100755,{g('hash-object', '-w', '--stdin', i=sh)},tools/track.sh"); t2 = g("commit-tree", g("write-tree"), "-p", snap, "-m", "T")
+        subprocess.run([str(repo / "tools" / "track.sh"), "gate", "g1", t2], cwd=repo, env={**os.environ, "HD_ROOT": str(root), "T": "t", "NAMES": "", "EVIDENCE": str(root / "evidence" / "g1")}, capture_output=True, text=True)
+        s.assertIn("the rows of T", json.loads((root / "state" / "g1" / "gate.json").read_text())["detail"])   # the gate of T runs T's rows, not the live checkout's
         subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(repo / ".worktrees" / "g1-build")], capture_output=True)
         shutil.rmtree(root, ignore_errors=True)
 

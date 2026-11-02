@@ -152,6 +152,8 @@ The build copy is `<repo>/.worktrees/<slug>-build`, the dev's clone `<repo>/.wor
 a track's `tools/` sit on its repo's `tools` branch (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing.
 A product track script run from that checkout (or any other) first copies its `tools/` to `state/tools/<content hash>/tools` and execs itself there, exporting `TOOLS_ROOT` (the copy's parent, where `hd rows` runs a gate's rows) and `TOOLS_SRC` (the checkout): a ship fast-forwards the checkout, never a running build, gate, deploy or up;
 the pass removes a copy no process names in its command line or cwd and no container mounts from.
+The harness gate runs its rows from the build copy at T (`TOOLS_ROOT`), so a change to a check is judged by that check;
+check-dry-run compares against the live checkout's plan (`LIVE`).
 A harness change carries a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless it descends from the tools branch or its tests fail, as check-tools runs them;
 once handed over, a head the branch moved past is rebased onto it by the pass in `<repo>/.worktrees/<slug>`, recorded in the hand-over and re-gated, a conflict being the dev's step), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build` with HOME and PATH alone (the gate's env is not theirs), ship fast-forwards the tools branch to it, and the change is live once the live branch and every such branch hold their heads.
 A done or closed change leaves nothing behind: the pass ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`, `dev/<slug>`;
@@ -351,7 +353,7 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
 - Server: script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`;
   the change's head unchanged), its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
   its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent) on an actions/cache miss, never downloading openrs2's cache;
-  a run failed at a step the head does not touch (the runner's setup, the cache's generation when the head changes no cache input) is re-run once its source answers, held after its third attempt
+  a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, the cache's generation when the head changes no cache input) is re-run once its source answers, held after its third attempt
 - Central: `gradle test`, evidence files, commit subjects
 - Harness: tests;
   `hd tick --dry-run` plans no upstream action the live checkout's pass does not;

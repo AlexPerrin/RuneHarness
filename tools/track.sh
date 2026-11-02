@@ -30,15 +30,15 @@ summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # 
 check_tests() { (cd "$BUILD" && env -u ROWS python3 -m unittest discover -s tests 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>
   wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
-  out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1) && rc=0 || rc=$?
+  out=$(HD_ROOT=$root TOOLS_ROOT=$wt LIVE=$repo python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1) && rc=0 || rc=$?   # the rows are T's own scripts (the files its key names); main's plan is LIVE's
   [ $rc != 75 ] || { echo "$out"; exit 75; }   # a row held (its source down): no result, hd starts the gate again
   T=${G:-${T:-}}; record "$([ $rc = 0 ] && echo true || echo false)" gate <<< "$out"
   cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute); a dry-run reads GitHub from the passes' cache and git from the local refs alone (HD_OFFLINE), never the network
-  mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
+  live=${LIVE:-$repo}; mine=$(python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
   theirs=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
-  mine=$( (echo "$mine"; python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
+  mine=$( (echo "$mine"; python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
   extra=$(comm -13 <(echo "$mine") <(echo "$theirs")); [ -z "$extra" ] || { echo "plans a public act main does not: $extra"; exit 1; }
 }
 check_docs() {  # every requirement has its test class and its acceptance row; the source docs one fact per line

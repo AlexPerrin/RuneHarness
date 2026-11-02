@@ -1388,7 +1388,7 @@ def cycles(changes):
 
 
 def deps_held(ctx, ch):
-    """The step a change or goal waits on while a dependency is neither live nor closed; None when none holds it. R8: a
+    """The step a change or goal waits on while a dependency is neither live nor closed, or is reopened by a late answer or joined filing; None when none holds it. R8: a
     same-track dependency that goes upstream holds until gated (the dependent joins its PR: nothing waits on an upstream merge)."""
     if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
         return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
@@ -1405,8 +1405,10 @@ def deps_held(ctx, ch):
             ok = ctx.done(dep, dh) or shipped(ctx, dep, dh) or ctx.gated(dep, dh)
             if not ok:
                 return step(f"waiting on {d}", "unknown" if ok is None else "wait")
-            continue
-        if not ctx.live(dep, dh):
+        elif not ctx.live(dep, dh):
+            return step(f"waiting on {d}", "wait")
+        late, joined = late_answers(d, rec(d, "handover"), dh)
+        if late or (joined and ctx.done(dep, dh)):  # R3: a dependency its own step reopened (as nxt does) is met only once its dev acts on it
             return step(f"waiting on {d}", "wait")
     return None
 

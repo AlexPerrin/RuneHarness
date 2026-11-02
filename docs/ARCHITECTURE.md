@@ -204,6 +204,7 @@ next(change):
   deps live or closed?
     no → wait on them (a same-track upstream dependency: gated;
     the dependent with no pr or branch of its own joins its PR, a chain one PR)
+    a dependency a late answer or joined filing reopened (its own step not done) → wait on it until its dev hands over
   question open (hd ask)?
     yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?

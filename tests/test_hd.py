@@ -50,9 +50,7 @@ class Fake(hd.Facts):
         if ref.startswith("harness/") and clone != str(hd.ROOT): return s.f.get("refs", {}).get(f"{clone}:{ref}", "")  # a product repo's tools ref
         if len(ref) == 7: return next((v for v in s.f.get("refs", {}).values() if v.startswith(ref)), "")  # an abbreviated sha
         return s.f.get("refs", {}).get(ref, "")
-    def resolutions(s, clone, h7):
-        ab = [(r, r.rsplit("/", 1)[1].partition("-")) for r in sorted(s.f.get("refs", {})) if r.startswith("fork/local/merge/")]
-        return [(r, b if a == h7 else a) for r, (a, _, b) in ab if h7 in (a, b)]
+    def resolutions(s, clone): return [(r, *r.rsplit("/", 1)[1].partition("-")[::2]) for r in sorted(s.f.get("refs", {})) if r.startswith("fork/local/merge/")]
     def worktrees(s, repo): return s.f.get("worktrees", {}).get(repo, [])
     def edits(s, wt): return wt in s.f.get("dirty", ())  # "links": worktrees git refuses to remove unforced, no one's edits
     def contains(s, clone, tip, sha):
@@ -2852,6 +2850,20 @@ class R8(Sandbox):
         hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
         hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
+
+    def test_a_resolution_follows_the_head_while_it_merges(s):  # server-token-auth: a comment-only head move dropped local/merge/113f93a-a8cae09
+        F, R = s.integration_fixture(with_ref=True)
+        A2, Q, R2 = "b2" * 20, "q" * 40, "s" * 40
+        F.f["refs"].update({"fork/dev/s1": A2, "old-head": A}); F.f["anc"] = {(A2, A)}; F.f["trees"].update({A2: TA, R2: "ts" * 20, Q: "tq" * 20})
+        F.f["merges"].update({(Q, A2): ("conflict", "CONFLICT (content): y.kt"), (R, A2): ("ok", R2)})
+        s.gated("s1", F)
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A2, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        t = hd.integration(s.ctx(F))
+        s.assertEqual((t["commit"], t["names"], t["conflicts"]), (R2, ["local/x", "s1"], []))   # the new head merged on the old resolution
+        F.f["merges"][(R, A2)] = ("conflict", "CONFLICT (content): y.kt")                    # it no longer applies: the dev's
+        s.assertEqual(hd.integration(s.ctx(F))["conflicts"][0]["conflict"], "s1")
+        F.f["merges"][(R, A2)] = ("ok", R2); F.f["anc"] = set()                               # a head not on the resolved one: not bound
+        s.assertEqual(hd.integration(s.ctx(F))["conflicts"][0]["conflict"], "s1")
 
     def test_conflict_without_a_resolution_is_the_younger_change_s(s):
         F, R = s.integration_fixture(with_ref=False)

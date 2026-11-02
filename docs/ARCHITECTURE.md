@@ -145,7 +145,7 @@ state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, room} (k
 state/room/<pid>.json          {pid, start, mem, cpus, owner, held}: one container `hd room` admitted (held) or holds waiting;
                                owner: HD_PROC, `<slug>/<script>` of the pass's process it runs under, '' for a dev's
 state/<slug>/tools-conflict-<repo>.json {head, onto, detail}: the pass's rebase of a carried tools head stopped, its files named; repair-<name>.json {attempts}: a script or repair in flight
-fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges
+fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while a is an ancestor of the head, b of the current partner, and it merges (a later head on top)
 ```
 Every `state/` JSON record is written to a temp file beside it and renamed over it (`hd.write`, each track script's writers), so a reader sees the old record or the new one, never a partial one.
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;

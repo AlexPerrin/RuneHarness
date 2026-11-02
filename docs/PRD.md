@@ -86,7 +86,7 @@ Every run is an agent of a visible session.
 A change's tree T is its base, its dependencies and its head merged;
 an upstream PR is self-contained: its head holds no unmerged commit of another PR's change, so its T is its head on upstream main (with its same-PR dependencies), and its card and carry follow its own gate there (a head the upstream PR is already at is never rebuilt or re-gated because main moved), the test server deploy running beside them and holding neither;
 a carried tools head rebased onto its moved branch by the pass, a dev step only where the rebase stops;
-a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it and it still merges.
+a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it or the head moves on from it and it still merges.
 Two changes conflict only where they change the same fact: the source docs (PROBLEM.md, PRD.md, ARCHITECTURE.md) hold one fact per line, each requirement and paragraph a block of its own, and the gate's docs row fails a doc out of that format.
 Two changes to different fact lines of a source doc merge, neighbouring lines included, with no dev run.
 The harness changes, and the client code changes, ready to ship merge onto their live branch as one batch per track, gated and shipped once, one ship or definition commit at a time on the live checkout;
@@ -237,7 +237,7 @@ a live check reads the real state.
    a row's key holds only the part of tools/gate/ it runs: an edit of one gate.sh verb re-runs that verb's rows alone, the fork CI row keeping its result;
    the live branch's own gate keeps a member's row results, and a ship keeps the gate of the tree it shipped;
    a batch merges its members' heads on one tools branch, a tools conflict with an earlier member waiting;
-   a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;
+   a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while a is an ancestor of (or is) the head, b of the current partner, and it merges, a later head merged on top of it;
    a pin's conflict lists the dev of the oldest gated change at its deploy step;
    T_int merges heads by priority, then creation, and a lower-priority head's conflict lists its dev while the higher-priority heads deploy;
    one T_int pass names every conflicting head (each left out, the rest merged on) in one dev run, with hd's merge order;

@@ -418,7 +418,7 @@ def deny_foreign_kill(p):
     for m in re.finditer(AT + r"(pkill|killall|kill)\b([^;&|\n)]*)", bare(p)):
         args = [x for x in re.split(r"\s\d*[<>]", " " + m[2])[0].split() if not x.startswith("-")]   # shortcut: `kill -s SIG pid` reads SIG as a target and is denied; write `kill -SIG pid`
         if m[1] != "kill" or not args:
-            bad.append(m[0].strip())
+            bad.append(verb(m))
         for x in args if m[1] == "kill" else []:
             try:
                 ok = x.startswith("%") or x.isdigit() and int(x) > 1 and f"/{sl}/" in Path(f"/proc/{x}/cgroup").read_text()
@@ -513,7 +513,15 @@ def own_loops(cmd):
 COUNTED = re.compile(r"\bseq\s|\+\+|\w\s*[+-]=\s*\d|\$\(\(\s*\$?\w+\s*[+-]\s*\d|\blet\s|\brange\(")   # a loop's counter
 
 
-AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
+AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=[^\s;&|]*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
+
+
+def verb(m):
+    """The command a match of AT + <command> names, without the separator and prefixes AT matched before it."""
+    c = m[0].lstrip(";&|(\n`$ \t")   # AT's separator, so its ^ branch then matches the prefixes
+    return c[re.match(AT, c).end():].strip()
+
+
 LOOP = r"(?:^|[;&|(\n`'\"]|\$\(|\b(?:do|then|else)\s)\s*(?:while|until)\s"   # a loop's condition starts here
 WRITES = re.compile("|".join((
     r"(?<![-=>])\d*>>?\|?(?!&)\s*(?!/dev/null\b)[^\s&|;)]",                       # a redirection to a file
@@ -540,9 +548,9 @@ def deny_reader_write(p):
     on GitHub or hd is denied (its rules say so; this makes it so)."""
     if p.get("agent_type") != "reader" or not (m := WRITES.search(bare(p))):
         return
-    hd.event(action="denied", agent=p.get("agent_id"), role="reader", rule=f"reader writes: {m[0].strip()[:60]}")
+    hd.event(action="denied", agent=p.get("agent_id"), role="reader", rule=f"reader writes: {verb(m)[:60]}")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
-          f"a reader only reads ({m[0].strip()!r} writes or acts): read with cat, grep, sed -n, jq, git log/show/diff, gh api GET; "
+          f"a reader only reads ({verb(m)!r} writes or acts): read with cat, grep, sed -n, jq, git log/show/diff, gh api GET; "
           "if the answer needs a write, say so in your answer and let your run do it."}}))
     return True
 

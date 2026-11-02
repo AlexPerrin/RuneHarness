@@ -2186,6 +2186,14 @@ class R5(Sandbox):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
 
+    def test_a_reader_denial_names_the_verb_it_denied(s):  # sweep-71 P5-a: 'reader writes: ; D=/tmp/...' dropped mkdir
+        for c, v in (("D=/tmp/claude-1000/x/rsprot; mkdir -p $D && cd $D", "mkdir"), ("FOO=1 rm -rf d", "rm"),
+                     ("ls | xargs rm", "rm"), ("echo x > f", "> f")):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out, mock.patch.object(hd, "event") as ev:
+                hook.deny_reader_write({"agent_id": "r1", "agent_type": "reader", "tool_input": {"command": c}})
+            s.assertEqual(ev.call_args.kwargs["rule"], f"reader writes: {v}", c)
+            s.assertIn(f"({v!r} writes", out.getvalue(), c)
+
     def test_a_run_s_bash_commands_run_in_its_slice(s):
         s.change("s1"); s.agreed("s1")
         run = s.started(Fake(**FACTS), "s1")

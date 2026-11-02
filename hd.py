@@ -1681,10 +1681,10 @@ def public(ctx, ch, head):
             m = ctx.done(dep, dh) if dh else False
             if m is None:
                 return step(f"waiting on {d}'s upstream merge", "unknown")
-            if not m:  # the user's hold on that card closes the wait on the user: one alert names it, the deploy goes on
+            if not m:  # the user's hold on that card closes the wait on the user: one user's alert names it, the deploy goes on
                 if (why := user_hold(dep, dh)) is not None:
-                    a = f"{slug}'s card waits on {d}'s upstream merge, whose card the user holds{why and ': ' + why}: lift it (hd hold {d} --lift) or hold this card too"
-                    ctx.alerts += [a] if a not in ctx.alerts else []
+                    a = f"user: {slug}'s card waits on {d}'s upstream merge, whose card the user holds{why and ': ' + why}: lift it (hd hold {d} --lift) or hold this card too"
+                    ctx.alerts += [a] if a not in ctx.alerts and user_hold(ch, head) is None else []  # holding this card too is the other way out
                     return step(f"waiting on {d}'s upstream merge; its card is held by the user", "wait")
                 return step(f"waiting on {d}'s upstream merge", "wait")
     if (out := outside(ctx, ch, head)):

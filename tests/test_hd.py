@@ -1382,8 +1382,12 @@ class R4(Sandbox):
         s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("waiting on z1's upstream merge; its card is held by the user", "wait"))
         v = hd.tick(s.ctx(F), act=False)
         s.assertEqual([a for a in v["alert"] if "z1's upstream merge" in a],
-                      ["s1's card waits on z1's upstream merge, whose card the user holds: the auth bundle: lift it (hd hold z1 --lift) or hold this card too"])
+                      ["user: s1's card waits on z1's upstream merge, whose card the user holds: the auth bundle: lift it (hd hold z1 --lift) or hold this card too"])
+        s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))       # the user's alert: no planner run is listed on it
         s.assertNotEqual(s.state(F, "c1")["actor"], "wait")                     # dev work goes on past the contribution queue: s1 is on the fork
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_hold(["s1", "bundled", "later"])                              # the user holds this card too: the alert's other way out
+        s.assertFalse([a for a in hd.tick(s.ctx(F), act=False)["alert"] if "z1's upstream merge" in a])
 
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")

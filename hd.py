@@ -1278,10 +1278,11 @@ class Ctx:
         the build key `-` the hash of tools/gate/ and the files the rows run (tools_run: the rows of the change, or of a batch's
         `slugs`), with the rows; a row's key is the same over that row alone and the part of tools/gate/ it runs (gate_part), so a
         row whose files did not change keeps its result. A gate-only tools commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch
-        every key is the tree. On a track with a public act a gate key and a check row's key hold the change's texts_key too (each member's in a batch): in the gate hash, or after the tree."""
+        every key is the tree. On a track with a public act a gate key and the key of a check row that reads the texts (reads_texts) hold the change's texts_key too
+        (each member's in a batch): in the gate hash, or after the tree."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         rows = [(x, row) for x in slugs or [ch["slug"]] for row in (contract(x) or {}).get("rows", [])]
-        tx = lambda rs: sorted({d for x, row in rs if row["check"] and TRACK[ch["track"]]["public"] and (d := texts_key(x))})  # a check row reads the change's public texts too
+        tx = lambda rs, files=None: sorted({d for x, row in rs if row["check"] and TRACK[ch["track"]]["public"] and reads_texts(files, row["check"]) and (d := texts_key(x))})
         out = lambda g: {f"{x}/{row['id']}": g([(x, row)]) for x, row in rows} if each else g(rows)
         bare = lambda rs: tree + "".join(f"-{d}" for d in ([] if build else tx(rs)))
         if tree is None or not r.get("tools"):
@@ -1293,7 +1294,7 @@ class Ctx:
         if files is None:
             return None
         b, cmds = tree + "-" + tools_run(files, "tools/build/")[:12], lambda rs: [c for _, row in rs for c in (row["check"], row["gate"]) if c]
-        return b if build else out(lambda rs: b + "-" + tools_run(gate_part(files, cmds(rs)) if each else files, "tools/gate/", cmds(rs) + tx(rs))[:12])  # the texts hashed beside the commands: no path matches a digest
+        return b if build else out(lambda rs: b + "-" + tools_run(gate_part(files, cmds(rs)) if each else files, "tools/gate/", cmds(rs) + tx(rs, files))[:12])  # the texts hashed beside the commands: no path matches a digest
 
     def deploy_key(s, ch, tree):
         """R5: a deploy's key: the tree and the hash of the tools files it runs (tools/track.sh, tools/build/, tools/server/), so a
@@ -2853,10 +2854,19 @@ def text(slug, name):
     return unsigned(f.read_text()) if f.exists() else ""
 
 
+TEXTS = ("pr-title.txt", "pr-body.md", "pr-comment.md", "release-notes.md", "pr-reply-")  # the files the carry can post (pr-reply-<finding>.md)
+
+
+def reads_texts(files, cmd):
+    """R8: the check command cmd reads the public texts: the tools code it runs (gate_part, as its row key hashes it) names one of
+    them; True while the tools are unknown (None)."""
+    return files is None or any(n in t for p, t in gate_part(files, [cmd]).items() if p.startswith("tools/gate/") or p != "tools/track.sh" and p in cmd for n in TEXTS)
+
+
 def texts_key(slug):
     """R8: the digest of every file the carry can post (public_texts' sources), '' without any: a check row's key holds it, so
     a text written after the gate gates again and its text rows check it."""
-    fs = sorted(f for f in (EVID / slug).glob("*") if f.name in ("pr-title.txt", "pr-body.md", "pr-comment.md", "release-notes.md") or re.fullmatch(r"pr-reply-.+\.md", f.name))
+    fs = sorted(f for f in (EVID / slug).glob("*") if f.name in TEXTS or re.fullmatch(r"pr-reply-.+\.md", f.name))
     return digest("".join(f"{f.name}\0{f.read_text()}\0" for f in fs)) if fs else ""
 
 

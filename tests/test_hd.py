@@ -2567,9 +2567,10 @@ class R5(Sandbox):
     def test_spawn_writes_the_exit_status(s):
         log = s.root / "state" / "x" / "run.log"
         for code in (0, 3):
-            pid, _ = hd.Facts().spawn(["sh", "-c", f"exit {code}"], log)
-            while not log.with_suffix(".rc").exists(): time.sleep(0.01)
-            os.waitpid(pid, 0); s.assertEqual(log.with_suffix(".rc").read_text().strip(), str(code)); log.with_suffix(".rc").unlink()
+            hd.Facts().spawn(["sh", "-c", f"exit {code}"], log)
+            rc = log.with_suffix(".rc")
+            while not (rc.exists() and rc.read_text().strip()): time.sleep(0.01)   # the file is the fact: subprocess reaps the dropped Popen itself, so a waitpid here races it (ECHILD)
+            s.assertEqual(rc.read_text().strip(), str(code)); rc.unlink()
 
     def test_dead_script_alert_quotes_its_failure(s):  # sweep 66 P5: the alert names the cause ship.log holds
         F = Fake(**FACTS)
@@ -2617,7 +2618,7 @@ class R5(Sandbox):
         bs, gs = "build() {\n  record true build\n}\n", "gate() { build; }\nrecord() { echo; }\n"
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "up() { :; }\n", "tools/build/build.sh": bs, "tools/gate/gate.sh": gs}}})
         t = s.gated("s1", F)["T"]
-        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x] + [hd.texts_key("s1")]   # the contract's script rows and the texts are in the gate key
+        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x]   # the contract's script rows are in the gate key (none reads the texts)
         bk = lambda c: f"{t}-{hd.tools_run(F.f['tools_files'][c], 'tools/build/')[:12]}"
         gk = lambda c: f"{bk(c)}-{hd.tools_run(F.f['tools_files'][c], 'tools/gate/', rows)[:12]}"
         hd.put("s1", "build", {"T": bk(B), "ok": True})
@@ -4444,14 +4445,15 @@ class R3(Sandbox):
         s.assertNotEqual(s.ctx(F).key(ch, "tr"), (lambda: (keys({"tools/gate/gate.sh": gate + "\n"}), s.ctx(F).key(ch, "tr"))[1])())   # the gate's own key: the whole of tools/gate/
 
     def test_a_check_row_is_keyed_on_the_texts_the_carry_posts(s):  # sweep-74 P3-a: three pr-reply-*.md written after the gate went on the card with texts: ok kept at its key
-        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- texts | texts | check: tools/server/text.py texts\n")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/gate/gate.sh": "gate_ci() { :; }\n", "tools/server/text.py": "t"}}})
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- texts | texts | check: tools/server/text.py texts\n- lint | lint | check: tools/track.sh spotless\n")
+        gate = "gate_ci() { :; }\nspotless() { gradle_check; }\ngradle_check() { out=$EVIDENCE/spotless.log; }\nevidence() { [ -s $EVIDENCE/pr-body.md ]; }\n"
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/gate/gate.sh": gate, "tools/server/text.py": "text('pr-comment.md')"}}})
         ch, ev = s.ctx(F).changes["s1"], hd.EVID / "s1"
         keys = lambda: (s.ctx(F).key(ch, "tr", each=True), s.ctx(F).key(ch, "tr"), s.ctx(F).key(ch, "tr", build=True))
         k0, g0, b0 = keys()
         for f, t in (("pr-reply-IC_1.md", "a reply"), ("pr-reply-IC_1.md", "another reply"), ("pr-comment.md", "Updated"), ("release-notes.md", "notes")):
             (ev / f).write_text(t); k, g, b = keys()
-            s.assertEqual(k["s1/ci"], k0["s1/ci"], f); s.assertEqual(b, b0, f)      # CI and the build kept
+            s.assertEqual((k["s1/ci"], k["s1/lint"]), (k0["s1/ci"], k0["s1/lint"]), f); s.assertEqual(b, b0, f)   # CI, a check row whose code names no text (sweep-80 P4-a: spotless re-ran) and the build kept
             s.assertNotEqual(k["s1/texts"], k0["s1/texts"], f); s.assertNotEqual(g, g0, f)  # the text row and the gate: run again
             k0, g0 = k, g
         (ev / "accuracy.md").write_text("spec"); s.assertEqual(keys()[:2], (k0, g0))  # a file the carry never posts

@@ -304,7 +304,7 @@ a live check reads the real state.
    a harness hand-over whose carried tools heads' tests fail is refused;
    a build is keyed by T and tools/build/ alone, a gate by the build key, tools/gate/ and the rows' files: a gate-only tools edit rebuilds nothing;
    a row's key holds only the part of tools/gate/ it runs: an edit of one gate.sh verb re-runs that verb's rows alone, the fork CI row keeping its result;
-   a check row's key holds the texts the carry posts: a reply written after the gate re-runs the text rows before the card, the fork CI row keeping its result;
+   the key of a check row that reads the texts the carry posts holds them: a reply written after the gate re-runs the text rows before the card, every other row keeping its result;
    the live branch's own gate keeps a member's row results, and a ship keeps the gate of the tree it shipped;
    a batch merges its members' heads on one tools branch, a tools conflict with an earlier member waiting;
    a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while a is an ancestor of (or is) the head, b of the current partner, and it merges, a later head merged on top of it;

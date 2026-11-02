@@ -2874,6 +2874,25 @@ class R5(Sandbox):
         s.assertNotIn("question open", s.state(Fake(**FACTS), "s1")["state"])
         hd.cmd_ask(["s1", "another?"])                                          # a settled question is no open one
 
+    def test_a_legacy_ask_keys_on_the_definition_at_its_time_and_only_the_user_s_keys_settle(s):  # sweep 83: login-tick's edit never settled its def-less ask
+        s.change("s1"); s.change("s2")
+        git = lambda *a, d="2026-11-02T20:00:00Z": subprocess.run(["git", "-C", str(s.root), *a], check=True, capture_output=True,
+                                                                env={**os.environ, **hd.GIT_ENV, "GIT_AUTHOR_DATE": d, "GIT_COMMITTER_DATE": d})
+        git("init", "-q"); git("add", "harness"); git("commit", "-qm", "defs")
+        for k in ("s1", "s2"):  # asks recorded before they carried a def
+            hd.write(hd.STATE / k / "ask.json", json.dumps({"text": "kind local?", "ts": "2026-11-02T20:10:00Z"}))
+        s.assertTrue(hd.asked(hd.defs("changes")["s1"]))                        # unedited since: open
+        f = s.root / "harness" / "changes" / "s1.md"
+        f.write_text(f.read_text().replace('deps: []', 'kind: "local"\ndeps: ["s0"]'))
+        git("commit", "-qam", "kind local", d="2026-11-02T20:15:00Z")
+        s.assertIsNone(hd.asked(hd.defs("changes")["s1"]))                      # the edit after it settles it
+        hd.cmd_ask(["s1", "another?"])
+        f.write_text(f.read_text().replace('kind: "local"', 'kind: "local"\nheld: all\nsuperseded: x9'))
+        s.assertTrue(hd.asked(hd.defs("changes")["s1"]))                        # a hold or a mark hd writes answers nothing
+        hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s2 waits on", "--blocks", "s2", "--mechanism", "loop"])
+        s.assertIn("x1", hd.defs("changes")["s2"]["deps"])
+        s.assertTrue(hd.asked(hd.defs("changes")["s2"]))                        # nor does the deps edit hd new writes
+
     def test_open_question_holds_gate_and_ship_until_answered(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

@@ -151,8 +151,9 @@ evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate.json      {T, ok, detail, head}
 state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
-state/<slug>/ask.json          {text, def}: def keys the definition's front matter (`hd.settled`, findings aside);
-                               an edit of it settles the question (`hd.asked`)
+state/<slug>/ask.json          {text, def}: def keys the definition's kind, deps and pr (`hd.settled`);
+                               an edit of them settles the question (`hd.asked`), a deps edit hd writes re-keys it;
+                               an ask without def keys on the definition as committed at its ts (`hd.baseline`)
 state/<slug>/hold.json         {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names, modulus, key, containers}

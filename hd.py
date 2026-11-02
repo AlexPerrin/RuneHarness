@@ -784,16 +784,31 @@ def result(slug, name):
     return r and f"{name}: {'ok' if r['ok'] else 'failed'} at {r['T']} (log {STATE / slug / f'{name}.log'})"
 
 
-def settled(ch):
-    """The definition's front matter as a key: a question asked on one key is settled by an edit of it (its kind, deps, pr), never by a finding joining it."""
-    m = _frontmatter(Path(ch["path"]).read_text())[0]
-    return hashlib.sha1(json.dumps({k: v for k, v in m.items() if k != "finding"}, sort_keys=True, default=str).encode()).hexdigest()[:12]
+def settled(ch, text=None):
+    """R3: the user's edits that answer a question as a key: the definition's kind, deps and pr (docs/PRD.md R3), never a
+    finding joining it, a hold or a mark the harness writes."""
+    m = _frontmatter(Path(ch["path"]).read_text() if text is None else text)[0]
+    return hashlib.sha1(json.dumps({k: m.get(k) or None for k in ("kind", "deps", "pr")}, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+BASE = {}
+
+
+def baseline(ch, ts):
+    """R3: the key of the definition as committed at ts, for an ask recorded before asks carried their def; None when none was."""
+    if (ch["path"], ts) in BASE:
+        return BASE[ch["path"], ts]
+    f = Path(ch["path"])
+    git = lambda *a: subprocess.run(["git", "-C", str(f.parent), *a], capture_output=True, text=True).stdout.strip()
+    at = git("rev-list", "-1", f"--before={ts}", "HEAD", "--", f.name)
+    BASE[ch["path"], ts] = at and settled(ch, git("show", f"{at}:./{f.name}")) or None
+    return BASE[ch["path"], ts]
 
 
 def asked(ch):
     """R3: the open question of a change or goal: its ask record until the user's answer, or a definition edit that settles it."""
     q = rec(ch["slug"], "ask")
-    return q if q and q.get("def", "") in ("", settled(ch)) else None
+    return q if q and (q.get("def") or baseline(ch, q["ts"]) or settled(ch)) == settled(ch) else None
 
 
 def put(slug, name, obj):
@@ -3534,8 +3549,10 @@ def cmd_new(a):
         event(change=k, record="superseded", by=carrier)
     for k, c in moved.items():  # each waiting change follows the fix, uncommitted like the definition
         f = P(c["path"])
-        fm, body = _frontmatter(f.read_text())
+        fm, body, q = *_frontmatter(f.read_text()), asked(c)
         f.write_text("---\n" + yaml.safe_dump({**fm, "deps": c["deps"]}, sort_keys=False) + "---\n" + body)
+        if q:  # a deps edit hd writes answers no question: the open one keys on the new definition
+            write(STATE / k / "ask.json", json.dumps({**q, "def": settled(c)}, indent=1, sort_keys=True))
         if k != carrier:
             event(change=k, action="dep", dep=carrier)
     for k in {*held, *moved} - {carrier}:  # R6: a change made to wait lists no run: its unspawned listing ends now, so a spawn of it is refused

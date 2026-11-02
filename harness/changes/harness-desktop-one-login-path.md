@@ -17,6 +17,7 @@ mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 limit-of:
 - harness-qa-login-idle
+- server-clan-guest
 ---
 Planner merge (planner-17) of harness-desktop-login-devtools and harness-restart-clears-disconnect-dialog. Root cause against PRD's workflow (QA proves a change on a logged-in client): the desktop login drives the screen blind, by keystrokes and fixed canvas points (tools/server/desktop_login.py offsets fixed-mode points; RuneLite's login screen has no widget ids), and ends only on LOGGED_IN, so a fast refusal hangs it (central-token-login-op-6) and the 'You were disconnected from the server' dialog, which keys do not close, stops every restart (central-login-whitelist-binds-2: the dev clicked Ok by hand). The handed-over head of harness-restart-clears-disconnect-dialog (fork c109bbaee, a fixed-point click at 382,301) must not ship: the user's word (option B) moves that work here, since a mis-aimed click on 'New User' opens a browser to Jagex.
 
@@ -44,3 +45,6 @@ Found by server-js5-idle-relogin-3 (logs in evidence/server-js5-idle-relogin/; t
 
 Also (filed): A desktop's port is checked free at its own launch and a relaunch leaves no bound JVM
 Sweep 77 P3-a: server-clan-channels-11's resumed 'RESUME=1 STAFF=1,2,3,4,5 track.sh up server-clan-channels 5' took instances 8-11 (server-clan-guest-6 held 2-7 from 19:49:02Z); desktop 11 failed 'could not bind 7790 ... BindException: Address already in use' at 19:55:34Z (evidence/server-clan-channels/up-qa11.log:7-8, after a WSL 'UtilAcceptVsock accept4 failed 110' at :6; state/server-clan-channels/desktop11.log one launch), losing the whole up. In server tools/track.sh desktop_start, busy is read once before the slot loop (:105, :108-109), and the interop-error relaunch (:143-148) can leave the first JVM tree bound (kill -0 sees only the WSL pid; marked sees only JVMs jps lists). Evidence: evidence/monitor/sweep-77.md
+
+Also (server-clan-guest): Desktop instance claim skips a devtools port a WSL process holds (hd-dashboard on 7790)
+Cause of the repeated 'desktop 11: its devtools plugin could not bind 7790 ... BindException' (server-clan-guest-3, -6 three ups in a row at 15:12, 15:22, 15:30 ET 2026-11-02; server-clan-channels-11): the user systemd unit hd-dashboard.service runs 'python3 -m http.server 7790 --bind 127.0.0.1' in WSL (ss -ltnp: python3 pid 289 on 127.0.0.1:7790). With networkingMode=mirrored that Linux listener takes 127.0.0.1:7790 on Windows too, but track.sh's tcp() reads only netstat.exe, which does not list it, so the instance claim takes N=11 whose devtools port 7790 is held and every up needing an 11th instance fails. Expected: the claim treats a port as held when either side (Linux ss and Windows netstat) listens on it, or the dashboard moves to a port outside the devtools range 7780+N; one mechanism, no special case for 7790. One test per requirement touched.

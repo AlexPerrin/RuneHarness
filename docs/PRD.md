@@ -297,6 +297,7 @@ a live check reads the real state.
    a client code change ships in the client batch;
    a gated change has its card, and its carry planned, while T_int conflicts, the conflict's dev listed beside it;
    a server change's key and `CENTRAL` carry the merge of its central dependencies, and T_int the one of its heads';
+   a change's dependencies, for T, its Central and the order, are the closure of its deps, each open same-track change whose head its head holds counted as one, so a head built on a dependent of a central change builds with that Central;
    a conflict lists the dev;
    two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
    one change editing a fact line and another inserting a fact on the line before it merge in either order, while a code conflict beside them stays the dev's;

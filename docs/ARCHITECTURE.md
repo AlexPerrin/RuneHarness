@@ -205,6 +205,8 @@ a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit ou
 T_int admits a change whose gate passed at its current key, the test `nxt` applies, or for its same head at an earlier key).
 A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`;
 `hd tree` prints it third);
+A change's dependencies (`Ctx.deps`) are the closure of its deps, each open same-track change whose head its head holds counted as one, each after its own;
+T, the Central part and the order read them.
 T_int carries the one of its heads' central dependencies.
 Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by its batch tree without `harness/`, so a definition commit on the live branch re-builds, re-gates and blocks the ship of nothing;
 ship fast-forwards to the current batch tree).

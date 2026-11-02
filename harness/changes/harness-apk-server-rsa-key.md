@@ -10,6 +10,7 @@ deps: []
 created: '2026-11-02T04:26:25Z'
 limit-of:
 - client-login-segv-osclient
+superseded: harness-server-stack-one-record
 ---
 harness-live-stack-issuer-1: the live APK fef4307c (OPENRUNE=1 LOCAL_AUTH=1) signed in through the issuer (auth/token/sessions/accounts/tokens 200, twice), then the game login was refused 'Invalid RSA check': the APK's modulus is the key from ~/src/openrune-work/server-tools, while every live image since 2026-10-31 18:32Z carries a different key. So no APK can log in to live. One RSA key pair per stack: the image's private key and the APK's patched modulus come from one source, and up/ship check they match before a login. Evidence: evidence/harness-live-stack-issuer/server-login.txt, proof.md
 

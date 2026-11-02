@@ -8,8 +8,7 @@ deps:
 - server-token-auth
 - harness-deploy-survives-tools-ship
 - harness-mobile-login-by-facts
-- harness-relogin-inventory
-- harness-repair-down-wrong-script
+- harness-server-stack-one-record
 mechanism: server
 created: '2026-11-02T03:15:21Z'
 ---

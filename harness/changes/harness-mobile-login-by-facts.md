@@ -6,7 +6,7 @@ kind: change
 priority: P1
 mechanism: mobile
 deps:
-- harness-apk-server-rsa-key
+- harness-server-stack-one-record
 created: '2026-11-02T04:22:32Z'
 limit-of:
 - harness-live-stack-issuer

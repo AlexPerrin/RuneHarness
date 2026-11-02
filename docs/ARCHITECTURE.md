@@ -263,7 +263,7 @@ next(change):
     the one comment quotes every finding of the round no comment of ours answers?
       no → dev (input findings, head, the ones it misses): no card
     approval.json at head, texts?
-      no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready, the review request), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
+      no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft (naming the re-run of a failed job outside the head, and its own act first when the dev's same-head hand-over vouches the last carry's CI failure), the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready, the review request), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;
       it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)

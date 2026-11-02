@@ -2586,7 +2586,9 @@ def card(ctx, ch, head):
                 f"open a draft PR on {up} from {branch} into main (base {(ctx.base(ch) or '?')[:9]}), with the title and body below"
                 if not ch.get("pr") else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
                 + "".join(f", replacing its {w} with the one below" for w, _, t in txt if w in ("title", "body") and unsigned(p.get(w)) != t),
-                *(["wait for every CI check to pass at the head"] if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
+                *([*(["re-run the CI jobs failed at the head (gh run rerun --failed, up to the run's 3rd attempt): the dev's hand-over of this head after the last carry's CI failure vouches their steps outside it"] if vouched(slug, head) else []),
+                   "wait for every CI check to pass at the head, re-running (gh run rerun --failed, up to the run's 3rd attempt) a failed job whose step the head does not read (the track's ci-step)"]
+                  if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
                 "mark it ready for review", *(f"request review from {t}" for w, _, t in txt if w == "review request")]
     by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \
         if ch.get("pr") and ch["kind"] != "release" else {}

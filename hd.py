@@ -1224,6 +1224,25 @@ class Ctx:
         ps = s.upstream_prs(ch)
         return None if ps is None else next((p for p in ps if p["number"] == ch.get("pr")), {})
 
+    def deps(s, ch):
+        """R8: the changes the change's code needs: the closure of its deps, each open same-track change whose head its head
+        holds (built on another change's head, it joins that change's PR) counted as one; each after its own dependencies."""
+        def held(c):
+            h, clone, base = s.head(c), s.clone(c), s.base(c)
+            return [o["slug"] for o in s.changes.values() if o is not c and not o.get("closed") and not o.get("superseded") and o["track"] == c["track"]
+                    and h and (oh := s.head(o)) and oh != h and base and not s.F.contains(clone, base, oh) and s.F.contains(clone, h, oh)]
+        def f():
+            out, seen = [], {ch["slug"]}
+            def visit(c):  # each dependency after its own: the order T merges them in
+                for d in [*c["deps"], *held(c)]:
+                    if d not in seen:
+                        seen.add(d)
+                        visit(s.changes[d]) if d in s.changes else None
+                        out.append(d)
+            visit(ch)
+            return out
+        return s._m(("deps", ch["slug"]), f)
+
     def T(s, ch, head):
         """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
         dependency lives in another repo: the change only waits for it to be live)."""
@@ -1232,7 +1251,7 @@ class Ctx:
             if not base:
                 return None
             cur = base
-            for d in [d for d in ch["deps"] if d not in s.changes or s.changes[d]["track"] == ch["track"]]:
+            for d in [d for d in s.deps(ch) if d not in s.changes or s.changes[d]["track"] == ch["track"]]:
                 dh = s.head(s.changes[d]) if d in s.changes else None
                 if dh is None:
                     return None
@@ -1254,7 +1273,7 @@ class Ctx:
     def central(s, ch, deps=None):
         """R8: the Central tree a server build includes (the server tools' central.init.gradle): Central's base and the heads of
         the change's central dependencies (or of `deps`) merged; '' with none; None unknown."""
-        ds = [s.changes[d] for d in (ch["deps"] if deps is None else deps) if d in s.changes and s.changes[d]["track"] == "central" and not s.changes[d].get("closed")]
+        ds = [s.changes[d] for d in (s.deps(ch) if deps is None else deps) if d in s.changes and s.changes[d]["track"] == "central" and not s.changes[d].get("closed")]
         if ch["track"] != "server" or not ds:
             return ""
         clone, base = s.clone(ds[0]), s.base(ds[0])
@@ -2156,7 +2175,7 @@ def integration(ctx):
     more = {"base": base, "conflicts": conflicts, "order": [(n, h) for n, h, _ in heads]}
     if pinned := [c for c in conflicts if c["conflict"] in (ctx.cfg.get("pins") or [])]:
         return {**pinned[0], **more}
-    tree, cen = ctx.F.tree(clone, cur), ctx.central(srv, [d for _, _, c in included if c for d in c["deps"]])
+    tree, cen = ctx.F.tree(clone, cur), ctx.central(srv, [d for _, _, c in included if c for d in ctx.deps(c)])
     return {"commit": cur, "tree": tree + (f"-c{cen[:12]}" if cen else ""), "central": cen, "heads": [h for _, h, _ in included],
             "names": [n for n, _, _ in included], **more} if tree and cen is not None else None
 
@@ -2645,7 +2664,7 @@ def order(ctx):
     for k, c in ctx.changes.items():
         if not c.get("closed"):
             m = re.search(r"test server deploy blocked by (\S+)'s conflict", (rec(k, "state") or {}).get("state", ""))
-            blocks[k] = {b for b in c["deps"] + ([m.group(1)] if m else []) if b in best}
+            blocks[k] = {b for b in ctx.deps(c) + ([m.group(1)] if m else []) if b in best}
     moved = True
     while moved:  # through chains of blockers
         moved = False

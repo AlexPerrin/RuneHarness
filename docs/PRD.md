@@ -48,7 +48,8 @@ a limit in another mechanism, and any filing on a mechanism with an open change 
 
 ### R4 Authority (from P4 P5)
 Only a write to OpenRune and a client release need the user.
-Each is shown, once complete, as one card in the orchestrator's console: every act the carry will do, in order (the upstream PR, new or the open one found by its head branch, the head and its base), each exact text it posts (title, body, the one comment with each finding it answers, the reviewers it asks), the verdict and the evidence path.
+Each is shown, once complete, as one card in the orchestrator's console: every act the carry will do, in order (the upstream PR, new or the open one found by its head branch, the head and its base), each exact text it posts (title, body, the one comment with each finding it answers), the verdict and the evidence path.
+A card holds only acts this account can do upstream (push to its fork, open or edit its PR, comment, mark ready): it requests no review.
 The user's yes is their own `hd approve <slug> <head>`, recorded locally, bound to the head and the digest of the card's texts and withdrawn when either moves;
 their no or their word to wait is `hd hold` (recorded by the orchestrator): the card is hidden at that head, or at every head with `--all`, until a new head or the lift, and their close is `hd close`;
 a card wakes the orchestrator once per head and texts.
@@ -178,7 +179,7 @@ a live check reads the real state.
    a failed fetch leaves every change where it was.
    Live: every `evidence/<slug>/contract.md` row has an id and a result.
 
-4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch without the owner prefix, replacing its title and body where they differ from the live ones, CI, the one comment, ready, the review request), each exact text, each finding the comment answers, the verdict and evidence, and the yes, no and close commands;
+4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch without the owner prefix, replacing its title and body where they differ from the live ones, CI, the one comment, ready), each exact text, each finding the comment answers, the verdict and evidence, and the yes, no and close commands;
    `hd hold` hides the card at its head (held by the user, a wait), a new head shows it again, `--all` holds every head until `--lift`;
    a lift with the user's words keeps them in its event, writes no answer row and lists no dev run;
    a card waiting on a dependency's upstream merge whose card the user holds is one alert naming that hold, and the dependent's dependents go on;
@@ -188,8 +189,8 @@ a live check reads the real state.
    a release card is published after the yes;
    the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, posts one PR comment per head and text: the push summary naming every pushed commit, then each finding's reply, quoting it and @ each asker once (a review-thread finding too: no thread reply);
    it readies the PR, asks review of the maintainers who reviewed it (none: GitHub asks CODEOWNERS on ready) and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card);
-   a CI check failed in a step the head does not read (the gate's own classifier) is re-run once its source answers, never the head's;
-   every other stop records its result, the PR as it is: a failure the head causes (a CI step it reads) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
+   CI never runs again at a head (no re-run, no close and reopen): a failed check at the draft PR's head, in a step the head reads or not, is the change's dev step before any yes is asked, and only a fresh head (a fix, or a rebase onto main) starts CI;
+   every other stop records its result, the PR as it is: a failure only a new head or text mends (a failed CI check, a reply naming others) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
    only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;
    a rerun's card updates that PR, never opens a second;

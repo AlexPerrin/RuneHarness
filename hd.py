@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+import fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -330,7 +330,7 @@ class Facts:
         Path(log).parent.mkdir(parents=True, exist_ok=True)
         if not shutil.which(args[0]):
             raise FileNotFoundError(f"No such file or executable: {args[0]}")
-        scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--"] if shutil.which("systemd-run") else []  # R5: builds and gates outside the pass's cgroup; the scope execs the command, so the pid is the script's
+        scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--"] if shutil.which("systemd-run") and not os.environ.get("HD_SUITE") else []  # R5: builds and gates outside the pass's cgroup; the scope execs the command, so the pid is the script's; a suite's pass keeps them in the suite's cgroup, ended with it
         p = subprocess.Popen(scope + args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
                              stderr=subprocess.STDOUT, start_new_session=True)
         return p.pid, s.proc_start(p.pid)

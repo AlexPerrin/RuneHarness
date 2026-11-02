@@ -1556,8 +1556,8 @@ def batch(ctx, track):
     branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member waits for the next batch.
     Members' heads on one tools branch merge too, in the same order, the merged commit the batch's head there (a member whose
     tools conflict with an earlier member's waits). Each prefix of the batch is a tree, its gate keyed by that tree
-    (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships once the prefix one longer failed (or it is
-    the whole batch); until then the whole batch is gated, and after a failure the prefix halfway between the longest passing
+    (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships unless a failed prefix lies beyond the one longer
+    (a member joining after its gate started waits for the next batch); with none passing the whole batch is gated, and after a failure the prefix halfway between the longest passing
     one and the shortest failing one, down to the first member alone. Its failure is its dev's, and it
     leaves the batch, unless the live branch fails that member's rows alone (its own gate): an alert, no member blamed.
     All passing: one gate, one ship; a failure costs log2 of the batch's gates, one more for the live branch's."""
@@ -1629,13 +1629,13 @@ def batch(ctx, track):
     ctx.batched[track] = out
     if not pre:
         return out
-    lo = max((i for i, g in enumerate(res) if g and g["ok"]), default=-1)  # the longest passing prefix ships only once the next longer one failed
+    lo = max((i for i, g in enumerate(res) if g and g["ok"]), default=-1)  # the longest passing prefix ships, unless a failed one lies beyond the next longer (bisect)
     hi = next((i for i in range(lo + 1, len(pre)) if res[i] and not res[i]["ok"]), None)
-    i = len(pre) - 1 if hi is None else lo if hi == lo + 1 else (lo + hi) // 2
-    ok = i == lo
+    i = (len(pre) - 1 if lo < 0 else lo) if hi is None else lo if hi == lo + 1 else (lo + hi) // 2
     run = rec(me["slug"], "proc-gate") or {}
-    if not ok and ctx.proc(me["slug"], "gate") == "alive":  # a gate running on a prefix still current, not yet passed or failed, holds: the state names its key
+    if ctx.proc(me["slug"], "gate") == "alive":  # a gate running on a prefix still current, not yet passed or failed, holds: the state names its key
         i = next((j for j, p in enumerate(pre) if p[2] == run.get("key") and res[j] is None), i)
+    ok = i == lo
     _, tc, k, tl, kb = pre[i]
     env = {"SLUG": me["slug"], "T": kb, "G": k, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
            "ROWKEYS": json.dumps(key(tc, [p[0] for p in pre[:i + 1]], tl, each=True) or {}, sort_keys=True),

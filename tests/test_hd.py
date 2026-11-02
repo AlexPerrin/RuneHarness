@@ -1913,7 +1913,7 @@ class R5(Sandbox):
         s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t1", "waiting for the batch ahead (gate on t1)"])
         hd.tick(s.ctx(F)); s.assertEqual((len(F.spawned), F.stopped), (1, []))  # the running gate holds: nothing restarted
         hd.put("ship-harness", "gate-t1", {"ok": True}); F.f["procs"] = {(7, "1")}
-        s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t12"] * 2)   # its prefix passed: the whole batch gates before any ship
+        s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["shipping", "waiting for the batch ahead (shipping)"])   # whole when its gate started: it ships, h2 joins the next batch (sweep-25: re-gated 4 times)
         hd.drop("ship-harness", "gate-t1"); F.f["procs"] = {(7, "1"), (4242, "99")}
         F.f["refs"]["harness/h1"] = "9" * 40                                     # h1's head moves: the running gate's prefix is gone
         F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), (H2, "9" * 40): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
@@ -2614,8 +2614,10 @@ class R8(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3]])  # one gate for all three
         s.assertEqual(F.envs[-1]["NAMES"], "h1,h2,h3")
-        hd.put("ship-harness", "gate-t1", {"ok": True})                                # a shorter prefix passes while the batch gates: nothing ships
+        hd.put("ship-harness", "gate-t1", {"ok": True}); F.f["procs"] = {(7, "1"), (4242, "99")}   # a shorter prefix passes while the batch gates: nothing ships
         s.assertEqual(states(), ["gate on t123"] * 3)
+        F.f["procs"] = {(7, "1")}                                                       # no gate running: the longest passing prefix ships, the rest wait
+        s.assertEqual(states(), ["shipping"] + ["waiting for the batch ahead (shipping)"] * 2)
         hd.put("ship-harness", "gate-t123", {"ok": False, "detail": "FAIL: tests"})   # the batch fails: the prefix between them
         s.assertEqual(states(), ["gate on t12"] * 2 + ["waiting for the batch ahead (gate on t12)"])
         hd.put("ship-harness", "gate-t12", {"ok": False, "detail": "FAIL: tests"})    # the next longer fails: the longest passing ships

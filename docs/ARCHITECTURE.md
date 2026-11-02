@@ -274,9 +274,9 @@ next(change):
     a member whose tools conflict with an earlier member's → wait for the next batch.
     Each prefix is a tree, its gate `state/ship-<track>/gate-<key>.json` (NAMES: its changes, each change's rows with its own env;
     a harness check of the tree alone runs once per gate);
-    the longest passing prefix ships (one ship moves every member of it) once the prefix one longer failed, or it is the whole batch;
+    the longest passing prefix ships (one ship moves every member of it), unless a failed prefix lies beyond the one longer (a member joining after its gate started waits for the next batch);
     a gate running on a prefix still current with no result holds, the state naming its key;
-    until then gate the whole batch, after a failure the prefix halfway between the longest passing and the shortest failing one, down to the first member alone, then the live branch with that member's rows:
+    with no passing prefix gate the whole batch, after a failure the prefix halfway between the longest passing and the shortest failing one, down to the first member alone, then the live branch with that member's rows:
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
     A ship runs under `state/ship.lock`, a T already on the live branch moves only the carried tools branches not yet holding (and pushed at) their heads;

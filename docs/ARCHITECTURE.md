@@ -356,7 +356,9 @@ a build or gate alive on a head its verdict failed is stopped (`Ctx.halt`), its 
 a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
 a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, tools/build/, tools/server/);
-a deploy alive is never stopped, a newer tree or tools ship included: the pass deploys the newest tree after its end (openrs2 serves no ranges, so a stopped download restarts from 0);
+a deploy alive under an outdated key is not stopped while it builds, a newer tree or tools ship included (openrs2 serves no ranges, so a stopped download restarts from 0);
+once its build landed (`state/integration/build.json` names its tree) it is stopped and the current key deployed;
+`ready` fails at once on a container whose StartedAt precedes the deploy's start, so a deploy never waits on a game server it did not start;
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every `hd-*.slice` no live run holds once its owner is gone: a test's `hd-t<pid>.slice` once `<pid>` is dead, any other once empty;

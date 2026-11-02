@@ -228,7 +228,8 @@ a live check reads the real state.
    a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
-   a deploy alive runs to its end, whatever tree or tools ship arrives;
+   a deploy alive under an outdated key builds to its end, whatever tree or tools ship arrives, and is stopped and replaced once its build landed;
+   a deploy never waits on a game server it did not start;
    the test server is deployed anew when its deploy key (the integration tree and the deploy tools) differs from the one its live record names, a tools fix of what the image carries with no tree change included;
    the test server is deployed anew while a container its live record names is not running (a host restart);
    a script ended 3 times on the same args without a result → raised once, a new args or a landed result restarts the count;

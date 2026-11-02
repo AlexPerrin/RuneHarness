@@ -3723,6 +3723,9 @@ class R8(Sandbox):
         F.f["trees"][R] = "tz" * 20                                                  # sweep-26 P0-a: a newer tree mid-deploy (its 213 MB download at 47%)
         v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"])), ([], 1))   # it runs to its end
         s.assertIn("test server: a deploy runs, then tztztztzt", v["change"][0])
+        hd.put("integration", "build", {"T": F.envs[-1]["KEY"][:40], "ok": True})   # sweep-67 P0-a: its build landed and it hung in ready: stopped, the new tree deployed
+        v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"]), F.envs[-1]["T"]), ([4242], 2, "tz" * 20))
+        hd.drop("integration", "build")
         F.f["trees"][R] = "tr" * 20
         s.live(F, {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")

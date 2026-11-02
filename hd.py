@@ -2107,9 +2107,10 @@ def ship_test(ctx, ch, st, tint, act):
                 if c["change"] is None and f"pin {c['conflict']}" not in " ".join(ctx.alerts):
                     ctx.alerts.append(f"pin {c['conflict']} conflicts with the integration tree ({', '.join(c['with'][-3:])}): a resolution ref or a change is needed")
     elif (dk := ctx.deploy_key(ch, tint["tree"])) and not deployed(ctx, dk):  # live's record keeps the key it was deployed under: a tools fix of what the image carries deploys too
-        if ctx.proc("live", "ship") == "alive":  # a deploy runs to its end (its revision download is lost if stopped): the next pass deploys the newest tree
-            st["state"] = f"test server: a deploy runs, then {tint['tree'][:9]}"
-            return
+        k = (rec("live", "proc-ship") or {}).get("key") or ""
+        if ctx.proc("live", "ship") == "alive" and (k == dk or not k.startswith((rec("integration", "build") or {}).get("T") or "\0")):
+            st["state"] = f"test server: a deploy runs, then {tint['tree'][:9]}"   # an outdated one builds to its end (its revision download is lost if stopped)
+            return  # once its build landed, start stops it and deploys the current key (a deploy hung past its build is never waited on)
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
                   {"T": tint["tree"], "KEY": dk, "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
                    "CENTRAL": ctx.central_env(tint["central"])}, act, key=dk)

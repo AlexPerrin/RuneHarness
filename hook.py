@@ -31,10 +31,8 @@ PostToolUse     the orchestrator's TaskStop of a run's agent (one resumed after 
                 → tell the run once to `down` until it next plays (a devtools call or a new up starts the count again).   R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
                 role's record newer than the start and the change's last answer; each subagent's hand-back is kept as
-                evidence/<slug>/subagent-<id>.md). Any other stop leaves the run live,
-                and is refused while a background command or subagent the agent started has not reported its end, the
-                refusal naming each as what it is (a command to block on, a subagent to wait for): the agent
-                blocks on its own work, never idles on it (R2). Then start the pass without
+                evidence/<slug>/subagent-<id>.md). Any other stop leaves the run live: an idle turn, which the task
+                notification of a background command or subagent it started resumes (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by the orchestrator's TaskStop of its agent, `hd stop` or its console's death.                                      R2 R6
                 the orchestrator's own context past cfg.context_limit → state/orchestrator-restart/<pid>-<start>, which `hd`
@@ -216,8 +214,8 @@ def hold_handback(p):
     hd.event(action="handback-held", agent=p.get("agent_id"), tasks=ids)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           f"Not yet: {', '.join(ids)} you started have not reported their end. A subagent: SendMessage it to return its answer "
-          "now (you cannot TaskStop it), then block until its task notification; a background command or monitor: TaskStop it. "
-          "Then hand back; each subagent's answer is kept in the change's evidence."}}))
+          "now (you cannot TaskStop it), then wait for its task notification; a background command or monitor: wait for its task notification (end your turn: it "
+          "resumes you), or TaskStop it if you no longer need it. Then hand back; each subagent's answer is kept in the change's evidence."}}))
     return True
 
 
@@ -350,18 +348,6 @@ def end_run(p):
     if r.get("reason"):   # ended by the pass or the head, not by a stop
         return
     u, last, handed = usage_of(entries)
-    if not handed and (ids := running(entries)):   # R2: never idle on its own work
-        hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
-        subs = [i for i in ids if i in subagents(entries)]
-        cmds = [i for i in ids if i not in subs]
-        return print(json.dumps({"decision": "block", "reason": " ".join(filter(None, (
-            subs and f"Your subagent(s) {', '.join(subs)} have not returned: wait for each one's task notification (SendMessage it to "
-            "return its answer now; you cannot TaskStop it), then go on.",
-            cmds and f"Your background command(s) {', '.join(cmds)} are still running. Never end a turn on your own work: block on it in the "
-            "foreground with one until-loop on the fact the step makes (a state file, a log line, a port; never the task's output file, never "
-            "a bound of time or tries, never `pgrep -f` on text the waiting command itself carries, which matches its own loop; `hd ps` lists "
-            "your run's processes). A step that cannot finish (a hang, a refused login) is an error: stop it (TaskStop, or `kill` a pid "
-            "`hd ps` names) and hand back.")))}))
     rec = handed and bool(hd.produced(r) or r["role"] == "planner")  # the planner's hand-back is its record, filed or not
     if handed:   # an idle stop leaves the run live
         keep_answers(p, r, entries)

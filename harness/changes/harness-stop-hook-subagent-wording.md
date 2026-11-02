@@ -25,3 +25,6 @@ Monitor sweep 52 P3-a: the pass's dev-due reason read 'head f7f46478b not handed
 
 Also (filed): The self-pgrep rule denies a one-shot listing, and text that only mentions pgrep
 Monitor sweep 53 P3-a: deny_self_pgrep (hook.py:400) denied a read-only one-shot `pgrep -af 'desktop_login' | grep -v pgrep` at 07:15:40Z (events.jsonl); its premise ('a wait on it never ends') holds only when pgrep is a while/until condition. It also denied the orchestrator's own hd new call at ~07:23Z whose --body text merely quoted that command inside a quoted argument. Acceptance: the rule denies only a self-matching pgrep used as a loop condition; a one-shot listing, or the word in quoted text, passes.
+
+Also (filed): The reader write rule denies a read-only git branch query
+Monitor sweep 54 P3-c: WRITES in hook.py matches a bare 'git branch' with no subcommand check; it denied reader a55c87641's 'git branch --show-current' at 07:27:08Z ('reader writes: & git branch'). Acceptance: read-only forms (--show-current, --list, -a, -r, -v, --contains) pass; creating, deleting or moving a branch stays denied.

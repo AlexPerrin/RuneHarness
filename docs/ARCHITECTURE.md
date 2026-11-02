@@ -360,7 +360,7 @@ the user's yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head
 **The planner** is a run listed on significant facts only (an alert, among them a mechanism with two open harness changes no dependency orders (one waits on the other, transitively) or a harness change naming none, which it merges with `--supersedes`;
 a gate failure, a goal below target with nothing open;
 never time or an event count;
-a trigger is its subject (the `state/<slug>/<name>.log` an alert names, else its text: a gate failure's names its change and T), left out while an open change's body names it or once a planner run handed back on it after its process's `since` (when start() last started its count over, named in the alert);
+a trigger is its subject (the `state/<slug>/<name>.log` an alert names, else a gate failure's change and T, else the run `<change>-<n>` it names, else its text), left out while an open change's body names it or once a planner run handed back on it after its process's `since` (when start() last started its count over, named in the alert);
 a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;
 an alert for the user lists none), outside the agent count (one at most);
 a planning request from the user with a measurable target reaches it as a goal, any other as a change.

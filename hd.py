@@ -2112,10 +2112,14 @@ def scope(graph, slug):
 
 
 def trigger(a):
-    """A planner trigger's subject: the process log an alert names (state/<slug>/<name>.log), else its text (a gate
-    failure's names its change and T)."""
-    m = re.search(r"state/[^/\s()]+/[^/\s()]+\.log", a)
-    return m[0] if m else a
+    """A planner trigger's subject: the process log an alert names (state/<slug>/<name>.log), else a gate failure's change
+    and T, else the run it names (<change>-<n>), else its text."""
+    if m := re.search(r"state/[^/\s()]+/[^/\s()]+\.log", a):
+        return m[0]
+    if m := re.fullmatch(r"(\S+) .*: gate failed: dev at (\S+)", a):
+        return f"{m[1]} at {m[2]}"
+    m = re.search(r"\brun ([a-z0-9][\w-]*-\d+)\b", a)
+    return m[1] if m else a
 
 
 def plan(ctx, view, act):
@@ -2143,7 +2147,7 @@ def plan(ctx, view, act):
                 r["change"] == slug and r["role"] == "dev" and r.get("record") and T in (r.get("input") or "") for r in ctx.runs):
             gates.append(f"{c} at {T[:9]}")
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
-                  if not a.startswith(("planner:", "user:")) and not handled(a) and trigger(a) not in carried})
+                  if not a.startswith(("planner:", "user:")) and not handled(a) and not re.search(rf"(?<![\w-]){re.escape(trigger(a))}(?![\w-])", carried)})
     if why:
         pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
         dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan", input=why), act)

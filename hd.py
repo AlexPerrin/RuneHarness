@@ -1225,23 +1225,17 @@ class Ctx:
         return None if ps is None else next((p for p in ps if p["number"] == ch.get("pr")), {})
 
     def deps(s, ch):
-        """R8: the changes the change's code needs: the closure of its deps, each open same-track change whose head its head
-        holds (built on another change's head, it joins that change's PR) counted as one; each after its own dependencies."""
-        def held(c):
-            h, clone, base = s.head(c), s.clone(c), s.base(c)
-            return [o["slug"] for o in s.changes.values() if o is not c and not o.get("closed") and not o.get("superseded") and o["track"] == c["track"]
-                    and h and (oh := s.head(o)) and oh != h and base and not s.F.contains(clone, base, oh) and s.F.contains(clone, h, oh)]
-        def f():
-            out, seen = [], {ch["slug"]}
-            def visit(c):  # each dependency after its own: the order T merges them in
-                for d in [*c["deps"], *held(c)]:
-                    if d not in seen:
-                        seen.add(d)
-                        visit(s.changes[d]) if d in s.changes else None
-                        out.append(d)
-            visit(ch)
-            return out
-        return s._m(("deps", ch["slug"]), f)
+        """R8: the one definition of a change's dependencies: the closure of its declared deps, each after its own (the order T
+        merges them in); a head built on another change's head declares it (stacked asks for it)."""
+        out, seen = [], {ch["slug"]}
+        def visit(c):
+            for d in c["deps"]:
+                if d not in seen:
+                    seen.add(d)
+                    visit(s.changes[d]) if d in s.changes else None
+                    out.append(d)
+        visit(ch)
+        return out
 
     def T(s, ch, head):
         """R8: base + each same-track dependency's head not yet in base + head, merged in order (another track's
@@ -1514,14 +1508,11 @@ def group(ctx, ch):
 def carried(ctx, ch, head):
     """R4: its head went upstream: its own carry, or that of a same-PR change built on it, succeeded at that head (and
     GitHub agrees: the open PR at that head, ready), or its upstream PR is at the head, ready, with nothing left to post."""
-    def on(o, seen=()):
-        return ch["slug"] in o["deps"] or any(d in ctx.changes and d not in seen and on(ctx.changes[d], (*seen, d)) for d in o["deps"])
-
     def held(o, h):  # a ship record GitHub contradicts (the PR moved, or the user returned it to draft) is not trusted
         p = ctx.upstream_pr(o) if upstream(o) else {"head": h, "draft": False}
         return (r := rec(o["slug"], "ship") or {}).get("head") == h and r.get("ok", True) and bool(p) and (p["head"], p["draft"]) == (h, False)
     return bool(head) and (any(held(o, h) for o in ctx.changes.values()
-                               if (o is ch or not o.get("closed") and one_pr(o, ch) and on(o)) and (h := head if o is ch else ctx.head(o)))
+                               if (o is ch or not o.get("closed") and one_pr(o, ch) and ch["slug"] in ctx.deps(o)) and (h := head if o is ch else ctx.head(o)))
                            or upstream_at(ctx, ch, head) is True)
 
 
@@ -1601,7 +1592,7 @@ def outside(ctx, ch, head):
     out = []
     for o in group(ctx, ch):
         oh = ctx.head(o)
-        if o is not ch and not (oh and ctx.done(o, oh)) and (not oh or ch["slug"] in o["deps"] or not ctx.F.contains(ctx.clone(ch), head, oh)):
+        if o is not ch and not (oh and ctx.done(o, oh)) and (not oh or ch["slug"] in ctx.deps(o) or not ctx.F.contains(ctx.clone(ch), head, oh)):
             out.append(o["slug"])
     return out
 
@@ -1628,7 +1619,7 @@ def deps_held(ctx, ch):
     same-track dependency that goes upstream holds until gated (the dependent joins its PR, or with a branch of its own its card waits on the dependency's merge)."""
     if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
         return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
-    for d in ch["deps"]:
+    for d in ch["deps"]:  # a direct dependency waits on its own: its closure adds no wait
         dep = ctx.changes.get(d)
         if dep is None:
             return step(f"dependency {d} has no definition", "alert")
@@ -1936,7 +1927,7 @@ def public(ctx, ch, head):
         return step("upstream PR unknown", "unknown")
     if carried(ctx, ch, head):
         return step(f"carried at {head[:9]}; waiting on the maintainers", "wait")
-    for d in ch["deps"]:  # R8: a dependency upstream in another PR (another repo, or one the dependent's own branch splits off) merges first
+    for d in ctx.deps(ch):  # R8: a dependency upstream in another PR (another repo, or one the dependent's own branch splits off) merges first
         dep = ctx.changes.get(d)
         if dep and not dep.get("closed") and upstream(dep) and not one_pr(ch, dep):
             dh = ctx.head(dep)
@@ -2025,21 +2016,15 @@ def approved(ctx, ch, head):
 
 def stacked(ctx, ch, head):
     """R8: the open same-track changes of other PRs whose unmerged commits head reaches, but those it builds on or that build
-    on it (a dependent's card waits on its dependency's merge, then its head holds the merged head); None unknown."""
+    on it (a dependent's card waits on its dependency's merge, then its head holds the merged head) and those whose head descends
+    from it (theirs strictly holds its own: that change is stacked on it, its own step); None unknown."""
     clone, base = ctx.clone(ch), ctx.base(ch)
-
-    def below(c):
-        out, todo = set(), list(c["deps"])
-        while todo:
-            if (d := todo.pop()) in ctx.changes and d not in out:
-                out.add(d); todo += ctx.changes[d]["deps"]
-        return out
     mine = ctx.F.unmerged(clone, base, head) if base else None
     if mine is None:
         return None
     on = []
     for o in ctx.changes.values():
-        if o["slug"] == ch["slug"] or o["slug"] in below(ch) or ch["slug"] in below(o) or o.get("closed") or o["track"] != ch["track"] or one_pr(ch, o) or not mine:
+        if o["slug"] == ch["slug"] or o["slug"] in ctx.deps(ch) or ch["slug"] in ctx.deps(o) or o.get("closed") or o["track"] != ch["track"] or one_pr(ch, o) or not mine:
             continue
         oh = ctx.head(o)
         if oh is None:
@@ -2047,7 +2032,7 @@ def stacked(ctx, ch, head):
         theirs = ctx.F.unmerged(clone, base, oh) if oh else frozenset()
         if theirs is None:
             return None
-        if mine & theirs:
+        if mine & theirs and not mine < theirs:
             on.append(o["slug"])
     return on
 
@@ -2090,7 +2075,7 @@ def findings(ctx, open_prs, act):
         on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track and not c.get("closed") and not c.get("superseded")]
         if None in (heads := {c["slug"]: ctx.head(c) for c in on}).values():  # unknown files nothing this pass
             continue
-        tips = lambda cs: sorted((c for c in cs if not any(c["slug"] in o["deps"] for o in cs)), key=lambda c: c["slug"])
+        tips = lambda cs: sorted((c for c in cs if not any(c["slug"] in ctx.deps(o) for o in cs)), key=lambda c: c["slug"])
         rnd = next(iter(tips([c for c in on if not carried(ctx, c, heads[c["slug"]])])), None)  # the PR's one open round
         for c in new:
             carried_.add(str(c["id"]))
@@ -2144,7 +2129,7 @@ def integration(ctx):
         if (gd := ctx.gated(ch, head, kept=True)) is None:
             return None
         if gd and not ctx.F.contains(clone, base, head) \
-                and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):
+                and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ctx.deps(ch)):
             heads.append((ch["slug"], head, ch))
     cur, included, conflicts = base, [], []
     for name, h, ch in heads:

@@ -3543,6 +3543,8 @@ class R8(Sandbox):
         st = s.state(F, "s2")
         s.assertEqual((st["actor"], st["state"]), ("dev", "stacked on s1: dev"))  # s2's branch carries s1's unmerged commit
         s.assertIn(f"upstream main ({B[:9]})", st["detail"])
+        ctx = s.ctx(F)
+        s.assertEqual(hd.stacked(ctx, ctx.changes["s1"], A), [])                  # s2 descends from s1's head: s2 is stacked, not s1
         F.f["refs"]["origin/HEAD"] = D; F.f["commits"] = {A: set(), C: {C}}       # s1 merged upstream: s2 holds only its own
         F.f["trees"][D] = "td" * 20; F.f["merges"] = {(D, C): ("ok", C)}
         s.assertNotEqual(s.state(F, "s2")["actor"], "dev")
@@ -3669,18 +3671,18 @@ class R8(Sandbox):
         t = hd.integration(s.ctx(F))
         s.assertEqual((t["central"], t["tree"]), (E, TA + "-c" + E[:12]))    # the test server carries the Central its heads need
 
-    def test_a_head_built_on_an_open_change_s_head_builds_with_its_central_dependencies(s):  # server-token-refusal-logged on server-token-auth's head: no Central 2.0.3
+    def test_a_dependent_of_a_dependent_builds_with_its_central_dependencies(s):  # server-token-refusal-logged on server-token-auth's head: no Central 2.0.3
         s.change("z1", "central"); s.agreed("z1", "central"); s.change("s1", deps=["z1"]); s.agreed("s1")
-        s.change("s2"); s.agreed("s2"); s.change("s3", deps=["s2"]); s.agreed("s3")
+        s.change("s2", deps=["s1"]); s.agreed("s2"); s.change("s3", deps=["s2"]); s.agreed("s3")
         E, H3 = "e" * 40, "f" * 40
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/z1": D, "fork/dev/s2": C, "fork/dev/s3": H3}, "anc": {(C, A), (H3, C), (H3, A)},
                     "trees": {**FACTS["trees"], D: TC, C: TC, H3: TC, E: "te" * 20}, "merges": {(B, D): ("ok", E), (B, A): ("ok", A), (A, C): ("ok", C), (C, H3): ("ok", H3)}})
         ctx, ch = s.ctx(F), lambda k: s.ctx(F).changes[k]
-        s.assertEqual((ctx.deps(ch("s2")), ctx.deps(ch("s3"))), (["z1", "s1"], ["z1", "s1", "s2"]))   # s1's head held counts as a dep; a dependent's dep's deps too
+        s.assertEqual((ctx.deps(ch("s2")), ctx.deps(ch("s3"))), (["z1", "s1"], ["z1", "s1", "s2"]))   # a dep's deps, each after its own
         for k, h in (("s2", C), ("s3", H3)):
             s.assertEqual(ctx.central(ch(k)), E)                                 # the Central s1's code needs
             s.assertEqual(ctx.T(ch(k), h), ("ok", h))                            # T merges s1's head (and s2's) first
-        s.assertEqual((ctx.deps(ch("s1")), ctx.deps(ch("z1"))), (["z1"], []))     # a head held is never its holder's dependent
+        s.assertEqual((ctx.deps(ch("s1")), ctx.deps(ch("z1"))), (["z1"], []))     # a head built on is no dependent's dependency
 
     def test_a_game_client_is_named_mobile_or_desktop(s):  # the three source docs, the track rules and the roles
         import re

@@ -20,7 +20,7 @@ a done or closed change leaves no worktree or local branch.
 A shipped mcp/ change is live in each running session's MCP servers from its next request, with no session restarted.
 The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on);
 the user's yes (`hd approve`) and close are the user's own;
-with no orchestrator session the user is told to start one;
+with no orchestrator session under the supervisor that starts its successor the user is told to start one there, and a session outside it is never restarted;
 a session acting on another orchestrator definition than the live one is given the live one to read and acts on it from then on, with no user step, no session ended, no spawn held and no run stopped;
 its watch wakes it only when a line it acts on appears (spawn, card, question, alert);
 planning across tracks belongs to a planner run listed by facts, and the orchestrator keeps one read-only monitor sweep running that validates shipped harness changes landed and finds harness bugs, each session restarting it from the last sweep's report;
@@ -147,7 +147,8 @@ a live check reads the real state.
    a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command, monitor or subagent it started has not reported its end, the refusal naming each as what it is (a command to block on, a subagent to wait for), and its record newer than its change's last answer;
    a trigger is the subject it names (the process log an alert names, a gate failure's change and T, the run an alert names): one an open change's body names, or a planner handed back on since its process's count last started over, lists no planner however reworded or recounted, and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive);
    `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps, its frontmatter only its name and description, and the hook denies its session the AskUserQuestion tool;
-   with no `claude --agent orchestrator` process the user is told to start it with `tools/orchestrator.sh`, and no planner is listed for it;
+   with no `claude --agent orchestrator` process whose parent runs `tools/orchestrator.sh` the user is told to start it with `tools/orchestrator.sh` (and to /exit each one outside it), and no planner is listed for it;
+   a session outside it is alerted no restart, and its `hd restart` refuses;
    an orchestrator process whose held orchestrator.md blob (the one its `hd` last printed it, else its start-time one: the live checkout's HEAD then, by its reflog) differs from HEAD's is alerted, its own `hd` prints the live file in full and records it held, and every other section (its spawns) prints as before;
    after a compaction the hook gives a session the live file again when it differs from its start-time one;
    an orchestrator process whose start-time .mcp.json (read only at a session's start;

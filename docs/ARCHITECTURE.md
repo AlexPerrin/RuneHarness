@@ -384,7 +384,8 @@ it stops on the user's exit (/exit and a double Ctrl-C exit 0) and on a claude t
 the SessionStart hook (startup) gives a new orchestrator session the hand-off file as its context and deletes it, so a user's exit leaves it to the next session they start;
 an mcp/ file needs none, serve.py carries it;
 a gone session's read record is dropped by the pass.
-`hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists, naming `tools/orchestrator.sh`.
+`hd` alerts `user: no orchestrator session under tools/orchestrator.sh` while no `claude --agent orchestrator` process has a parent whose command line runs `tools/orchestrator.sh` (Facts.supervised), naming each session outside it to /exit and `tools/orchestrator.sh` to start;
+a session outside it gets no restart alert and its `hd restart` refuses, since nothing would start its successor.
 It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and acts on the user's other words at once;
 the user's yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook.
 

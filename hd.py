@@ -501,6 +501,14 @@ class Facts:
                 out.append((int(d.name), s.proc_start(int(d.name))))
         return out
 
+    def supervised(s, pid):
+        """R2: the session's parent runs SUPERVISOR, the one process that starts its successor after `hd restart`."""
+        try:
+            ppid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+            return any(a.decode(errors="replace").endswith(SUPERVISOR) for a in Path(f"/proc/{ppid}/cmdline").read_bytes().split(b"\0"))
+        except (OSError, IndexError, ValueError):
+            return False
+
     def definition_at(s, start, path=None):
         """R2: the orchestrator.md (or `path`) blob a session started at `start` (clock ticks since boot) loaded: the live checkout's
         HEAD then, by its reflog; "" when the reflog does not reach back that far."""
@@ -2590,8 +2598,11 @@ def _pass(ctx, act):
     if q := quota():
         view["alert"].append(f"github: API quota exhausted ({q['url']} at {q['at']}): every GitHub read and the steps on it hold until "
                              f"{datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}")
-    if not ctx.F.orchestrators():
-        view["alert"].append(f"user: no orchestrator session: start it with `{ROOT / SUPERVISOR}`")
+    sessions = [p for p, _ in ctx.F.orchestrators()]
+    if not [p for p in sessions if ctx.F.supervised(p)]:   # R2: only a session under SUPERVISOR is ever followed by the next
+        out = sessions
+        view["alert"].append(f"user: no orchestrator session under {SUPERVISOR}: " + (f"/exit orchestrator {', '.join(map(str, out))} "
+                             "(no restart of it starts its successor), then " if out else "") + f"start it with `{ROOT / SUPERVISOR}`")
     view["alert"] += swap(ctx)
     view["alert"] += (restart := restarts(ctx))
     for r in ctx.runs:
@@ -2633,7 +2644,7 @@ def restarts(ctx):
     context past cfg.context_limit (the hook's state/orchestrator-restart/<pid>-<start>). It spawns nothing more, lets its
     runs hand back (each dies with it), leaves its successor HANDOFF and ends by `hd restart`; tools/orchestrator.sh starts the next."""
     out = []
-    for p, st in ctx.F.orchestrators():
+    for p, st in [o for o in ctx.F.orchestrators() if ctx.F.supervised(o[0])]:   # one outside SUPERVISOR has the user's alert instead
         why = [f"started before {f} changed" for f in LOADED if (b := ctx.F.definition_at(st, f)) and b != ctx.F.blob(str(ROOT), "HEAD", f)]
         why += [f.read_text().strip()] if (f := STATE / "orchestrator-restart" / f"{p}-{st}").exists() else []
         if why:
@@ -2653,6 +2664,9 @@ def cmd_restart(a):
     pid, st = F.console()
     if (pid, st) not in F.orchestrators():
         sys.exit("hd restart: only an orchestrator session restarts, itself")
+    if not F.supervised(pid):
+        sys.exit(f"hd restart: this session runs outside {SUPERVISOR}, so nothing would start its successor: ask the user to /exit it "
+                 f"and start it with `{ROOT / SUPERVISOR}`")
     if live := [r["name"] for r in runs() if r.get("started") and not r.get("ended") and str(r.get("console_pid")) == str(pid)]:
         sys.exit(f"hd restart: these runs die with this session: let them hand back first: {', '.join(live)}")
     if not (STATE / HANDOFF).exists():

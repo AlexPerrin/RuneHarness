@@ -44,6 +44,7 @@ class Fake(hd.Facts):
     def host(s): return s.f.get("host", (64 * 2**30, 64))  # the host's MemTotal and nproc
     def tools_used(s): return s.f.get("tools_used", set())  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
+    def supervised(s, pid): return pid not in s.f.get("unsupervised", [])
     def definition_at(s, start, path=None): return s.f.get("started_on", {}).get(start if path is None else (start, path), "")  # the blob a session started on
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
@@ -352,6 +353,29 @@ class R2(Sandbox):
             s.assertFalse(hook.orchestrator_context(post))                                   # told once
             s.assertFalse(hook.orchestrator_context({**post, "agent_id": "a1"}))             # a subagent's context is the run's limit
         s.assertIn("its context passed 1000000 tokens", R(hd.tick(s.ctx(F)))[0])
+
+    def test_a_session_outside_the_supervisor_is_never_restarted_and_the_user_is_told(s):
+        F = Fake(**FACTS, unsupervised=[7], blobs={("HEAD", ".mcp.json"): "new"}, started_on={("1", ".mcp.json"): "old"})
+        v = hd.tick(s.ctx(F))
+        s.assertFalse([a for a in v["alert"] if ": restart: " in a])                             # its end would leave no driver
+        s.assertIn("user: no orchestrator session under tools/orchestrator.sh: /exit orchestrator 7", " ".join(v["alert"]))
+        (s.root / "state").mkdir(exist_ok=True); (s.root / "state" / hd.HANDOFF).write_text("x\n")
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (7, "1"), create=True), \
+                mock.patch.object(hd.os, "kill") as kill, s.assertRaises(SystemExit) as e:
+            hd.cmd_restart([])
+        s.assertIn("outside tools/orchestrator.sh", str(e.exception)); kill.assert_not_called()
+        s.assertFalse((s.root / "state" / hd.RESTARTING).exists())
+        F.f["unsupervised"] = []
+        s.assertFalse([a for a in hd.tick(s.ctx(F))["alert"] if a.startswith("user: no orchestrator")])   # under it: no alert
+        for script, want in ((hd.SUPERVISOR, True), ("tools/other.sh", False)):   # the fact read from /proc: the parent runs the supervisor
+            f = s.root / script; f.parent.mkdir(exist_ok=True); f.write_text("sleep 60 & echo $!; wait\n")
+            sup = subprocess.Popen(["bash", str(f)], stdout=subprocess.PIPE, text=True)
+            kid = int(sup.stdout.readline())
+            try:
+                s.assertEqual(hd.Facts().supervised(kid), want)
+            finally:
+                os.kill(kid, signal.SIGTERM); sup.wait()
+        s.assertFalse(hd.Facts().supervised(999999999))
 
     def test_the_supervisor_starts_the_next_session_on_a_restart_or_a_crash_and_stops_on_the_users_exit(s):
         """tools/orchestrator.sh against a fake claude: each start runs the next of its endings (exit codes as measured:

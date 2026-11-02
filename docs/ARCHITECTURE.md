@@ -96,7 +96,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   every GitHub read goes through state/gh, each page conditional on its ETag) outside the state lock;
   under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes;
   a pass whose hd.py a ship moved since its process loaded it acts nothing there and re-execs the live hd.py;
-  builds, gates and ships start in their own systemd scopes
+  builds, gates and ships start in their own systemd scopes;
+  under HD_SUITE they stay in the suite's cgroup, each in its own session, so a suite's processes end with it and no loop scope is its
 
 ## Data
 

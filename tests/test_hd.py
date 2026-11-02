@@ -1600,6 +1600,11 @@ class R5(Sandbox):
         hd.cmd_stop([run["name"]])
         s.assertFalse(Path(f"/proc/{pid}").exists() and Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z")
 
+    def test_a_suite_s_spawn_stays_in_the_suite_s_cgroup(s):
+        pid, start = hd.Facts().spawn(["sleep", "600"], s.root / "spawn.log")    # HD_SUITE is set: no systemd scope of its own
+        s.assertEqual(Path(f"/proc/{pid}/cgroup").read_text(), Path("/proc/self/cgroup").read_text())
+        hd.Facts().stop(pid, start); os.waitpid(pid, 0)
+
     def test_dev_files_fix_outside_its_track_without_asking(s):
         s.change("c1", track="client"); s.agreed("c1", "client")
         hd.cmd_new(["h9", "--track", "harness", "--title", "tools fix", "--blocks", "c1", "--mechanism", "runs"])

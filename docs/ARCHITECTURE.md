@@ -132,7 +132,7 @@ state/briefs/<run>.md          the prompt;
                                read streamed, each byte once per process);
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
                                state/orchestrator-read/<pid>-<start>  the orchestrator.md blob `hd` last printed that session in full
-state/<slug>/proc-<script>.json {pid, start, args, key, attempts} (key: the key its result is recorded under, none for a carry; attempts count on the same args and key since the last result or the script's last change);
+state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key since the last result or the script's last change);
 state/<slug>/tools-conflict-<repo>.json {head, onto, detail}: the pass's rebase of a carried tools head stopped, its files named; repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges
 ```
@@ -143,6 +143,7 @@ the integration tree T_int is the same over every gated open server head plus th
 Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).
 The build key is T's tree joined with `-<hash12>` of every file under `tools/build/` (the code a build runs: build.sh, the Dockerfile, central.init.gradle);
 the gate key is the build key joined with `-<hash12>` of every file under `tools/gate/` (the gate and every verb a contract row runs) and each other tools file a row's command names, with the contract's script rows;
+a row's key is the same hash over that row alone, given to the gate as `ROWKEYS`, and a gate keeps the result of a row recorded at its key (`state/<slug>/row-<kind>-<id>.json`, none for a held row) unrun, so a tools change to one row's file re-runs that row alone;
 a script gets the build key as `T` (the artefact it builds or uses) and the gate key as `G` (the gate's record);
 a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit outside both (docs, tests, up's code) neither;
 `hd tree` prints the build key, so a dev's build is the pass's;
@@ -284,6 +285,7 @@ each at the best priority of the open changes it blocks, by a dep or by the conf
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
+a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
 a deploy's key is its tree and the hash of every tools file, so a tools ship replaces a running deploy;
 write an event only when `next` differs from the last event;

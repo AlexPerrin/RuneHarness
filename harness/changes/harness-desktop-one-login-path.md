@@ -10,6 +10,7 @@ deps:
 - harness-no-powershell
 - harness-desktop-devtools-jar
 - harness-qa-login-idle
+- harness-up-owns-its-instance
 mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 limit-of:

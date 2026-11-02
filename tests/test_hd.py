@@ -1904,6 +1904,22 @@ class R5(Sandbox):
         F.f["procs"] = {(7, "1")}
         s.assertEqual(len([x for x in hd.tick(s.ctx(F))["spawn"] if x.startswith("s1-")]), 1)   # listed again for a live console
 
+    def test_a_run_the_pass_ends_has_its_stack_brought_down_in_that_pass(s):  # goblin-367 qa15: its verdict ended it and cut its own down
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        run = s.started(F, "s1")
+        F.f["containers"] = {"server-s1": "running", "http-s1": "running"}   # its up
+        hd.tick(s.ctx(F))
+        s.assertEqual([a for a in F.ran if a[1:2] == ["down"]], [])            # its own run lives: its stack stays
+        s.gated("s1", F)                                                         # its record moves the step: the pass ends it
+        hd.tick(s.ctx(F))
+        s.assertEqual(hd.runs(run["name"])[0]["reason"], "step moved to qa")
+        s.assertEqual([a[1:] for a in F.ran if a[1:2] == ["down"]], [["down", "s1"]])   # the same pass, after its processes
+        s.assertNotIn("server-s1", F.f["containers"])
+        F.f["containers"]["server-s1"] = "running"                              # a stack while only a listed, unspawned run is alive
+        s.assertTrue(any(x.startswith("s1-") for x in hd.tick(s.ctx(F))["spawn"]))
+        s.assertNotIn("server-s1", F.f["containers"])
+
     def test_a_reader_racing_the_writers_never_sees_a_half_written_record(s):
         import threading
         sh = Path(__file__).parent.parent / "tools" / "track.sh"
@@ -2310,12 +2326,12 @@ class R5(Sandbox):
         s.change("h1", track="harness"); s.change("h2", track="harness")
         hd.put("h1", "up", {"started": "1", "containers": "server-h1 http-h1", "script": "/fork/tools/track.sh"})
         F = Fake(**FACTS, containers={"server-h1": "exited", "http-h1": "created", "http-h2": "running", "osrs-openrune": "running"}, down_works=False)
-        hd.repairs(s.ctx(F), True)
+        hd.downs(s.ctx(F), True)
         s.assertIn(["docker", "rm", "-f", "server-h1", "http-h1"], F.ran)       # nothing to save: removed by name, no script
         s.assertNotIn("server-h1", F.f["containers"]); s.assertIn("osrs-openrune", F.f["containers"])
-        hd.repairs(s.ctx(F), True); hd.repairs(s.ctx(F), True)                  # h2 predates its record: the harness script has no down
+        hd.downs(s.ctx(F), True); hd.downs(s.ctx(F), True)                  # h2 predates its record: the harness script has no down
         s.assertEqual(hd.rec("h2", "repair-down")["attempts"], 2)
-        F.f["containers"].pop("http-h2"); hd.repairs(s.ctx(F), True)
+        F.f["containers"].pop("http-h2"); hd.downs(s.ctx(F), True)
         s.assertIsNone(hd.rec("h2", "repair-down"))                             # gone by another hand: the count dropped
 
     def test_dead_script_reruns_then_raised_after_its_third(s):  # sweep-18 N7: a host fault (exit 75, no build.json) is the runner's: re-run, never the head's FAIL

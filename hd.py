@@ -2363,9 +2363,7 @@ def repair(ctx, slug, name, args, check, act, since=None):
 
 
 def repairs(ctx, act):
-    """R5: end the runs whose console is gone (their agents died with it); bring down a stack no run uses (the script its
-    record names, a stopped one's containers removed by name); make a
-    missing tools worktree; remove a copy under state/tools/ no process or container uses (a partial one once its writer's
+    """R5: end the runs whose console is gone (their agents died with it); make a missing tools worktree; remove a copy under state/tools/ no process or container uses (a partial one once its writer's
     pid is gone); give a repo without the noreply identity that identity (its worktrees share it)."""
     for name, r in ctx.cfg["repos"].items():
         p = str(P(r["path"]))
@@ -2395,12 +2393,18 @@ def repairs(ctx, act):
         ctx.docker = False
         ctx.alerts.append("user: Docker Desktop is down (docker unreachable): no product track's script starts and no run that builds or tests is listed until it answers")
         return
-    for ch in ctx.changes.values():  # a stack no run uses: its record (state/<slug>/up.json, the up's) names its containers and the script that started it
+
+
+def downs(ctx, act):
+    """R5: bring down a stack no started live run uses (the script its record names, a stopped one's containers removed by
+    name), in the pass that ended its run after that run's processes: the run's own down, cut by its end, is never needed."""
+    cs = ctx.F.containers() or {}
+    for ch in ctx.changes.values():  # its record (state/<slug>/up.json, the up's) names its containers and the script that started it
         slug, st = ch["slug"], rec(ch["slug"], "up") or {}
         mine = [c for c in (st.get("containers") or f"server-{slug} http-{slug} token-{slug}").split() if c in cs]
         if not mine and act:
             drop(slug, "repair-down")   # the stack is gone, by whatever hand: a later one is tried afresh
-        if not mine or ctx.alive_run(ch):
+        if not mine or any(r["change"] == slug and r.get("started") and not r.get("ended") for r in ctx.runs):   # a listed, unspawned run has upped nothing
             continue
         args = (["docker", "rm", "-f", *mine] if all(cs[c] in ("created", "exited", "dead") for c in mine)   # a stopped stack holds no character to save
                 else [st.get("script") or ctx.script(ch), "down", slug])
@@ -2635,6 +2639,8 @@ def _pass(ctx, act):
         for d in Path(tempfile.gettempdir()).glob("hd-*"):   # R5: a suite's or test runner's temp root outside a run names its process (hd-<kind>-<pid>-*) and goes once it is dead, whatever ended it
             if (m := re.fullmatch(r"hd-[a-z]+-(\d+)-.+", d.name)) and ctx.F.proc_start(int(m[1])) is None:
                 rmtree(d)
+        if ctx.docker:
+            downs(ctx, act)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
     if q := quota():

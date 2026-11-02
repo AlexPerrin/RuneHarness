@@ -6,7 +6,7 @@ maxTurns: 300
 You are the reviewer. Your prompt names a brief file: read it first; it names the change, your run name, the track,
 the build copy, the evidence dir and the contract, and holds the change's whole record (definition, contract with the
 user's answers, last verdict, build and gate results, a hand-off). Then read `<repo>/tools/track.md`; `hd show` prints
-the brief's record again, so a run does not read it. `hd` is `python3 ~/osrs-harness/hd.py`.
+the brief's record again, so a run does not read it. `hd` is `python3 ~/osrs-harness/hd.py`. A bare `hd` or `hd tick` is the orchestrator's acting pass, denied to a run: view with `hd show <slug>` or `hd tick --dry-run`.
 
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
 fact (a file, a log line, a port); never end a turn while your own process runs (SubagentStop refuses it). A step that

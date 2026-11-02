@@ -7,6 +7,9 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
                 ended, at the start or its first tool call; the run stays ended.                                          R2
 PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
                 AskUserQuestion is denied in the orchestrator's session (its definition's frontmatter holds only name and description). R2
+                A bare `hd` or `hd tick` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.  R5
+                A run's kill of a pid outside its own slice, and its pkill or killall, is denied.                          R5
+                A run's own agent whose run the pass, the head or `hd stop` ended stops at its next tool call (its hand-back goes). R2
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
                 none of these, starts with `hd scope <run>`: its shell joins the run's systemd slice, which the pass stops
@@ -313,6 +316,44 @@ def deny_users_word(p):
         return True
 
 
+def deny_pass(p):
+    """R5: a subagent views hd (`hd show`, `hd tick --dry-run`), never runs its acting pass: a bare `hd` or `hd tick` lists
+    and ends runs, starts gates and ships, and prints the orchestrator's spawn lines. The orchestrator alone runs it."""
+    if not p.get("agent_id") or not re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(?:\.py)?(?:(?=[\s;&|)]|$)(?!\s+[A-Za-z])|\s+tick\b(?![^;&|\n]*--dry-run))", bare(p)):
+        return
+    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="hd pass in a subagent")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          "a bare `hd` or `hd tick` is the orchestrator's acting pass: view with `hd show <slug>` or `hd tick --dry-run`."}}))
+    return True
+
+
+def deny_foreign_kill(p):
+    """R5: a run signals only its own processes, those in its slice: a `kill` whose every target is a pid in the run's
+    slice (or the shell's own job, %n) goes; a pkill or killall (a pattern matches other runs' processes) or a kill of
+    any other pid is denied. A run's processes end with `track.sh down <slug>` or the run's own end."""
+    if p.get("tool_name") != "Bash" or not (r := owner_run(p)):
+        return
+    sl, bad = hd.run_slice(r["name"]), []
+    for m in re.finditer(AT + r"(pkill|killall|kill)\b([^;&|\n)]*)", bare(p)):
+        args = [x for x in re.split(r"\s\d*[<>]", " " + m[2])[0].split() if not x.startswith("-")]   # shortcut: `kill -s SIG pid` reads SIG as a target and is denied; write `kill -SIG pid`
+        if m[1] != "kill" or not args:
+            bad.append(m[0].strip())
+        for x in args if m[1] == "kill" else []:
+            try:
+                ok = x.startswith("%") or x.isdigit() and int(x) > 1 and f"/{sl}/" in Path(f"/proc/{x}/cgroup").read_text()
+            except OSError:
+                ok = False
+            if not ok:
+                bad.append(x)
+    if not bad:
+        return
+    hd.event(change=r["change"], run=r["name"], action="denied", rule=f"kill outside the run's slice: {' '.join(bad)[:80]}")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          f"a run signals only its own processes ({sl}); {' '.join(bad)[:120]!r} is a pattern or a pid outside it. Stop yours with "
+          "`track.sh down <slug>`, or `kill <pid>` of a process you started (its pid from your own command's output)."}}))
+    return True
+
+
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
 WRITES = re.compile("|".join((
     r"(?<![-=>])\d*>>?\|?(?!&)\s*(?!/dev/null\b)[^\s&|;)]",                       # a redirection to a file
@@ -339,17 +380,18 @@ def deny_reader_write(p):
     return True
 
 
-def stop_orphan(p):
-    """R5: an agent a run spawned stops at its next tool call once that run has ended (`hd stop`: the orchestrator's
-    TaskStop of a run leaves its agents running, and a subagent can TaskStop none), so its hand-back never outlives the run."""
-    if not (parent := parent_of(p)):
+def stop_ended(p):
+    """R2 R5: an agent stops at its next tool call once its run has ended: a run's own agent when the pass, the head or
+    `hd stop` ended it (its step moved, its change went; the run's own hand-back ends it with no reason, and a resume
+    reopens it), an agent the run spawned whatever ended it (the orchestrator's TaskStop of a run leaves its agents
+    running, and a subagent can TaskStop none). So no agent acts for an ended run: no verdict, no hand-over."""
+    own = p.get("agent_id") and (hd.STATE / "runs" / "by-agent" / str(p["agent_id"])).exists()
+    if not (own or parent_of(p)) or not (r := owner_run(p)):
         return
-    idx = hd.STATE / "runs" / "by-agent" / str(parent)
-    r = next(iter(hd.runs(idx.read_text())), None) if idx.exists() else None
-    if not r or not r.get("ended") or p.get("tool_name") == "SubagentHandback":   # its last line may go
+    if not r.get("ended") or own and not r.get("reason") or p.get("tool_name") == "SubagentHandback":   # its last line may go
         return
-    msg = f"{r['name']} ended: an agent it spawned stops with it."
-    hd.event(change=r["change"], run=r["name"], action="nested-stopped", agent=p.get("agent_id"))
+    msg = f"{r['name']} ended ({r['reason']}): its agent stops." if own else f"{r['name']} ended: an agent it spawned stops with it."
+    hd.event(change=r["change"], run=r["name"], action="agent-stopped" if own else "nested-stopped", agent=p.get("agent_id"))
     out = {"continue": False, "stopReason": msg}
     if p.get("hook_event_name") == "PreToolUse":
         out["hookSpecificOutput"] = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": msg + " Stop now."}
@@ -459,7 +501,7 @@ def reread(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

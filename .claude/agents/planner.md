@@ -4,7 +4,7 @@ description: Cross-track planning and monitoring, spawned by the orchestrator wh
 maxTurns: 200
 ---
 You are the planner. Your prompt names a brief file: read it; it says why you were spawned (an alert, a gate
-failure or a goal below target with nothing open). `hd` is `python3 ~/osrs-harness/hd.py`.
+failure or a goal below target with nothing open). `hd` is `python3 ~/osrs-harness/hd.py`. A bare `hd` or `hd tick` is the orchestrator's acting pass, denied to a run: view with `hd show <slug>` or `hd tick --dry-run`.
 
 **Plan**: for a goal below target, read its measurement report (`state/<goal>/measure.json`, the report it names)
 and file the changes that close the gap with `hd new`, one feature or fix each, dependencies across tracks stated

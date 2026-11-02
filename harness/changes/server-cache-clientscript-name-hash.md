@@ -10,6 +10,7 @@ deps:
 - harness-github-reads-budget
 - harness-carry-gh-pr-edit-classic-projects
 - harness-ci-restart-same-head
+- harness-handover-honours-reopen
 created: '2026-11-01T20:44:26Z'
 reopen: 8c6d9679ee5bc7ce6f4f7b6c7ecc8c458f2b4958
 ---

@@ -96,7 +96,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd ask <slug> <text>`, by agents: refused while a question is open on the change
 
-- `hd commit <path>... -m <msg>`, by the orchestrator: commits those paths of the live checkout alone, authored as Alex Perrin with the co-author line, under `state/ship.lock`: never at once with a ship's merge
+- `hd commit <path>... -m <msg>`, by the orchestrator: commits those paths of the live checkout alone, authored as Alex Perrin with the co-author line, then pushes the live branch to origin, under `state/ship.lock`: never at once with a ship's merge
 
 - `hd tick`, by the timer, the hook: one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised;
   a fetch another pass has in flight is waited on and its result taken;

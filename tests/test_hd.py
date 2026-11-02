@@ -2629,6 +2629,7 @@ class R8(Sandbox):
         subprocess.run(["git", "init", "-q", str(s.root)], check=True); git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
         (s.root / "harness" / "changes").mkdir(parents=True, exist_ok=True); (s.root / "harness" / "changes" / "d1.md").write_text("a definition")
         (s.root / "other.txt").write_text("an edit of someone else"); git("add", "other.txt")
+        subprocess.run(["git", "init", "-q", "--bare", str(s.root / "origin.git")], check=True); git("remote", "add", "origin", str(s.root / "origin.git"))
         (s.root / "state").mkdir(exist_ok=True)
         with open(s.root / "state" / "ship.lock", "w") as h:
             fcntl.flock(h, fcntl.LOCK_EX)                                             # a ship holds the lock
@@ -2640,6 +2641,7 @@ class R8(Sandbox):
         s.assertEqual(git("log", "-1", "--format=%an <%ae>%n%B").splitlines()[:3], [f"{hd.AUTHOR[0]} <{hd.AUTHOR[1]}>", "harness: define d1", ""])
         s.assertEqual(git("show", "--name-only", "--format=", "HEAD"), "harness/changes/d1.md")   # pathspec-only: the staged edit stays staged
         s.assertEqual(git("diff", "--cached", "--name-only"), "other.txt")
+        s.assertEqual(git("-C", str(s.root / "origin.git"), "rev-parse", git("branch", "--show-current")), git("rev-parse", "HEAD"))   # pushed to origin
 
     def test_the_suite_ignores_the_gates_tools(s):
         tmp = Path(tempfile.mkdtemp()); fork = tmp / "fork"

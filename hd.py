@@ -2963,7 +2963,7 @@ def new_def(meta, body, **ev):
 
 def cmd_commit(a):
     """`hd commit <path>... -m <message>`: a definition commit on the live checkout, pathspec-only, authored as AUTHOR with the
-    co-author line, under state/ship.lock: never at once with a ship's merge there (R8)."""
+    co-author line, then pushed to origin as a ship pushes, under state/ship.lock: never at once with a ship's merge there (R8)."""
     i = a.index("-m") if "-m" in a else -1
     if i < 1 or i + 1 >= len(a):
         sys.exit("usage: hd commit <path>... -m <message>")
@@ -2972,7 +2972,7 @@ def cmd_commit(a):
     with open(ROOT / "state" / "ship.lock", "w") as h:
         fcntl.flock(h, fcntl.LOCK_EX)
         git = lambda *c: subprocess.run(["git", "-C", str(ROOT), *c], env={**os.environ, **GIT_ENV}).returncode
-        rc = git("add", "-A", "--", *paths) or git("commit", "-q", "-m", f"{a[i + 1]}\n\n{TRAILER}", "--", *paths)
+        rc = git("add", "-A", "--", *paths) or git("commit", "-q", "-m", f"{a[i + 1]}\n\n{TRAILER}", "--", *paths) or git("push", "-q", "origin", "HEAD")
     sys.exit(rc)
 
 

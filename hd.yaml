@@ -5,6 +5,7 @@ repos:
   client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse, tools: client/harness-v8}
   fork:     {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         tools: local/harness, upstream: OpenRune/OpenRune-Server}
   central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
+  filestore: {name: AlexPerrin/OpenRune-FileStore,       path: ~/src/OpenRune-FileStore,       tools: local/harness, upstream: OpenRune/OpenRune-FileStore}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
 mechanisms:               # the harness's components (docs/ARCHITECTURE.md): every harness change names the one it fixes, one open change each
   - loop          # next(change), the pass, facts, records, events

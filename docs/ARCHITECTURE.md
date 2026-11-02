@@ -386,7 +386,7 @@ a desktop login ends on a page Enter does not submit: Escape, Enter again, else 
 a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;
 its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>` the Nth desktop's an administrator, the rights read back after the logins;
 a login that made an account but its own, a lost key, logged out and in again;
-a login whose inventory widget does not show container 93 fails up), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
+a login whose inventory widget does not show container 93 fails up, as does one whose widget has no slots 10 game ticks after LOGGED_IN), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
 A harness dev runs the unit tests in its worktree;
 the harness track's `build` refuses without the loop's T and TCOMMIT.
 The hook tells a run past the context limit (set below the bound with room for a clean hand-off, measured under 11000 tokens) to start no new work, then in order: commit its work in progress on the dev ref (pushed off the harness track), record what it judged (a judge: `hd verdict` when a row failed, else the judged rows in `handoff.md`), collect its subagents and stop its processes, write `handoff.md` (what is proven, what is left, the exact next step, whether a server or desktop is up) and hand back;

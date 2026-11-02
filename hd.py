@@ -2444,11 +2444,30 @@ def unsigned(s):
     return (s or "").replace("\r\n", "\n").strip().removesuffix(ATTRIBUTION.strip()).strip()
 
 
+def one_comment(parts):
+    """R4: the push comment and every reply as one PR comment, each asker @'d once (a later mention keeps the bare name)."""
+    seen = set()
+    def at(m):
+        if m[1] is None or m[1].lower() in seen:
+            return m[0] if m[1] is None else m[1]
+        seen.add(m[1].lower()); return m[0]
+    return re.sub(r"`[^`]*`|(?<![\w`])@([A-Za-z0-9-]+)", at, "\n\n".join(p for p in parts if p))
+
+
+def reviewers(ctx, ch):
+    """R4: whom the carry asks for review: the maintainers who reviewed the PR (no bot, not ours); upstream names no
+    reviewer in its rules or CODEOWNERS (GitHub asks CODEOWNERS itself on ready)."""
+    if not ch.get("pr"):
+        return []
+    cs = [c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or []) if not conversation(c["id"]) or str(c["id"]).startswith("PRR_")]
+    return sorted({c["author"] for c in cs if c.get("author") and not c.get("bot") and c["author"].lower() != ctx.owner(ch)})
+
+
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
-    carry opens it, or each that differs from the open PR's live one; the comment naming the head when the push moves
-    the PR (pr-comment.md, the push summary naming every commit the push adds: unnamed() keeps the card back until it does),
-    and each finding's reply."""
+    carry opens it, or each that differs from the open PR's live one; one comment per head (findings: those it answers),
+    the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds: unnamed() keeps the
+    card back until it does) followed by each finding's reply; the reviewers asked once the PR is ready."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":
         return [["release notes", None, text(slug, "release-notes.md")]]
@@ -2458,10 +2477,11 @@ def public_texts(ctx, ch):
         t = text(slug, f)
         if opens(ctx, ch) or t and p.get(w) is not None and unsigned(p[w]) != t:  # no text, or the live one unread: kept as it is
             out.append([w, None, t])
-    if pushes(ctx, ch, head) or opens(ctx, ch):  # a PR already at the head (a reply-only change) gets no comment
-        out.append(["comment", None, text(slug, "pr-comment.md")])
-    return out + [[f"reply {'to PR comment' if conversation(o['finding']) else 'in the thread of review comment'} {o['finding']}", o["finding"], t]
-                  for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
+    rs = [(o["finding"], t) for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) if o.get("finding") and not isinstance(o["finding"], list) and (t := reply_text(ctx, o))]
+    push = text(slug, "pr-comment.md") if pushes(ctx, ch, head) or opens(ctx, ch) else ""  # a PR already at the head (a reply-only change) gets no push summary
+    if push or rs:
+        out.append(["comment", [f for f, _ in rs], one_comment([push, *(t for _, t in rs)])])
+    return out + ([["review request", None, ", ".join(r)]] if (r := reviewers(ctx, ch)) else [])
 
 
 def card(ctx, ch, head):
@@ -2479,7 +2499,7 @@ def card(ctx, ch, head):
                 if opens(ctx, ch) else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
                 + "".join(f", replacing its {w} with the one below" for w, _, _ in txt if w in ("title", "body")),
                 *(["wait for every CI check to pass at the head"] if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
-                *(f"post the {w} below" for w, f, _ in txt if f), "mark it ready for review"]
+                "mark it ready for review", *(f"request review from {t}" for w, _, t in txt if w == "review request")]
     by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \
         if ch.get("pr") and ch["kind"] != "release" else {}
     v = [x for x in verdicts(slug) if x["head"] == head]
@@ -2487,10 +2507,9 @@ def card(ctx, ch, head):
              *(f"{n}. {a}" for n, a in enumerate(acts, 1))]
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("ok") is False:  # the yes it spent: what stopped it
         lines.append(f"the last carry at {head[:9]} stopped: {sh['detail']}")
-    for w, f, t in txt:
-        q = by.get(f)
-        lines += [f"### {w}"] + ([f"(finding by {q['author']}" + (f" on {q['path']}:{q['line']}" if q.get("path") else " on the PR") + ": "
-                                  + " ".join(q["body"].split())[:500] + ")"] if q else []) + [t or "(empty)"]
+    for w, fs, t in txt:
+        lines += [f"### {w}"] + [f"(finding by {q['author']}" + (f" on {q['path']}:{q['line']}" if q.get("path") else " on the PR") + ": "
+                                 + " ".join(q["body"].split())[:500] + ")" for f in fs or [] if (q := by.get(f))] + [t or "(empty)"]
     lines += ["(each post ends with the Claude Code attribution line)",
               f"verdict at {head[:12]}: {len(v[-1]['rows'])} rows pass (run {v[-1].get('run', '')})" if v else "gated; no judged rows",
               f"evidence {EVID / slug}",
@@ -2573,31 +2592,23 @@ def known(v, what):
     return v
 
 
-def reply(ctx, ch, up, pr, finding, body):
-    """R4: the reply in the finding's thread (a conversation finding: a PR comment), quoting it and naming only its
-    author; nothing when ours is there."""
+def answers(ctx, ch, up, pr, fs, body):
+    """R4: the one comment answers every finding it carries: quotes each and @'s only their askers, else the change's Defect."""
     cs, talk = ctx.F.review_comments(up, pr), ctx.F.pr_comments(up, pr)
-    c = next((c for c in (cs or []) + (talk or []) if c["id"] == finding), None)
-    if cs is None or talk is None or c is None:
-        raise Unread(f"{finding} cannot be read on {up}#{pr}")
-    author = c["author"]
+    by = {c["id"]: c for c in (cs or []) + (talk or [])}
+    if cs is None or talk is None or any(f not in by for f in fs):
+        raise Unread(f"the findings {fs} cannot be read on {up}#{pr}")
     named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", re.sub(r"`[^`]*`", "", body))}
-    if not re.search(r"(?m)^> ", body) or named != {author.lower()}:
-        raise Defect(f"the reply to {finding} must quote it and name only {author} (it names {sorted(named)})")
-    if replied(c, cs, talk, ctx.owner(ch)):
-        return
-    if conversation(finding):
-        must("gh", "pr", "comment", str(pr), "-R", up, "--body", body + ATTRIBUTION)
-        log(f"replied to {finding}")
-    else:
-        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/comments/{root(cs, finding)}/replies", "-f", f"body={body}{ATTRIBUTION}")
-        log(f"replied on {finding}")
+    askers = {by[f]["author"].lower() for f in fs}
+    unquoted = [f for f in fs if not any(q in " ".join(by[f]["body"].split()) for q in quotes(body))]
+    if unquoted or named != askers:
+        raise Defect(f"the comment must quote {unquoted or 'each finding'} and name only {sorted(askers)} (it names {sorted(named)})")
 
 
 def carry(ctx, ch, head, txt):
     """R4 R5: the upstream act exactly as its card shows it, each step logged and rerunnable: a release; or push
-    (no force), open the draft or update the open PR's title and body that differ, CI green (a failure outside the head re-run: ci_fault), comment naming the head,
-    each reply, ready, the review requests read back."""
+    (no force), open the draft or update the open PR's title and body that differ, CI green (a failure outside the head re-run: ci_fault), the one comment
+    naming the head and answering each finding, ready, review requested from the PR's reviewers and read back."""
     r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
     up, owner, path, t = r.get("upstream"), r["name"].split("/")[0], str(P(r["path"])), {w: x for w, _, x in txt}
     if ch["kind"] == "release":
@@ -2632,20 +2643,21 @@ def carry(ctx, ch, head, txt):
                 log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
             time.sleep(30)  # the fact decides; the sleep only spaces the reads
         log(f"CI green at {head[:9]}: {cur[1]}")
-    m = f"<!-- hd:{head[:12]} -->"
+    fs = next((f for w, f, _ in txt if w == "comment"), [])
+    if fs:
+        answers(ctx, ch, up, pr, fs, t["comment"])
+    m = f"<!-- hd:{head[:12]} {digest(t.get('comment', ''))} -->"  # once per head and text: a reply-only comment at a pushed head is its own
     if "comment" in t and not any(m in c["body"] for c in known(ctx.F.pr_comments(up, pr), f"the comments of PR {pr}")):
         must("gh", "pr", "comment", str(pr), "-R", up, "--body", t["comment"] + ATTRIBUTION + f"\n{m}")
-        log(f"commented, naming {head[:9]}")
-    for _, finding, body in txt:
-        if finding:
-            reply(ctx, ch, up, pr, finding, body)
+        log(f"commented, naming {head[:9]}" + (f" and answering {', '.join(map(str, fs))}" if fs else ""))
     if v["draft"]:
         must("gh", "pr", "ready", str(pr), "-R", up)
         log("marked ready")
+    if "review request" in t:
+        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/requested_reviewers", *[x for n in t["review request"].split(", ") for x in ("-f", f"reviewers[]={n}")])
     ctx.F.forget("pr")
     asked = known(ctx.F.pr(up, pr), f"PR {pr} of {up}")["requested"]
-    log(f"review requested from {', '.join(asked)}" if asked
-        else "review request: none listed (GitHub refuses the fork author's own request; upstream's CODEOWNERS asks on ready)")
+    log(f"review requested from {', '.join(asked)}" if asked else "review request: none listed (no maintainer has reviewed it; upstream's CODEOWNERS asks on ready)")
     return f"upstream PR {pr} at {head[:9]}, ready for review"
 
 

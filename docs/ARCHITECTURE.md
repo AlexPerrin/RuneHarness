@@ -253,14 +253,14 @@ next(change):
     pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list live-head..head, the head fetched by pull/N/head when the clone lacks it)?
       no → dev (input comment, head, the commits it misses): no card, no generic text
     approval.json at head, texts?
-      no → card in the console: the acts in order (push when the PR is not at head, open the draft or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the comment (pr-comment.md) when it pushes, each reply (pr-reply-<finding>.md), ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
+      no → card in the console: the acts in order (push when the PR is not at head, open the draft or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready, the review request), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;
       it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)
     release: gh release with the APK, notices and log.
-    Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones (REST PATCH: `gh pr edit` reads the retired Projects (classic)), CI green at head when it pushed or the PR is draft, the comment naming the head (once: its marker), each finding's reply in its thread (a conversation finding: a PR comment;
-    quoting it, @ only its author;
-    one of ours answering it: none), ready, the review requests read back (upstream's CODEOWNERS asks on ready);
+    Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones (REST PATCH: `gh pr edit` reads the retired Projects (classic)), CI green at head when it pushed or the PR is draft, one PR comment naming the head (once per head and text: its marker), the push summary then each finding's reply (no review-thread reply);
+    it quotes each finding and @ only their askers, each once (a later mention keeps the bare name), else the change's FAIL;
+    ready, review requested of the maintainers who reviewed the PR (no bot, not ours) and read back (none: upstream's CODEOWNERS asks on ready);
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     Success: ship.json, approval.json removed (the yes is spent).
     A failed check: its job's failing step asked of the track's `ci-step` (gate-ci's classifier); outside the head, `gh run rerun --failed` once its source answers (the classifier blocks until then), its old failure pending until GitHub lists the new attempt, up to the run's 3rd attempt.

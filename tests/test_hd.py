@@ -1136,8 +1136,8 @@ class R4(Sandbox):
             s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         c = hd.tick(s.ctx(F), act=False)["card"]                                  # the reply is left to post: a card
-        s.assertEqual(len(c), 1); s.assertIn("### reply in the thread of review comment 99\n(finding by rev on N.kt:3: reset it?)\n> reset it", c[0])
-        s.assertNotIn("push", c[0]); s.assertNotIn("### comment", c[0])          # at the head already, a reply-only change: no push, no comment
+        s.assertEqual(len(c), 1); s.assertIn("### comment\n(finding by rev on N.kt:3: reset it?)\n> reset it\n\n@rev the official", c[0])
+        s.assertNotIn("push", c[0]); s.assertIn("4. request review from rev", c[0])   # at the head already, a reply-only change: no push, the reply its one comment
         F.f["comments"][7].append({"id": 100, "author": "O", "bot": False, "reply": 99, "path": "N.kt", "line": 3, "body": "ours"})
         s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])                   # ours is in its thread: nothing left, no card
         s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
@@ -1222,19 +1222,24 @@ class R4(Sandbox):
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         ctx = s.ctx(F)
         s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
-        s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["reply in the thread of review comment 99", 99, "> reset it\n\n@rev the official server keeps it."]])
+        s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["comment", [99], "> reset it\n\n@rev the official server keeps it."], ["review request", None, "rev"]])
         s.approve(F, "s1", A)
-        F.f["pull"] = {7: {"branch": "fix/x", "head": A, "draft": False, "requested": []}}
-        g = GH(); s.ship(F, g)
-        s.assertEqual(g.did("push") + g.did("pr comment") + g.did("pr ready"), [])   # the PR is at the head: no push, no comment, already ready
-        post = [c for c in g.calls if "POST" in c][0]
-        s.assertEqual(post[4], "repos/u/f/pulls/7/comments/99/replies"); s.assertTrue(post[6].startswith("body=> reset it"))
+        F.f["pull"] = {7: {"branch": "fix/x", "head": A, "draft": False, "requested": ["rev"]}}
+        g = GH(); log = s.ship(F, g)
+        s.assertEqual(g.did("push") + g.did("pr ready"), [])                  # the PR is at the head: no push, already ready
+        s.assertTrue(g.did("pr comment")[0][-1].startswith("> reset it\n\n@rev the official server keeps it."))   # one PR comment, quoting the inline finding
+        s.assertEqual([c[4:] for c in g.calls if "POST" in c], [("repos/u/f/pulls/7/requested_reviewers", "-f", "reviewers[]=rev")])   # ready already: review asked
+        s.assertIn("review requested from rev", log)
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other"); hd.drop("s1", "ship")
         s.approve(F, "s1", A)
         g = GH()
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
-        s.assertIn("name only rev", str(e.exception)); s.assertEqual([c for c in g.calls if "POST" in c], [])
+        s.assertIn("name only ['rev']", str(e.exception)); s.assertEqual(g.did("pr comment"), [])
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> keep it\n\n@rev kept"); s.approve(F, "s1", A)
+        with s.assertRaises(SystemExit) as e:                                    # a quote that is not the finding's: not an answer
+            s.ship(F, GH())
+        s.assertIn("must quote [99]", str(e.exception))
 
     def test_a_finding_answered_with_no_code_is_one_qa_run(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99)
@@ -1262,9 +1267,9 @@ class R4(Sandbox):
         (ev / "pr-comment.md").write_text(f"Pushed {C[:9]} and {A[:9]} on top of {D[:9]} (head {A[:9]}).\n\n- {C[:9]}: one.\n- {A[:9]}: two.")
         (ev / "pr-reply-99.md").write_text("> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION)   # a text already signed: signed once
         t = {w: x for w, _, x in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])}
-        s.assertEqual(sorted(t), ["body", "comment", "reply in the thread of review comment 99"])   # the title is live already: no title step
+        s.assertEqual(sorted(t), ["body", "comment", "review request"])   # the title is live already: no title step
         s.assertTrue(C[:9] in t["comment"] and A[:9] in t["comment"])
-        s.assertEqual(t["reply in the thread of review comment 99"], "> bank?\n\n@rev it gives the lamp there now.")
+        s.assertTrue(t["comment"].endswith("\n\n> bank?\n\n@rev it gives the lamp there now."))   # one comment: the push summary, then the reply
         c = hd.tick(s.ctx(F), act=False)["card"][0]
         s.assertIn("update upstream PR 7 of u/f (base main", c); s.assertIn("replacing its body with the one below", c); s.assertIn("### body\nnew body", c)
         s.approve(F, "s1", A)
@@ -1272,8 +1277,8 @@ class R4(Sandbox):
         g = GH(**{"api repos/u/f/pulls/comments/99": (0, "rev", "")})
         s.ship(F, g)
         s.assertEqual(g.did("api -X")[0][2:], ("-X", "PATCH", "repos/u/f/pulls/7", "-f", "body=new body" + hd.ATTRIBUTION))   # REST: gh pr edit reads Projects (classic)
-        s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"]))
-        s.assertEqual([c[6] for c in g.calls if "POST" in c], ["body=> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION])
+        s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"])); s.assertEqual(len(g.did("pr comment")), 1)
+        s.assertEqual([c[4] for c in g.calls if "POST" in c], ["repos/u/f/pulls/7/requested_reviewers"])   # no thread reply: the comment answers it
         F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
         s.assertNotIn("body", [w for w, _, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])])
         live = {"branch": "content/s1", "head": A, "draft": False, "requested": [], "title": "T", "body": "new body" + hd.ATTRIBUTION}
@@ -1345,12 +1350,12 @@ class R4(Sandbox):
         for k in ("s0", "s1"):
             s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
         c = hd.tick(s.ctx(F), act=False)["card"]
-        s.assertEqual(len(c), 1); s.assertIn("### reply to PR comment IC_x\n(finding by rev on the PR: get the cutscene in)", c[0])
+        s.assertEqual(len(c), 1); s.assertIn("### comment\n(finding by rev on the PR: get the cutscene in)", c[0]); s.assertNotIn("request review", c[0])   # a conversation commenter is no reviewer
         s.approve(F, "s1", A)
         F.f["pull"] = {7: {"branch": "content/s0", "head": A, "draft": False, "requested": []}}
         g = GH()
         s.ship(F, g)
-        s.assertEqual(g.did("pr comment")[0][-1], "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION)
+        s.assertTrue(g.did("pr comment")[0][-1].startswith("> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION + "\n<!-- hd:"))   # one comment, marked by head and text
         F.f["talk"][7].append({"id": "IC_y", "author": "O", "body": "> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION})
         hd.drop("s1", "ship")
         s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])                   # ours is on the PR: nothing left, no card

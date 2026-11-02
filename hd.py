@@ -2487,7 +2487,8 @@ def text(slug, name):
 
 
 def opens(ctx, ch):
-    """R4: the carry opens the upstream PR: none is open, or the one open is the one it opened at this head (a rerun)."""
+    """R4: the round's texts are the opening ones: no PR is open, or the one open is the one the carry opened at this head
+    (a rerun, which updates that PR and keeps the approved texts)."""
     return not ch.get("pr") or ch.get("opened") == ctx.head(ch)
 
 
@@ -2572,8 +2573,8 @@ def card(ctx, ch, head):
         acts = [*([] if p.get("head") == head else [f"push {head} to {r['name'].split('/')[0]}:{p.get('branch') or branch} (no force)"
                    + (f"; upstream PR {ch['pr']} is at {p['head'][:9]}" if p else "")]),
                 f"open a draft PR on {up} from {branch} into main (base {(ctx.base(ch) or '?')[:9]}), with the title and body below"
-                if opens(ctx, ch) else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
-                + "".join(f", replacing its {w} with the one below" for w, _, _ in txt if w in ("title", "body")),
+                if not ch.get("pr") else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
+                + "".join(f", replacing its {w} with the one below" for w, _, t in txt if w in ("title", "body") and unsigned(p.get(w)) != t),
                 *(["wait for every CI check to pass at the head"] if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
                 "mark it ready for review", *(f"request review from {t}" for w, _, t in txt if w == "review request")]
     by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \

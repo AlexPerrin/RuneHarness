@@ -188,6 +188,7 @@ a live check reads the real state.
    every other stop records its result, the PR as it is: a failure the head causes (a CI step it reads) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
    only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;
+   a rerun's card updates that PR, never opens a second;
    a PR already at the head, ready, with every reply posted, gets no card;
    a round with no dev ref has its PR tip's head and no gate;
    the comment quotes every finding of the round no comment of ours answers yet, else the round's dev step and no card;

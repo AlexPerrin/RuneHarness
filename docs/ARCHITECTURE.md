@@ -153,6 +153,8 @@ Every `state/` JSON record is written to a temp file beside it and renamed over 
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;
 a merge-tree conflict only in content of the source docs is merged line by line (`hd.merge_lines`: each side's changed lines kept, a conflict only where both change overlapping lines differently), so neighbouring facts never conflict;
 the integration tree T_int is the same over every gated open server head plus the permanent pins.
+A head whose last verdict fails is not gated (`hd.passed`), so it leaves T_int and unblocks no dependent;
+a change whose target is live (not upstream main or a tag) is done only once its last verdict passes, since another change's deploy carries a gated head before it is judged.
 Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).
 The build key is T's tree joined with `-<hash12>` of every file under `tools/build/` (the code a build runs: build.sh, the Dockerfile, central.init.gradle);
 the gate key is the build key joined with `-<hash12>` of every file under `tools/gate/` (the gate and every verb a contract row runs) and each other tools file a row's command names, with the contract's script rows;

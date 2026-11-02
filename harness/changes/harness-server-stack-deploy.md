@@ -31,3 +31,6 @@ sweep-14 B7: state/genie-review-355/build-52b39cc9*.log 00:45:37Z: "Cannot locat
 
 Also (filed): a build outside the current tools asked for a removed task
 sweep-15 B5 follow-up to sweep-14 B7: up takes T from state/<slug>/build.json (server tools/track.sh:139), 286823c78 for genie-review-355, image exists. The failed build-52b39cc9 (00:45:37Z, .worktrees/genie-review-355-build) asked for :or-cache:qaCacheToolsClasspath, removed in 3db4e240a (2026-10-31); no current tools copy names it. Find who invoked it (the qa agent or a stale tools snapshot). evidence/monitor/sweep-15.md
+
+Also (filed): a run's server still runs with idleLogout=true
+server-friends-chat-clan-channels-20 hand-back (qa, T f79a9c77f): its own server config still has idleLogout=true, after 6ef5218 ('a run's server never idle-logs out its clients'); its desktop idled out and hung on relogin. The idle-logout acceptance here must hold live on a run's track.sh up. Evidence: evidence/server-friends-chat-clan-channels/in-game.md (Run 20)

@@ -177,7 +177,7 @@ a live check reads the real state.
    a moved upstream rule file voids only the rule rows;
    a rule file absent upstream at the last verdict and still absent moves nothing;
    a seed check row added to a contract keeps its verdict;
-   a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes no dependency orders or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change unless it waits on or blocks it or a question holds it, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
+   a hand-over without a `Limits:` section, with a word beside it, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, and so is a hand-back beside it other than its one recorded line, a mechanism with two open harness changes no dependency orders or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change unless it waits on or blocks it or a question holds it, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
    a seed row added later joins a contract at a head not carried upstream;
    a seed row tagged `upstream` joins no local change's contract;
    a contract's check rows run before its gate rows, which run only when every check passed;

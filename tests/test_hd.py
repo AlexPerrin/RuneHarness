@@ -4095,13 +4095,32 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "Limits:", "limit:x4"])                       # a hand-back naming an in-scope limit
         s.assertIn("in this change's scope", str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
         for bad, says in ((["done"], "no Limits: section"), (["Limits:"], "no Limits: section"),
-                          (["Limits:", "limit:h2", "dispatch", "still", "drops", "a", "run"], "is no `limit:<slug>`")):
+                          (["Limits:", "limit:h2", "dispatch", "still", "drops", "a", "run"], "is no `limit:<slug>`"),
+                          (["fixed;", "risk:", "dispatch", "untested", "Limits:", "limit:h2"], "before Limits:")):   # sweep-59 P3-b: prose beside the section
             with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
                 hd.cmd_handover(["h1", *bad])                                    # no section, or a limit stated in prose: refused
             s.assertIn(says, str(e.exception)); s.assertIsNone(hd.rec("h1", "handover"))
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["h1", "fixed", "Limits:", "limit:h2"])
-        s.assertEqual(hd.rec("h1", "handover")["head"], A)
+            hd.cmd_handover(["h1", "Limits:", "limit:h2"])
+        s.assertEqual((hd.rec("h1", "handover")["head"], hd.rec("h1", "handover")["limits"]), (A, "Limits: limit:h2"))
+
+    def test_a_hand_over_hands_back_its_one_recorded_line(s):  # sweep-59 P3-b: 'Limits: none' handed back beside its own risks in prose
+        s.change("s1"); s.agreed("s1")
+        hd.tick(s.ctx(Fake(**FACTS)))
+        run = hd.runs()[0]; name = run["name"]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        p = dict(payload(run, "ag1", "SubagentStop", s.root), hook_event_name="PreToolUse", tool_name="SubagentHandback")
+        def says(msg):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.handover_line({**p, "tool_input": {"message": msg}})
+            return out.getvalue() and json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecisionReason"]
+        s.assertIn("`hd handover` first", says(f"run {name}: handed over {A[:9]} Limits: none"))   # no hand-over recorded
+        hd.put("s1", "handover", {"head": A, "limits": "Limits: none"})
+        s.assertEqual(says(f"run {name}: handed over {A[:9]} Limits: none"), "")                  # its one line goes
+        s.assertEqual(says(f"run {name}: handoff\nthe server is down"), "")                         # no hand-over: free text
+        for bad in (f"run {name}: handed over {A[:9]} Limits: none\nrisk: -F still writes", f"run {name}: handed over {B[:9]} Limits: none",
+                    f"run {name}: handed over {A[:9]} Limits: limit:x1"):
+            s.assertIn(f"run {name}: handed over {A[:9]} Limits: none", says(bad))
 
     def test_a_filing_never_joins_a_change_held_on_a_question(s):  # sweep-38 P1-b: the pins fix joined the RSA change and waited on its question
         s.change("h1", track="harness", mechanism="carry"); hd.put("h1", "ask", {"text": "which key?"})

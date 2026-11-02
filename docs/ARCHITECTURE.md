@@ -20,6 +20,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   a git commit naming harness/ is denied while the definitions hold a dependency cycle;
                   a run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by none of these starts with a line `hd scope <run>`;
                   a run's SubagentHandback is denied while a background command, monitor or subagent it started has no task notification, TaskStop result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is kept as evidence/<slug>/subagent-<id>.md;
+                  a run's `handed over` hand-back is denied unless it is the one line its hand-over recorded, `run <name>: handed over <head> Limits: ...`;
                   SessionStart (startup, compact): an orchestrator session whose start-time definition is not the live one is given the live one (hd.reread), and a new one its predecessor's state/orchestrator-handoff.md;
                   PostToolUse: the orchestrator's TaskStop of a run's agent (one a SendMessage resumed after its hand-back too) ends the run as `hd stop` does, a fact the pass folds;
                   a run hands off at the context limit;
@@ -84,10 +85,10 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd show <slug>`, by the orchestrator: the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead)
 
-- `hd handover <slug> [summary] Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
+- `hd handover <slug> Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
-  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, given} (given: the count of answer rows the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own count when no run;
+  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a word before or a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, limits, given} (given: the count of answer rows the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own count when no run;
   answer-n is the nth row, so a row above that count, and above every answer row the head's last verdict judged, is late for that hand-over: never ordered by time)
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;

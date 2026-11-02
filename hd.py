@@ -2959,8 +2959,10 @@ def cmd_handover(a):
     why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
            if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
     graph = defs("changes")
-    at = next((i for i, w in enumerate(a) if w.lower() == "limits:"), None)  # the hand-back's required Limits: section, last
+    at = next((i for i, w in enumerate(a) if w.lower() == "limits:"), None)  # the hand-over's one section: no prose beside it, where a limit could hide
     lim = a[at + 1:] if at else []
+    if at and at > 1:
+        why.append(f"{' '.join(a[1:at])[:200]!r} before Limits: the hand-over is `hd handover {ch['slug']} Limits: ...` alone: a limit of this change is fixed before it, one outside its scope filed as `limit:<slug>`")
     if not lim:
         why.append("no Limits: section: end with `Limits: none` or `Limits: limit:<slug> ...` (each a change filed outside this change's scope)")
     elif lim != ["none"] and (prose := [w for w in lim if not w.lower().startswith("limit:")]):
@@ -2984,7 +2986,7 @@ def cmd_handover(a):
         refuse(*why)
     given = max([seen(con, r.get("given", max(r["listed"], r.get("told") or ""))) for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")],
                 default=given_now(ch["slug"]))  # given: the answer rows the handing run's brief or its last message held; the hand-over's own when no run did
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), "given": given})
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "limits": " ".join(a[1:]), "given": given})
     drop(ch["slug"], "ask")
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)

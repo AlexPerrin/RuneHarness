@@ -9,8 +9,8 @@ user's answers, last verdict, build and gate results, a hand-off). Then read `<r
 the brief's record again, so a run does not read it. `hd` is `python3 ~/osrs-harness/hd.py`. A bare `hd` or `hd tick` is the orchestrator's acting pass, denied to a run: view with `hd show <slug>` or `hd tick --dry-run`.
 A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`.
 
-Run your own builds, ups and mobile or desktop steps in the foreground (Bash `timeout` 600000): the track script blocks on
-its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
+Run every step of yours (a build, an up, a test run, `hd tick --dry-run`, a mobile or desktop step) in the foreground, never under a
+`timeout` command (Bash `timeout` 600000 is the call's limit): the track script blocks on its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
 `wait_for`, a step you had to background with one until-loop on the fact the step makes (a state file, a log line, a port), never
 on the background task's output file, never under a bound of time or tries (`timeout N`, `seq 1 N`, a sleep count: a wait ends on
 its fact; when the call's own limit ends it first, issue the same wait again), never `pgrep -f` on text the waiting command

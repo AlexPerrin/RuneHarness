@@ -1422,13 +1422,14 @@ def late_answers(slug, ho, head):
     """R3: the answer rows newer than the brief of the run that handed over, or the last message it was told (its `given`; the hand-over itself when no run
     did) and than the last verdict on head (one a verdict already judged is not), as (the user's, joined filings'): a row
     its brief did not hold is late, though written before the hand-over; the user's word is the dev's before the head is built, gated or shipped; a
-    joined filing is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate."""
+    joined filing or finding is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate
+    (on an upstream change at once: a PR round is gated at its last head). A row of the brief's own second is in the brief."""
     con = contract(slug)
     if not (ho and con):
         return [], []
     g = ho.get("given")
     since = max([g or ho["ts"]] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
-    late = [r for r in con["rows"] if r["id"].startswith("answer-") and (r["text"][:20] > since or r["text"][:20] == since != g)]  # a row of the brief's own second is in it: the pass files before it lists
+    late = [r for r in con["rows"] if r["id"].startswith("answer-") and (r["text"][:20] > since or r["text"][:20] == since != g)]
     return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
             [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
 

@@ -358,6 +358,7 @@ starting a keyed process also stops the slug's other process alive under a key o
 a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, tools/build/, tools/server/), so a fix of them restarts its count;
 a deploy alive is never stopped, a newer tree or tools ship included: the pass deploys the newest tree after its end (openrs2 serves no ranges, so a stopped download restarts from 0);
 write an event only when `next` differs from the last event;
+a dev or qa step a started, unended run of that role holds is written as that run live (`dev run <name> live`), never due;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every `hd-*.slice` no live run holds once its owner is gone: a test's `hd-t<pid>.slice` once `<pid>` is dead, any other once empty;
 then bring down a stack no started live run uses with the script its record names (a run the pass ends has its stack down in that pass, so the run's own down its end cut is never needed), a stopped stack's containers removed by name, a repair missing twice on the same stack raised once and tried no more;

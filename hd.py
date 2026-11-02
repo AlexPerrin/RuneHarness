@@ -2632,6 +2632,8 @@ def _pass(ctx, act):
             close_branches(ctx, ch, act)
         if st["state"].startswith("gate failed"):
             ctx.gate_failed[ch["slug"]] = st["input"][1]
+        if (r := next((r for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == work["actor"] and r.get("started") and not r.get("ended")), None)):
+            st = {**st, "state": st["state"].replace(work["state"], f"{r['role']} run {r['name']} live")}   # R7: the step a started run holds is that run's, never due
         if st["actor"] != "done" or not last or last["state"] != st["state"]:
             view["change"].append(f"{ch['slug']} [{ch['track']} {prio[ch['slug']]}]: {st['state']}")
         if act and (not last or last["state"] != st["state"]):

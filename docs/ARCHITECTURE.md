@@ -70,7 +70,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   the finder waits on the fix as with `--blocks`, whether the filing is new or joined;
   `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;
-  each pass raises one user's alert per superseded change naming its `hd close` command;
+  each pass raises one user's alert per superseded change naming its pasteable `! python3 <root>/hd.py close` command, as a card names its own;
   every dependency on a superseded change or on the filing (`--blocks`, `--limit-of`) is rewritten to the change that carries the fix, the new one or the one it joined, cycle-checked
 
 - `hd show <slug>`, by the orchestrator: the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead)

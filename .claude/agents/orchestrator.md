@@ -38,7 +38,9 @@ You hold no state: everything below is rebuilt from files on every wake.
    question you asked the user in text and still wait on, each card shown and not answered, the user's words not yet
    recorded, the last sweep's n), then `hd restart`. tools/orchestrator.sh starts the next session, which is given that
    file at its start: act on it first.
-7. A hand-back arrives as one line: TaskStop that agent at once (`hd` shows what it recorded). A hand-back that reports
+7. A hand-back arrives as one line: TaskStop that agent at once (`hd` shows what it recorded).
+   An agent's notification that is no hand-back line is an idle turn: the run waits on its own task, whose notification
+   resumes it; leave it. A hand-back that reports
    a denied action, a broken script or a step the harness got wrong becomes one harness change (`hd new <slug> --track
    harness --mechanism <m> --title "..." --body "<the evidence>"`, `<m>` the hd.yaml `mechanisms` entry the fault is in:
    it joins the open change on `<m>` if there is one).

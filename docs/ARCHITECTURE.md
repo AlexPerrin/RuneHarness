@@ -13,7 +13,7 @@ hd.yaml           repos (each fork with its upstream;
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript, <session>/subagents/agent-<id>.jsonl;
                   else its first tool call binds it;
                   an agent whose brief names a run already ended is stopped at once, `continue: false` naming the run and why it ended, the run left ended) and end, each a fact file in state/facts/ (a hook never takes the state lock), then the pass started without waiting;
-                  a stop fires at each idle turn and leaves the run live (usage, last line), refused (decision block) while a background command or monitor the agent started has no task notification yet;
+                  a stop fires at each idle turn and leaves the run live (usage, last line), never refused: the task notification of a background command, monitor or subagent the agent started resumes it;
                   the stop after its SubagentHandback ends it;
                   its record is newer than its start and the change's last answer, a filing its own only when filed from its slice (the `new`, `joined` or `limit` event's `slice`);
                   PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close` (the user's `!` command fires no hook);
@@ -42,7 +42,8 @@ tools/track.sh    the harness track's script;
                   each run's role file (dev, qa, planner, reader) names the roots a file search starts from (this repo, ~/src, ~/osrs-plugins-reverse, ~/.gradle) and forbids one from `/`;
                   dev.md and qa.md have a wait block on an observable fact, never a `pgrep -f` on text the waiting command itself carries, a background task's output file or a bound of time or tries;
                   a step runs in the foreground and a game event is waited on with a devtools wait_for;
-                  a step still running at 180 s moves to the background and keeps running, and the run waits for its task notification
+                  a step still running at 180 s moves to the background and keeps running, and the run ends its turn until its task notification resumes it;
+                  orchestrator.md leaves a run whose notification is no hand-back line: an idle turn
 mcp/              serve.py runs each server of .mcp.json (`serve.py <name>`, its command line in servers.json): once a file in mcp/ changes it holds the next request, lets the requests in flight answer, stops the server and runs itself again, replaying the session's initialize (its answer dropped) and the held request, and sends tools/list_changed;
                   osrs-mcp (cache, wiki, gamevals);
                   the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` names it and a call naming none is refused, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, a desktop call waits ANSWER_WAIT past its own timeoutMs at most, the whole call with its token read, and an exception is an error answer;

@@ -27,11 +27,11 @@ on `<m>` if there is one, makes your change wait on it, and refuses `<m>` inside
 (it refuses any other entry and any prose beside it: a limit in your scope is fixed, never stated), and your hand-back is that one line, `run <name>: handed over <sha> Limits: ...`, with nothing beside it (the hook denies any other).
 
 Run every step of yours (a build, an up, a test run, `hd tick --dry-run`, a mobile or desktop step) in the foreground, never under a
-`timeout` command (a step still running at 180 s moves to the background and keeps running: wait for its task notification, never TaskStop it or issue it again): the track script blocks on its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
+`timeout` command (a step still running at 180 s moves to the background and keeps running: end your turn, and its task notification resumes you; never TaskStop it or issue it again): the track script blocks on its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
 `wait_for`, a step you had to background with one until-loop on the fact the step makes (a state file, a log line, a port), never
 on the background task's output file, never under a bound of time or tries (`timeout N`, `seq 1 N`, a sleep count: a wait ends on
 its fact; one moved to the background is waited on by its task notification), never `pgrep -f` on text the waiting command
-itself carries (it matches its own loop and never ends); never end a turn while your own process runs (SubagentStop refuses it). A step that
+itself carries (it matches its own loop and never ends). A step that
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle. A desktop is up only while you play
 in it: `up` when you are about to act in game, `down <slug>` as soon as you stop playing (to build, read or write), and
 `RESUME=1 up` brings the accounts back as down saved them; the hook tells you once when your desktops sit through a

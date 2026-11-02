@@ -842,32 +842,18 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual([r["name"] for r in hd.runs() if not r.get("ended")], ["s1-2"])   # its slot and its change are free: the next run is listed
 
-    def test_an_idle_stop_is_refused_while_its_own_background_work_runs(s):
+    def test_an_idle_stop_on_its_own_background_work_leaves_the_run_live(s):   # sweep-84 P3-a: its task notification resumes it
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))
         run = hd.runs()[0]
         hook.bind(payload(run, "ag1", "SubagentStart", s.root))
         p = payload(run, "ag1", "SubagentStop", s.root, last="Waiting on the build.", usage=1)
-        tp = Path(p["agent_transcript_path"])
-        with open(tp, "a") as f:
+        with open(p["agent_transcript_path"], "a") as f:
             f.write(json.dumps({"type": "user", "toolUseResult": {"stdout": "", "backgroundTaskId": "b1"}}) + "\n")
-        with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            hook.end_run(p)
-        s.assertEqual(json.loads(out.getvalue())["decision"], "block")        # the build still runs: the stop is refused
-        s.assertIn("background command(s) b1 are still running", out.getvalue()); s.assertNotIn("subagent", out.getvalue())
-        with open(tp, "a") as f:                                               # sweep-48 P2-a: a reader it started is a subagent to wait for, never a command
             f.write(json.dumps({"type": "user", "toolUseResult": {"isAsync": True, "agentId": "rd1"}}) + "\n")
         with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             hook.end_run(p)
-        why = json.loads(out.getvalue())["reason"]
-        s.assertIn("subagent(s) rd1 have not returned", why); s.assertIn("command(s) b1 are", why); s.assertNotIn("rd1 are still running", why)
-        with open(tp, "a") as f:
-            f.write(json.dumps({"type": "attachment", "attachment": {"prompt": "<task-notification>\n<task-id>rd1</task-id>"}}) + "\n")
-        with open(tp, "a") as f:
-            f.write(json.dumps({"type": "attachment", "attachment": {"prompt": "<task-notification>\n<task-id>b1</task-id>"}}) + "\n")
-        with mock.patch.object(hook, "start_pass"), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            hook.end_run(p)
-        s.assertEqual((out.getvalue(), hd.runs()[0]["ended"]), ("", None))   # its end reported: an idle stop, the run live
+        s.assertEqual((out.getvalue(), hd.runs()[0]["ended"]), ("", None))   # never refused: an idle turn, the run live
 
     def test_a_task_stopped_with_taskstop_counts_as_ended(s):
         stop = {"type": "user", "toolUseResult": {"message": "Successfully stopped task: b1", "task_id": "b1", "task_type": "local_bash"}}
@@ -2248,6 +2234,10 @@ class R5(Sandbox):
             s.assertNotIn("600000", t, f)                                          # the limit the old text named
             s.assertRegex(t, r"still running at 180 s moves to the background and keeps running", f)
             s.assertIn("task notification", t, f)
+        for f in (".claude/agents/dev.md", ".claude/agents/qa.md", "hook.py"):   # sweep-84 P3-a: one rule, the hook's and the roles'
+            t = " ".join(root.joinpath(f).read_text().split())
+            s.assertNotIn("SubagentStop refuses", t, f); s.assertNotIn("block on it in the foreground", t, f)
+        s.assertIn("no hand-back line is an idle turn", " ".join(root.joinpath(".claude/agents/orchestrator.md").read_text().split()))
 
     def test_a_reader_bash_command_that_writes_is_denied(s):
         def denied(c, kind="reader"):

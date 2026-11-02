@@ -7,7 +7,8 @@ everything shown or acted on is read off it.
 
 ```
 hd.py             the loop: next(change), facts, records, the pass, the public act (console card and carry); commands below
-hd.yaml           repos (each fork with its upstream), paths, `mechanisms` (the harness components a harness change names), the agent count, the context limit, the fork's permanent pins, `hold` (the user's held band, e.g. P1;
+hd.yaml           repos (each fork with its upstream;
+                  one whose upstream no track names is an added target, a track of its key shaped as central's: TRACK, by cfg()), paths, `mechanisms` (the harness components a harness change names), the agent count, the context limit, the fork's permanent pins, `hold` (the user's held band, e.g. P1;
                   the orchestrator sets and removes it on the user's word)
 hook.py           SubagentStart/Stop: run start (the run named by the brief path in the agent's own transcript, <session>/subagents/agent-<id>.jsonl;
                   else its first tool call binds it;
@@ -50,8 +51,9 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd`, by the orchestrator: prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards (each act the carry does and each exact text, the yes and no commands), questions, triage (each maintainer word not yet triaged), runs, goals, change facts (R7)
 
-- `hd triage <id> finding|ack`, by the orchestrator, its judgment of a maintainer's word: `state/triage/<id>.json` {verdict};
-  a finding joins or files the PR's round in the next pass, an acknowledgement never files or is answered, and closes a round filed from it alone with no hand-over (the orchestrator commits it) (R4)
+- `hd triage <id> finding|ask|ack`, by the orchestrator, its judgment of a maintainer's word: `state/triage/<id>.json` {verdict};
+  a finding joins or files the PR's round in the next pass, an acknowledgement never files or is answered, and closes a round filed from it alone with no hand-over (the orchestrator commits it);
+  ask (a decision of scope only the user makes: a move to another repo, a close) joins or files the round as a finding does and opens it with the word as the round's `ask`, the user's question (R4)
 
 - `hd approve <slug> <head>`, by the user, as a `!` command in the orchestrator's window: at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts}
 

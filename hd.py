@@ -51,7 +51,11 @@ P = lambda s: Path(os.path.expanduser(str(s)))
 
 
 def cfg():
-    return yaml.safe_load((ROOT / "hd.yaml").read_text())
+    """hd.yaml; a repo with an `upstream` that no track's repo names is a target added there: a track of its own (its key), shaped as central's."""
+    c = yaml.safe_load((ROOT / "hd.yaml").read_text())
+    named = {t["repo"] for t in TRACK.values()}
+    TRACK.update({k: {**TRACK["central"], "repo": k} for k, r in (c.get("repos") or {}).items() if r.get("upstream") and k not in named})
+    return c
 
 
 # ---------------------------------------------------------------- facts (P1: an unknown fact is None, never False)
@@ -1116,7 +1120,7 @@ class Ctx:
             return False
         if not (o := s.own(ch, head)):
             return o
-        if ch["track"] == "central":  # its test target is its gate: the locally built Central a dependent server build includes
+        if ch["track"] not in ("server", "client", "harness"):  # central and an added target: its test target is its gate: the locally built Central a dependent server build includes
             return (rec(ch["slug"], "handover") or {}).get("head") == head and s.gated(ch, head, kept=True)
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
@@ -2000,10 +2004,10 @@ def findings(ctx, open_prs, act):
         mine, bots = lambda c: str(c["author"]).lower() == owner, {b.lower() for b in ctx.cfg.get("bots") or []}
         new = [c for c in cs + talk if not c.get("bot") and str(c["author"]).lower() not in bots and c["body"].strip() and not replied(c, cs, talk, owner)
                and not mine(c) and str(c["id"]) not in carried_]
-        verdict = {c["id"]: (rec("triage", str(c["id"])) or {}).get("verdict") for c in new}  # the orchestrator's judgment: a finding or an acknowledgement
+        verdict = {c["id"]: (rec("triage", str(c["id"])) or {}).get("verdict") for c in new}  # the orchestrator's judgment: a finding, the user's (ask) or an acknowledgement
         untriaged += [f"{c['id']}: {track} #{pr} {c['author']} on {c['path'] + ':' + str(c['line']) if c.get('path') else 'the PR'}: "
-                      f"{' '.join(c['body'].split())[:300]}: hd triage {c['id']} finding|ack" for c in new if not verdict[c["id"]]]
-        new = [c for c in new if verdict[c["id"]] == "finding"]
+                      f"{' '.join(c['body'].split())[:300]}: hd triage {c['id']} finding|ask|ack" for c in new if not verdict[c["id"]]]
+        new = [c for c in new if verdict[c["id"]] in ("finding", "ask")]
         if not new or not act:
             continue
         on = [c for c in ctx.changes.values() if c.get("pr") == pr and c["track"] == track and not c.get("closed") and not c.get("superseded")]
@@ -2031,6 +2035,10 @@ def findings(ctx, open_prs, act):
                     rnd["branch"] = b
                 rnd["path"] = new_def(rnd, quote, finding=c["id"], pr=pr)
                 write_contract(ctx.cfg, slug, track, "derived")  # the track's seed rows and its findings: the dev answers, qa judges once
+            if verdict[c["id"]] == "ask":  # a decision of scope (move the PR to another repo, close it): the round opens with it as the user's question
+                q = f"{c['author']} on #{pr} ({c['id']}): {' '.join(c['body'].split())[:300]}: the user decides (a move to another repo is a target added in hd.yaml repos, then a change on its track)"
+                put(rnd["slug"], "ask", {"text": (rec(rnd["slug"], "ask") or {}).get("text", "") + (" Also: " if rec(rnd["slug"], "ask") else "") + q})
+                event(change=rnd["slug"], record="ask", text=q[:300])
     return untriaged
 
 
@@ -3259,16 +3267,17 @@ def cmd_ask(a):
 
 
 def cmd_triage(a):
-    """R4: `hd triage <id> finding|ack`, the orchestrator's judgment of a maintainer's word: a finding (a defect or a
-    request) joins or files the PR's round; an acknowledgement files nothing and is never answered. An acknowledgement
+    """R4: `hd triage <id> finding|ask|ack`, the orchestrator's judgment of a maintainer's word: a finding (a defect or a
+    request) joins or files the PR's round; ask (a decision of scope only the user makes: move the PR to another repo, close it)
+    joins or files it too and opens it with the user's question; an acknowledgement files nothing and is never answered. An acknowledgement
     already filed as its own round, its only finding with no hand-over yet, closes that round (the orchestrator commits it)."""
     cid, verdict = a[0], a[1]
-    if verdict not in ("finding", "ack"):
-        refuse("the verdict is finding or ack")
+    if verdict not in ("finding", "ask", "ack"):
+        refuse("the verdict is finding, ask or ack")
     if rec("triage", cid):
         refuse(f"{cid} is already triaged: {rec('triage', cid)['verdict']}")
     on = [c for c in defs("changes").values() if cid in map(str, fids(c)) and not c.get("closed")]
-    if on and verdict == "finding":
+    if on and verdict != "ack":
         refuse(f"{cid} is already carried by {on[0]['slug']}")
     for c in on:
         if c["slug"] != round_slug(c["track"], c["pr"], cid) or len(fids(c)) > 1 or rec(c["slug"], "handover"):
@@ -3409,6 +3418,7 @@ def cmd_tree(a):
 def cmd_new(a):
     import argparse
     p = argparse.ArgumentParser(prog="hd new")
+    cfg()  # TRACK holds the targets hd.yaml adds
     p.add_argument("slug"); p.add_argument("--track", required=True, choices=list(TRACK)); p.add_argument("--title", required=True)
     p.add_argument("--kind", default="change", choices=["change", "release", "local"]); p.add_argument("--priority", default="P2")
     p.add_argument("--deps", default=""); p.add_argument("--goal"); p.add_argument("--branch"); p.add_argument("--pr", type=int)

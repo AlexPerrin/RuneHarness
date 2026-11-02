@@ -206,7 +206,7 @@ a live check reads the real state.
    a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
    a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
-   a run's own agent stops at its next tool call once the pass, the head or `hd stop` ended its run, and a started run ends once its change's step is the other role's;
+   a run's own agent stops at its next tool call once the pass, the head or `hd stop` ended its run, and a started run ends once its change's step is the other role's or a wait (a dependency, an open question), but for a wait on a limit it filed, which it hands over after;
    a subagent never runs the acting pass (a bare `hd` or `hd tick`), and a run signals no process outside its own slice;
    a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;

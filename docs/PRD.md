@@ -55,6 +55,7 @@ their no or their word to wait is `hd hold` (recorded by the orchestrator): the 
 a card wakes the orchestrator once per head and texts.
 The carry does the act exactly as shown, rerunnable, and records its result.
 The comment is the dev's push summary (pr-comment.md): a new PR's names its head, an update's every commit since the PR's live head (fetched from the PR when the clone lacks it);
+the base's commits a merge of it brings in are not the PR's, so the merge alone names them;
 until it does the change goes back to its dev with the commits it misses, and no card shows.
 A PR already at the head, ready, with nothing left to post gets no card;
 only a commit waits on CI.

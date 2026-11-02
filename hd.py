@@ -1915,7 +1915,7 @@ def user_hold(ch, head):
 
 def unnamed(ctx, ch, head):
     """R4: the commits pr-comment.md must name and does not, sorted: a new PR's head; an open PR's update each commit
-    since its live head (fetched from the PR when the clone lacks it); [] when the carry posts no comment (a release, a PR at
+    since its live head not on upstream main (fetched from the PR when the clone lacks it); [] when the carry posts no comment (a release, a PR at
     head); None unknown."""
     if not upstream(ch):  # a release posts its notes, no comment
         return []
@@ -1929,7 +1929,9 @@ def unnamed(ctx, ch, head):
         clone = ctx.clone(ch)
         if ctx.F.rev(clone, p["head"]) == "":  # the live head is the PR's, wherever it was pushed from: fetch it by the PR
             ctx.F.fetch(clone, "origin", f"pull/{p['number']}/head")
-        new = ctx.F.unmerged(clone, p["head"], head)
+        b = ctx.base(ch)
+        live, mine = ctx.F.unmerged(clone, p["head"], head), ctx.F.unmerged(clone, b, head) if b else None  # main's commits a merge of main brings in are no update's
+        new = None if live is None or mine is None else live & mine
     c = text(ch["slug"], "pr-comment.md")
     return None if new is None else sorted(x for x in new if x[:7] not in c)
 
@@ -2848,7 +2850,7 @@ def one_comment(parts):
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
     carry opens it, or each that differs from the open PR's live one; one comment per head (findings: those it answers),
-    the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds: unnamed() keeps the
+    the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds that is not on the base: unnamed() keeps the
     card back until it does) followed by each finding's reply. No review request: the account cannot ask upstream."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":

@@ -285,7 +285,7 @@ next(change):
     an open change of the PR it waits for (head not in this head, or built on it)?
       yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips), its texts covering every change of it;
       a round with no dev ref has its tip's head
-    pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list live-head..head, the head fetched by pull/N/head when the clone lacks it)?
+    pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list head ^live-head ^base, the head fetched by pull/N/head when the clone lacks it)?
       no → dev (input comment, head, the commits it misses): no card, no generic text
     the one comment quotes every finding of the round no comment of ours answers?
       no → dev (input findings, head, the ones it misses): no card

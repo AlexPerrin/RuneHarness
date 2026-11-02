@@ -60,7 +60,7 @@ class Fake(hd.Facts):
         if tip is None: return None
         return bool(tip and sha) and (tip == sha or (tip, sha) in s.f.get("anc", set()))
     def on_line(s, clone, tip, sha): return sha in s.f.get("line", ())
-    def unmerged(s, clone, base, head): return frozenset(s.f.get("commits", {}).get(head, {head}) - {base})  # a head's own commits: itself unless a test says
+    def unmerged(s, clone, base, head): c = s.f.get("commits", {}); return frozenset(c.get((head, base), c.get(head, {head})) - {base})  # a head's own commits: itself unless a test says (per base: (head, base))
     def tree(s, clone, commit, drop=""): return s.f.get("trees", {}).get(commit)
     def tools_files(s, clone, commit): return s.f.get("tools_files", {}).get(commit, {})
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
@@ -1672,6 +1672,16 @@ class R4(Sandbox):
         s.assertEqual(s.state(F, "s1")["actor"], "user")
         s.assertIn(f"### comment\nPushed {C[:9]} and {A[:9]}.", hd.tick(s.ctx(F), act=False)["card"][0])
         s.assertIn(["fetch", "origin", "pull/7/head"], F.ran)                   # the live head D, absent from the clone, is fetched by the PR
+
+    def test_an_update_merging_main_names_only_the_prs_own_commits(s):
+        E = "e" * 40                                                             # a main commit the merge A brings in
+        F = Fake(**{**FACTS, "commits": {A: {E, C, A}, (A, B): {C, A}}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
+        s.ready(F, pr=7)                                                         # live head D..A holds E, C, A; main B..A holds C, A
+        ev = s.root / "evidence" / "s1" / "pr-comment.md"
+        ev.write_text(f"Pushed {C[:9]} on top of {D[:9]}.")
+        s.assertEqual(s.state(F, "s1")["input"], ["comment", A, [A]])            # E is main's, already upstream: never asked for
+        ev.write_text(f"Pushed {C[:9]} and {A[:9]} (merges main).")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
 
     def test_the_rounds_one_comment_answers_every_open_finding_before_its_card(s):
         com = lambda i: {"id": i, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": i, "body": f"point {i}"}

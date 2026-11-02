@@ -609,10 +609,10 @@ def context_limit(p):
               "row not-judged if a row failed, else each judged row with its result in handoff.md; ")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
           f"Context limit reached ({size} tokens): start no new work (no new step, lookup or subagent); finish only the "
-          f"command in hand, then hand off cleanly, in this order: {save}{judged}"
+          f"command in hand, then hand off cleanly, in this order: {save}"
           "collect every subagent you started (SendMessage it to return its answer now, then block until its task "
           "notification; TaskStop cannot stop it) and stop every process you started (TaskStop, your track script's `down "
-          f"{r['change']}`); write evidence/{r['change']}/handoff.md (your commit, what is proven and by "
+          f"{r['change']}`); {judged}write evidence/{r['change']}/handoff.md (your commit, what is proven and by "
           "which evidence, what is left, the exact next step, whether a server or desktop is still up, the facts you rely on); "
           "then hand back with `run " + r["name"] + ": handoff`. A fresh run, listed in the same pass, resumes from your commit and file."}}))
     return True

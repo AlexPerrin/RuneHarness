@@ -22,3 +22,6 @@ sweep-24 P0: harness-qa-unjustified-upstream-test handed over base 67a63fc + for
 
 Also (filed): a passed whole-batch gate does not ship once a member joins mid-gate
 sweep-25 P2-b: harness-qa-unjustified-upstream-test, gated ok 02:22Z, was re-gated 4 times (b56fa957f, 476bcd29f, 59265184f, 5da62736c) before shipping 02:35:33Z: gate 476bcd29f was the whole batch when it started and passed, but a hand-over at 02:31:38Z and an hd.yaml commit re-keyed the batch (ARCHITECTURE.md:257). A prefix that was the whole batch when its gate started ships. evidence/monitor/sweep-25.md
+
+Also (filed): a carry posts one PR comment, not a comment plus a reply per finding
+The user (2026-11-01, ET): '4 seperate comments spams the upstream's discord, try and keep it to 1. No need to change now, keep it in fore future'. The #355 card posted the push comment plus four replies (review thread 4433239755, IC_kwDOQBbPT88AAAABeeLhdQ, IC_kwDOQBbPT88AAAABeeLmng, IC_kwDOQBbPT88AAAABfTOu_A). A carry posts one PR comment per head that names the head and answers every finding in it (each quoted, its asker @'d once); an inline review-thread reply only where the finding is on a line and no general comment can answer it. Not for the #355 carry already approved.

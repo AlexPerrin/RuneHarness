@@ -14,7 +14,7 @@ A live tools list is cached in ~/.cache/osrs-devtools/tools-<name>.json; without
 mcp/devtools-snapshot.json, answers it. A call with no client returns the backend's error, not a dead server.
 A desktop call's answer names a dropped session (the client back at the login screen) after its own content.
 Every request with an id is answered: the netstat probe is bounded, its start included, a desktop call is bounded whole
-(ANSWER_WAIT past its own timeoutMs), and an exception is an error.
+(ANSWER_WAIT past its own timeoutMs, its token read included), and an exception is an error.
 """
 import json
 import math
@@ -80,14 +80,15 @@ def post(url, method, params):
     port = re.search(r":(\d+)/", url).group(1)
     if listening(port) is False:
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
-    req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
-                                 {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-                                  "Authorization": f"Bearer {token(port)}"})
-    # the whole call is bounded, not each socket read (a body read is many): a hung client answers no call past it
+    # the whole call is bounded, its token read on /mnt/c included, not each socket read (a body read is many): a hung
+    # client or a hung file read answers no call past it
     limit = ANSWER_WAIT + ((params.get("arguments") or {}).get("timeoutMs") or 0) / 1000
     out = []
     def fetch():
         try:
+            req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
+                                         {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+                                          "Authorization": f"Bearer {token(port)}"})
             with urllib.request.urlopen(req, timeout=limit) as r:
                 out.append(r.read().decode())
         except urllib.error.HTTPError as e:   # the client's own error answer (401: another up's desktop), passed on as it said it

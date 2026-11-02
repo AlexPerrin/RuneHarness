@@ -2507,6 +2507,21 @@ class R6(Sandbox):
             b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "wait_for", "arguments": {"timeoutMs": 1000}})
             s.assertEqual(u.call_args.kwargs["timeout"], 1.2)          # a call's own wait is added to its bound
 
+    def test_a_desktop_call_is_answered_within_its_bound_when_its_token_read_or_endpoint_hangs(s):   # clan-channels-5: hover unanswered 5+ min
+        import importlib.util, socket, time
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d, True); (d / "run" / "1").mkdir(parents=True)
+        os.mkfifo(d / "run" / "1" / "owner")                          # a read on /mnt/c that never returns: open of a FIFO no one writes
+        srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(); s.addCleanup(srv.close)   # accepts, never answers
+        port = srv.getsockname()[1]
+        with mock.patch.object(b, "ANSWER_WAIT", 0.3), mock.patch.object(b, "listening", lambda p: True), mock.patch.dict(os.environ, {"DESKTOP_DIR": str(d)}):
+            for p in (7780, port):                                     # the token read hangs; the endpoint hangs
+                t0 = time.monotonic()
+                r = b.post(f"http://127.0.0.1:{p}/mcp", "tools/call", {"name": "hover", "arguments": {}})
+                s.assertLess(time.monotonic() - t0, 2); s.assertIn("did not answer within 0.3 s", r["error"]["message"])
+        open(d / "run" / "1" / "owner", "w").close()                   # release the hung reader thread
+
     def test_desktop_screenshot_answers_while_another_call_waits(s):   # central-login-whitelist-binds-3: a screenshot hung 30 min
         import importlib.util, io, threading
         spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")

@@ -22,3 +22,6 @@ Acceptance (all of the superseded changes):
 3. The live stack takes the APK's tokens from issuer.py with its DIR mounted; served jav_config params 11, 20, 22, 28 point at it; game.yml token-login holds its secret; the sidecar runs with LOCAL_AUTH false. Proof: the APK (OPENRUNE=1 LOCAL_AUTH=1) logs in on a change's stack through the issuer, contacting only local hosts. It changes a live component: before ship, hd ask the user for a yes on the cutover.
 
 The change waits on all three deps (part 3 needs server-token-auth and harness-issuer-official-shapes).
+
+Also (filed): server track.md calls the desktop token login auth type 7; rsprot decodes token login as auth type 2
+server-token-auth-13 hand-back: ~/src/OpenRune-Server/.worktrees/harness/tools/track.md:64 says 'login (auth type 7)'. rsprot 241 GameLoginDecoder decodes token login as auth type 2 (server-token-auth-12 QA FAIL on the same fact, fixed at e40d5e9dd). Fix the harness doc to auth type 2. (Lost in planner-18's merge of harness-live-deploy-evidence.)

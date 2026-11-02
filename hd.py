@@ -1552,10 +1552,11 @@ def nxt(ctx, ch):
     if behind:
         return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
     vs = judged(slug, head, con) if any(r["judge"] for r in con["rows"]) else []
-    failed = [k for k, r in vs[-1]["rows"].items() if r != "pass"] if vs else []
+    vr = vs[-1]["rows"] if vs else {}
+    failed, open_ = ([k for k, r in vr.items() if str(r).startswith(p)] for p in ("fail", "not-judged"))  # a not-judged row is open, never a fail
     if failed:  # R2: a head its last verdict failed is the dev's before any re-gate or re-judge of it
         return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
-                    detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed), stop=("build", "gate"))  # a build or gate of that head changes nothing: stopped
+                    detail="\n".join([f"{k}: {vr[k]}" for k in failed] + ([f"not judged: {', '.join(open_)}"] if open_ else [])), stop=("build", "gate"))  # a build or gate of that head changes nothing: stopped
     if not batched(ch) and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a batched head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
         T = ctx.T(ch, head)
         if T is None:

@@ -213,12 +213,9 @@ next(change):
   question open (hd ask)?
     yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?
-    no → qa run (server, central) | derived from the definition and seed rows (client, harness)
-  reply-only, no verdict at head?
-    yes → one qa run: contract, reply (pr-reply-<finding>.md), verdict, handover;
-    a FAIL verdict → dev
-    a FAIL verdict newer than the last hand-over keeps it the dev's, though the PR tip moves
-  handover at the dev ref's tip, no answer since (newer than it and the head's last verdict)?
+    no → qa run (server, central) | derived from the definition and seed rows (client, harness, a PR round filed from a finding)
+  handover at the dev ref's tip, no answer since (newer than it and the head's last verdict;
+  a joined filing or finding counts at once on an upstream change, else once its head is done)?
     no → dev run, even on a done change (it reopens) (a hand-off file lists its successor;
     FAIL findings and gate details in the brief)
   carried tools head behind branch?
@@ -244,7 +241,7 @@ next(change):
     every conflicting head is left out and the rest merged on (pins first, then heads by priority, then creation), so one dev step lists them all with the merge order;
     only a pin's conflict holds the deploy, the tree without a conflicting head deploys
   shipped (upstream)?
-    the open upstream PR (found by its head branch, no owner prefix) is at head, or the change is a finding with no commit of its own (reply-only): no build, no gate (only a commit is gated;
+    the open upstream PR (found by its head branch, no owner prefix) is at head, or the change is a round with no commit of its own (reply-only): no build, no gate (only a commit is gated;
     a PR's live head is never re-gated because main moved);
     a same-PR dependent counts it gated
   public (upstream, release)
@@ -256,9 +253,11 @@ next(change):
       its card held by the user: one alert naming that hold (lift it, or hold this card too), the test server deploy going on
     an open change of the PR it waits for (head not in this head, or built on it)?
       yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips), its texts covering every change of it;
-      a finding with no dev ref has its tip's head
+      a round with no dev ref has its tip's head
     pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list live-head..head, the head fetched by pull/N/head when the clone lacks it)?
       no → dev (input comment, head, the commits it misses): no card, no generic text
+    the one comment quotes every finding of the round no comment of ours answers?
+      no → dev (input findings, head, the ones it misses): no card
     approval.json at head, texts?
       no → card in the console: the acts in order (push when the PR is not at head, open the draft or update PR N replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready, the review request), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;
@@ -295,7 +294,9 @@ next(change):
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;
     no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply after it in its thread, or any comment of ours quoting it;
-    no date counts) files a P1 change <track>-<pr>-c<id> on the pr with deps [the pr's tip changes], the track's seed rows unagreed plus a judged `finding` row
+    no date counts) joins the pr's one open round: its open change not yet carried (the tip, least slug), the id added to its `finding` and a judged answer row `finding <id> by <author>` to its contract;
+    with none open, a P1 change <track>-<pr>-c<id> on the pr with deps [the pr's tip changes] and the track's seed rows, derived.
+    `hd new --pr <n>` on an upstream track joins that round the same way (an answer row `filed by`, its deps the round's)
   done
 ```
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in);

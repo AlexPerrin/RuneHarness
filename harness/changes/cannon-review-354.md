@@ -20,6 +20,7 @@ deps:
 - harness-server-build-musicrepository
 - harness-desktop-first-login
 - harness-public-finds-existing-pr
+superseded: cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq
 ---
 ## Change
 Upstream #354 is CHANGES_REQUESTED (Mark7625 2026-10-22 07:57, eaglepurerocketgrape 11:42). Head content/cannon 9c08b42ca. Supersedes the BR-C1 fold decision on `cannon`: the fix goes on the PR head itself.

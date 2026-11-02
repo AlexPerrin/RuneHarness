@@ -56,7 +56,9 @@ The comment is the dev's push summary (pr-comment.md): a new PR's names its head
 until it does the change goes back to its dev with the commits it misses, and no card shows.
 A PR already at the head, ready, with nothing left to post gets no card;
 only a commit waits on CI.
-A maintainer's finding answered with no code is one run: its contract, reply and verdict, with no gate.
+A PR round is one change: each maintainer finding, and each fix filed on the PR, joins the PR's one open change not yet carried as a judged row (a change filed when none is open);
+its dev answers every finding (a commit stacked on the PR for each that needs code, a reply for each), one qa run judges every row at its last head, and one card's one comment answers every finding;
+a round answered with no code has no gate.
 
 ### R5 Recovery (from P3 P5)
 Any failure is repaired in one pass with no user action;
@@ -75,7 +77,7 @@ P2 our upstream changes;
 P3 features;
 P4 new quests), a harness change never below P1;
 no run is listed for a change below the best tier of a change with a run due and not yet listed, a change whose run is listed or alive or only waiting (on a dependency, a gate, the user) holding nothing, nor one whose due run the pass cannot list (an alert names why), nor below the band the user holds until the user lifts it, that band alone dropping a listed run not yet started;
-a change's runs are one dev and one qa run per head move and one qa run per finding answered with no code, a listed run not yet started taking its step's moved input under its name, and any other run names its cause in its step;
+a change's runs are one dev and one qa run per head move, a PR round of any number of findings being one change, a listed run not yet started taking its step's moved input under its name, and any other run names its cause in its step;
 the pass acts and logs only when a change's state changes;
 a run hands off to a fresh run at the context limit, listed at once whatever the tier or the count;
 a run keeps a desktop up only while it plays in it;
@@ -185,7 +187,8 @@ a live check reads the real state.
    only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;
    a PR already at the head, ready, with every reply posted, gets no card;
-   a finding with no dev ref has its PR tip's head and no gate;
+   a round with no dev ref has its PR tip's head and no gate;
+   the comment quotes every finding of the round no comment of ours answers yet, else the round's dev step and no card;
    a central change is carried to Central's upstream;
    the dry-run check fails a candidate only on a public act main plans neither before nor after it.
    Live: `hd approve` or `hd close` from a subagent or the orchestrator session is denied, while the user's own `!` command fires no hook.

@@ -113,6 +113,9 @@ class Sandbox(unittest.TestCase):
         hd.write_contract(hd.cfg(), slug, track, "qa-run")
         with open(s.root / "evidence" / slug / "contract.md", "a") as f:
             f.write(extra)
+        if (ch := hd.defs("changes").get(slug)) and hd.fids(ch):  # a round's finding rows, as the pass writes them
+            with mock.patch("sys.stdout", new_callable=io.StringIO), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+                hd.finding_rows(slug, ch, hd.fids(ch), {})
         (s.root / "evidence" / slug / "pr-body.md").write_text("body")
         (s.root / "evidence" / slug / "pr-comment.md").write_text(PUSHED)       # names every head a test pushes
 
@@ -140,7 +143,8 @@ class Sandbox(unittest.TestCase):
 
     def verdict(s, slug, head, rows, F):
         f = s.root / "rows.json"
-        f.write_text(json.dumps(rows))
+        fr = {r["id"]: "pass" for r in (hd.contract(slug) or {"rows": []})["rows"] if r["id"].startswith("answer-") and " finding " in r["text"][:30]}
+        f.write_text(json.dumps({**fr, **rows}))                               # a round's finding rows pass unless a test says
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_verdict([slug, head, str(f)])
 
@@ -377,7 +381,7 @@ class R2(Sandbox):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # h1 live and done: c1 goes on
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joins h1 after its done head
-        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")
         s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # its step reopened: met only once its dev acts on it
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
@@ -458,34 +462,42 @@ class R2(Sandbox):
         (repo / "wt" / "f").write_text("x"); s.assertTrue(hd.Facts().edits(str(repo / "wt")))   # an untracked file is
         (repo / "wt" / "f").unlink(); (repo / "wt" / ".gitignore").write_text("x"); s.assertTrue(hd.Facts().edits(str(repo / "wt")))  # a tracked edit is
 
-    def test_maintainer_inline_comment_files_a_change_once(s):
+    def test_maintainer_inline_comment_files_a_round_once_and_later_findings_join_it(s):
         s.change("s1", pr=354, branch="content/cannon"); s.agreed("s1")
         s.change("s1-old", pr=354, deps=["s1"], finding=7)                 # filed by hand: carried
+        hd.put("s1-old", "ship", {"head": A, "ok": True})                  # the PR's last round went upstream at A
         com = lambda i, who="a-thoren", **k: {"id": i, "author": who, "bot": False, "reply": None, "path": "N.kt", "line": 265, "body": "reset | the varp?", **k}
-        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9), com(10, reply=9), com(11, "O", reply=9), com(12, "ci", bot=True)]}})
+        F = Fake(**{**FACTS, "comments": {354: [com(7), com(8), com(9), com(10, reply=9), com(11, "O", reply=9), com(12, "ci", bot=True)]},
+                    "prs": {"u/f": [{"number": 354, "branch": "content/cannon", "owner": "o", "head": A, "draft": False}]}})
         hd.tick(s.ctx(F), act=False)
-        s.assertFalse((s.root / "harness" / "changes" / "s1-c8.md").exists())  # a dry run files nothing
+        s.assertFalse((s.root / "harness" / "changes" / "server-354-c8.md").exists())  # a dry run files nothing
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
-        s.assertEqual(list(new), ["server-354-c8"])                                # one change, once: answered (9, 10), ours, bots, carried skipped
+        s.assertEqual(list(new), ["server-354-c8"])                                # one round, once: answered (9, 10), ours, bots, carried skipped
         c = new["server-354-c8"]
-        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1-old"], 354, 8, "P1", "content/cannon"))  # on the PR's tip
+        s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1-old"], 354, [8], "P1", "content/cannon"))  # on the PR's tip
         con = hd.contract("server-354-c8")
-        s.assertIsNone(con["agreed"])                                      # its own contract, agreed by qa
-        s.assertEqual([r["id"] for r in con["rows"]], [l[2:].split(" |")[0] for l in hd.seed_rows(hd.cfg(), "server").splitlines()] + ["finding"])
-        s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
+        seeds = [l[2:].split(" |")[0] for l in hd.seed_rows(hd.cfg(), "server").splitlines()]
+        s.assertEqual(con["agreed"], "derived")                            # its findings are its contract: the dev answers, qa judges once
+        s.assertEqual([r["id"] for r in con["rows"]], seeds + ["answer-1"])
+        s.assertTrue(con["rows"][-1]["judge"]); s.assertIn("finding 8 by a-thoren on N.kt:265: reset / the varp?", con["rows"][-1]["text"])
+        F.f["comments"][354] += [com(13, "eagle"), com(14)]                # later findings join the open round: no change of their own
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))                               # the joins, then the pass's rows for them
+        s.assertEqual(sorted(k for k in hd.defs("changes") if k not in ("s1", "s1-old")), ["server-354-c8"])
+        s.assertEqual(hd.defs("changes")["server-354-c8"]["finding"], [8, 13, 14])
+        s.assertEqual([r["id"] for r in hd.contract("server-354-c8")["rows"]], seeds + ["answer-1", "answer-2", "answer-3"])
 
-    def test_two_findings_on_a_pr_of_two_roots_each_get_their_own_contract_and_slug(s):
+    def test_findings_on_a_pr_of_two_roots_join_its_one_open_round(s):
         s.change("cannon-a", pr=354); s.agreed("cannon-a", extra="- answer-1 | a-thoren's mcannonmulti | judge\n")
         s.change("cannon-b", pr=354); s.agreed("cannon-b", extra="- acc-A1 | the reclaim | judge\n")
         talk = lambda i, who, body: {"id": i, "author": who, "body": body}
         F = Fake(**{**FACTS, "comments": {354: []}, "talk": {354: [talk("IC_x", "a-thoren", "mcannonmulti resets"), talk("IC_y", "eagle", "Nulodion's reclaim")]}})
-        hd.tick(s.ctx(F))
-        seeds = [l[2:].split(" |")[0] for l in hd.seed_rows(hd.cfg(), "server").splitlines()]
-        for slug, words in (("server-354-cicx", "mcannonmulti resets"), ("server-354-cicy", "Nulodion's reclaim")):
-            con = hd.contract(slug)
-            s.assertEqual([r["id"] for r in con["rows"]], seeds + ["finding"])   # no root's rows (answer-1, acc-A1): the track's seeds and its own finding
-            s.assertIn(words, con["rows"][-1]["text"]); s.assertIn(f"# Contract: {slug}", con["text"])
+        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
+        s.assertEqual(sorted(hd.defs("changes")), ["cannon-a", "cannon-b"])        # no change per finding
+        s.assertEqual(hd.defs("changes")["cannon-a"]["finding"], ["IC_x", "IC_y"])   # the open round: the least tip
+        rows = hd.contract("cannon-a")["rows"]
+        s.assertEqual([r["id"] for r in rows][-2:], ["answer-2", "answer-3"])
+        s.assertIn("mcannonmulti resets", rows[-2]["text"]); s.assertIn("Nulodion's reclaim", rows[-1]["text"])
 
     def test_a_finding_files_until_a_reply_or_comment_of_ours_answers_it(s):
         s.change("s1", pr=354); s.agreed("s1"); s.change("s1-c8", pr=354, deps=["s1"], finding=8)
@@ -496,13 +508,11 @@ class R2(Sandbox):
                     "talk": {354: [talk("IC_a", "rev", "the varp\nresets"), talk("IC_b", "O", "> the varp resets\n\n@rev fixed."), talk("IC_c", "rev", "still wrong"),
                                    talk("PRR_d", "rev", "please split it"), talk("PRR_e", "rev", ""), talk("PRR_f", "O", "ours"), talk("PRR_g", "rev", "rename it now, please")]}})
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
-        new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-c8")}
-        s.assertEqual(sorted(new), ["server-354-c11", "server-354-cicc", "server-354-cprrd"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
-        s.assertEqual((new["server-354-c11"]["deps"], new["server-354-c11"]["finding"]), (["s1-c8"], 11))
-        s.assertEqual((new["server-354-cicc"]["finding"], new["server-354-cicc"]["title"]), ("IC_c", "#354: rev on the PR"))
-        s.assertIn("please split it", hd.contract("server-354-cprrd")["rows"][-1]["text"])
+        s.assertEqual(sorted(hd.defs("changes")), ["s1", "s1-c8"])
+        s.assertEqual(hd.defs("changes")["s1-c8"]["finding"], [8, 11, "IC_c", "PRR_d"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
+        s.assertIn("> please split it", hd.defs("changes")["s1-c8"]["body"])       # each joined finding's quote in the round's definition
         s.assertEqual(hd.root(F.f["comments"][354], 11), 8)               # its reply goes in thread 8, and answers it only after 11
-        ctx = s.ctx(F); ch = {**ctx.changes["server-354-c11"]}
+        ctx = s.ctx(F); ch = {**ctx.changes["s1-c8"]}
         s.assertEqual((hd.answered(ctx, ch, 11), hd.answered(ctx, ch, "IC_c"), hd.answered(ctx, ch, "IC_a"), hd.answered(ctx, ch, "IC_gone")), (False, False, True, False))
         F.f["comments"][354].append(com(13, "O")); F.f["talk"][354].append(talk("IC_h", "O", "> still wrong\n\n@rev now right."))
         s.assertEqual((hd.answered(s.ctx(F), ch, 11), hd.answered(s.ctx(F), ch, "IC_c")), (True, True))
@@ -517,7 +527,7 @@ class R2(Sandbox):
         ctx = s.ctx(F); ctx.cfg["bots"] = ["CI-X"]                                      # hd.yaml's bots: a bot GitHub does not mark
         hd.tick(ctx, act=False); s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), [])
         hd.tick(ctx)
-        s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), ["server-354-cica", "server-354-cicb"])  # no comment of ours, no date: both; the rest are bots
+        s.assertEqual((sorted(hd.defs("changes")), hd.defs("changes")["s1"]["finding"]), (["s1"], ["IC_a", "IC_b"]))  # no comment of ours, no date: both join the open round; the rest are bots
         s.change("s2", pr=355); s.agreed("s2"); F.f["talk"][355] = [talk("IC_z", "rev")]; F.f["comments"] = None
         hd.tick(s.ctx(F))
         s.assertNotIn("server-355-cicz", hd.defs("changes"))                                       # the inline comments unread: nothing files
@@ -1282,21 +1292,24 @@ class R4(Sandbox):
             s.ship(F, GH())
         s.assertIn("must quote [99]", str(e.exception))
 
-    def test_a_finding_answered_with_no_code_is_one_qa_run(s):
-        s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99)
+    def test_a_round_answered_with_no_code_is_one_dev_and_one_qa_run_with_no_gate(s):
+        s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=[98, 99]); hd.write_contract(hd.cfg(), "s1", "server", "derived")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, "fork/dev/s1": ""},
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
-        s.assertEqual(s.state(F, "s1")["actor"], "script")                      # the seed contract
-        hd.write_contract(hd.cfg(), "s1", "server", "")
+        s.assertEqual(s.state(F, "s1")["state"], "contract: finding rows 98, 99 added")   # each finding a judged row, by the pass
+        with mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.tick(s.ctx(F))
         st = s.state(F, "s1")
-        s.assertEqual((st["actor"], st["mode"], st["state"]), ("qa", "contract", "reply: qa run due"))   # one run, not contract then dev then review
-        s.agreed("s1"); (s.root / "evidence" / "s1" / "pr-reply-99.md").write_text("> reset it\n\n@rev kept.")
-        s.assertEqual(s.state(F, "s1")["actor"], "qa")                          # agreed, no verdict yet: still that run's
+        s.assertEqual((st["actor"], st["state"]), ("dev", f"dev run due: head {A[:9]} not handed over"))   # the dev answers the round: no contract run
+        for f in (98, 99):
+            (s.root / "evidence" / "s1" / f"pr-reply-{f}.md").write_text(f"> point {f}\n\n@rev kept.")
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_handover(["s1", "Limits:", "none"])
+            hd.cmd_handover(["s1", "Limits:", "none"])                    # no commit: its head is the PR tip's
+        s.assertEqual(s.state(F, "s1")["state"], "review due")             # no build, no gate: one qa judges every row
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        s.assertNotIn(s.state(F, "s1")["actor"], ("qa", "dev"))                 # its run done: no dev, no review
-        s.verdict("s1", A, {"ok": "fail: needs code", "j1": "pass"}, F)         # the QA run decides code is needed
+        s.assertNotIn(s.state(F, "s1")["actor"], ("qa", "dev"))
+        s.assertEqual([x for x in F.spawned if x[1] in ("build", "gate")], [])
+        s.verdict("s1", A, {"ok": "pass", "j1": "fail: 99 needs code"}, F)  # a finding that needs code: the round's dev stacks a commit
         s.assertEqual(s.state(F, "s1")["actor"], "dev")
         F.f["refs"]["fork/dev/s0"] = C; F.f["trees"][C] = TA; F.f["merges"][(B, C)] = ("ok", C); s.agreed("s0"); s.gated("s0", F)   # the PR tip moves while the dev fixes: still the dev's, no reply run
         s.assertEqual(s.state(F, "s1")["state"], f"dev run due: head {C[:9]} not handed over")
@@ -1344,6 +1357,26 @@ class R4(Sandbox):
         s.assertEqual(s.state(F, "s1")["actor"], "user")
         s.assertIn(f"### comment\nPushed {C[:9]} and {A[:9]}.", hd.tick(s.ctx(F), act=False)["card"][0])
         s.assertIn(["fetch", "origin", "pull/7/head"], F.ran)                   # the live head D, absent from the clone, is fetched by the PR
+
+    def test_the_rounds_one_comment_answers_every_open_finding_before_its_card(s):
+        com = lambda i: {"id": i, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": i, "body": f"point {i}"}
+        F = Fake(**{**FACTS, "commits": {A: {A}}, "comments": {7: [com(98), com(99)]}, "prs": {"u/f": [{"number": 7, "branch": "content/s1", "owner": "o", "head": D, "draft": False}]}})
+        s.ready(F, pr=7, finding=[98, 99])
+        ev = s.root / "evidence" / "s1"
+        (ev / "pr-reply-98.md").write_text("> point 98\n\n@rev fixed.")                # 99 answered nowhere
+        st = s.state(F, "s1")
+        s.assertEqual((st["actor"], st["input"]), ("dev", ["findings", A, [99]])); s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])
+        (ev / "pr-reply-99.md").write_text("> point 99\n\n@rev fixed too.")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertEqual([f for w, f, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"]) if w == "comment"], [[98, 99]])
+
+    def test_a_fix_filed_on_a_pr_joins_its_open_round(s):
+        s.change("s1", pr=7, branch="content/s1"); s.agreed("s1"); s.change("h9", "harness")
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            hd.cmd_new(["s1-fix", "--track", "server", "--title", "the dump's accuracy fix", "--pr", "7", "--deps", "h9", "--body", "check it against the dump"])
+        g = hd.defs("changes")
+        s.assertNotIn("s1-fix", g); s.assertIn("h9", g["s1"]["deps"])                 # no change of its own: the round takes it and its wait
+        s.assertIn("filed by s1-fix: the dump's accuracy fix", hd.contract("s1")["rows"][-1]["text"])
 
     def test_a_new_prs_comment_names_only_its_head(s):
         F = Fake(**{**FACTS, "commits": {A: {C, A}}})                            # main..head holds C and A: a new PR names only A
@@ -2369,46 +2402,57 @@ class R6(Sandbox):
         hook.bind(payload(r, "ag1", "SubagentStart", s.root))
         s.assertEqual(hd.runs()[0]["agent_id"], "ag1")                                     # its spawn binds, never refused
 
-    def test_a_pr_with_n_findings_and_one_head_move_takes_three_runs_and_one_per_finding(s):
-        """R6: a modeled PR: its contract, one head move (handed over, built, gated), its review, and N maintainer findings
-        each answered with no code; a row joined while its dev run is listed. Every listed run is spawned and does its role's
-        work: the change takes 3 runs and each finding 1, every run named by its step."""
+    def test_a_pr_round_of_n_findings_and_one_head_move_costs_one_dev_one_qa_one_gate_and_one_card(s):
+        """R6: a modeled PR carried at A takes N maintainer findings at once, and one more while its dev run is listed: they
+        are one round change, whose dev stacks the answers on the PR (one head move, C), gated once and judged by one qa
+        run at that last head, then one card whose one comment answers every finding. Every listed run is spawned and does its role's work."""
         N = 3
-        s.change("s0", pr=7)
-        for i in range(N):
-            s.change(f"s{i + 1}", deps=["s0"], pr=7, finding=90 + i)
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A, **{f"fork/dev/s{i + 1}": "" for i in range(N)}},
+        s.change("s0", pr=7, branch="content/s0"); s.agreed("s0")
+        com = lambda i: {"id": i, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": i, "body": f"point {i}"}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "fork/dev/s0": A}, "trees": {A: TA, B: TB, C: TC}, "merges": {(B, A): ("ok", A), (B, C): ("ok", C)},
+                    "anc": {(C, A)}, "comments": {7: [com(90 + i) for i in range(N)]}, "talk": {7: []},
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
-        passed = lambda r: s.verdict(r["change"], A, {x["id"]: "pass" for x in hd.contract(r["change"])["rows"]}, F)
-        work = {("qa", "contract"): lambda r: (hd.write_contract(hd.cfg(), r["change"], "server", r["name"]), (s.root / "evidence" / r["change"] / "pr-body.md").write_text("body"),
-                                              (s.root / "evidence" / r["change"] / "pr-comment.md").write_text(PUSHED)),
-                ("dev", "code"): lambda r: s.gated(r["change"], F),
-                ("qa", "judge"): passed}
-        reply = lambda r: (work["qa", "contract"](r), (s.root / "evidence" / r["change"] / f"pr-reply-{hd.defs('changes')[r['change']]['finding']}.md").write_text("> x\n\n@rev kept."),
-                           s.gated(r["change"], F), passed(r))
-        joined = False
+        s.gated("s0", F); s.verdict("s0", A, {"ok": "pass", "j1": "pass"}, F); hd.put("s0", "ship", {"head": A, "ok": True})   # the PR's last round, carried
+        def dev(r):  # one commit answering every finding on the PR's head, the push comment and each reply
+            F.f["refs"][f"fork/dev/{r['change']}"] = C
+            ev = s.root / "evidence" / r["change"]
+            (ev / "pr-comment.md").write_text(PUSHED)
+            for f in hd.defs("changes")[r["change"]]["finding"]:
+                (ev / f"pr-reply-{f}.md").write_text(f"> point {f}\n\n@rev fixed in {C[:9]}.")
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+                hd.cmd_handover([r["change"], "Limits:", "none"])
+        judge = lambda r: s.verdict(r["change"], C, {x["id"]: "pass" for x in hd.contract(r["change"])["rows"]}, F)
+        joined, gates, cards = False, 0, 0
         for _ in range(12):
             v = hd.tick(s.ctx(F))
+            cards = max(cards, len(v["card"]))
+            for k in hd.defs("changes"):
+                st, ho = s.state(F, k)["state"], hd.rec(k, "handover")
+                if st.startswith("building"):
+                    hd.put(k, "build", {"T": ho["T"], "ok": True})
+                elif st.startswith("gate on"):
+                    hd.put(k, "gate", {"T": ho["T"], "ok": True}); gates += 1
             for x in v["spawn"]:
                 r = hd.runs(x.split(":")[0])[0]
                 if r["role"] == "planner":
                     continue
-                if r["role"] == "dev" and not joined:   # a filing joins while the dev run is listed: the run takes it
-                    joined = True
-                    with open(s.root / "evidence" / "s0" / "contract.md", "a") as f:
-                        f.write("- joined | a joined filing | judge: see it\n")
+                if r["role"] == "dev" and not joined:   # one more finding while the dev run is listed: the run takes it
+                    joined = True; F.f["comments"][7].append(com(99))
                     continue
                 hook.bind(payload(r, "ag-" + r["name"], "SubagentStart", s.root))
-                (reply if r["step"].startswith("reply") else work[r["role"], r["mode"]])(r)
+                (dev if r["role"] == "dev" else judge)(r)
                 with mock.patch.object(hook, "start_pass"):
                     hook.end_run(payload(r, "ag-" + r["name"], "SubagentStop", s.root, handback=f"run {r['name']}: done"))
-            if not v["spawn"] and all(s.state(F, k)["actor"] not in ("dev", "qa", "script") for k in hd.defs("changes")):
+            if cards:
                 break
+        rnd = f"server-7-c{90}"
+        s.assertEqual(sorted(hd.defs("changes")), ["s0", rnd])                              # one round change, not one per finding
+        s.assertEqual(hd.defs("changes")[rnd]["finding"], [90 + i for i in range(N)] + [99])
         rs = [r for r in hd.runs() if r["role"] != "planner"]
-        count = {k: len([r for r in rs if r["change"] == k]) for k in hd.defs("changes")}
-        s.assertEqual(count, {"s0": 3, **{f"s{i + 1}": 1 for i in range(N)}}, [(r["name"], r["step"], r.get("reason")) for r in rs])
-        s.assertTrue(joined and all(r["step"] and r["record"] for r in rs))                 # each run did its step, none ended unspent
-        s.assertEqual(len(hd.tick(s.ctx(F), act=False)["card"]), 1)                         # done: the PR's one card waits for the user
+        s.assertEqual(sorted((r["change"], r["role"]) for r in rs), [(rnd, "dev"), (rnd, "qa")], [(r["name"], r["step"], r.get("reason"), s.state(F, rnd)) for r in rs])
+        s.assertEqual((gates, cards), (1, 1))
+        ctx = s.ctx(F); txt = hd.public_texts(ctx, ctx.changes[rnd])
+        s.assertEqual([f for w, f, _ in txt if w == "comment"], [[90 + i for i in range(N)] + [99]])   # its one comment answers every finding
 
     def test_a_listed_run_stays_listed_when_a_higher_change_appears(s):
         s.change("q2", priority="P2"); s.agreed("q2")
@@ -3677,7 +3721,7 @@ class R3(Sandbox):
         s.assertFalse(any(e.get("record") == "answer" for e in hd.evs(b'"record": "answer"')))   # no run's record is outdated by it
         s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))           # the handed-over head is still gated and shipped
         D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})
-        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")   # its scope, on top
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")   # its scope, on top
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(s.state(D, "h1")["state"], "done")
@@ -3695,7 +3739,7 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "Limits:", "none"])                          # handed over after the join, without it
         D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})   # its head, done
         s.assertEqual(hd.rec("h1", "handover")["given"], "2000-01-01T00:00:00Z")
-        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")
         s.assertTrue(any(e.get("action") == "joined" and e.get("by") == "p9" for e in hd.evs(b'"action": "joined"')))   # a plain filing, not a limit
 
     def test_a_filing_the_running_dev_was_told_is_not_late(s):  # sweep-25 P2-a: the orchestrator's relay counts as taken

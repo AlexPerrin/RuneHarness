@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/track.sh <verb> <slug> [TCOMMIT]: the harness track (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT
-# EVIDENCE BUILD HD_ROOT TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
+# EVIDENCE BUILD HD_ROOT G (the gate key) TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
 # past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push; one ship at
@@ -26,30 +26,33 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
-summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal, whatever the tests print
-check_tests() { (cd "$BUILD" && env -u ROWS python3 -m unittest discover -s tests 2>&1 | summary); }
-gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; kept by T as gate-<T>
+unit='import os, sys, unittest; unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3
+summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
+check_tests() { (cd "$BUILD" && env -u ROWS python3 -c "$unit" discover -s tests 3>&1 >/dev/null 2>&1 | summary); }
+gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>
   wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
-  if out=$(HD_ROOT=$root python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1); then record true gate <<< "$out"; else record false gate <<< "$out"; fi
+  out=$(HD_ROOT=$root TOOLS_ROOT=$wt LIVE=$repo python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1) && rc=0 || rc=$?   # the rows are T's own scripts (the files its key names); main's plan is LIVE's
+  [ $rc != 75 ] || { echo "$out"; exit 75; }   # a row held (its source down): no result, hd starts the gate again
+  T=${G:-${T:-}}; record "$([ $rc = 0 ] && echo true || echo false)" gate <<< "$out"
   cp "$state/gate.json" "$state/.gate.$$.tmp"; mv -f "$state/.gate.$$.tmp" "$state/gate-$T.json"
 }
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute); a dry-run reads GitHub from the passes' cache and git from the local refs alone (HD_OFFLINE), never the network
-  mine=$(python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
+  live=${LIVE:-$repo}; mine=$(python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
   theirs=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
-  mine=$( (echo "$mine"; python3 "$repo/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
+  mine=$( (echo "$mine"; python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
   extra=$(comm -13 <(echo "$mine") <(echo "$theirs")); [ -z "$extra" ] || { echo "plans a public act main does not: $extra"; exit 1; }
 }
 check_docs() {  # every requirement has its test class and its acceptance row; the source docs one fact per line
   [ "$(grep -cE '^class R[1-8]\(' "$BUILD/tests/test_hd.py")" = 8 ] && [ "$(grep -c '"id": "R' "$BUILD/docs/ACCEPTANCE.json")" = 8 ] || { echo "a requirement lacks its test class or acceptance row"; exit 1; }
   (cd "$BUILD" && python3 tools/docfmt.py --check docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md)   # one fact per line: siblings merge (R8)
 }
-check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head
+check_tools() {  # each carried tools head: a fast-forward of its branch, its tools/**/test_*.py pass at that head (with HOME and PATH alone: the gate's T, TCOMMIT and SLUG are not the product tests')
   for t in ${TOOLS:-}; do
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/$SLUG-build
     git -C "$path" merge-base --is-ancestor "$branch" "$sha" || { echo "$path: $sha is not a fast-forward of $branch"; exit 1; }
     if [ -d "$wt" ]; then git -C "$wt" checkout -q --detach "$sha"; else git -C "$path" worktree add -q --detach "$wt" "$sha"; fi
     tests=$(git -C "$wt" ls-files tools | grep -E '(^|/)test_[^/]*\.py$' || true)
-    [ -z "$tests" ] || (cd "$wt" && python3 -m unittest $tests 2>&1 | summary) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
+    [ -z "$tests" ] || (cd "$wt" && env -i HOME="$HOME" PATH="$PATH" python3 -c "$unit" $tests 3>&1 >/dev/null 2>&1 | summary) || { echo "$path at ${sha:0:9}: tests fail"; exit 1; }
   done
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)

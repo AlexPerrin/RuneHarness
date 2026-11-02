@@ -64,7 +64,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
   a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>`, so a change already handed over gets a dev run for it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
-  `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`
+  `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;
+  every dependency on a superseded change or on the filing (`--blocks`) is rewritten to the change that carries the fix, the new one or the one it joined, cycle-checked
 
 - `hd show <slug>`, by the orchestrator: the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead)
 
@@ -74,6 +75,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T}
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
+  keyed to the head and `judged`, the hash of the rows without a script (a check or gate row is gated, never judged);
   refused if a row is missing, or not judged with none failing
 
 - `hd tree <slug> <commit>`, by a track script: the T commit and tree of a working-copy snapshot, so a dev builds T
@@ -107,7 +109,7 @@ evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools}                state/<slug>/gate.json      {T, ok, detail}
-state/<slug>/verdicts.jsonl    {head, contract, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
+state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
 state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}

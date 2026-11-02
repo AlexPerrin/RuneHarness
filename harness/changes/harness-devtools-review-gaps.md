@@ -20,3 +20,6 @@ genie-review-355-132 hand-back (qa, ~01:2xZ): the permission classifier blocked 
 
 Also (filed): R6 desktop-call bound test fails under parallel load
 harness-orchestrator-self-restart-1 saw R6.test_a_desktop_call_is_answered_within_its_bound_when_its_token_read_or_endpoint_hangs (0.3 s bound) fail once alongside other classes; passed on rerun and on v8. A bound that depends on host load is a time estimate: decide on an observable fact. Evidence: evidence/harness-orchestrator-self-restart/tests-R2-R5-R6.txt
+
+Also (filed): A desktop devtools call answers within its bound: type_chat hung 30 minutes
+hunter-feat-pr-22 (qa, head 89632544d): the desktop's type_chat hung for 30 minutes during the bird house test, which ended play; none of the other activities could be played at this head (6 rows failed, 97 not judged). The same run's first up again failed with no inventory sent after login (as server-world-entities-14; joined harness-live-stack-issuer). Evidence: evidence/hunter-feat-pr/qa-in-game-22.md

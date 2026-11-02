@@ -1750,7 +1750,7 @@ class R5(Sandbox):
         s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t1", "waiting for the batch ahead (gate on t1)"])
         hd.tick(s.ctx(F)); s.assertEqual((len(F.spawned), F.stopped), (1, []))  # the running gate holds: nothing restarted
         hd.put("ship-harness", "gate-t1", {"ok": True}); F.f["procs"] = {(7, "1")}
-        s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # its prefix ships; h2 follows in the next batch
+        s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t12"] * 2)   # its prefix passed: the whole batch gates before any ship
         hd.drop("ship-harness", "gate-t1"); F.f["procs"] = {(7, "1"), (4242, "99")}
         F.f["refs"]["harness/h1"] = "9" * 40                                     # h1's head moves: the running gate's prefix is gone
         F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), ("9" * 40, H2): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
@@ -2396,6 +2396,14 @@ class R8(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3]])  # one gate for all three
         s.assertEqual(F.envs[-1]["NAMES"], "h1,h2,h3")
+        hd.put("ship-harness", "gate-t1", {"ok": True})                                # a shorter prefix passes while the batch gates: nothing ships
+        s.assertEqual(states(), ["gate on t123"] * 3)
+        hd.put("ship-harness", "gate-t123", {"ok": False, "detail": "FAIL: tests"})   # the batch fails: the prefix between them
+        s.assertEqual(states(), ["gate on t12"] * 2 + ["waiting for the batch ahead (gate on t12)"])
+        hd.put("ship-harness", "gate-t12", {"ok": False, "detail": "FAIL: tests"})    # the next longer fails: the longest passing ships
+        s.assertEqual(states(), ["shipping", "waiting for the batch ahead (shipping)", "waiting for the batch ahead (shipping)"])
+        for k in ("t1", "t12"):
+            (s.root / "state" / "ship-harness" / f"gate-{k}.json").unlink()
         hd.put("ship-harness", "gate-t123", {"ok": True})
         hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", M3], ["ship", "ship-harness", M3]])  # shipped once

@@ -9,7 +9,7 @@ deps:
 - harness-build-gate-keyed-process
 - harness-issuer-official-shapes
 - server-token-auth
-- harness-server-stack-one-deploy
+- harness-live-stack-issuer
 mechanism: server
 created: '2026-11-02T00:46:49Z'
 superseded: harness-server-stack-one-deploy

@@ -12,7 +12,8 @@ A desktop walk_to walks to its tile at any distance in minimap clicks of at most
 A live tools list is cached in ~/.cache/osrs-devtools/tools-<name>.json; without a live client the cache, else
 mcp/devtools-snapshot.json, answers it. A call with no client returns the backend's error, not a dead server.
 A desktop call's answer names a dropped session (the client back at the login screen) after its own content.
-Every request with an id is answered: the netstat probe is bounded, its start included, and an exception is an error.
+Every request with an id is answered: the netstat probe is bounded, its start included, a desktop call is bounded whole
+(ANSWER_WAIT past its own timeoutMs), and an exception is an error.
 """
 import json
 import math
@@ -35,6 +36,7 @@ def reply(msg_id, **body):
 
 
 NETSTAT_WAIT = 20   # seconds netstat has to answer before the call connects without its word
+ANSWER_WAIT = 30   # seconds past a call's own timeoutMs a desktop has to answer it: the plugin bounds its client-thread and frame waits at 5 s each
 
 
 def listening(port):
@@ -66,11 +68,23 @@ def post(url, method, params):
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
     req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
                                  {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
-    try:
-        with urllib.request.urlopen(req, timeout=240) as r:
-            body = r.read().decode()
-    except OSError as e:
-        return {"error": {"code": -32000, "message": f"no desktop client answers on {url} ({e})"}}
+    # the whole call is bounded, not each socket read (a body read is many): a hung client answers no call past it
+    limit = ANSWER_WAIT + ((params.get("arguments") or {}).get("timeoutMs") or 0) / 1000
+    out = []
+    def fetch():
+        try:
+            with urllib.request.urlopen(req, timeout=limit) as r:
+                out.append(r.read().decode())
+        except OSError as e:
+            out.append(e)
+    t = threading.Thread(target=fetch, daemon=True)
+    t.start()
+    t.join(limit)
+    if not out:
+        return {"error": {"code": -32000, "message": f"the desktop client on {url} did not answer within {limit:g} s: it is hung (tools/track.sh restart or down/up <slug>)"}}
+    if isinstance(out[0], OSError):
+        return {"error": {"code": -32000, "message": f"no desktop client answers on {url} ({out[0]})"}}
+    body = out[0]
     return json.loads(next((l[5:] for l in reversed(body.splitlines()) if l.startswith("data:")), body))
 
 

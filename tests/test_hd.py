@@ -1536,6 +1536,12 @@ class R4(Sandbox):
         s.assertFalse(denied("python3 ~/osrs-harness/hd.py", agent_type="orchestrator"))   # the orchestrator runs the pass
         s.assertIn("hd tick --dry-run", (Path(__file__).parent.parent / ".claude/agents/dev.md").read_text())
 
+    def test_a_run_searches_named_roots_never_slash(s):  # sweep-38/40 P2-a: find / walked /mnt/c for minutes
+        for role in ("dev", "qa", "planner", "reader"):
+            text = (Path(__file__).parent.parent / f".claude/agents/{role}.md").read_text()
+            for root in ("never starts at `/`", "~/osrs-harness", "~/src", "~/osrs-plugins-reverse", "~/.gradle"):
+                s.assertIn(root, text, role)
+
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
         (repo / "tools").mkdir(parents=True); build.mkdir()

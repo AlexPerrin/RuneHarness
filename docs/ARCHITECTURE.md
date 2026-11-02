@@ -271,8 +271,10 @@ next(change):
       no → dev (input comment, head, the commits it misses): no card, no generic text
     the one comment quotes every finding of the round no comment of ours answers?
       no → dev (input findings, head, the ones it misses): no card
+    the draft PR at head has a failed CI check (read afresh; unread → unknown)?
+      yes → dev (input ci, head): no card, and `hd handover` refuses that head: CI never runs again at a head, so a fix or a rebase onto main starts it
     approval.json at head, texts?
-      no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft (naming the re-run of a failed job outside the head, and its own act first when the dev's same-head hand-over vouches the last carry's CI failure), the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready, the review request), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
+      no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;
       it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)
@@ -280,14 +282,14 @@ next(change):
     Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones (REST PATCH: `gh pr edit` reads the retired Projects (classic)), CI green at head when it pushed or the PR is draft, one PR comment naming the head (once per head and text: its marker), the push summary then each finding's reply (no review-thread reply);
     it quotes each finding and @ only their askers, each once (a later mention keeps the bare name), else the change's FAIL;
     an @ on a '>' quote line or in code is no mention;
-    ready, review requested of the maintainers who reviewed the PR (no bot, not ours) and read back (none: upstream's CODEOWNERS asks on ready);
+    ready, and no review request: the account cannot ask reviewers upstream, so maintainers pick a ready PR up;
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     Success: ship.json, approval.json removed (the yes is spent).
-    A failed check: its job's failing step asked of the track's `ci-step` (gate-ci's classifier); outside the head, `gh run rerun --failed` once its source answers (the classifier blocks until then), its old failure pending until GitHub lists the new attempt, up to the run's 3rd attempt.
+    A failed check stops the carry as the change's FAIL: nothing re-runs CI at a head.
     Failure: ship.json ok false, the PR as it is;
-    fault head (a CI step the head reads, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
-    the dev handing the same head over after it vouches the failing steps outside the head (its cause filed as a limit, the deps holding it until that lands), decided on the two records' heads and order alone: the carry runs again and re-runs the jobs its fresh CI read finds failed, up to the run's 3rd attempt.
-    fault carry (any other: a GitHub write refused, a 3rd attempt outside the head): the yes spent, the card again naming what stopped it.
+    fault head (a failed CI check, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
+    the dev handing the same head over after it (a text fixed, no commit) answers it, decided on the two records' heads and order alone; a failed CI check stays the dev's while GitHub lists it at the head, whatever the records say.
+    fault carry (any other: a GitHub write refused): the yes spent, the card again naming what stopped it.
     A GitHub read that fails: no result (carry held), the pass reruns it, a second death on the same args an alert
   batch (`hd.batch`: harness, and client code; a release is gated alone)
     every change of the track at this step, in hand-over order, merged onto the live branch (no per-change build or gate):

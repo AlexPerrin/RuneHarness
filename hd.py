@@ -445,13 +445,12 @@ class Facts:
 
     @_read
     def pr(s, repo, n):
-        """R4: one upstream PR {branch, head, draft, requested: the reviewers asked}, None unknown."""
+        """R4: one upstream PR {branch, head, draft, title, body}, None unknown."""
         r = s.api(f"repos/{repo}/pulls/{n}")
         if r is None or r[0] != 200:
             return None
         p = r[1]
-        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body"),
-                "requested": [u.get("login") or u.get("slug") or u.get("name") or "" for u in (p.get("requested_reviewers") or []) + (p.get("requested_teams") or [])]}
+        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body")}
 
     @_read
     def ci(s, repo, sha):
@@ -464,15 +463,6 @@ class Facts:
                  for c in runs[1].get("check_runs") or []]
                 + [{"name": c.get("context") or "", "url": c.get("target_url") or "", "state": "pending" if c.get("state") == "pending" else "success" if c.get("state") in ok else "failure"}
                    for c in st[1].get("statuses") or []])
-
-    @_read
-    def job(s, repo, job):
-        """R4: an Actions job {attempt: its run's attempt, step: the first step that failed or was stopped, or ''}, None unknown."""
-        r = s.api(f"repos/{repo}/actions/jobs/{job}")
-        if r is None or r[0] != 200:
-            return None
-        return {"attempt": r[1].get("run_attempt") or 1,
-                "step": next((x["name"] for x in r[1].get("steps") or [] if x.get("conclusion") in ("failure", "cancelled")), "")}
 
     @_read
     def containers(s):
@@ -1780,6 +1770,12 @@ def public(ctx, ch, head):
         return step("carrying upstream", "script", act=lambda: None)
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head):  # the carry found the head's defect
         return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
+    if (bad := failed_ci(ctx, ch, head)) is None:
+        return step("upstream CI unknown", "unknown")
+    if bad:  # before any yes: a carry at this head could not pass
+        return step(f"CI failed upstream at {head[:9]}: dev", "dev", mode="code", input=["ci", head], detail=(
+            f"CI failed at {head[:9]} on PR {ch['pr']}: {bad}. CI never runs again at a head: commit a fix, or rebase onto main "
+            "when the failing step is outside the head; the fresh head's push starts CI."))
     if not approved(ctx, ch, head):
         if (why := user_hold(ch, head)) is not None:  # the user's no or word: no card until a new head or their lift (`hd hold`)
             return step("held by the user" + (f": {why}" if why else ""), "wait")
@@ -2637,20 +2633,11 @@ def one_comment(parts):
     return re.sub(r"`[^`]*`|(?<![\w`])@([A-Za-z0-9-]+)", at, "\n\n".join(p for p in parts if p))
 
 
-def reviewers(ctx, ch):
-    """R4: whom the carry asks for review: the maintainers who reviewed the PR (no bot, not ours); upstream names no
-    reviewer in its rules or CODEOWNERS (GitHub asks CODEOWNERS itself on ready)."""
-    if not ch.get("pr"):
-        return []
-    cs = [c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or []) if not conversation(c["id"]) or str(c["id"]).startswith("PRR_")]
-    return sorted({c["author"] for c in cs if c.get("author") and not c.get("bot") and c["author"].lower() != ctx.owner(ch)})
-
-
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
     carry opens it, or each that differs from the open PR's live one; one comment per head (findings: those it answers),
     the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds: unnamed() keeps the
-    card back until it does) followed by each finding's reply; the reviewers asked once the PR is ready."""
+    card back until it does) followed by each finding's reply. No review request: the account cannot ask upstream."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":
         return [["release notes", None, text(slug, "release-notes.md")]]
@@ -2665,7 +2652,7 @@ def public_texts(ctx, ch):
     fs = list(dict.fromkeys([f for f, _ in rs] + (unanswered(ctx, ch) or [])))  # the one comment answers every finding of the round
     if push or fs:
         out.append(["comment", fs, one_comment([push, *dict.fromkeys(t for _, t in rs)])])
-    return out + ([["review request", None, ", ".join(r)]] if (r := reviewers(ctx, ch)) else [])
+    return out
 
 
 def card(ctx, ch, head):
@@ -2682,10 +2669,9 @@ def card(ctx, ch, head):
                 f"open a draft PR on {up} from {branch} into main (base {(ctx.base(ch) or '?')[:9]}), with the title and body below"
                 if not ch.get("pr") else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
                 + "".join(f", replacing its {w} with the one below" for w, _, t in txt if w in ("title", "body") and unsigned(p.get(w)) != t),
-                *([*(["re-run the CI jobs failed at the head (gh run rerun --failed, up to the run's 3rd attempt): the dev's hand-over of this head after the last carry's CI failure vouches their steps outside it"] if vouched(slug, head) else []),
-                   "wait for every CI check to pass at the head, re-running (gh run rerun --failed, up to the run's 3rd attempt) a failed job whose step the head does not read (the track's ci-step)"]
+                *(["wait for every CI check to pass at the head (a failed one stops the carry: the PR stays as it is)"]
                   if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
-                "mark it ready for review", *(f"request review from {t}" for w, _, t in txt if w == "review request")]
+                "mark it ready for review"]
     by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \
         if ch.get("pr") and ch["kind"] != "release" else {}
     v = [x for x in verdicts(slug) if x["head"] == head]
@@ -2730,17 +2716,17 @@ def log(msg):
     print(time.strftime("%H:%M:%SZ", time.gmtime()), msg, flush=True)
 
 
-def checks(F, up, number, head, rerun=()):
+def checks(F, up, number, head):
     """('success' | 'failure' | 'pending' | 'none', the fact it stands on: the checks it waits on or the head the PR is at,
     the urls of those checks), read afresh through Facts (conditional: an unchanged read costs no quota); a failed read ends
-    the wait. A failed check whose url is in rerun (its re-run asked for, not yet listed by GitHub) is pending."""
+    the wait."""
     F.forget("pr", "ci")
     v = known(F.pr(up, number), f"PR {number} of {up}")
     if v["head"] != head:
         return "none", f"PR {number} head at {v['head'][:9]}, not yet {head[:9]}", []
     by = {}
     for c in known(F.ci(up, head), f"the checks of {up} at {head[:9]}"):
-        by.setdefault("pending" if c["state"] == "failure" and c["url"] in rerun else c["state"], []).append(c)
+        by.setdefault(c["state"], []).append(c)
     state = next((k for k in ("failure", "pending", "success") if k in by), "none")
     return state, ", ".join(f"{c['name']} {c['url']}".strip() for c in by.get(state, [])) or f"no check reported at {head[:9]}", [c["url"] for c in by.get(state, [])]
 
@@ -2754,28 +2740,22 @@ class Defect(RuntimeError):
 
 
 def vouched(slug, head):
-    """R4: the carry's FAIL at head is answered by its dev's hand-over of the same head after it (the cause judged outside
-    the head, filed as a limit the change's deps wait on): decided on the two records' heads and order alone."""
+    """R4: the carry's FAIL at head is answered by its dev's hand-over of the same head after it (a text fixed in the
+    evidence, no commit): decided on the two records' heads and order alone. A CI failure is no record: failed_ci reads it."""
     sh, ho = rec(slug, "ship") or {}, rec(slug, "handover") or {}
     return sh.get("fault") == "head" and sh.get("head") == ho.get("head") == head and ho.get("ts", "") > sh.get("ts", "")
 
 
-def ci_fault(ctx, ch, up, head, cur, rerun):
-    """R4: a failed upstream check is the head's (Defect) unless the track's classifier, the gate's own (`track.sh ci-step
-    <slug> <step>`: exit 0 when the step reads nothing the head changes, once that step's source answers), or the dev's
-    same-head hand-over after a FAIL there (vouched) says the steps failing at it are outside it: then its job is re-run
-    (gh run rerun --failed), at most to the run's 3rd attempt."""
-    for url in cur[2]:
-        m = re.search(r"/actions/runs/(\d+)/job/(\d+)", url)
-        j = m and known(ctx.F.job(up, m[2]), f"job {m[2]} of {up}")
-        r = j and (vouched(ch["slug"], head) or not subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]],
-                                                                               env={**os.environ, **ctx.env(ch, head, "", "")}, capture_output=True, text=True).returncode)
-        if not r:
-            raise Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
-        if j["attempt"] >= 3:
-            raise RuntimeError(f"CI failed at '{j['step']}' in {j['attempt']} attempts at {head[:9]}, a step the head does not read: {url}")
-        must("gh", "run", "rerun", m[1], "--failed", "-R", up)
-        rerun.add(url); log(f"CI: '{j['step']}' failed outside the head ({url}): re-ran its failed jobs once its source answered")
+def failed_ci(ctx, ch, head):
+    """R4: the failed checks of the change's draft PR at head, '' none, None unknown. CI never runs again at a head (no
+    re-run: GitHub refuses one of an old run), so a failure there, in a step the head reads or not, is the dev's: a fresh
+    head (a fix, or a rebase onto main) starts CI."""
+    p = ctx.upstream_pr(ch) if ch.get("pr") and ch["kind"] != "release" else {}
+    if not p or p.get("head") != head or not p.get("draft"):
+        return None if p is None else ""
+    up = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]].get("upstream")
+    cs = ctx.F.ci(up, head)
+    return None if cs is None else ", ".join(f"{c['name']} {c['url']}".strip() for c in cs if c["state"] == "failure")
 
 
 def known(v, what):
@@ -2801,8 +2781,8 @@ def answers(ctx, ch, up, pr, fs, body):
 
 def carry(ctx, ch, head, txt):
     """R4 R5: the upstream act exactly as its card shows it, each step logged and rerunnable: a release; or push
-    (no force), open the draft or update the open PR's title and body that differ, CI green (a failure outside the head re-run: ci_fault), the one comment
-    naming the head and answering each finding, ready, review requested from the PR's reviewers and read back."""
+    (no force), open the draft or update the open PR's title and body that differ, CI green (a failure the change's Defect), the one comment
+    naming the head and answering each finding, ready (maintainers pick it up)."""
     r = ctx.cfg["repos"][TRACK[ch["track"]]["repo"]]
     up, owner, path, t = r.get("upstream"), r["name"].split("/")[0], str(P(r["path"])), {w: x for w, _, x in txt}
     if ch["kind"] == "release":
@@ -2828,11 +2808,10 @@ def carry(ctx, ch, head, txt):
         log(f"updated the {' and '.join(edit)} of PR {pr}")
     if pushed or v["draft"]:  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
         log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
-        seen, rerun = None, set()
-        while (cur := checks(ctx.F, up, pr, head, rerun))[0] != "success":
-            if cur[0] == "failure":
-                ci_fault(ctx, ch, up, head, cur, rerun)
-                continue
+        seen = None
+        while (cur := checks(ctx.F, up, pr, head))[0] != "success":
+            if cur[0] == "failure":  # CI never runs again at this head: a fresh one is the dev's
+                raise Defect(f"CI failure at {head[:9]}: {cur[1]}: the PR stays as it is; a fresh head (a fix, or a rebase onto main) starts CI")
             if cur != seen:  # each new fact the wait stands on, once
                 log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur
             time.sleep(30)  # the fact decides; the sleep only spaces the reads
@@ -2847,11 +2826,6 @@ def carry(ctx, ch, head, txt):
     if v["draft"]:
         must("gh", "pr", "ready", str(pr), "-R", up)
         log("marked ready")
-    if "review request" in t:
-        must("gh", "api", "-X", "POST", f"repos/{up}/pulls/{pr}/requested_reviewers", *[x for n in t["review request"].split(", ") for x in ("-f", f"reviewers[]={n}")])
-    ctx.F.forget("pr")
-    asked = known(ctx.F.pr(up, pr), f"PR {pr} of {up}")["requested"]
-    log(f"review requested from {', '.join(asked)}" if asked else "review request: none listed (no maintainer has reviewed it; upstream's CODEOWNERS asks on ready)")
     return f"upstream PR {pr} at {head[:9]}, ready for review"
 
 
@@ -2920,6 +2894,8 @@ def cmd_handover(a):
                 why.append(f"{w}: no such change; file it with `hd new --limit-of {ch['slug']}` or fix it here")
             elif mechanism(graph[k]) in scope(graph, ch["slug"]):
                 why.append(f"{w}: in this change's scope ({mechanism(graph[k])}): fix it here, rewriting the mechanism if the limit is in its design")
+    if (bad := failed_ci(ctx, ch, head)):
+        why.append(f"upstream CI failed at {head[:9]} ({bad}) and never runs again at a head: commit a fix, or rebase onto main when the failing step is outside the head")
     tree = ctx.tree(ch, T[1])
     why += rows(ctx, ch, con, head, T[1], ctx.key(ch, tree, build=True) or tree, "", gate=False)  # T: the build key, as the pass's build, so a check row's build is the pass's
     if tools and not why:  # R3: the carried tools heads' own tests, as the gate's check-tools runs them, before any gate is spent on them

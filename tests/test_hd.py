@@ -72,9 +72,8 @@ class Fake(hd.Facts):
     def review_comments(s, repo, pr): return None if s.f.get("comments", {}) is None else s.f.get("comments", {}).get(pr, [])  # None in f = GitHub unreadable
     def pr_comments(s, repo, pr): return None if s.f.get("talk", {}) is None else s.f.get("talk", {}).get(pr, [])
     def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
-    def pr(s, repo, n): return s.next(s.f.get("pull", {}), n)    # pull {n: {branch, head, draft, requested}}
-    def ci(s, repo, sha): return s.next(s.f, "ci")               # ci [the checks at each read]
-    def job(s, repo, j): return s.f.get("jobs", {}).get(j)         # jobs {id: {attempt, step}}
+    def pr(s, repo, n): return s.next(s.f.get("pull", {}), n)    # pull {n: {branch, head, draft}}
+    def ci(s, repo, sha): return s.next(s.f, "ci") if "ci" in s.f else []   # ci [the checks at each read]; none reported unless a test says
     def next(s, d, k):  # a list answers each read in turn, its last answer from then on
         v = d.get(k)
         return (v.pop(0) if len(v) > 1 else v[0]) if isinstance(v, list) else v
@@ -1302,7 +1301,7 @@ class R4(Sandbox):
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         c = hd.tick(s.ctx(F), act=False)["card"]                                  # the reply is left to post: a card
         s.assertEqual(len(c), 1); s.assertIn("### comment\n(finding by rev on N.kt:3: reset it?)\n> reset it\n\n@rev the official", c[0])
-        s.assertNotIn("push", c[0]); s.assertIn("4. request review from rev", c[0])   # at the head already, a reply-only change: no push, the reply its one comment
+        s.assertNotIn("push", c[0]); s.assertTrue(c[0].split("\n### ")[0].endswith("3. mark it ready for review"))   # at the head already, a reply-only change: no push, the reply its one comment
         F.f["comments"][7].append({"id": 100, "author": "O", "bot": False, "reply": 99, "path": "N.kt", "line": 3, "body": "ours"})
         s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])                   # ours is in its thread: nothing left, no card
         s.assertTrue(s.state(F, "s1")["state"].startswith(f"carried at {A[:9]}"))
@@ -1313,14 +1312,14 @@ class R4(Sandbox):
         F = Fake(**FACTS); s.ready(F)
         s.approve(F, "s1", A); texts = hd.rec("s1", "approval")["texts"]
         b = lambda st: [{"name": "build", "url": "https://ci/1", "state": st}]
-        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "requested": []}}, ci=[b("pending"), b("success")])
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True}}, ci=[b("pending"), b("success")])
         g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", "")})
         log = s.ship(F, g)
         order = [c[3] if c[0] == "git" else " ".join(c[1:3]) for c in g.calls if c[0] == "gh" or c[3] == "push"]
         s.assertEqual(order, ["push", "pr create", "pr comment", "pr ready"])  # every read goes through Facts, never gh pr view
         steps = [l.split(" ", 1)[1] for l in log.splitlines()]                   # ship.log: each step as it goes, the CI wait naming its checks
         s.assertEqual([x.split(":")[0].split(" ")[0] for x in steps[:4]], ["pushed", "opened", "CI", "CI"]); s.assertIn("CI wait: pending: build https://ci/1", steps)
-        s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertTrue(steps[-2].startswith("review request: none listed")); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
+        s.assertIn(f"CI green at {A[:9]}: build https://ci/1", steps); s.assertEqual(steps[-2], "marked ready"); s.assertTrue(steps[-1].startswith(f"carried: upstream PR 42 at {A[:9]}"))
         s.assertEqual(g.did("push")[0][-1], f"{A}:refs/heads/content/s1")       # no force
         s.assertEqual(g.did("pr create")[0][g.did("pr create")[0].index("-R") + 1], "u/f")
         s.assertTrue(g.did("pr comment")[0][-1].startswith(PUSHED))
@@ -1344,54 +1343,38 @@ class R4(Sandbox):
             s.ship(F, g)
         s.assertIn(f"the checks of u/f at {A[:9]} cannot be read", str(e.exception)); s.assertEqual(g.did("pr ready"), [])
 
-    def test_every_carry_stop_is_its_result_and_a_ci_failure_outside_the_head_is_re_run(s):
+    def test_every_carry_stop_is_its_result_and_a_failed_ci_at_the_head_is_the_devs_before_any_yes(s):
         F = Fake(**FACTS); s.ready(F); s.approve(F, "s1", A)
         url = "https://github.com/u/f/actions/runs/5/job/6"
         b = lambda st: [{"name": "build", "url": url, "state": st}]
-        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "requested": []}}, jobs={"6": {"attempt": 1, "step": "Generate cache and gameval sources"}})
-        classify = lambda rc: mock.patch.object(hd.subprocess, "run", lambda a, **k: subprocess.CompletedProcess(a, rc, "", ""))
-        F.f["ci"] = [b("failure"), b("failure"), b("success")]                   # the re-run's attempt not yet listed: the old failure, waited on
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True}}, ci=[b("failure")])
         g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", "")})
-        with classify(0):                                                        # the gate's classifier: a step the head does not read
-            log = s.ship(F, g)
-        s.assertEqual(g.did("run rerun"), [("gh", "run", "rerun", "5", "--failed", "-R", "u/f")])   # once, never a FAIL
-        s.assertIn("failed outside the head", log); s.assertTrue(hd.rec("s1", "ship")["ok"])
-        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
-        hd.drop("s1", "ship"); s.approve(F, "s1", A)
-        F.f["ci"] = [b("failure")]; g = GH()
-        with classify(1), s.assertRaises(SystemExit):                            # a step the head reads: the change's FAIL, its dev step
+        with s.assertRaises(SystemExit) as e:                                    # any failed check, outside the head or not: the change's FAIL
             s.ship(F, g)
         sh = hd.rec("s1", "ship")
-        s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun")), (False, "head", [])); s.assertIn("Generate cache and gameval sources", sh["detail"])
-        s.assertNotIn("step", sh)                                                # the vouch reads heads and order alone: any record's vintage
+        s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun"), g.did("pr ready")), (False, "head", [], []))  # never a re-run: GitHub refuses one of an old run
+        s.assertIn("a fresh head (a fix, or a rebase onto main) starts CI", sh["detail"]); s.assertIn(url, str(e.exception))
         st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"FAIL upstream at {A[:9]}: dev"))
-        rerun = "re-run the CI jobs failed at the head (gh run rerun --failed"
-        card = lambda: hd.card(ctx := s.ctx(F), ctx.changes["s1"], A)
-        s.assertNotIn(rerun, card())                                             # unvouched: no re-run the carry would not do
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
         ho = hd.rec("s1", "handover")
-        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):    # its dev hands the same head over: the cause is outside it, filed
+        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):    # a later hand-over of the same head answers the record, not the CI fact
             hd.put("s1", "handover", {k: v for k, v in ho.items() if k != "ts"})
-        st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("script", "carrying upstream"))   # the upstream check runs again
-        s.assertIn(rerun, card())                                                # the card names the re-run its yes triggers (sweep-34 P2-b)
-        F.f["ci"] = [b("failure"), b("success")]; g = GH()
-        with classify(1):                                                        # the step it vouched for is re-run, though the classifier reads it
-            s.ship(F, g)
-        s.assertEqual(len(g.did("run rerun")), 1); s.assertTrue(hd.rec("s1", "ship")["ok"])
-        hd.put("s1", "handover", ho); s.approve(F, "s1", A); F.f["ci"] = [b("failure")]
-        hd.drop("s1", "ship")
-        F.f["jobs"]["6"]["attempt"] = 3; g = GH()
-        with classify(0), s.assertRaises(SystemExit):                            # outside the head at its 3rd attempt: the carry's result, no FAIL
-            s.ship(F, g)
-        s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))   # the yes spent: the card again
-        st = s.state(F, "s1"); s.assertEqual(st["actor"], "user")
-        s.assertIn(f"the last carry at {A[:9]} stopped: CI failed at 'Generate cache and gameval sources' in 3 attempts", hd.tick(s.ctx(F), act=False)["card"][0])
-        s.approve(F, "s1", A); F.f["ci"] = [b("success")]
+        st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"CI failed upstream at {A[:9]}: dev"))
+        s.assertIn("rebase onto main", st["detail"]); s.assertEqual(hd.tick(s.ctx(F), act=False)["card"], [])   # no yes is asked for a carry that cannot pass
+        hd.drop("s1", "ship")                                                    # the record overwritten or never written: the CI fact still holds
+        s.assertEqual(s.state(F, "s1")["state"], f"CI failed upstream at {A[:9]}: dev")
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:   # a same-head hand-over is refused: only a fresh head runs CI
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        s.assertIn(f"upstream CI failed at {A[:9]}", str(e.exception))
+        F.f["ci"] = [None]; s.assertEqual(s.state(F, "s1")["actor"], "unknown")   # unread CI: no card on a guess
+        F.f["ci"] = [b("success")]; s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")   # green at the head: the earlier yes carries
+        hd.put("s1", "handover", ho); s.approve(F, "s1", A)
         F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True, "title": "t", "body": "old"}]}
         (s.root / "evidence" / "s1" / "pr-body.md").write_text("new body"); s.approve(F, "s1", A)
         g = GH(**{"api -X": (1, "", "GraphQL: Projects (classic) is being deprecated")})
         with s.assertRaises(SystemExit) as e:                                    # a GitHub write refused: recorded, never relaunched by the pass
             s.ship(F, g)
-        s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual(hd.rec("s1", "ship")["fault"], "carry")
+        s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))
         s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
 
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
@@ -1404,14 +1387,14 @@ class R4(Sandbox):
         hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
         ctx = s.ctx(F)
         s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
-        s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["comment", [99], "> reset it\n\n@rev the official server keeps it."], ["review request", None, "rev"]])
+        s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["comment", [99], "> reset it\n\n@rev the official server keeps it."]])
+        s.assertNotIn("request review", hd.card(ctx, ctx.changes["s1"], A))   # the card holds only acts the account can do
         s.approve(F, "s1", A)
-        F.f["pull"] = {7: {"branch": "fix/x", "head": A, "draft": False, "requested": ["rev"]}}
+        F.f["pull"] = {7: {"branch": "fix/x", "head": A, "draft": False}}
         g = GH(); log = s.ship(F, g)
         s.assertEqual(g.did("push") + g.did("pr ready"), [])                  # the PR is at the head: no push, already ready
         s.assertTrue(g.did("pr comment")[0][-1].startswith("> reset it\n\n@rev the official server keeps it."))   # one PR comment, quoting the inline finding
-        s.assertEqual([c[4:] for c in g.calls if "POST" in c], [("repos/u/f/pulls/7/requested_reviewers", "-f", "reviewers[]=rev")])   # ready already: review asked
-        s.assertIn("review requested from rev", log)
+        s.assertEqual([c for c in g.calls if "POST" in c], []); s.assertNotIn("review request", log)   # no review request: the account cannot ask upstream
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev and @other"); hd.drop("s1", "ship")
         s.approve(F, "s1", A)
         g = GH()
@@ -1457,21 +1440,21 @@ class R4(Sandbox):
         (ev / "pr-comment.md").write_text(f"Pushed {C[:9]} and {A[:9]} on top of {D[:9]} (head {A[:9]}).\n\n- {C[:9]}: one.\n- {A[:9]}: two.")
         (ev / "pr-reply-99.md").write_text("> bank?\n\n@rev it gives the lamp there now." + hd.ATTRIBUTION)   # a text already signed: signed once
         t = {w: x for w, _, x in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])}
-        s.assertEqual(sorted(t), ["body", "comment", "review request"])   # the title is live already: no title step
+        s.assertEqual(sorted(t), ["body", "comment"])   # the title is live already: no title step
         s.assertTrue(C[:9] in t["comment"] and A[:9] in t["comment"])
         s.assertTrue(t["comment"].endswith("\n\n> bank?\n\n@rev it gives the lamp there now."))   # one comment: the push summary, then the reply
         c = hd.tick(s.ctx(F), act=False)["card"][0]
         s.assertIn("update upstream PR 7 of u/f (base main", c); s.assertIn("replacing its body with the one below", c); s.assertIn("### body\nnew body", c)
         s.approve(F, "s1", A)
-        F.f.update(pull={7: [{"branch": "content/s1", "head": h, "draft": False, "requested": []} for h in (D, A)]}, ci=[[{"name": "b", "url": "", "state": "success"}]])
+        F.f.update(pull={7: [{"branch": "content/s1", "head": h, "draft": False} for h in (D, A)]}, ci=[[{"name": "b", "url": "", "state": "success"}]])
         g = GH(**{"api repos/u/f/pulls/comments/99": (0, "rev", "")})
         s.ship(F, g)
         s.assertEqual(g.did("api -X")[0][2:], ("-X", "PATCH", "repos/u/f/pulls/7", "-f", "body=new body" + hd.ATTRIBUTION))   # REST: gh pr edit reads Projects (classic)
         s.assertTrue(g.did("pr comment")[0][-1].startswith(t["comment"])); s.assertEqual(len(g.did("pr comment")), 1)
-        s.assertEqual([c[4] for c in g.calls if "POST" in c], ["repos/u/f/pulls/7/requested_reviewers"])   # no thread reply: the comment answers it
+        s.assertEqual([c for c in g.calls if "POST" in c], [])   # no thread reply (the comment answers it), no review request
         F.f["prs"]["u/f"][0]["body"] = "new body" + hd.ATTRIBUTION                 # the live body matches: no body step
         s.assertNotIn("body", [w for w, _, _ in hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])])
-        live = {"branch": "content/s1", "head": A, "draft": False, "requested": [], "title": "T", "body": "new body" + hd.ATTRIBUTION}
+        live = {"branch": "content/s1", "head": A, "draft": False, "title": "T", "body": "new body" + hd.ATTRIBUTION}
         F.f.update(pull={7: [live, live]}); g = GH()
         with mock.patch.object(hd, "gh", g), mock.patch.object(hd, "log", lambda m: None):
             hd.carry(s.ctx(F), s.ctx(F).changes["s1"], A, [("title", None, "T"), ("body", None, "new body")])
@@ -1529,7 +1512,7 @@ class R4(Sandbox):
         s.assertNotEqual(s.state(F, "s1")["actor"], "wait")
         s.verdict("z1", D, {"ok": "pass", "j1": "pass"}, F)
         s.approve(F, "z1", D)
-        F.f.update(pull={3: {"branch": "content/z1", "head": D, "draft": True, "requested": []}}, ci=[[{"name": "b", "url": "", "state": "success"}]])
+        F.f.update(pull={3: {"branch": "content/z1", "head": D, "draft": True}}, ci=[[{"name": "b", "url": "", "state": "success"}]])
         g = GH(**{"pr create": (0, "https://github.com/u/z/pull/3", "")})
         s.ship(F, g, "z1", D)
         s.assertEqual(g.did("push")[0][2], str(s.root / "central"))
@@ -1566,7 +1549,7 @@ class R4(Sandbox):
         c = hd.tick(s.ctx(F), act=False)["card"]
         s.assertEqual(len(c), 1); s.assertIn("### comment\n(finding by rev on the PR: get the cutscene in)", c[0]); s.assertNotIn("request review", c[0])   # a conversation commenter is no reviewer
         s.approve(F, "s1", A)
-        F.f["pull"] = {7: {"branch": "content/s0", "head": A, "draft": False, "requested": []}}
+        F.f["pull"] = {7: {"branch": "content/s0", "head": A, "draft": False}}
         g = GH()
         s.ship(F, g)
         s.assertTrue(g.did("pr comment")[0][-1].startswith("> get the cutscene in\n\n@rev it is in." + hd.ATTRIBUTION + "\n<!-- hd:"))   # one comment, marked by head and text
@@ -1723,7 +1706,7 @@ class R5(Sandbox):
             hd.tick(s.ctx(GitHub(**FACTS)), act=False)
             s.assertEqual(GitHub(**FACTS).review_comments("u/f", 7)[0]["author"], "rev")   # what the passes read
         s.assertEqual(calls, [])
-        cr = {"repos/u/f/pulls/7?per_page=100": {"head": {"ref": "content/s1", "sha": A}, "draft": False, "requested_reviewers": [{"login": "rev"}]},
+        cr = {"repos/u/f/pulls/7?per_page=100": {"head": {"ref": "content/s1", "sha": A}, "draft": False},
               f"repos/u/f/commits/{A}/check-runs?per_page=100": {"total_count": 1, "check_runs": [{"name": "build", "details_url": "https://ci/1", "status": "completed", "conclusion": "success"}]},
               f"repos/u/f/commits/{A}/status?per_page=100": {"state": "pending", "statuses": []}}
         api.update(cr); g = type("C", (GitHub,), {"pr": hd.Facts.pr, "ci": hd.Facts.ci})(**FACTS)
@@ -1731,7 +1714,6 @@ class R5(Sandbox):
         s.assertEqual(sorted(u for u, _ in calls), sorted(cr))
         calls.clear(); hd.checks(g, "u/f", 7, A)                                # its next poll: each read afresh and conditional
         s.assertEqual(sorted(calls), sorted((u, True) for u in cr))
-        s.assertEqual(g.pr("u/f", 7)["requested"], ["rev"])
         src = (Path(hd.__file__).read_text()).split("\n")                       # no GitHub read in hd.py bypasses Facts.page
         s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "(POST|PATCH)"|"(comment|create|ready)"', l)
                        and "If-None-Match" not in l], [])

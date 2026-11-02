@@ -415,6 +415,7 @@ the denial names `hd ps`, which lists the run's own processes for its `kill`.
 A subagent's `timeout` command (outside a heredoc body or a quoted argument) is denied: a step ends on its observed outcome, the Bash call's own limit re-issued when it ends first.
 A subagent's sleeping loop that counts (a `for` loop, or a `while`/`until` loop with a counter) is denied as the same bound by another name;
 a loop that sleeps until its condition, the fact, holds is the wait.
+A sleep counts against the innermost loop that holds it, so a `for` loop wrapping an `until <fact>` wait is that wait.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
 A desktop's devtools endpoint answers only a request carrying the token in its instance's guard file, read on each request (its up's up.json `token`, sent as `Authorization: Bearer`), any other 401: every JVM of the instance loads the server tools' DevtoolsOwner, the JDK's HttpServer provider filtering the devtools port, and the bridge and desktop_login.py send the token of the up whose instance owns the port.
 The guard file is empty, any caller answered, while a session's desktop bridge runs without mcp/serve.py (it predates serve.py, never reloads and sends no token, read from the processes): desktop_login.py writes it at the desktop's start and its keeper again on each change of that fact, so the guard turns on once none lives.

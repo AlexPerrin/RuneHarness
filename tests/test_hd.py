@@ -1903,12 +1903,16 @@ class R5(Sandbox):
                   "for i in {1..30}; do curl -s x && break; sleep 2; done", "cd x && for t in 1 2 3; do sleep 5; done",
                   "i=0; while [ $i -lt 9 ]; do sleep 1; i=$((i+1)); done", "n=0; until grep -q x f || [ $n -ge 30 ]; do sleep 2; ((n++)); done",
                   "python3 -c 'import time\nfor _ in range(30):\n    time.sleep(1)'",
-                  "bash -c 'for i in 1 2; do sleep 1; done'"):
+                  "bash -c 'for i in 1 2; do sleep 1; done'",
+                  "for p in 1 2; do until grep -q x f; do sleep 2; done; sleep 5; done",   # the for's own paced sleep, after the fact wait
+                  "until grep -q x f; do for i in 1 2 3; do sleep 1; done; done"):
             s.assertTrue(denied(c), c)
         for c in ("until [ -f state/s1/up.json ]; do sleep 5; done", "while ! grep -q ready log; do sleep 2; done",
                   "while true; do grep -q x f && break; sleep 1; done", "for f in a b; do echo $f; done",
                   "grep -n 'for i in $(seq 1 3); do sleep 1; done' hook.py", "cat <<'EOF' > x.sh\nfor i in 1 2; do sleep 1; done\nEOF",
-                  "for f in *.py; do wc -l $f; done; sleep 0"):
+                  "for f in *.py; do wc -l $f; done; sleep 0",
+                  "for p in 7780 7781; do until ss -ltn | grep -q :$p; do sleep 2; done; done",   # sweep-53 P3-b: a fact wait per port
+                  "for f in a b; do while [ ! -f $f ]; do sleep 1; done; echo $f; done"):
             s.assertFalse(denied(c), c)
 
     def test_a_run_waits_on_the_fact_never_a_task_output_or_a_bound(s):  # sweep-45 P2-c: timeout 175 ... until grep <task output>

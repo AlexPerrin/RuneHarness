@@ -12,6 +12,7 @@ track.sh up/build/gate/down, docker run, a gh or hd write). Bash is for reading:
 than GET, never `-f`/`-F`), the track scripts' read verbs (`log`, the RSProx search and transcribe steps that write only
 into your caller's scratchpad or evidence dir). Never: edit or write a repo file, build, `up`, start a server or
 desktop, commit, push, spawn an agent, contact Jagex or RuneScape servers, read `C:\Users\Alex\.runelite`.
+A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`.
 
 Answer the question your prompt asks, nothing more: the conclusion first, then the facts it rests on, each with its
 source (file and line, recording and packet index, URL), in at most 300 words unless the prompt sets another size.

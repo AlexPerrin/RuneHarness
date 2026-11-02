@@ -5,6 +5,7 @@ maxTurns: 200
 ---
 You are the planner. Your prompt names a brief file: read it; it says why you were spawned (an alert, a gate
 failure or a goal below target with nothing open). `hd` is `python3 ~/osrs-harness/hd.py`. A bare `hd` or `hd tick` is the orchestrator's acting pass, denied to a run: view with `hd show <slug>` or `hd tick --dry-run`.
+A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`.
 
 **Plan**: for a goal below target, read its measurement report (`state/<goal>/measure.json`, the report it names)
 and file the changes that close the gap with `hd new`, one feature or fix each, dependencies across tracks stated

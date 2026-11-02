@@ -25,3 +25,6 @@ The change waits on all three deps (part 3 needs server-token-auth and harness-i
 
 Also (filed): server track.md calls the desktop token login auth type 7; rsprot decodes token login as auth type 2
 server-token-auth-13 hand-back: ~/src/OpenRune-Server/.worktrees/harness/tools/track.md:64 says 'login (auth type 7)'. rsprot 241 GameLoginDecoder decodes token login as auth type 2 (server-token-auth-12 QA FAIL on the same fact, fixed at e40d5e9dd). Fix the harness doc to auth type 2. (Lost in planner-18's merge of harness-live-deploy-evidence.)
+
+Also (filed): a qa run's up built a tree other than the gated T
+sweep-14 B7: state/genie-review-355/build-52b39cc9*.log 00:45:37Z: "Cannot locate tasks ':or-cache:qaCacheToolsClasspath'" after 'STAFF=1 tools/track.sh up genie-review-355 2'. The gated T is 286823c78 (T: genie-review-355 fc58c24e0 onto d30985ba3); 52b39 lacks main's newer files (ObjTakePluginTest.kt). Root cause unconfirmed: trace how up's tree gets its T. evidence/monitor/sweep-14.md

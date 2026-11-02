@@ -1213,11 +1213,14 @@ class R4(Sandbox):
         s.assertEqual(g.did("pr create")[0][g.did("pr create")[0].index("-R") + 1], "u/f")
         s.assertTrue(g.did("pr comment")[0][-1].startswith(PUSHED))
         s.assertEqual((hd.rec("s1", "opened")["pr"], hd.rec("s1", "ship")["head"]), (42, A))   # a rerun updates PR 42; the pass never carries again
-        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True, "title": "", "body": "body"}]}  # the texts it opened with
         ctx = s.ctx(F); s.assertEqual((ctx.changes["s1"]["pr"], ctx.changes["s1"]["opened"]), (42, A))
         s.assertIsNone(hd.rec("s1", "approval"))                                 # the yes is spent by the carry
         hd.put("s1", "approval", {"head": A, "texts": texts})                    # a new yes at the same texts
         s.assertTrue(hd.approved(ctx, ctx.changes["s1"], A))                    # the PR it opened: the yes holds on a rerun
+        c = hd.card(ctx, ctx.changes["s1"], A)                                   # the rerun's card updates PR 42: never a second draft
+        s.assertIn("1. update upstream PR 42 of u/f", c); s.assertNotIn("open a draft PR", c); s.assertNotIn("replacing its", c)
+        s.assertIn("wait for every CI check to pass at the head", c); s.assertIn("post the comment below", c)
         F.f["ci"] = [b("failure")]; g = GH()
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)

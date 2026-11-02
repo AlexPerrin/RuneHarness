@@ -7,6 +7,7 @@ priority: P1
 mechanism: mobile
 deps:
 - harness-server-stack-one-record
+- harness-live-deploy-on-tools-change
 created: '2026-11-02T04:22:32Z'
 limit-of:
 - harness-live-stack-issuer

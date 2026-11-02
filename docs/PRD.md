@@ -144,6 +144,7 @@ a live check reads the real state.
    a harness hand-over reads its local dev ref, never a pushed one;
    a script row the user's answer waives is not run;
    an answer recorded after a hand-over and the head's last verdict, on any track and on a done change, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over, and one a verdict on the head already judged does not;
+   an answer row written before a SendMessage to the running dev's agent is that run's, not late for its hand-over;
    an answer on a closed change is refused;
    a verdict missing a row, or with a row not judged and none failing, is refused, and the next brief lists the open rows;
    a contract row needs no change depending on its own;
@@ -153,6 +154,7 @@ a live check reads the real state.
    a verdict at H does not hold at H';
    a harness change's tools commits are handed over, gated and landed with it;
    a moved upstream rule file voids only the rule rows;
+   a rule file absent upstream at the last verdict and still absent moves nothing;
    a seed check row added to a contract keeps its verdict;
    a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes no dependency orders or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change unless it waits on or blocks it, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
    a seed row added later joins a contract at a head not carried upstream;
@@ -163,6 +165,7 @@ a live check reads the real state.
 
 4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch without the owner prefix, replacing its title and body where they differ from the live ones, CI, the comment, each reply, ready), each exact text, the finding each reply quotes, the verdict and evidence, and the yes, no and close commands;
    `hd hold` hides the card at its head (held by the user, a wait), a new head shows it again, `--all` holds every head until `--lift`;
+   a lift with the user's words keeps them in its event, writes no answer row and lists no dev run;
    the same-head tips of one PR show one card;
    `hd approve` records the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw it;
    the carry runs only while the yes holds;

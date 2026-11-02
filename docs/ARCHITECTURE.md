@@ -50,7 +50,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd answer <slug> [--waive <row>] <text>`, by the orchestrator, with the user's words: an answer appends a contract row (refused on a closed change: file a change);
   `--waive` names a script row the hand-over and gate then skip
 
-- `hd hold <slug> [--all|--lift] [<why>]`, by the orchestrator, on the user's no or word: `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves;
+- `hd hold <slug> [--all|--lift] [<why>]`, by the orchestrator, on the user's no or word (a word only on when it ships is a hold or its lift with the why, never an answer row: an answer row lists a dev run): `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves;
   --all: `held: all[: <why>]` in the definition (the orchestrator commits it), no card at any head;
   --lift removes both
 
@@ -75,7 +75,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd handover <slug> [summary] Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
-  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, given} (given: when the handing dev run was listed, its brief written;
+  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, given} (given: when the handing dev run was listed, its brief written, or last told by a SendMessage to its agent (the hook's `told` fact);
   an answer row from then on is late for that hand-over)
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
@@ -288,7 +288,7 @@ next(change):
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in);
 a fresh dev ref cut at a base commit is neither.
 A contract's rule rows carry the upstream rule files' blob shas;
-when a sha moves, only those rows are re-judged.
+a verdict records each file's blob on upstream main ('' for a file absent there), and when one moves from the last verdict's, only those rows are re-judged.
 A reviewer is listed only where the contract has `judge:` rows (client changes have none;
 releases do).
 A hand-over at the same head after a verdict re-marks only the failed rows.

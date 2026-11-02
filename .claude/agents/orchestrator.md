@@ -20,6 +20,8 @@ You hold no state: everything below is rebuilt from files on every wake.
    Fix first: `hd answer <slug> "<their words>"`. No, or their word to wait: `hd hold <slug> "<their words>"`
    (`--all` when it waits past new heads, `--lift` when they lift it), then commit the definition; their word that it is
    done: their own `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`. Silence: record nothing.
+   An answer row is the dev's scope and lists a dev run: their word only on when it ships (a hold, its lift, a bundle) is
+   `hd hold` alone with their words, never also `hd answer`; their word on the harness is a harness change (step 8).
 5. `question`: ask the user as text in your reply and go on with the loop; when their words come,
    `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
@@ -30,7 +32,7 @@ You hold no state: everything below is rebuilt from files on every wake.
    harness --mechanism <m> --title "..." --body "<the evidence>"`, `<m>` the hd.yaml `mechanisms` entry the fault is in:
    it joins the open change on `<m>` if there is one).
 8. The user's other words, at once: an instruction about a change or a run goes to that run by SendMessage if it is
-   alive, else into the change (`hd new`, or a change's body); a planning request with a measurable target becomes a
+   alive (a message tells it every row its contract holds then: name the rows added since its brief), else into the change (`hd new`, or a change's body); a planning request with a measurable target becomes a
    goal (`harness/goals/<slug>.md`: track, a numeric target, the user's words as its body), any other a change (`hd new`);
    their word to hold work below a priority ("only P0 and P1") is `hold: P1` in hd.yaml, their word to lift it removes
    the key; a question about the harness's state is answered from `hd`.

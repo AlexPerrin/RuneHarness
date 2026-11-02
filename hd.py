@@ -801,6 +801,8 @@ def apply_fact(r, fid, e):
             r.update(ended=e["ts"], record=e["record"])
     elif k == "stopped" and not r.get("ended") and r.get("agent_id") == e["agent_id"]:
         r.update(ended=e["ts"], reason="stopped by the head")
+    elif k == "told" and not r.get("ended"):  # a message to the live run carries its contract's rows written until then
+        r["told"] = e["ts"]
     elif k == "context-limit" and not r.get("handoff_told"):
         r["handoff_told"] = e["tokens"]
 
@@ -1400,7 +1402,7 @@ def deps_held(ctx, ch):
 
 
 def late_answers(slug, ho, head):
-    """R3: the answer rows newer than the brief of the run that handed over (its `given`; the hand-over itself when no run
+    """R3: the answer rows newer than the brief of the run that handed over, or the last message it was told (its `given`; the hand-over itself when no run
     did) and than the last verdict on head (one a verdict already judged is not), as (the user's, joined filings'): a row
     its brief did not hold is late, though written before the hand-over; the user's word is the dev's before the head is built, gated or shipped; a
     joined filing is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate."""
@@ -1517,8 +1519,8 @@ def nxt(ctx, ch):
         blobs = {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in con["rules"]}
         if None in blobs.values():
             return step("upstream rule files unknown", "unknown")
-        moved = [k for k, v in con["rules"].items() if blobs[k] != v]
-        if moved and (not vs or any((vs[-1].get("rules") or {}).get(k) != blobs[k] for k in moved)):
+        moved = [k for k in con["rules"] if vs and (vs[-1].get("rules") or {}).get(k) != blobs[k]]  # against what the last verdict judged, in blob()'s one format
+        if moved:
             return step(f"upstream rules moved ({', '.join(moved)}): rule rows re-judged", "qa", mode="judge", input=[head, con["hash"], moved])
         if not vs:
             return step("review due", "qa", mode="judge", input=[head, con["hash"], []])
@@ -2644,8 +2646,8 @@ def cmd_handover(a):
             why.append(f"a carried tools head's tests fail: {out.strip()[-400:]}")
     if why:
         refuse(*why)
-    given = max([r["listed"] for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")], default=now())
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), "given": given})  # given: when the handing run's brief was written
+    given = max([max(r["listed"], r.get("told") or "") for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")], default=now())
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), "given": given})  # given: when the handing run's brief was written, or it was last told by a message
     drop(ch["slug"], "ask")
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
@@ -2815,7 +2817,7 @@ def cmd_hold(a):
     drop(ch["slug"], "hold")
     if held and not flag:
         put(ch["slug"], "hold", {"head": at, "held": held})
-    event(change=ch["slug"], record="hold", held=held or "")
+    event(change=ch["slug"], record="hold", held=held or "", **({"why": why} if flag == "--lift" and why else {}))  # a lift keeps the user's word: it is no answer row
     print(f"{ch['slug']} " + (f"held: {held}" if held else "lifted"))
 
 

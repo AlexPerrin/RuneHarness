@@ -1872,8 +1872,8 @@ def public(ctx, ch, head):
         return step(f"gated; the PR waits for {', '.join(out)}", "wait")
     if (first := min(o["slug"] for o in group(ctx, ch) if ctx.head(o) == head and not outside(ctx, o, head))) != slug:
         return step(f"gated; the PR's card is {first}'s", "wait")  # same-head tips of one PR: one card
-    if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
-        return step("carrying upstream", "script", act=lambda: None)
+    if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started; start keeps it, or reruns it on a fixed hd.py
+        return step("carrying upstream", "script", act=lambda: ctx.start(slug, "ship", rec(slug, "proc-ship")["args"]))
     again = reopen(ch, head)
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head) \
             and not (again and sh["detail"].startswith("CI failure")):  # the carry found the head's defect (a CI one the user's reopen answers)

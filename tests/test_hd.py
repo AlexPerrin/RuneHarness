@@ -1539,6 +1539,15 @@ class R4(Sandbox):
         s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))
         s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
 
+    def test_the_pass_reruns_an_alive_carry_on_a_fixed_hd_py(s):  # sweep-73 P1-a: the #448 carry hung on code its pass had since fixed
+        F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F); s.approve(F, "s1", A)
+        hd.tick(s.ctx(F)); F.f["procs"] = {(7, "1"), (4242, "99")}; n = len(F.spawned)
+        hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len(F.spawned)), ([], n))   # alive on the current hd.py: kept
+        (s.root / "hd.py").write_text("fixed"); os.utime(hd.STATE / "s1" / "proc-ship.json", ns=(1, 1))
+        s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
+        hd.tick(s.ctx(F))
+        s.assertEqual((F.stopped, F.spawned[n:]), ([4242], [[str(hd.ROOT / "hd.py"), "ship", "s1", A]]))   # stopped and rerun on the fixed one
+
     def test_the_ci_at_a_head_is_the_latest_run_of_each_check(s):  # sweep-69 P1-a: #448's reopen left the old failed run beside the new green one
         run = lambda i, n, c: {"id": i, "name": n, "details_url": f"https://ci/{i}", "status": "completed", "conclusion": c}
         g = hd.Facts(); g.api = lambda p: (200, {"check_runs": [run(9, "build", "success"), run(3, "build", "failure"), run(4, "lint", "success")]} if "check-runs" in p else {"statuses": []})

@@ -12,6 +12,7 @@ deps:
 - harness-server-build-musicrepository
 - harness-desktop-first-login
 - harness-keeper-after-failed
+held: 'all: just push to fork, We will approve upstream PR for social features when more progress is complete.'
 ---
 ## Change
 Split from server-clan-channels (the user, 2026-10-31: clans in five PRs, in order, each off upstream main: core with the settings interfaces, guest clans, broadcasts, Clan Hall). This PR: guest clans (join, chat and leave another clan's channel as a guest), as on the OSRS wiki, built on the clans core. Draft spec: /home/alex/osrs-harness/evidence/server-clan-channels/accuracy.md. Cross-world clans are a stated caveat.

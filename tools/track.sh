@@ -100,7 +100,7 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
   [ -n "$landed" ] || flock "$root/state/.lock" git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
   kept
 }
-kept() { local f; for f in "$state"/gate-*.json; do [ "$f" = "$state/gate-${G:-}.json" ] || rm -f "$f"; done; }   # every kept gate but the shipped tree's (G) was of a tree on the old base
+kept() { local f; for f in "$state"/gate-*.json; do [ "$f" = "$state/gate-${G:-}.json" ] || grep -qE '"ok": ?false' "$f" || rm -f "$f"; done; }   # a passed gate but the shipped tree's (G) was of a prefix now on the live branch; a failed one stays: its tree recurs on the new base (the members after the shipped prefix)
 
 rowmemo() {  # within one gate (ROWS), a check whose input is the tree and the batch's TOOLS alone gives every member its first result
   [ -n "${ROWS:-}" ] || { "$1"; return; }

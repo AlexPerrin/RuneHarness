@@ -235,9 +235,11 @@ a live check reads the real state.
    a change waiting on a fix waits on the change that carries it: a dependency on a superseded change, or a `--blocks` filing joined into an open change, names that change;
    a dependency cycle among open changes is one alert naming it, each change in it shows as in that cycle (never plain 'waiting on'), and `hd new` and a git commit naming harness/ refuse it;
    a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env;
-   docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.
+   docker not answering → one alert, no product track's script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers;
+   a script of this repo (the harness track's gate and ship, a carry by `hd ship`) starts while docker is down.
 
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice;
+   a ship keeps a failed prefix's gate, so its tree on the new base is not gated again;
    the same head and contract never judge twice;
    no more than the configured agents are listed, the planner outside that count;
    with a band held, no run is listed for a change below it and a listed one is dropped;

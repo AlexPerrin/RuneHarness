@@ -2442,13 +2442,14 @@ class R5(Sandbox):
             s.assertEqual(subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%an <%ae>|%cn <%ce>", r.stdout.strip()], capture_output=True, text=True).stdout.strip(),
                           "|".join(["%s <%s>" % hd.AUTHOR] * 2))
 
-    def test_docker_down_is_one_alert_and_no_script_starts(s):
-        s.change("s1"); s.agreed("s1")
-        F = Fake(**FACTS, containers=None)
+    def test_docker_down_is_one_alert_and_no_script_starts(s):  # sweep-58 P3-a: but a harness gate, which needs no docker
+        s.change("s1"); s.agreed("s1"); s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        H1 = "1" * 40
+        F = Fake(refs={**FACTS["refs"], "HEAD": B, "harness/h1": H1}, trees={**FACTS["trees"], H1: "t1"}, merges={**FACTS["merges"], (B, H1): ("ok", H1)}, containers=None)
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_handover(["s1", "Limits:", "none"])
+            hd.cmd_handover(["s1", "Limits:", "none"]); hd.cmd_handover(["h1", "Limits:", "none"])
         v = hd.tick(s.ctx(F))
-        s.assertEqual(F.spawned, [])
+        s.assertEqual([x[1:] for x in F.spawned], [["gate", "ship-harness", H1]])   # the server change's build waits; the harness gate starts
         s.assertEqual(sum("docker unreachable" in a for a in v["alert"]), 1)
 
     def test_docker_down_lists_no_build_run_until_it_answers(s):
@@ -3205,10 +3206,11 @@ class R8(Sandbox):
         s.assertNotEqual(git("rev-parse", "v8"), T1)                                  # the live branch never moves under an acting pass
         h.close(); t.join(); r = t.r
         s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
-        hd.put("s1", "gate-k", {"ok": True}); hd.put("s1", "gate-g", {"ok": True})
+        hd.put("s1", "gate-k", {"ok": True}); hd.put("s1", "gate-g", {"ok": True}); hd.put("s1", "gate-f", {"ok": False})
         r = subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T1], env={**os.environ, "HD_ROOT": str(s.root), "G": "g"}, capture_output=True, text=True)   # a T that already landed: a no-op, its gates spent
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
         s.assertTrue(hd.rec("s1", "gate-g")["ok"])                                    # sweep-21: but the shipped tree's own gate (G), which the live branch's gate reads
+        s.assertFalse(hd.rec("s1", "gate-f")["ok"])                                   # sweep-59 P4-d: and a failed prefix's, whose tree recurs on the new base
         s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
         hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})

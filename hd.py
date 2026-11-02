@@ -1259,10 +1259,10 @@ class Ctx:
         one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once;
         `since` is when its count last started over;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
-        further one starts on the observed end of one."""
+        further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
-        if not s.docker or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
+        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
             return
         if st == "alive":
             if not act:
@@ -2309,7 +2309,7 @@ def repairs(ctx, act):
     cs = ctx.F.containers()
     if cs is None:
         ctx.docker = False
-        ctx.alerts.append("user: Docker Desktop is down (docker unreachable): no script starts and no run that builds or tests is listed until it answers")
+        ctx.alerts.append("user: Docker Desktop is down (docker unreachable): no product track's script starts and no run that builds or tests is listed until it answers")
         return
     for ch in ctx.changes.values():
         if f"server-{ch['slug']}" in cs and not ctx.alive_run(ch):

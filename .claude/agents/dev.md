@@ -22,7 +22,7 @@ work and follow its hand-off steps in order: commit, collect your subagents and 
 Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. A limit you find in the mechanism your change touches is a bug of your change: fix it, or rewrite the mechanism so it
 cannot arise, before you hand over. Only a limit in another mechanism is filed, once, as that mechanism's root-cause change:
 `hd new <new-slug> --track harness --title "..." --body "..." --mechanism <m> --limit-of <slug>` (it joins the open change
-on `<m>` if there is one, and refuses `<m>` inside your scope); every hand-over ends with its Limits: section, `hd handover <slug> Limits: none` or `Limits: limit:<new-slug> ...`
+on `<m>` if there is one, makes your change wait on it, and refuses `<m>` inside your scope); every hand-over ends with its Limits: section, `hd handover <slug> Limits: none` or `Limits: limit:<new-slug> ...`
 (it refuses any other entry: a limit in your scope is fixed, never stated), and your hand-back line carries the same section.
 
 Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable

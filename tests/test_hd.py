@@ -3469,6 +3469,10 @@ class R3(Sandbox):
         hd.cmd_new(["x2", "--track", "harness", "--title", "carry retries", "--body", "seen twice", "--mechanism", "carry", "--limit-of", "h1"])
         g = hd.defs("changes")
         s.assertNotIn("x2", g); s.assertEqual(g["h2"]["limit-of"], ["h1"]); s.assertIn("carry retries", g["h2"]["body"])
+        s.assertEqual(g["h1"]["deps"], ["h2"])                                   # the finder waits on the change that carries its limit
+        s.change("h5", track="harness", mechanism="tree"); s.agreed("h5", track="harness")
+        hd.cmd_new(["x5", "--track", "harness", "--title", "build host faults", "--mechanism", "hold", "--limit-of", "h5"])
+        s.assertEqual(hd.defs("changes")["h5"]["deps"], ["x5"])                  # a new filing holds its finder too
         with s.assertRaises(SystemExit):                                         # converges: h2 now owns h1's mechanism too
             hd.cmd_new(["x3", "--track", "harness", "--title", "back again", "--mechanism", "dispatch", "--limit-of", "h2"])
         s.change("x4", track="harness", mechanism="dispatch")

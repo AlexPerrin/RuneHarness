@@ -800,6 +800,18 @@ class R2(Sandbox):
         s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the hand-back's stop ends it
         s.assertFalse(r["record"])                                        # nothing newer than the answer: no record
 
+    def test_a_fact_named_before_the_last_folded_one_still_applies(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        hd.tick(s.ctx(F))                                                 # the bind is folded
+        e = {"ts": hd.now(), "fact": "end", "run": run["name"], "handed": True, "record": None, "usage": {"turns": 1}, "last": "run s1-1: handoff"}
+        hd.write(s.root / "state" / "facts" / f"{0:020d}-1.json", json.dumps(e))   # the wall clock stepped back
+        s.assertTrue(hd.runs()[0]["ended"])
+        hd.fold(); s.assertTrue(hd.runs(pending=False)[0]["ended"])
+
     def test_a_taskstop_ends_a_run_resumed_after_its_hand_back(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

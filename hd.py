@@ -836,10 +836,9 @@ def pending_facts():
 
 
 def apply_fact(r, fid, e):
-    """A fact sets what it states on its run, in the order the facts were written; the run keeps the last one's id."""
-    if r is None or fid <= r.get("fact", ""):
+    """A fact sets what it states on its run, in the order the facts were written; one the last fold saved but did not delete is not applied twice."""
+    if r is None or fid in r.get("folded", ()):
         return
-    r["fact"] = fid
     k = e["fact"]
     if k == "bind" and not r.get("started"):  # a bound run is a run: a pass that dropped it unstarted is overruled by its agent
         r.update({x: e[x] for x in ("agent_id", "transcript", "console_pid", "console_start")}, started=e["ts"], started_at=e["at"], ended=None, reason=None)
@@ -872,6 +871,8 @@ def fold():
     for fid, e in facts:
         apply_fact(rs.get(e.get("run")), fid, e)
     for name in {e.get("run") for _, e in facts} & set(rs):
+        rs[name].pop("fact", None)   # shortcut: the last folded id a record kept before; drop once no state holds it
+        rs[name]["folded"] = [fid for fid, e in facts if e.get("run") == name]   # by membership, never id order: a fact's name is the wall clock, which steps back
         save_run(rs[name])
     for fid, _ in facts:
         (STATE / "facts" / f"{fid}.json").unlink(missing_ok=True)

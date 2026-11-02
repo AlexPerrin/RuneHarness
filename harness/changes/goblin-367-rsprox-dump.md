@@ -7,8 +7,15 @@ title: '#367: back to draft while the Goblin Diplomacy RSProx dump is reviewed; 
   check against it and fix'
 kind: change
 priority: P2
-deps: [harness-build-gate-keyed-process, harness-deploy-survives-tools-ship]
-finding: [IC_kwDOQBbPT88AAAABeeLlXg, IC_kwDOQBbPT88AAAABhyfg1w, IC_kwDOQBbPT88AAAABhyf-LQ, IC_kwDOQBbPT88AAAABhzI4JQ]
+deps:
+- harness-build-gate-keyed-process
+- harness-deploy-survives-tools-ship
+- quest-completion-recorded-ticks
+finding:
+- IC_kwDOQBbPT88AAAABeeLlXg
+- IC_kwDOQBbPT88AAAABhyfg1w
+- IC_kwDOQBbPT88AAAABhyf-LQ
+- IC_kwDOQBbPT88AAAABhzI4JQ
 created: '2026-11-01T20:43:57Z'
 ---
 The user's word (2026-11-01): "367 should go in draft for (https://github.com/OpenRune/OpenRune-Server/pull/367#issuecomment-6562504919). Draft comment explaining (reviewing dump), then run an accuracy check and fix if needed."

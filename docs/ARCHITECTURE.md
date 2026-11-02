@@ -175,7 +175,8 @@ The host bounds the builds and container steps alive at once, across every slug 
 each container then waits in `hd room`, a gate's checks and a dev's build included;
 build.lock stays one build per slug, never the bound.
 The game cache is keyed by the hash of its inputs (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned).
-The game data of a revision (the download, keyed by game.example.yml's blob12, the gate's release asset key) is stored once in that volume: a build missing the cache restores it and repacks, never downloading openrs2 again for that revision.
+The game data of a revision (the download, keyed by game.example.yml's blob12, the gate's release asset key) is stored once in that volume: a build missing the cache restores it and repacks, never downloading openrs2 again for that revision;
+a revision missing from the volume is restored from the gate's release asset when it is listed, so openrs2 serves only a revision no image holds yet.
 Every build renders the copy's game.yml from T's game.example.yml (game.yml is ignored, so clean keeps an older tree's).
 A hand-over's check rows get the build key as `T`, as the pass's build, so a dev's build is the pass's.
 The build copy is `<repo>/.worktrees/<slug>-build`, the dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo;
@@ -397,10 +398,10 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
 - Server: script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`;
   the change's head unchanged), its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
   its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent, the first upload standing) on an actions/cache miss, never downloading openrs2's cache (no asset fails that step, the runner's, re-run once the asset is listed);
-  a head that changes the cache pipeline (or-cache/) restores neither, so its CI runs `:or-cache:freshCache`, the step the classifier calls the head's;
-  a head that changes another cache input (/pack/, gamevals, raw-cache, game.example.yml) packs on the restored revision, that step the head's, so openrs2 is never its step;
+  a head that changes the revision (game.example.yml) restores neither, so its CI runs `:or-cache:freshCache`, the step the classifier calls the head's;
+  a head that changes another cache input (or-cache/, /pack/, gamevals, raw-cache) packs on the restored revision, that step the head's, so openrs2 is never its step;
   each step carries the job's timeout-minutes, so a timeout names the step that ran out;
-  a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, openrs2's download unless the head changes the cache pipeline, the packing when the head changes no cache input) is re-run once its source answers, held after its third attempt
+  a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, openrs2's download unless the head changes the revision, the packing when the head changes no cache input) is re-run once its source answers (openrs2: its newest cache of the revision yields bytes), held after its third attempt
 - Central: `gradle test`, evidence files, commit subjects
 - Harness: tests;
   `hd tick --dry-run` plans no upstream action the live checkout's pass does not;

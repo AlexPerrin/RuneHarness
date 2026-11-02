@@ -114,7 +114,11 @@ class Facts:
                 h.truncate(0)
                 h.write("ok" if ok else "failed")
                 return ok
-        return s._m(("fetch", clone, remote, ref), f)
+        def g():
+            ok = f()
+            s.memo = {k: v for k, v in s.memo.items() if k[0] == "fetch" or clone not in k}  # the clone's reads predate the fetch
+            return ok
+        return s._m(("fetch", clone, remote, ref), g)
 
     @_read
     def refs(s, clone):

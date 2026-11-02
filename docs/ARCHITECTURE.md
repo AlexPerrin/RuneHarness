@@ -84,9 +84,10 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) and no open `hd ask` holds joins that change instead (a held one joins nothing and counts in no merge alert until answered): its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   the finder waits on the fix as with `--blocks`, whether the filing is new or joined;
-  `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;
+  `--supersedes` marks those open changes, on any track, `superseded: <carrier>`, the new change or the one the filing joined: each holds with no runs until the user's `hd close`;
+  a planner merge supersedes the changes it merges, and a dev whose change the user's answer drops supersedes it with the filing that carries its scope;
   each pass raises one user's alert per superseded change naming its pasteable `! python3 <root>/hd.py close` command, as a card names its own;
-  every dependency on a superseded change or on the filing (`--blocks`, `--limit-of`) is rewritten to the change that carries the fix, the new one or the one it joined, cycle-checked
+  every dependency on a superseded change or on the filing (`--blocks`, `--limit-of`) is rewritten to the change that carries the fix, the new one or the one it joined (the carrier's own drops), cycle-checked
 
 - `hd show <slug>`, by the orchestrator: the definition, contract, every verdict, the build and gate lines, the hand-off file (a run reads its brief instead)
 

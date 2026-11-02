@@ -1248,6 +1248,7 @@ class R4(Sandbox):
             s.ship(F, g)
         sh = hd.rec("s1", "ship")
         s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun")), (False, "head", [])); s.assertIn("Generate cache and gameval sources", sh["detail"])
+        s.assertNotIn("step", sh)                                                # the vouch reads heads and order alone: any record's vintage
         st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"FAIL upstream at {A[:9]}: dev"))
         ho = hd.rec("s1", "handover")
         with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):    # its dev hands the same head over: the cause is outside it, filed
@@ -1298,6 +1299,9 @@ class R4(Sandbox):
         with s.assertRaises(SystemExit) as e:
             s.ship(F, g)
         s.assertIn("name only ['rev']", str(e.exception)); s.assertEqual(g.did("pr comment"), [])
+        (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n> as @other said\n\n@rev kept, see `@x`\n```\n@y\n```"); s.approve(F, "s1", A)
+        s.ship(F, GH()); s.assertTrue(hd.rec("s1", "ship")["ok"])              # an @ quoted or in code names no one
+        hd.drop("s1", "ship")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> keep it\n\n@rev kept"); s.approve(F, "s1", A)
         with s.assertRaises(SystemExit) as e:                                    # a quote that is not the finding's: not an answer
             s.ship(F, GH())

@@ -495,7 +495,7 @@ class R2(Sandbox):
         with s.assertRaises(SystemExit):
             hd.cmd_close(["s1", "again"])
 
-    def test_a_reopened_dependency_holds_its_dependents(s):  # planner-24: a joined filing reopened h1 yet c1 ran with nothing to fix
+    def test_a_dependency_reopened_by_the_user_holds_its_dependents(s):  # sweep-86 P2-a: filings joined to h1 held c1 though the head it needed was live
         s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness"); s.change("c1", "client", deps=["h1"])
         D = Fake(refs={"HEAD": A, "harness/h1": A, "origin/HEAD": B, "origin/client/c1": ""}, trees={A: TA}, merges={(A, A): ("ok", A)})
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
@@ -503,7 +503,9 @@ class R2(Sandbox):
         s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # h1 live and done: c1 goes on
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joins h1 after its done head
         s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")
-        s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # its step reopened: met only once its dev acts on it
+        s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # a joined filing holds only h1: the head c1 needed is live
+        hd.cmd_ask(["h1", "which?"]); hd.cmd_answer(["h1", "split it"])          # the user's word, quoting the question
+        s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # met only once its dev acts on it
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")
@@ -1556,7 +1558,7 @@ class R4(Sandbox):
         F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F); s.approve(F, "s1", A)
         hd.tick(s.ctx(F)); F.f["procs"] = {(7, "1"), (4242, "99")}; n = len(F.spawned)
         hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len(F.spawned)), ([], n))   # alive on the current hd.py: kept
-        (s.root / "hd.py").write_text("fixed"); os.utime(hd.STATE / "s1" / "proc-ship.json", ns=(1, 1))
+        (s.root / "hd.py").write_text("fixed")
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
         hd.tick(s.ctx(F))
         s.assertEqual((F.stopped, F.spawned[n:]), ([4242], [[str(hd.ROOT / "hd.py"), "ship", "s1", A]]))   # stopped and rerun on the fixed one
@@ -2549,8 +2551,7 @@ class R5(Sandbox):
         s.assertEqual(len(F.spawned), n)                                         # ended 3 times on T3: raised
         ctx.start("s1", "build", [str(script), "T3"])                            # a second change reaching the same script
         s.assertEqual(sum("ended 3 times" in a for a in ctx.alerts), 1)             # one alert in a pass, not one per caller
-        pf = hd.STATE / "s1" / "proc-build.json"
-        os.utime(script, ns=(pf.stat().st_mtime_ns + 10**9,) * 2)                # the script is fixed
+        script.write_text("fixed")                                               # the script is fixed: its text, never its file time beside the record's
         ctx.start("s1", "build", [str(script), "T3"])
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
 
@@ -2673,7 +2674,7 @@ class R5(Sandbox):
         ctx.start("s2", "ship", ["hd.py", "ship", "s2", A]); ctx.start("s2", "ship", ["hd.py", "ship", "s2", A])
         s.assertEqual(F.stopped, [p1["pid"]])                                    # a carry has no key: never stopped
         script = s.root / "hd.py"; script.write_text("fixed")                   # sweep-69 P1-a: a carry hung on code since fixed
-        pf = hd.STATE / "s2" / "proc-ship.json"; os.utime(pf, ns=(1, 1)); n = len(F.spawned)
+        n = len(F.spawned)
         ctx.start("s2", "ship", [str(script), "ship", "s2", A])
         s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"], 4242], n + 1))  # stopped and rerun on the fixed script
         F.f["procs"] = {(7, "1"), (4242, "99")}; ctx.start("s2", "ship", [str(script), "ship", "s2", A])

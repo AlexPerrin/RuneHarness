@@ -250,7 +250,7 @@ next(change):
     no → wait on them (a same-track upstream dependency: gated;
     the dependent with no pr or branch of its own joins its PR, a chain one PR;
     one with a branch of its own is its own PR, its card waiting on the dependency's upstream merge)
-    a dependency a late answer or joined filing reopened (its own step not done) → wait on it until its dev hands over
+    a dependency the user's late answer reopened → wait on it until its dev hands over (a joined filing holds only its own change)
   question open (hd ask, its definition's front matter unedited since)?
     yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?

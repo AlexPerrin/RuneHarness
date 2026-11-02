@@ -5,8 +5,7 @@ title: "a PR's agent runs are proportionate to its change: genie #355 took 145 r
 kind: change
 priority: P0
 mechanism: loop
-deps:
-- harness-dep-on-fork-merge
+deps: []
 created: '2026-11-02T02:50:00Z'
 ---
 The user (2026-11-01, ET): "Genie took many agent hours to accomplish, for two single line changes it was not worth it."
@@ -15,4 +14,4 @@ Evidence: state/runs: genie-review-355 134 runs, genie-355-bank-lamp 7, the thre
 
 Acceptance: find every remaining cause in the run records (state/runs/genie-*.json, events.jsonl, transcripts) and fix each at its root, so a change's runs scale with its diff and findings: one dev and one qa run per real head move is the norm, and any further run names its cause in the run record's reason. A test pins the run count of a modeled PR with N findings and one head move. Report the run count per change before and after.
 
-(Depends on harness-dep-on-fork-merge only to order it on the loop mechanism.)
+(harness-dep-on-fork-merge depends on this change only to order the two on the loop mechanism.)

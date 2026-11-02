@@ -41,11 +41,11 @@ if failed and len(sys.argv) > 1: print("failed: " + ", ".join(failed) + "; whole
 for l in ("Ran " + end if end else t).splitlines():
     if re.match(r"(Ran |OK|FAILED)", l) or "refused: " in l: print(l)
 ' "$@"; }   # unittest's verdict, each failing test with its traceback tail, and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
-suite() {  # suite [unittest args]: the suite of the tree in the cwd (all of tests/ by default) through the runner, its whole report kept in state/<slug>/tests.txt
+suite() {  # suite [unittest args]: the suite of the tree in the cwd (all of tests/ by default) through the runner, its whole report kept in $state/tests.txt
   [ $# -gt 0 ] || set -- discover -s tests
   env -u ROWS python3 -c "$unit" "$@" 3>&1 >/dev/null 2>&1 | summary "$state/tests.txt"
 }
-check_tests() { (cd "$BUILD" && suite); }
+check_tests() { [ -z "${ROWS:-}" ] || state=${ROWS%/*}; (cd "$BUILD" && suite); }   # in a gate the report is the gate's own (state/<batch>/tests.txt, beside ROWS), never a member's that its dev's test overwrites
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>
   wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
   out=$(HD_ROOT=$root TOOLS_ROOT=$wt LIVE=$repo python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1) && rc=0 || rc=$?   # the rows are T's own scripts (the files its key names); main's plan is LIVE's

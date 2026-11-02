@@ -19,3 +19,6 @@ sweep-22: cmd_ship exits on 'carry failed' recording no result (hd.py:2740-2743)
 
 Also (filed): a harness change that carries only tools never ships and loops ship <-> gate
 sweep-24 P0: harness-qa-unjustified-upstream-test handed over base 67a63fc + fork tools d7bfe9dca; its T's harness commit is already on v8, so ship() exits 'already on the live branch' at tools/track.sh:60-61 before the TOOLS loop (76-81) pushes the tools head, and the same line deletes gate-*.json, so the pass gates (all rows kept) and ships again: state/ship-harness/ship.log 3x 'already on the live branch'; events shipping/gate on b56fa957f 02:23:59-02:27:46Z; fork local/harness still c5f8946e0. The no-op exit requires every carried tools branch to already hold its sha. evidence/monitor/sweep-24.md
+
+Also (filed): a passed whole-batch gate does not ship once a member joins mid-gate
+sweep-25 P2-b: harness-qa-unjustified-upstream-test, gated ok 02:22Z, was re-gated 4 times (b56fa957f, 476bcd29f, 59265184f, 5da62736c) before shipping 02:35:33Z: gate 476bcd29f was the whole batch when it started and passed, but a hand-over at 02:31:38Z and an hd.yaml commit re-keyed the batch (ARCHITECTURE.md:257). A prefix that was the whole batch when its gate started ships. evidence/monitor/sweep-25.md

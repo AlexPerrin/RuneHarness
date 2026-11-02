@@ -6,6 +6,7 @@ kind: change
 priority: P1
 deps:
 - cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq
+- harness-finding-needs-ask
 pr: 354
 finding:
 - IC_kwDOQBbPT88AAAABiFocug

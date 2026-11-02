@@ -9,7 +9,7 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 AskUserQuestion is denied in the orchestrator's session (its definition's frontmatter holds only name and description). R2
                 A bare `hd` or `hd tick` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.  R5
                 A run's kill of a pid outside its own slice, and its pkill or killall, is denied.                          R5
-                A Bash command's `pgrep -f` whose pattern matches the command's own text (its own `bash -c` line) is denied. R5
+                A while/until loop's `pgrep -f` whose pattern matches the command's own text (its own `bash -c` line) is denied. R5
                 The denial names `hd ps`, which lists the run's own processes (pid, command line) for its `kill`.          R5
                 A run's own agent whose run the pass, the head or `hd stop` ended only reads, writes its evidence/<slug>/ and hands back.  R2
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
@@ -398,14 +398,16 @@ def deny_foreign_kill(p):
 
 
 def deny_self_pgrep(p):
-    """R5: a Bash command's `pgrep -f <pattern>` whose pattern matches the command's own text is denied: the command runs
-    as `bash -c <command>`, so the pattern matches that shell and a wait on it never ends."""
+    """R5: a `while`/`until` loop (its condition or body) that runs `pgrep -f <pattern>` matching the command's own text is
+    denied: the command runs as `bash -c <command>`, so the pattern matches that shell and the wait never ends."""
     if p.get("tool_name") != "Bash":
         return
     cmd = (p.get("tool_input") or {}).get("command") or ""
     code = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", cmd, flags=re.S)   # a heredoc body is data
-    for m in re.finditer(r"(?<![\w./-])pgrep\s", code):
-        lex, args = shlex.shlex(code[m.end():], posix=True, punctuation_chars=True), []
+    if not re.search(LOOP, bare(p)):   # only a loop waits on it; a one-shot listing, or the word in quoted text, ends
+        return
+    for cond, m in ((c[1], m) for c in re.finditer(LOOP + r"(.*?)\bdone\b", code, flags=re.S) for m in re.finditer(r"(?<![\w./-])pgrep\s", c[1])):
+        lex, args = shlex.shlex(cond[m.end():], posix=True, punctuation_chars=True), []
         lex.whitespace_split = True
         try:
             for t in lex:
@@ -471,12 +473,15 @@ COUNTED = re.compile(r"\bseq\s|\+\+|\w\s*[+-]=\s*\d|\$\(\(\s*\$?\w+\s*[+-]\s*\d|
 
 
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
+LOOP = r"(?:^|[;&|(\n`'\"]|\$\(|\b(?:do|then|else)\s)\s*(?:while|until)\s"   # a loop's condition starts here
 WRITES = re.compile("|".join((
     r"(?<![-=>])\d*>>?\|?(?!&)\s*(?!/dev/null\b)[^\s&|;)]",                       # a redirection to a file
     AT + r"(?:rm|rmdir|mv|cp|tee|touch|mkdir|ln|chmod|chown|dd|truncate|install|kill|pkill|curl|wget)\b",
     AT + r"sed\s+(?:-\S+\s+)*-\w*i", r"-delete\b", r"-exec(?:dir)?\s+(?:rm|mv|cp)\b",
     AT + r"git(?:\s+-C\s+\S+)*\s+(?:commit|push|pull|fetch|checkout|switch|restore|reset|add|rm|mv|merge|rebase|"
-         r"cherry-pick|revert|am|apply|stash|clean|tag|branch|worktree|update-ref|config|gc|prune)\b",
+         r"cherry-pick|revert|am|apply|stash|clean|tag|worktree|update-ref|config|gc|prune)\b",
+    AT + r"git(?:\s+-C\s+\S+)*\s+branch(?:\s+(?!\d*[<>])[^-\s;&|\n)<>]|[^;&|\n)]*\s(?:-[a-zA-Z]*[dDmMcCfut]|"   # a name creates; these flags write
+         r"--(?:delete|move|copy|force|track|no-track|set-upstream-to|unset-upstream|edit-description)\b))",
     r"\btrack\.sh\s+(?:up|build|gate|down|ship|measure|check-\S+)\b",
     AT + r"docker\s+(?!ps\b|logs\b|inspect\b|images\b)\w",
     AT + r"gh\s+(?!api\b)\w+\s+(?:create|edit|merge|close|reopen|comment|delete|review|ready|upload|run|rerun|cancel)\b",

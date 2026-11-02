@@ -151,7 +151,7 @@ a live check reads the real state.
    a head whose last verdict fails is the dev's step before it is built, gated or judged again;
    an MCP server whose mcp/ files change restarts at the session's next request once its requests in flight are answered, the session's initialize given to the new server and its tools list told changed;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
-   `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run;
+   `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, each dependency's hand-over), never a ref its own agent writes, so a change has at most one live run;
    a run being alive through its idle stops until the stop after its hand-back, an idle stop while a background command, monitor or subagent it started runs leaving the run live for that task's notification to resume it, and its record newer than its change's last answer;
    a trigger is the subject it names (the process log an alert names, a gate failure's change and T, the run an alert names): one an open change's body names, or a planner handed back on since its process's count last started over, lists no planner however reworded or recounted, and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive);
    `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps, its frontmatter only its name and description, and the hook denies its session the AskUserQuestion tool;
@@ -279,6 +279,7 @@ a live check reads the real state.
    `hd new` makes a harness change P1 at least;
    two passes over unchanged facts append no event;
    a run over the context limit is told to start no new work and hand off cleanly (commit and push its work in progress, collect its subagents and stop its processes, record what it judged, write the hand-off file: what is proven, what is left, the exact next step, whether a server or desktop is up), and its successor, the same role on the same change, is listed in the same pass with the hand-off file and that commit, past the tier hold and the agent count;
+   a hand-off short of the context limit settles its step like a record: no run is listed until the step's input moves (a dependency hands over), and it is alerted;
    three runs of a change past it since its last handover or the last planner run that handed back on that alert are raised;
    a session of no run past it is told nothing;
    a run whose desktops are up through a stretch of tool calls with no devtools call is told once to bring them down, the count starting again at its next devtools call or up;

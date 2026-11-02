@@ -3364,6 +3364,25 @@ class R6(Sandbox):
         s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
         s.assertIn(f"its work in progress: {A}", open(hd.runs()[1]["brief"]).read())   # the brief names the commit
 
+    def test_a_hand_off_short_of_the_context_limit_waits_for_its_input_to_move(s):   # sweep-89 P2-a: a hand-off naming an open dep listed a run after every hand-off
+        s.change("d1", track="client"); s.change("s1", track="client", deps=["d1"]); s.agreed("s1", "client")
+        F = Fake(**FACTS)
+        live = mock.patch.object(hd.Ctx, "live", return_value=True); live.start(); s.addCleanup(live.stop)   # d1's head is live: s1 is not held
+        hd.tick(s.ctx(F))
+        run = next(r for r in hd.runs() if r["change"] == "s1")
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        (s.root / "evidence" / "s1" / "handoff.md").write_text("left: d1's issuer")
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, handback="run s1-1: handoff"))
+        v = hd.tick(s.ctx(F))
+        s.assertFalse([r for r in hd.runs() if r["change"] == "s1" and not r.get("ended")])   # no run 2 on the same input
+        s.assertTrue(any(a.startswith("s1: dev run s1-1 handed back a hand-off") for a in v["alert"]))
+        hd.put("d1", "handover", {"head": B, "T": B, "commit": B, "tools": {}, "limits": "", "given": 0, "at": hd.now()})   # the dependency moves
+        hd.tick(s.ctx(F))
+        n = [r for r in hd.runs() if r["change"] == "s1" and not r.get("ended")]
+        s.assertEqual(len(n), 1)
+        s.assertIn("left: d1's issuer", open(n[0]["brief"]).read())   # it resumes from the hand-off
+
     def test_a_judge_at_the_context_limit_stops_its_stack_before_its_verdict(s):   # sweep-68 P4-a: a verdict ends the run, cutting its down
         s.change("s1")
         import io, contextlib

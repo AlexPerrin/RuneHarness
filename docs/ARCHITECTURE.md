@@ -396,6 +396,7 @@ a temp root is removed whole, each dir in it made writable first, so a read-only
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps its brief recorded (the run's `deps`, written with its brief) whose own step is no dev or qa run (met at its start, a re-gate) or on deps its brief did not record that are limits filed against its change (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
+a run's own record or hand-off (handoff.md written while it ran) settles its step on that input, but a hand-off at the context limit, which lists its successor, and a dependency it filed;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
 remove a tools copy nothing uses.

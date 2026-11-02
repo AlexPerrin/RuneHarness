@@ -1722,11 +1722,10 @@ def nxt(ctx, ch):
     if tools is None:
         return step("tools refs unknown", "unknown")
     if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late or joined):  # a release has no dev: its head is the base tip
-        hoff = EVID / slug / "handoff.md"
         return step(f"dev run due: head {head[:9]} not handed over" if work and (not ho or ho["head"] != head or ho.get("tools", {}) != tools)
                     else f"dev run due: the user answered after the hand-over ({', '.join(late)})" if late
                     else f"dev run due: a filing or finding joined after the hand-over ({', '.join(joined)})" if joined else "dev run due", "dev", mode="code",
-                    input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
+                    input=[(ho or {}).get("head", ""), con["hash"], {d: "closed" if ctx.changes.get(d, {}).get("closed") else (rec(d, "handover") or {}).get("head", "") for d in ch["deps"]}])  # R6: what the run is given, never the head its own agent commits; a dependency's move is new input
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; only a rebase that stops is the dev's step
     for n, h in tools.items():
         r = ctx.cfg["repos"][n]
@@ -2269,22 +2268,23 @@ def relay(ctx, slug, role):
 
 def unlistable(ctx, ch, st):
     """R5 R6: why no run can be listed for the change's due step, as its alert; None when one can (the agent count aside).
-    The latest run on the input (by its listed time) settles the step only by a record that answers it: a hand-off, or
-    a dependency it filed, leaves the step listable (the step is due only once deps_held clears that dependency); one retry
-    follows the last run with a record. A run the pass ended (its step moved or waits, its change went) neither settles
+    The latest run on the input (by its listed time) settles the step by a record or a hand-off of its own (handoff.md written
+    while it ran): only a hand-off at the context limit lists its successor, and a dependency it filed leaves the step listable
+    (the step is due only once deps_held clears that dependency); any other waits for the input to move (a dependency's hand-over
+    is input); one retry follows the last run with a record. A run the pass ended (its step moved or waits, its change went) neither settles
     the step nor counts as a try: only its own hand-back, the head's stop or its console's death does."""
     role, slug = st["actor"], ch["slug"]
     inp = json.dumps(st.get("input"), sort_keys=True)
     same = sorted([r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp
                    and r.get("reason") in (None, "stopped by the head", "console died")],
                   key=lambda r: r["listed"])
-    if not same or (EVID / slug / "handoff.md").exists():
+    if not same or same[-1].get("handoff_told"):  # R6: a hand-off at the context limit is relayed
         return None
-    last = same[-1]
-    if last.get("record") and not last.get("handoff_told"):
+    last, hoff = same[-1], EVID / slug / "handoff.md"
+    if last.get("record") or hoff.exists() and hoff.stat().st_mtime >= last.get("started_at", 0):
         deps = [e["dep"] for e in evs(b'"action": "dep"') if e.get("change") == slug and e.get("action") == "dep" and last["started"] <= e["ts"] <= last["ended"]]
         if not deps:  # the record exists and the facts still want this step: another run would change nothing
-            return f"{slug}: {role} run {last['name']} handed back its record, yet its step is still due on the same input: no run is listed"
+            return f"{slug}: {role} run {last['name']} handed back {'its record' if last.get('record') else 'a hand-off'}, yet its step is still due on the same input: no run is listed"
     tail = same[max([i for i, r in enumerate(same) if r.get("record") or r.get("handoff_told")] + [-1]) + 1:]
     if len(tail) >= 2:  # R5: one retry, then raised once
         return f"{slug}: {len(tail)} {role} runs ended without a record on the same input; last: {(last.get('last') or '')[:200]}"

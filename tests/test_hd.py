@@ -1863,15 +1863,17 @@ class R5(Sandbox):
             with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                 hook.deny_self_pgrep({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
             return '"deny"' in out.getvalue()
-        for c in ("until ! pgrep -f 'track.sh up hunter-feat-pr'; do sleep 5; done", "pgrep -f 'track.sh restart cannon-354'",
-                  'while pgrep -af "track.sh up s1" >/dev/null; do sleep 1; done', "kill $(pgrep -u alex -f mobile_login)",
-                  "bash -c 'until ! pgrep -f \"up s1\"; do sleep 1; done'"):
+        for c in ("until ! pgrep -f 'track.sh up hunter-feat-pr'; do sleep 5; done", "cd x && while pgrep -f 'restart cannon-354'\ndo sleep 1; done",
+                  'while pgrep -af "track.sh up s1" >/dev/null; do sleep 1; done', "for i in 1 2; do until ! pgrep -f 'up s1'; do sleep 1; done; done",
+                  "bash -c 'until ! pgrep -f \"up s1\"; do sleep 1; done'", "while true; do pgrep -f 'up s1' && break; sleep 1; done"):
             s.assertTrue(denied(c), c)
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            hook.deny_self_pgrep({"tool_name": "Bash", "tool_input": {"command": "pgrep -f 'track.sh down s1'"}})
+            hook.deny_self_pgrep({"tool_name": "Bash", "tool_input": {"command": "until ! pgrep -f 'track.sh down s1'; do sleep 1; done"}})
         s.assertIn("hd.py ps` lists your run's processes", out.getvalue())     # sweep-49 P2-a: the denial names the way to find a hung step
         for c in ("pgrep -f '[t]rack.sh up s1'", "pgrep -f 'up (x|y)'", "pgrep java", "until [ -f state/s1/up.json ]; do sleep 5; done",
-                  "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f"):
+                  "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f",
+                  "pgrep -af 'desktop_login' | grep -v pgrep", "kill $(pgrep -u alex -f mobile_login)",   # sweep-53 P3-a: a one-shot listing ends
+                  "hd new x --body 'until ! pgrep -f \"up s1\"; do sleep 1; done'"):                      # the words in quoted text
             s.assertFalse(denied(c), c)
 
     def test_a_step_under_a_timeout_is_denied(s):  # sweep-48 P2-b: timeout 600 tools/track.sh test, timeout 20 python3 -m unittest
@@ -1911,10 +1913,13 @@ class R5(Sandbox):
         for c in ("echo x > f", "grep x f 2>err.txt", "rm -rf d", "git -C r commit -m x", "git push", "git checkout main",
                   "RESUME=1 tools/track.sh up s", "tools/track.sh build s", "~/r/tools/track.sh gate s", "tools/track.sh down s",
                   "docker run img", "cat f | tee out", "ls | xargs rm", "sed -i s/a/b/ f", "gh api -X POST repos/x",
-                  "gh api repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'"):
+                  "gh api repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'",
+                  "git branch x", "git branch -D x", "git -C r branch -m a b", "git branch --set-upstream-to=o/x", "git branch -f x HEAD"):
             s.assertTrue(denied(c), c)
         for c in ("cat f", "grep -n 'a > b' f", "sed -n 1,20p f", "jq . f 2>/dev/null", "git log 2>&1 | head", "git show HEAD:x",
-                  "gh api repos/x/pulls", "gh api -X GET repos/x", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f"):
+                  "gh api repos/x/pulls", "gh api -X GET repos/x", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f",
+                  "git branch", "git branch --show-current", "git branch --list 'h*'", "git branch -a", "git branch -r",  # sweep-54 P3-c
+                  "git -C r branch -vv", "git branch --contains abc", "git branch 2>/dev/null | head"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
 

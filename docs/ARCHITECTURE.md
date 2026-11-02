@@ -26,7 +26,8 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   else a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since that up or its last devtools call, is told once to `down` until it next plays.
                   An agent whose <session>/subagents/agent-<id>.meta.json names a parentAgentId (a `reader` a run spawned) is part of its parent's run, not a run: none of the above binds, holds, refuses or ends it (the deny rules still apply);
                   once that run has ended it stops (`continue: false`) at its next tool call, since neither the run nor the orchestrator's TaskStop of the run stops it;
-                  a `reader`'s Bash command that writes (a redirection to a file, rm/mv/cp, git that moves a ref, track.sh up/build/gate/down, docker run, a gh or hd write) is denied
+                  a `reader`'s Bash command that writes (a redirection to a file, rm/mv/cp, git that moves a ref (a `git branch` that creates, deletes, moves or retracks one;
+                  its listing forms read), track.sh up/build/gate/down, docker run, a gh or hd write) is denied
 tools/track.sh    the harness track's script;
                   tools/track.md its rules and seed rows;
                   tools/docfmt.py writes the source docs one fact per line (a break after each semicolon and sentence end, a table a block per row), and its --check fails the docs row on a doc it would change.
@@ -410,7 +411,8 @@ The one hook rule: `hd approve` and `hd close` (the user's word, typed by the us
 a command that only quotes them (grep, echo, a heredoc body) runs.
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.
-A Bash command's `pgrep -f <pattern>` (outside a heredoc body) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and a wait on it never ends;
+A `while`/`until` loop's `pgrep -f <pattern>` (in its condition or body, outside a heredoc body or a quoted argument) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and the wait never ends;
+a one-shot `pgrep` listing ends, so it runs;
 the denial names `hd ps`, which lists the run's own processes for its `kill`.
 A subagent's `timeout` command (outside a heredoc body or a quoted argument) is denied: a step ends on its observed outcome, the Bash call's own limit re-issued when it ends first.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.

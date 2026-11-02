@@ -1754,6 +1754,23 @@ class R5(Sandbox):
         ctx.start("s2", "ship", ["hd.py", "ship", "s2", A]); ctx.start("s2", "ship", ["hd.py", "ship", "s2", A])
         s.assertEqual(F.stopped, [p1["pid"]])                                    # a carry has no key: never stopped
 
+    def test_a_gate_running_a_row_whose_key_holds_finishes(s):  # sweep-17 N5: a text.py-only tools ship stopped 11 gates, 8 CI runs ~15 min in
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- subj | subject | check: tools/server/text.py subject\n")
+        f = {"tools/gate/gate.sh": "1", "tools/server/text.py": "t"}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: f}})
+        s.gated("s1", F); hd.drop("s1", "gate"); hd.tick(s.ctx(F))
+        hd.put("s1", "build", {"T": F.envs[-1]["T"], "ok": True}); hd.tick(s.ctx(F))
+        p1 = hd.rec("s1", "proc-gate"); F.f["procs"] = {(7, "1"), (p1["pid"], p1["start"])}
+        s.assertIn(json.loads(F.envs[-1]["ROWKEYS"])["s1/ci"], p1["rows"])
+        F.f["tools_files"][C] = {**f, "tools/server/text.py": "t2"}; F.f["refs"]["local/harness"] = C   # one row's file moves
+        n = len(F.spawned); hd.tick(s.ctx(F))
+        s.assertEqual((F.stopped, len(F.spawned)), ([], n))                      # the running gate's CI row still holds: it finishes
+        hd.put("s1", "gate", {"T": p1["key"], "ok": True}); F.f["procs"] = {(7, "1")}
+        hd.tick(s.ctx(F)); s.assertEqual((F.spawned[-1][1], len(F.spawned)), ("gate", n + 1))   # then the current gate, its kept rows unrun
+        F.f["procs"] = {(7, "1"), (hd.rec("s1", "proc-gate")["pid"], hd.rec("s1", "proc-gate")["start"])}
+        F.f["tools_files"][D] = {**f, "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = D       # a gate.sh edit moves every row
+        hd.tick(s.ctx(F)); s.assertEqual(len(F.stopped), 1)                      # no row's key holds: stopped and replaced
+
     def test_a_build_of_a_new_tree_stops_the_gate_of_the_old_one(s):  # server-token-auth's gate.sh ran on while the pass started its new build
         s.change("s1"); s.agreed("s1")
         F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/build/build.sh": "1", "tools/gate/gate.sh": "1"}}})
@@ -3081,6 +3098,23 @@ class R3(Sandbox):
         F = Fake(**FACTS)
         s.assertEqual(hd.rows(s.ctx(F), ch, {**con, "rows": [r for r in con["rows"] if r["id"] != "lint"]}, A, TA, TA, "", gate=True), [])
         s.assertEqual(F.ran, ["true", "true", "tools/track.sh gate-ci"])     # the gate rows after every check passed
+
+    def test_a_row_whose_files_did_not_change_keeps_its_result(s):  # sweep-17 N5: a one-row tools change re-ran every gate's CI
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- subj | subject | check: tools/server/text.py subject\n")
+        f = {"tools/gate/gate.sh": "1", "tools/server/text.py": "t"}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: f}})
+        ctx = s.ctx(F); ch, con = ctx.changes["s1"], hd.contract("s1"); k1 = ctx.key(ch, "tr", each=True)
+        F.f["tools_files"][C] = {**f, "tools/server/text.py": "t2"}; F.f["refs"]["local/harness"] = C
+        k2 = s.ctx(F).key(ch, "tr", each=True)
+        s.assertEqual((k1["s1/ci"] == k2["s1/ci"], k1["s1/subj"] == k2["s1/subj"]), (True, False))   # a row's key holds that row's files alone
+        s.assertNotEqual(ctx.key(ch, "tr"), s.ctx(F).key(ch, "tr"))              # the gate's key moves
+        for k in (k1, k2):
+            F.ran.clear()
+            with mock.patch.dict(os.environ, {"ROWKEYS": json.dumps(k)}):
+                s.assertEqual(hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=True), [])
+        s.assertEqual([c for c in F.ran if c.startswith("tools/")], ["tools/server/text.py subject"])   # only the moved row runs again; CI's result is kept
+        F.ran.clear(); hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=False)
+        s.assertIn("tools/server/text.py subject", F.ran)                        # a hand-over's check rows always run
 
     def test_a_row_held_by_its_source_records_no_result(s):  # openrs2's HTTP 500 and GitHub's quota failed heads they never touched
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n")

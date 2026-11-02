@@ -187,6 +187,7 @@ a live check reads the real state.
    a dead ship process → rerun;
    a script dead twice on the same args → raised once, a new args or a landed result restarts the count;
    a build or gate alive under a key no longer current is stopped and the current one started, the proc record naming the key of the process holding it, a carry never stopped, and a batch gate on a prefix still current holds while members arrive;
+   a gate row whose files did not change keeps its result, and a gate running such a row finishes;
    a yes recorded then the orchestrator gone → the ship completes;
    a repair whose effect is not observed is not logged;
    the same repair twice raises once;

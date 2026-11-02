@@ -1041,23 +1041,26 @@ class Ctx:
         k = s.key(ch, s.tree(ch, T[1]))
         return None if k is None else g["T"] == k
 
-    def key(s, ch, tree, slugs=None, build=False):
-        """R8: the gate key, or with build the build key. On a track with a tools branch, the build key is T's tree `-` the hash
-        of tools/build/ (the server tags its image by it); the gate key is the build key `-` the hash of tools/gate/ and the
-        files the rows run (tools_run: the rows of the change, or of a batch's `slugs`), with the rows. A gate-only tools
-        commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch both are the tree."""
+    def key(s, ch, tree, slugs=None, build=False, each=False):
+        """R8: the gate key, or with build the build key, or with each every row's key {<slug>/<row id>: key}. On a track with a
+        tools branch, the build key is T's tree `-` the hash of tools/build/ (the server tags its image by it); the gate key is
+        the build key `-` the hash of tools/gate/ and the files the rows run (tools_run: the rows of the change, or of a batch's
+        `slugs`), with the rows; a row's key is the same over that row alone, so a row whose files did not change keeps its
+        result. A gate-only tools commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch
+        every key is the tree."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
+        rows = [(x, row) for x in slugs or [ch["slug"]] for row in (contract(x) or {}).get("rows", [])]
+        out = lambda g: {f"{x}/{row['id']}": g([(x, row)]) for x, row in rows} if each else g(rows)
         if tree is None or not r.get("tools"):
-            return tree
+            return None if tree is None else out(lambda rs: tree)
         t = s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
         if not t:
-            return None if t is None else tree
+            return None if t is None else out(lambda rs: tree)
         files = s.F.tools_files(str(P(r["path"])), t)
-        rows = [r for x in slugs or [ch["slug"]] for r in (contract(x) or {}).get("rows", [])]
         if files is None:
             return None
         b = tree + "-" + tools_run(files, "tools/build/")[:12]
-        return b if build else b + "-" + tools_run(files, "tools/gate/", [x for row in rows for x in (row["check"], row["gate"]) if x])[:12]
+        return b if build else out(lambda rs: b + "-" + tools_run(files, "tools/gate/", [c for _, row in rs for c in (row["check"], row["gate"]) if c])[:12])
 
     def deploy_key(s, ch, tree):
         """R5: a deploy's key: the tree and the hash of every tools file (a deploy runs build, up and ship), so a tools ship
@@ -1093,9 +1096,12 @@ class Ctx:
 
     def start(s, slug, name, args, env=None, act=True, key=None):
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
-        another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree; one that died twice on the same args and key without its result is raised once."""
+        another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
+        it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
+        one that died twice on the same args and key without its result is raised once."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
-        if not s.docker or st == "alive" and (key is None or p.get("key") == key):
+        rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
+        if not s.docker or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
             return
         if st == "alive":
             if not act:
@@ -1123,7 +1129,7 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "attempts": p.get("attempts", 0) + 1})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1})
 
 
 def step(state, actor, **k):
@@ -1423,7 +1429,7 @@ def nxt(ctx, ch):
             return step("build failed: dev", "dev", mode="code", input=["build", bk, con["hash"]], detail=result(slug, "build"))
         g = rec(slug, "gate")
         if not g or g["T"] != gk:
-            return step(f"gate on {short(gk)}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], env, key=gk))
+            return step(f"gate on {short(gk)}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], {**env, "ROWKEYS": json.dumps(ctx.key(ch, t, each=True), sort_keys=True)}, key=gk))
         if not g["ok"]:
             return step("gate failed: dev", "dev", mode="code", input=["gate", gk, con["hash"]], detail=g.get("detail", ""))
     if any(r["judge"] for r in con["rows"]):  # a reviewer judges only where the contract has judge rows (client: releases)
@@ -1477,9 +1483,9 @@ def batch(ctx, track):
     me = {"slug": f"ship-{track}", "track": track, "deps": [], "kind": "code"}
     clone, base, failed, script, repos = ctx.clone(me), ctx.base(me), {}, ctx.script(me), ctx.cfg["repos"]
 
-    def key(commit, ms, tools, build=False):  # a tree's gate (or build) key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
+    def key(commit, ms, tools, build=False, each=False):  # a tree's gate (or build, or each row's) key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
         t = ctx.F.tree(clone, commit, "harness" if track == "harness" else "")
-        return t and ctx.key(me, t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), [m["slug"] for m in ms], build)
+        return t and ctx.key(me, t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), [m["slug"] for m in ms], build, each)
 
     held = None  # the members behind the first while the live branch's own gate runs
     while True:
@@ -1543,6 +1549,7 @@ def batch(ctx, track):
         i = next((j for j, p in enumerate(pre) if p[2] == run.get("key") and res[j] is None), i)
     _, tc, k, tl, kb = pre[i]
     env = {"SLUG": me["slug"], "T": kb, "G": k, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
+           "ROWKEYS": json.dumps(key(tc, [p[0] for p in pre[:i + 1]], tl, each=True) or {}, sort_keys=True),
            "TOOLS": " ".join(f"{P(repos[n]['path'])}:{repos[n]['tools']}:{h}:{repos[n]['name']}" for n, h in sorted(tl.items()))}
     verb, what = ("ship", "shipping") if ok else ("gate", f"gate on the live branch {short(k)}" if held is not None else f"gate on {short(k)}")
     act = lambda: ctx._m(("batch", track, verb, tc, k), lambda: ctx.start(me["slug"], verb, [script, verb, me["slug"], tc], env, key=k))
@@ -2551,13 +2558,15 @@ HELD = 75  # a row's exit when the step that failed reads nothing of the head (i
 
 def rows(ctx, ch, con, head, tc, tree, build, gate):
     """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root (TOOLS_ROOT in a gate), each
-    with the change's own env (a track script keeps a check of the tree alone once per gate).
+    with the change's own env (a track script keeps a check of the tree alone once per gate). In a gate, a row whose key
+    (ROWKEYS, from the pass) has a result in state/<slug>/row-<kind>-<id>.json keeps it, unrun; a held row records none.
     Cheap and local first, whatever the file's order: every `check:` row, then the `gate:` rows (fork CI among them) only
     when every check passed."""
     env, why = ctx.env(ch, head, tc, tree, build), []
     env.update({k: os.environ[k] for k in ("TOOLS",) if k in os.environ and gate})  # the gate's: a batch's, every member's tools
     root = os.environ.get("TOOLS_ROOT") or str(track_root(ctx.cfg, ch["track"]))  # in a gate, its track script's copy of the tools: a ship never moves it
     waived = {r["waive"]: r["id"] for r in con["rows"] if r["id"].startswith("answer-") and r["waive"]}
+    keys = json.loads(os.environ.get("ROWKEYS") or "{}") if gate else {}
     for row in con["rows"]:
         if row["id"] in waived:
             print(f"waived: {row['id']} by {waived[row['id']]}")
@@ -2567,8 +2576,15 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
             break
         for row in con["rows"]:
             if row[kind] and row["id"] not in waived:
-                rc, out = ctx.F.run(row[kind], root, env)
-                print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (f"\n{out.strip()[-800:]}" if rc else ""))
+                rk, m = keys.get(f"{ch['slug']}/{row['id']}"), rec(ch["slug"], f"row-{kind}-{row['id']}")
+                kept = bool(rk and m and m["T"] == rk)
+                if kept:
+                    rc, out = m["rc"], m["out"]
+                else:
+                    rc, out = ctx.F.run(row[kind], root, env)
+                    if rk and rc != HELD:
+                        put(ch["slug"], f"row-{kind}-{row['id']}", {"T": rk, "rc": rc, "out": out[-2000:]})
+                print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (" (kept)" if kept else "") + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} {'held' if rc == HELD else 'failed'}: {out.strip()[-400:]}")
     return why

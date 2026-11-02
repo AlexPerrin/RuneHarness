@@ -5,6 +5,7 @@ title: '#354: eaglepurerocketgrape on the PR'
 kind: change
 priority: P1
 deps:
+- harness-deploy-survives-tools-ship
 - cannon-354-reset-ammo-varp
 - cannon-354-reset-mcannonmulti
 - cannon-354-return-after-destroy

@@ -5,6 +5,7 @@ title: Token login for the Android app, verified like the official flow
 kind: change
 priority: P1
 deps:
+- harness-deploy-survives-tools-ship
 - central-token-login-op
 - harness-central-include-app
 - harness-desktop-token-login

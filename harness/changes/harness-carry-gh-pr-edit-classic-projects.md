@@ -8,6 +8,8 @@ priority: P1
 mechanism: carry
 deps: []
 created: '2026-11-02T02:11:41Z'
+limit-of:
+- server-cache-clientscript-name-hash
 ---
 state/server-cache-clientscript-name-hash/ship.log (the user's approval of 8c6d9679e, PR 448): 'carry failed: gh pr edit failed: GraphQL: Projects (classic) is being deprecated in favor of the new Projects experience ... (repository.pullRequest.projectCards)'. gh pr edit queries projectCards, which GitHub now errors on; edit PR fields through the REST API (gh api -X PATCH repos/<o>/<r>/pulls/<n>) instead. The same ship also logged 'carry failed: CI failure at 8c6d9679e: build & boot https://github.com/OpenRune/OpenRune-Server/actions/runs/41375908983/job/125055973126: the PR stays as it is' (the fork gate's CI had passed). hd alerted 'ship died twice without a result' (02:1xZ): each carry failure must record its result (the CI failure routes to the change, the gh fault to this change).
 
@@ -28,3 +30,6 @@ The user (2026-11-01, ET): '4 seperate comments spams the upstream's discord, tr
 
 Also (filed): a carry that marks a PR ready also requests review
 The user (2026-11-01, ET): 'PR should also be marked for review if ready.' The carry's last act is 'mark it ready for review' (hd.py:2433) and nothing requests reviewers: upstream PR #355 is open, not draft, at 306d7edcd with requested_reviewers [] after the user's approved carry. A carry that leaves a PR ready also requests review (the reviewers named by the upstream rules or CODEOWNERS, else the maintainers who reviewed it), shown on the card as its own act; a PR already ready with no request gets one at its next carry.
+
+Also (server-cache-clientscript-name-hash): carry: an upstream CI step the head reads that dies on an unavailable external source is re-run, not the head's defect
+PR 448 (server-cache-clientscript-name-hash, head 8c6d9679e, every contract row pass, fork gate CI green) failed upstream run 41375908983 job 125055973126 in 'Generate cache and gameval sources': :or-cache:freshCache's OpenRS2 download of cache 2752 finished without writing .data/cache/LIVE/main_file_cache.dat2 (FileNotFoundException in BuildCache.initialize right after OpenRS2.downloadFile), before any code the head changes runs (the head touches only the buildCache pack tasks; the content/genie run passed the same step 30 min later). hd.py ci_fault asks track.sh ci-step whether the failing step reads the head's files; this step does (or-cache), so it raised Defect and sent the change to a dev run with nothing to fix. Root cause: the classifier judges the step, not the failure: a step the head touches can still fail on an external fetch. Acceptance: a failed upstream check whose failure is the external source not answering (the openrs2 archive fetch, a dependency host) is re-run once that source answers (an observed fact, as for a step outside the head), never a Defect; a failure in the head's own code in the same step stays a Defect.

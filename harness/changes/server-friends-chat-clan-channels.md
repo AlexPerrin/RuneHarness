@@ -7,7 +7,7 @@ title: 'Friends chat and clan channels: the server sends no friends chat, clan c
 priority: P2
 created: '2026-10-25T20:31:36Z'
 goal: client-api
-deps: [harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login]
+deps: [harness-server-build-tree, harness-no-powershell, harness-server-build-musicrepository, harness-desktop-first-login, harness-deploy-survives-tools-ship]
 ---
 Blocks the client-api probe's social rows (clan.ClanSettings 4, ClanChannel 3, ClanChannelMember 3, ClanMember 3, FriendsChatManager 4, FriendsChatMember 2; client change client-api-probe-reach), which stay unreached because the client never holds a friends chat or clan.
 

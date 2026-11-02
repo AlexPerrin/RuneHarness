@@ -2783,6 +2783,12 @@ class R8(Sandbox):
         r = ship()
         s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")), (0, T, C), r.stdout + r.stderr)
         s.assertEqual((run(fork, "ls-remote", "fork", "local/harness").split()[:1], run(fork, "ls-remote", "origin")), ([C], ""))   # pushed to the fork, never upstream
+        run(fork, "checkout", "-q", "harness/s1"); C2 = commit(fork, "a tools-only change"); run(fork, "checkout", "-q", "main")
+        tools = lambda c: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T], env={**os.environ, "HD_ROOT": str(s.root), "TOOLS": f"{fork}:local/harness:{c}:AlexPerrin/OpenRune-Server"}, capture_output=True, text=True)
+        r = tools(C2)                                                            # T already on the live branch: its tools head still lands (sweep-24: it looped ship <-> gate)
+        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "ls-remote", "fork", "local/harness").split()[:1]), (0, T, [C2]), r.stdout + r.stderr)
+        hd.put("s1", "gate-x", {"T": "x", "ok": True}); r = tools(C2)
+        s.assertIn("already on the live branch, every carried tools head on its branch", r.stdout); s.assertIsNone(hd.rec("s1", "gate-x"))
         shutil.rmtree(tmp, ignore_errors=True)
 
     def test_harness_build_refuses_without_the_loops_env(s):

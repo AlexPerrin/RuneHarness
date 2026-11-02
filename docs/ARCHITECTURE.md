@@ -279,7 +279,7 @@ next(change):
     until then gate the whole batch, after a failure the prefix halfway between the longest passing and the shortest failing one, down to the first member alone, then the live branch with that member's rows:
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
-    A ship runs under `state/ship.lock`, a T already on the live branch moves nothing;
+    A ship runs under `state/ship.lock`, a T already on the live branch moves only the carried tools branches not yet holding (and pushed at) their heads;
     it clears the kept gates but the one of the tree it shipped (`gate-<G>`)
   wait
     upstream merged;
@@ -412,7 +412,7 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
   upstream after the yes
 - Central: live at its gate (dependent server builds include it);
   upstream to Central after the yes
-- Harness: under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree under the state lock (never under an acting pass), push;
+- Harness: under `state/ship.lock` (a T already on the live branch: only the carried tools branches not yet at their heads), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree under the state lock (never under an acting pass), push;
   any of them moved past its gated base: nothing moves, the next pass merges the batch again
 
 ```mermaid

@@ -4,7 +4,7 @@
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
 # past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T under the state lock, push; one ship at
-# a time, under state/ship.lock; a T already on the live branch moves nothing). hd runs
+# a time, under state/ship.lock; a T already on the live branch moves only the carried tools branches not yet holding their heads). hd runs
 # gate and ship for the harness batch, slug ship-harness, NAMES its changes.
 set -euo pipefail
 verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
@@ -66,26 +66,29 @@ check_tools() {  # each carried tools head: a fast-forward of its branch, its to
 }
 ship() {  # the live branch moves only by fast-forward to T (R8: the pass never merges into someone's edits; definitions under harness/ are not edits T touches)
   mkdir -p "$root/state"; exec 9> "$root/state/ship.lock"; flock 9   # one ship at a time on the live checkout, whatever started it
-  if git -C "$repo" merge-base --is-ancestor "$tc" HEAD; then   # T already landed (a ship before this one): nothing to move
-    rm -f "$state/proc-ship.json"; kept; echo "${tc:0:9} is already on the live branch"; exit 0
-  fi
-  [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
-  moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch")
-  for t in ${TOOLS:-}; do  # nothing moves unless every branch fast-forwards to its gated head
+  landed=; moved= todo=   # T already on the live branch (a ship before this one) moves no live branch, but each carried tools head still lands
+  if git -C "$repo" merge-base --is-ancestor "$tc" HEAD; then landed=1; else
+    [ -z "$(git -C "$repo" status --porcelain -- . ':!harness')" ] || { echo "refused: $repo has uncommitted edits"; exit 1; }
+    moved=$(git -C "$repo" merge-base --is-ancestor HEAD "$tc" || echo "live branch"); fi
+  for t in ${TOOLS:-}; do  # nothing moves unless every branch fast-forwards to its gated head; a branch holding its head already is done
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}
+    git -C "$wt" merge-base --is-ancestor "$sha" HEAD && [ -z "$(git -C "$path" rev-list -1 "$branch" --not --remotes 2>/dev/null)" ] && continue
     [ -z "$(git -C "$wt" status --porcelain --untracked-files=no)" ] || { echo "refused: $wt has uncommitted edits"; exit 1; }
-    git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"
+    git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"; todo="$todo $t"
   done
+  if [ -n "$landed" ] && [ -z "$todo" ] && [ -z "$moved" ]; then
+    rm -f "$state/proc-ship.json"; kept; echo "${tc:0:9} is already on the live branch, every carried tools head on its branch"; exit 0
+  fi
   if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass rebases a carried head onto its moved branch (a conflict: the dev) and re-gates
     rm -f "$state/proc-ship.json"; echo "$moved moved past T's base; the next pass merges the batch again"; exit 0
   fi
-  for t in ${TOOLS:-}; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)
+  for t in $todo; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}
     remote=$(git -C "$path" remote -v | awk -v n="$name" '!r && $3 == "(push)" && $2 ~ ("[:/]" n "(\\.git)?$") { print $1; r = 1 }')
     [ -n "$remote" ] || { echo "refused: $path has no remote for $name"; exit 1; }
     git -C "$wt" merge -q --ff-only "$sha"; git -C "$path" push -q "$remote" "$branch"; echo "$branch at ${sha:0:9}, pushed to $remote"
   done
-  flock "$root/state/.lock" git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
+  [ -n "$landed" ] || flock "$root/state/.lock" git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
   kept
 }
 kept() { local f; for f in "$state"/gate-*.json; do [ "$f" = "$state/gate-${G:-}.json" ] || rm -f "$f"; done; }   # every kept gate but the shipped tree's (G) was of a tree on the old base

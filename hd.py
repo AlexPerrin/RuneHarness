@@ -898,10 +898,10 @@ def apply_fact(r, fid, e):
         r.update({x: e[x] for x in ("agent_id", "transcript", "console_pid", "console_start")}, started=e["ts"], started_at=e["at"], ended=None, reason=None)
     elif k == "resumed" and r.get("ended") and not r.get("reason") and r.get("agent_id") == e["agent_id"]:
         r["ended"] = None
-    elif k == "end" and not r.get("reason"):
+    elif k == "end":  # the hook writes it only while no reason is set: a pass that ended the run meanwhile is overruled by its own account
         r.update(usage=e["usage"], last=e["last"])
-        if e["handed"]:
-            r.update(ended=e["ts"], record=e["record"])
+        if e["handed"]:  # its own hand-back ended it, so it settles the step and counts as a try (unlistable)
+            r.update(ended=e["ts"], record=e["record"], reason=None)
     elif k == "stopped" and not r.get("ended") and r.get("agent_id") == e["agent_id"]:
         r.update(ended=e["ts"], reason="stopped by the head")
     elif k == "told" and not r.get("ended"):  # a message to the live run carries its contract's rows written until then

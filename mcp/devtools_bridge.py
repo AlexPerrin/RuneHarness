@@ -5,7 +5,8 @@
 
 `initialize` is answered here; `tools/list` and every other request run `<backend> --call <method> <params>` one at a
 time (the Android bridge takes it), or are POSTed to the desktop client's devtools endpoint (the bring-up's ports 7780+;
-a tool's `port` argument names the client, and a call naming none is refused: one bridge serves every run), so a client started after the session is used
+a tool's `port` argument names the client, and a call naming none is refused: one bridge serves every run; each call carries the
+token of the up owning that desktop, the only caller its endpoint answers), so a client started after the session is used
 on its next call. Desktop requests run each in its own thread: one session's runs share this process, and a call
 answers as soon as its client does, never queued behind another run's long walk_to or wait_for.
 A desktop walk_to walks to its tile at any distance in minimap clicks of at most STEP tiles (walk below).
@@ -22,6 +23,7 @@ import re
 import subprocess
 import sys
 import threading
+import urllib.error
 import urllib.request
 
 NETSTAT = os.environ.get("WINDOWS_SYSTEM32", "/mnt/c/Windows/System32") + "/netstat.exe"
@@ -57,6 +59,18 @@ def listening(port):
     return out[0] if out else None
 
 
+def token(port):
+    """The devtools token of the up that owns the desktop instance on that port: the instance's owner file names its slug, and
+    that change's up.json holds the token its endpoint requires (it answers no other caller)."""
+    try:
+        with open(f"{os.environ.get('DESKTOP_DIR', '/mnt/c/osrs-test')}/run/{int(port) - 7779}/owner") as f:
+            slug = f.read().split(" ")[0]
+        with open(os.path.join(os.path.dirname(HERE), "state", slug, "up.json")) as f:
+            return json.load(f).get("token", "")
+    except (OSError, ValueError):
+        return ""
+
+
 def post(url, method, params):
     """The desktop devtools endpoint's JSON-RPC reply (JSON or SSE framed); the tool's `port` argument picks the client."""
     port = (params.get("arguments") or {}).pop("port", None)
@@ -67,7 +81,8 @@ def post(url, method, params):
     if listening(port) is False:
         return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
     req = urllib.request.Request(url, json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode(),
-                                 {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+                                 {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+                                  "Authorization": f"Bearer {token(port)}"})
     # the whole call is bounded, not each socket read (a body read is many): a hung client answers no call past it
     limit = ANSWER_WAIT + ((params.get("arguments") or {}).get("timeoutMs") or 0) / 1000
     out = []
@@ -75,6 +90,8 @@ def post(url, method, params):
         try:
             with urllib.request.urlopen(req, timeout=limit) as r:
                 out.append(r.read().decode())
+        except urllib.error.HTTPError as e:   # the client's own error answer (401: another up's desktop), passed on as it said it
+            out.append(e.read().decode())
         except OSError as e:
             out.append(e)
     t = threading.Thread(target=fetch, daemon=True)

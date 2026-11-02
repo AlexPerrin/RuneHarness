@@ -2388,6 +2388,17 @@ class R5(Sandbox):
         ctx.start("s1", "build", [str(script), "T3"])
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
 
+    def test_dead_script_alert_quotes_its_failure(s):  # sweep 66 P5: the alert names the cause ship.log holds
+        F = Fake(**FACTS)
+        ctx = s.ctx(F)
+        for _ in range(3):
+            ctx.start("s1", "ship", ["b", "T1"])
+        (hd.STATE / "s1" / "ship.log").write_text("Container http Starting\nError response from daemon: not a directory\nship of T1 failed: up (exit 1)\ncached or:T1\n")
+        ctx.start("s1", "ship", ["b", "T1"])
+        a = [a for a in ctx.alerts if "ended 3 times" in a][0]
+        s.assertTrue(a.endswith("(state/s1/ship.log): Error response from daemon: not a directory / ship of T1 failed: up (exit 1)"), a)
+        s.assertEqual(hd.trigger(a), "state/s1/ship.log")                       # the quote leaves the planner's subject as it was
+
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

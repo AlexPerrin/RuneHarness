@@ -1307,7 +1307,7 @@ class Ctx:
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
         it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
-        one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once;
+        one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
@@ -1325,7 +1325,10 @@ class Ctx:
         if p.get("args") != args or p.get("key") != key or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()):
             p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 3:
+            log = STATE / slug / f"{name}.log"
+            fails = [l.strip() for l in (log.read_text(errors="replace") if log.exists() else "").splitlines() if re.search(r"(?i)error|fail", l)][-2:]
             a = f"{slug}: {name} ended 3 times without a result since {p.get('since', 'an unrecorded start')} (state/{slug}/{name}.log)"  # each reset a new fact
+            a += f": {' / '.join(fails)}" if fails else ""  # its last failure lines: a step's trap line and the cause it printed above it
             if a not in s.alerts:  # every gated server change reaches the one live ship: one alert
                 s.alerts.append(a)
             return

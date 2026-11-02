@@ -1028,6 +1028,17 @@ class R2(Sandbox):
         alert("s1: ship ended 3 times without a result since 9999 (state/s1/ship.log)")   # it failed again: a new fact
         s.assertEqual(len(planners()), 2)
 
+    def test_planner_trigger_is_the_run_an_alert_names(s):  # planner-28: a later alert of a run an open change already names
+        F = Fake(**FACTS)
+        planners = lambda: [r for r in hd.runs() if r["role"] == "planner"]
+        alert = lambda a: hd.plan(s.ctx(F), {"change": [], "alert": [a], "goal": []}, True)
+        due = lambda r: f"{r[:-2]}: qa run {r} handed back its record, yet its step is still due on the same input: no run is listed"
+        s.change("h1", track="harness", body="the pass-ended runs s2-2 and s3-4 settle no step")
+        alert(due("s3-4"))                                                       # its run is named: carried
+        s.assertEqual(planners(), [])
+        alert(due("s3-44"))                                                      # another run of the same change: not named
+        s.assertEqual(len(planners()), 1)
+
     def test_a_failed_head_is_the_devs_before_a_regate(s):  # sweep-31 P2-c: a gate key moved under new tools spends no CI on a head its verdict failed
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

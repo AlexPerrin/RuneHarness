@@ -1193,6 +1193,15 @@ class Ctx:
         p = rec(slug, f"proc-{name}")
         return None if not p else "alive" if s.F.alive(p["pid"], p["start"]) else "dead"
 
+    def halt(s, slug, name):
+        """R5: stop a script whose result the change's step no longer reads (a build or gate on a head its verdict failed); its record
+        goes with it, so a later start on the same key counts from none."""
+        p = rec(slug, f"proc-{name}") or {}
+        if s.proc(slug, name) == "alive":
+            s.F.stop(p["pid"], p["start"])
+            event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
+            drop(slug, f"proc-{name}")
+
     def start(s, slug, name, args, env=None, act=True, key=None, need=None):
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
@@ -1513,7 +1522,7 @@ def nxt(ctx, ch):
     failed = [k for k, r in vs[-1]["rows"].items() if r != "pass"] if vs else []
     if failed:  # R2: a head its last verdict failed is the dev's before any re-gate or re-judge of it
         return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
-                    detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed))
+                    detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed), stop=("build", "gate"))  # a build or gate of that head changes nothing: stopped
     if not batched(ch) and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a batched head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
         T = ctx.T(ch, head)
         if T is None:
@@ -2377,6 +2386,8 @@ def _pass(ctx, act):
         banded = held and PRIO.get(prio[ch["slug"]], 9) > PRIO.get(ctx.cfg.get("hold"), 9)  # only the user's band drops a listed run; the tier hold lists no new one
         if work["actor"] in ("dev", "qa") and not held:  # R6: the one dispatch of a change's agent step, its pin conflict's included
             dispatch(ctx, ch, work, act)
+        for n in st.get("stop", ()) if act else ():
+            ctx.halt(ch["slug"], n)
         if st["actor"] == "script" and act:
             try:
                 st["act"]()

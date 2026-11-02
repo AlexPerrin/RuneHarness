@@ -325,6 +325,7 @@ each at the best priority of the open changes it blocks, by a dep or by the conf
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
+a build or gate alive on a head its verdict failed is stopped (`Ctx.halt`), its record dropped, since that head is its dev's;
 a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
 a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, tools/build/, tools/server/), so a fix of them restarts its count;

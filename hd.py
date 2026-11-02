@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """hd: the v8 harness. One loop over five nouns: change, tree T, judgment, target, run (docs/ARCHITECTURE.md).
 
-Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | restart | ship | tick [--dry-run].
+Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time
+import fcntl, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -497,20 +497,6 @@ class Facts:
             if a and Path(a[0].decode(errors="replace")).name == "claude" and b"orchestrator" in a and (b"--agent" in a):
                 out.append((int(d.name), s.proc_start(int(d.name))))
         return out
-
-    def supervised(s, pid):
-        """R2: the session runs under tools/orchestrator.sh (an ancestor's argv names it), so ending it starts a fresh one."""
-        while pid > 1:
-            try:
-                if SUPERVISOR.encode() in Path(f"/proc/{pid}/cmdline").read_bytes():
-                    return True
-                pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
-            except (OSError, ValueError, IndexError):
-                return False
-        return False
-
-    def end_session(s, pid):
-        os.kill(pid, signal.SIGTERM)
 
     def definition_at(s, start):
         """R2: the orchestrator.md blob a session started at `start` (clock ticks since boot) loaded: the live checkout's
@@ -2205,7 +2191,7 @@ def _pass(ctx, act):
         view["alert"].append(f"github: API quota exhausted ({q['url']} at {q['at']}): every GitHub read and the steps on it hold until "
                              f"{datetime.fromtimestamp(q['reset'], timezone.utc).strftime('%H:%M:%SZ')}")
     if not ctx.F.orchestrators():
-        view["alert"].append(f"user: no orchestrator session: start its supervisor with `{ROOT / SUPERVISOR}`")
+        view["alert"].append(f"user: no orchestrator session: start it with `{ROOT / SUPERVISOR}`")
     view["alert"] += swap(ctx)
     for r in ctx.runs:
         if not r.get("ended"):
@@ -2221,18 +2207,33 @@ ORCH = ".claude/agents/orchestrator.md"
 SUPERVISOR = "tools/orchestrator.sh"
 
 
+def held(F, pid, start):
+    """R2: the orchestrator.md blob a session acts on: the one hd last printed it in full, else the one it started on."""
+    f = STATE / "orchestrator-read" / f"{pid}-{start}"
+    return f.read_text().strip() if f.exists() else F.definition_at(start)
+
+
 def swap(ctx):
-    """R2: a session loads its definition only at start, so the live target of a shipped orchestrator.md is a fresh
-    session: one started on another blob wraps up (spawns nothing, keeps its bound runs to their hand-backs, writes the
-    hand-off) and ends itself by `hd restart`; the supervisor starts the fresh one, which reads the hand-off."""
+    """R2: a session loads its definition only at start, so a shipped orchestrator.md reaches a live session by being
+    read: one acting on another blob is alerted, and its own `hd` prints it the live file (reread); no session ends, so
+    every run and spawn goes on."""
     cur, sessions = ctx.F.blob(str(ROOT), "HEAD", ORCH), ctx.F.orchestrators()
-    old = [p for p, st in sessions if cur and (b := ctx.F.definition_at(st)) and b != cur]
-    new = [p for p, _ in sessions if p not in old]
-    off = STATE / "orchestrator-handoff.md"
-    return ([f"orchestrator {p}: your definition changed since you started: wrap up: spawn nothing, TaskStop the monitor sweep, "
-             f"keep your runs to their hand-backs (compact rather than end while one is in flight), write {off} (open questions, "
-             "what you learned, the monitor sweep in progress) and what lasts to memory, then run `hd restart`" for p in old]
-            + [f"orchestrator {p}: read {off}, act on it, then delete it" for p in new[:1] if off.exists()])
+    for f in (STATE / "orchestrator-read").glob("*") if (STATE / "orchestrator-read").exists() else ():
+        f.name in {f"{p}-{st}" for p, st in sessions} or f.unlink(missing_ok=True)   # a session gone
+    return [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
+            "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
+
+
+def reread(F, force=False):
+    """R2: the live orchestrator.md, for the orchestrator session this process runs in when it acts on another blob
+    (force: compaction left it only the one it started on), recorded as read; "" otherwise."""
+    pid, st = F.console()
+    cur = F.blob(str(ROOT), "HEAD", ORCH)
+    if not cur or (pid, st) not in F.orchestrators() or (F.definition_at(st) if force else held(F, pid, st)) == cur:
+        return ""
+    write(STATE / "orchestrator-read" / f"{pid}-{st}", cur + "\n")
+    event(action="orchestrator-reread", pid=pid, blob=cur)
+    return (ROOT / ORCH).read_text()
 
 
 # ---------------------------------------------------------------- the public act (R4): the console card shows it, the user's `hd approve` is the yes, the carry does it
@@ -2825,40 +2826,20 @@ def cmd_commit(a):
     sys.exit(rc)
 
 
-def cmd_restart(a):
-    """R2: the session wrapping up ends itself once it holds nothing a fresh one cannot rebuild from files: no run bound to
-    it alive, its hand-off written; the mark tells the supervisor to start the fresh one (none while one on the live
-    definition is already up)."""
-    F = Facts()
-    pid = F.console()[0]
-    off = STATE / "orchestrator-handoff.md"
-    held = [r["name"] for r in runs() if r.get("started") and not r.get("ended") and r.get("console_pid") == pid]
-    held and refuse(f"runs bound to you are alive: {', '.join(held)}: TaskStop each at its hand-back")
-    off.exists() or refuse(f"write {off} first")
-    F.supervised(pid) or refuse(f"this session runs outside its supervisor: ask the user to end it and start `{ROOT / SUPERVISOR}`")
-    cur = F.blob(str(ROOT), "HEAD", ORCH)
-    if not any(p != pid and F.definition_at(st) == cur for p, st in F.orchestrators()):
-        write(STATE / "orchestrator.restart", f"{pid}\n")
-    event(action="orchestrator-restart", pid=pid)
-    print(f"orchestrator {pid}: ending; the supervisor starts the fresh session")
-    F.end_session(pid)
-
-
 def cmd_tick(a):
     if "--dry-run" in a:
         os.environ["HD_OFFLINE"] = "1"  # R5: a dry-run never reaches the network: GitHub from its cache, git from the local refs
     v = tick(act="--dry-run" not in a)
-    me = f"orchestrator {Facts().console()[0]}:"
-    if any(l.startswith(me + " your definition changed") for l in v["alert"]):  # R2: a session wrapping up sees only its own lines, so it spawns nothing
-        v = {"alert": [l for l in v["alert"] if l.startswith(me)]}
     for k, lines in v.items():
         for l in lines:
             print(f"{k}: {l}" if k != "card" else l)
+    if t := reread(Facts()):
+        print(f"definition: the live {ORCH}, which replaces the one you hold:\n{t}")
 
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "restart": cmd_restart, "ship": cmd_ship, "commit": cmd_commit}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

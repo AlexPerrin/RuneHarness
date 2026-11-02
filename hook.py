@@ -6,6 +6,7 @@ SubagentStart   bind the listed run named by the brief path in the agent's own f
                 names a run already ended is stopped at once (`continue: false`), its reason naming the run and why it
                 ended, at the start or its first tool call; the run stays ended.                                          R2
 PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd close` are denied in a subagent or the orchestrator (the user types them as `!` commands, which fire no hook).  R4
+                AskUserQuestion is denied in the orchestrator's session (its definition's frontmatter holds only name and description). R2
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
                 none of these, starts with `hd scope <run>`: its shell joins the run's systemd slice, which the pass stops
@@ -24,6 +25,8 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by `hd stop` (TaskStop) or its console's death.                                      R2 R6
+SessionStart    after a compaction of an orchestrator session acting on a reread definition, the live one is its context
+                again (hd.reread): the compaction keeps only the one it started on.                                      R2
 An agent a run spawned (its meta file names a parentAgentId: a reader, a fork) is part of that run: only the deny rules
 and the run's slice apply to it, and it stops (continue: false) at its next tool call once that run has ended (the
 slice's stop ends the command it waits on, so that call returns at once). A `reader`'s Bash command
@@ -267,6 +270,16 @@ def bare(p):
     return re.sub(r"(?<!-c )(?<!eval )('[^']*'|\"[^\"]*\")", "''", raw)
 
 
+def deny_ask(p):
+    """R2: the orchestrator never waits on the user (it is the only spawner): AskUserQuestion is denied in its session, by a
+    rule here rather than its definition's frontmatter, which a running session never rereads."""
+    if p.get("tool_name") == "AskUserQuestion" and p.get("agent_type") == "orchestrator" and not p.get("agent_id"):
+        hd.event(action="denied", role="orchestrator", rule="AskUserQuestion")
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+              "You never wait on the user: ask as text in your reply (or `hd ask <slug>`) and go on with the loop."}}))
+        return True
+
+
 def deny_users_word(p):
     """R4: the one guard rule. Authority is otherwise by credential; the user's word (approve, close) is the user's own `!` command, which fires no hook."""
     cmd = bare(p)
@@ -417,10 +430,17 @@ def idle_desktops(p):
               "(the accounts as down saved them) when you next act in game."}}))
 
 
+def reread(p):
+    """R2: a compacted orchestrator session holds again the live definition it last read."""
+    if t := hd.reread(hd.Facts(), force=True):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
+              f"Your definition is the live {hd.ORCH}, which replaces the one you started on:\n{t}"}}))
+
+
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

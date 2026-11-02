@@ -382,7 +382,8 @@ It writes no product code.
 The role file holds the nevers;
 the track file holds the rules.
 A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each given `OPENRUNE_ENDPOINT=http://127.0.0.1:<port>` (the launcher takes jav_config from it alone, and jav_config names every other endpoint), loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers, a key or typing call the starting client never received resent once a state read answers again;
-a desktop whose launch fails fails up naming its error, never waits: the launcher exits (its exception or the WSL interop error), or its devtools plugin logs that it could not bind its port;
+a desktop whose launch fails fails up naming its error, never waits: the launcher exits (its exception), or its devtools plugin logs that it could not bind its port;
+a launch the WSL interop ended before Windows ran it (its log holds that error alone) is launched again once the interop answers, any JVM it left stopped first;
 a server change's quest requirements in the mode its front matter `quest-mode` names, `respect-progress` unless `assume-completed`;
 `restart <slug>` keeps that mode and the database;
 a server up's game.yml has idle logout off (live keeps the image's), so a run's desktops stay logged in while its agent reads;

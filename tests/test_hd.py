@@ -1588,6 +1588,26 @@ class R5(Sandbox):
             hd.cmd_new(["h7", "--track", "harness", "--title", "x", "--blocks", "nope"])
         s.assertNotIn("h7", hd.defs("changes"))
 
+    def test_a_dependency_on_a_superseded_change_follows_its_superseder(s):
+        s.change("h1", track="harness", mechanism="runs"); s.change("c1", track="client", deps=["h1"]); s.agreed("c1", "client")
+        (s.root / "harness" / "goals" / "g1.md").write_text("---\ntrack: client\ntarget: 1\ndeps: [h1]\n---\n## Goal\n")
+        hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1", "--deps", "h1"])
+        s.assertEqual((hd.defs("changes")["c1"]["deps"], hd.defs("goals")["g1"]["deps"], hd.defs("changes")["r1"]["deps"]), (["r1"], ["r1"], []))
+        s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on r1")      # the open fix still holds it
+        hd.cmd_new(["c9", "--track", "client", "--title", "later", "--deps", "h1"])   # a later dependency on h1 names r1
+        s.assertEqual(hd.defs("changes")["c9"]["deps"], ["r1"])
+
+    def test_a_blocks_filing_joined_into_an_open_change_holds_on_it(s):
+        s.change("h2", track="harness", mechanism="runs"); s.change("c1", track="client"); s.agreed("c1", "client")
+        hd.cmd_new(["x9", "--track", "harness", "--title", "runs drop", "--mechanism", "runs", "--blocks", "c1"])
+        g = hd.defs("changes")
+        s.assertNotIn("x9", g); s.assertEqual(g["c1"]["deps"], ["h2"]); s.assertIn("runs drop", g["h2"]["body"])
+        s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on h2")
+        s.change("h3", track="harness", mechanism="tree", deps=["c1"])
+        with s.assertRaises(SystemExit) as e:                                    # joined, it is cycle-checked as a new one is
+            hd.cmd_new(["x8", "--track", "harness", "--title", "tree drop", "--mechanism", "tree", "--blocks", "c1"])
+        s.assertIn("cycle", str(e.exception)); s.assertEqual(hd.defs("changes")["c1"]["deps"], ["h2"]); s.assertNotIn("tree drop", hd.defs("changes")["h3"]["body"])
+
     def test_a_dependency_cycle_is_one_alert_and_refused_by_hd_new_and_a_definition_commit(s):
         import io, contextlib
         s.change("c1", deps=["c2"]); s.change("c2", deps=["c3"]); s.change("c3", deps=["c1"]); s.change("c4", deps=["c1"])
@@ -3095,6 +3115,16 @@ class R3(Sandbox):
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
         s.assertEqual(s.state(F2, "s1")["state"], "gated; waiting for the user's yes")
         s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
+
+    def test_a_seeded_check_row_keeps_the_verdict(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        hd.add_seeds("s1", ["- spotless | formatted | check: tools/track.sh check-spotless"])   # a seed check row added later: gated, never judged
+        s.assertEqual(hd.judged("s1", A, hd.contract("s1"))[-1]["rows"]["j1"], "pass")
+        hd.add_seeds("s1", ["- j2 | another judged row | judge: qa-server"])           # a judged row added: judged again
+        s.assertEqual(hd.judged("s1", A, hd.contract("s1")), [])
 
     def test_no_reviewer_without_judge_rows_and_no_arbitrary_check(s):
         s.change("c1", "client"); s.agreed("c1", "client", extra="- evil | injected | check: rm -rf /\n")

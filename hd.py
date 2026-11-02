@@ -579,7 +579,7 @@ def contract(slug):
     if not f.exists():
         return None
     text = f.read_text()
-    c = {"hash": hashlib.sha1(text.encode()).hexdigest()[:12], "rules": {}, "agreed": None, "rows": [], "text": text}
+    c = {"hash": hashlib.sha1(text.encode()).hexdigest()[:12], "rules": {}, "agreed": None, "rows": [], "text": text, "judged": []}
     for l in text.splitlines():
         if l.startswith("rules:"):
             c["rules"] = dict(kv.split("=", 1) for kv in l[6:].split() if "=" in kv)
@@ -596,6 +596,9 @@ def contract(slug):
                 if row[k] and not re.match(r"((python3 )?tools/[\w./-]+|python3 -m unittest\b|true$)", row[k]):
                     row[k] = f"false # refused: '{row[k]}' is not a tools/ script"
             c["rows"].append(row)
+            if not (row["check"] or row["gate"]):
+                c["judged"].append(l)
+    c["judged"] = hashlib.sha1("\n".join(c["judged"]).encode()).hexdigest()[:12]  # a verdict's key: a script row is gated, never judged
     return c
 
 
@@ -651,6 +654,11 @@ def drop(slug, name):
 def verdicts(slug):
     f = STATE / slug / "verdicts.jsonl"
     return [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
+
+
+def judged(slug, head, con):
+    """The verdicts on head that judged the contract's judged rows as they stand (rule rows are keyed by their shas)."""
+    return [v for v in verdicts(slug) if v["head"] == head and (v.get("judged") == con["judged"] or v["contract"] == con["hash"])]
 
 
 def runs(only=None, pending=True):
@@ -1287,7 +1295,7 @@ def nxt(ctx, ch):
             return step("upstream PR unknown", "unknown")
         if not shipped(ctx, ch, head):
             return step(f"contract: seed rows {', '.join(l[2:].split('|', 1)[0].strip() for l in new)} added", "script", act=lambda: add_seeds(slug, new))
-    if reply_only(ctx, ch) and not [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]:  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
+    if reply_only(ctx, ch) and not judged(slug, head, con):  # R4: one run writes contract, reply, verdict and handover; a FAIL verdict hands it to the dev
         return step("reply: qa run due", "qa", mode="contract", input=[head, con["hash"]])
     if not con["agreed"]:
         return step("contract: qa run due", "qa", mode="contract", input=con["hash"])
@@ -1354,7 +1362,7 @@ def nxt(ctx, ch):
         if not g["ok"]:
             return step("gate failed: dev", "dev", mode="code", input=["gate", tree, con["hash"]], detail=g.get("detail", ""))
     if any(r["judge"] for r in con["rows"]):  # a reviewer judges only where the contract has judge rows (client: releases)
-        vs = [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]
+        vs = judged(slug, head, con)
         blobs = {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in con["rules"]}
         if None in blobs.values():
             return step("upstream rule files unknown", "unknown")
@@ -2469,7 +2477,7 @@ def cmd_rows(a):
 
 
 def cmd_verdict(a):
-    """R3: every contract row 'pass', 'fail: <note>' or 'not-judged' (a FAIL verdict only), appended, bound to head and the contract hash."""
+    """R3: every contract row 'pass', 'fail: <note>' or 'not-judged' (a FAIL verdict only), appended, bound to head and the judged rows (`judged`, the hash of the rows without a script)."""
     ctx = Ctx()
     ch = ctx.changes.get(a[0]) or refuse(f"no change {a[0]}")
     head = ctx.head(ch)
@@ -2488,7 +2496,7 @@ def cmd_verdict(a):
     (STATE / ch["slug"]).mkdir(parents=True, exist_ok=True)
     rules = {k: ctx.F.blob(ctx.clone(ch), TRACK[ch["track"]]["base"], k) for k in con["rules"]}
     with open(STATE / ch["slug"] / "verdicts.jsonl", "a") as f:
-        f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "rows": rows, "rules": rules, "run": os.environ.get("HD_RUN", "")}, sort_keys=True) + "\n")
+        f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "judged": con["judged"], "rows": rows, "rules": rules, "run": os.environ.get("HD_RUN", "")}, sort_keys=True) + "\n")
     failed = [k for k, v in rows.items() if str(v).startswith("fail")]
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="verdict", head=head, failed=len(failed))
@@ -2657,29 +2665,40 @@ def cmd_new(a):
             refuse(f"no change {o.limit_of}")
         if m in (own := scope(graph, o.limit_of)):
             refuse(f"{m} is in {o.limit_of}'s scope ({', '.join(sorted(own))}): fix it there, rewriting the mechanism if the limit is in its design")
-    if not sup and (into := next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c)), None)):
-        return merge_limit(graph[into], o)  # one root-cause change per mechanism, never one per symptom
+    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c)), None)
+    if into:
+        o.deps = ""  # a joined filing adds no change of its own: only the --blocks edge follows it into `into`
+    carrier = into or o.slug  # the change that carries the fix: every wait on the filing or a superseded change names it
     meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks", "supersedes", "limit_of")}
     if o.limit_of:
         meta["limit-of"] = [o.limit_of]
-    meta["deps"] = [d for d in o.deps.split(",") if d]
+    meta["deps"] = list(dict.fromkeys(graph.get(d, {}).get("superseded") or d for d in o.deps.split(",") if d and d not in sup))
     if o.units:
         meta["units"] = o.units.split(",")
     graph = {**graph, o.slug: meta}
     if o.blocks:
         graph[o.blocks] = {**graph[o.blocks], "deps": [*graph[o.blocks]["deps"], o.slug]}
-    if (cy := [c for c in cycles(graph) if o.slug in c]):
+    moved = retarget({**graph, **defs("goals")}, {o.slug, *sup}, carrier)
+    if (cy := [c for c in cycles({**graph, **moved}) if carrier in c]):
         refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))
-    print(new_def(meta, o.body))
+    if into:
+        merge_limit(graph[into], o)  # one root-cause change per mechanism, never one per symptom
+    else:
+        print(new_def(meta, o.body))
     for k in sup:  # closing is the user's word (hd close): a superseded change holds with no runs
         mark(graph[k], "superseded", o.slug)
         event(change=k, record="superseded", by=o.slug)
-    if o.blocks:  # the blocked change waits on the new one, uncommitted like the definition
-        bm, body = _frontmatter(blocked.read_text())
-        if o.slug not in bm.setdefault("deps", []):
-            bm["deps"].append(o.slug)
-            blocked.write_text("---\n" + yaml.safe_dump(bm, sort_keys=False) + "---\n" + body)
-            event(change=o.blocks, action="dep", dep=o.slug)
+    for k, c in moved.items():  # each waiting change follows the fix, uncommitted like the definition
+        f = P(c["path"])
+        fm, body = _frontmatter(f.read_text())
+        f.write_text("---\n" + yaml.safe_dump({**fm, "deps": c["deps"]}, sort_keys=False) + "---\n" + body)
+        event(change=k, action="dep", dep=carrier)
+
+
+def retarget(graph, old, new):
+    """The definitions whose deps name a slug in `old`, each with those deps renamed `new` (once, never on `new` itself)."""
+    return {k: {**c, "deps": list(dict.fromkeys(new if d in old else d for d in c["deps"]))}
+            for k, c in graph.items() if k != new and set(c["deps"]) & old}
 
 
 def merge_limit(c, o):

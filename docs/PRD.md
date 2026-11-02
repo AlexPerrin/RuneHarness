@@ -32,6 +32,7 @@ the gate runs the local script rows first and fork CI only once they pass;
 the reviewer judges every row once, pass or fail, a row it did not check is not judged and never passes, and verdicts append;
 a text-only failure is fixed in place.
 A gate is bound to the tree it ran on, a verdict and an approval to the head and contract they cover, each void when its input moves.
+A verdict covers the judged rows: a script row added or changed leaves it standing.
 A claim with no record counts for nothing;
 an unknown fact stops a step.
 A limit in the mechanism a change touches is fixed in that change: a hand-over states its limits, each a filed change, and one naming an in-scope limit, or stating one otherwise, is refused;
@@ -147,6 +148,7 @@ a live check reads the real state.
    a verdict at H does not hold at H';
    a harness change's tools commits are handed over, gated and landed with it;
    a moved upstream rule file voids only the rule rows;
+   a seed check row added to a contract keeps its verdict;
    a hand-over without a `Limits:` section, or with an entry in it not `limit:<slug>` or naming a limit in its own scope, is refused, a mechanism with two open harness changes or a harness change naming none is an alert that lists the planner, an out-of-scope limit or a filing on a mechanism with an open change joins that change, a limit back on a finder's mechanism is refused, and `--supersedes` holds the merged changes for the user's close;
    a seed row added later joins a contract at a head not carried upstream;
    a contract's check rows run before its gate rows, which run only when every check passed;
@@ -183,6 +185,7 @@ a live check reads the real state.
    the same repair twice raises once;
    a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer;
    a fix a dev files with `hd new --blocks` holds the change with no question raised;
+   a change waiting on a fix waits on the change that carries it: a dependency on a superseded change, or a `--blocks` filing joined into an open change, names that change;
    a dependency cycle among open changes is one alert naming it, each change in it shows as in that cycle (never plain 'waiting on'), and `hd new` and a git commit naming harness/ refuse it;
    a repo without the noreply git identity gets it in one pass, so its clones commit with no per-run env;
    docker not answering → one alert, no script starts and no run that builds or tests (a code or judge run off the harness track) is listed, an unspawned one ends, and it is listed again once docker answers.

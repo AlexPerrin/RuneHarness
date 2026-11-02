@@ -292,6 +292,10 @@ class Facts:
     def alive(s, pid, start):
         return bool(pid) and s.proc_start(pid) == str(start)
 
+    def host(s):
+        """R5: the host's memory in bytes (MemTotal) and its CPUs (nproc), read from it."""
+        return int(re.search(r"MemTotal:\s+(\d+) kB", Path("/proc/meminfo").read_text()).group(1)) * 1024, len(os.sched_getaffinity(0))
+
     @_read
     def slices(s):
         """R5: the active run slices (systemd user units hd-*.slice), or None when systemd cannot be read."""
@@ -583,6 +587,69 @@ def tools_run(files, d, cmds=()):
     gate's in tools/gate/; tools/track.sh only dispatches to them) and each other tools file a contract row's command names, with those commands."""
     run = sorted(p for p in files if p.startswith(d) or (p != "tools/track.sh" and any(p in c for c in cmds)))
     return hashlib.sha1("\0".join(list(cmds) + [f"{p}\n{files[p]}" for p in run]).encode()).hexdigest()
+
+
+def gate_part(files, cmds):
+    """R8: the tools files with each tools/gate/*.sh cut to the part the commands run of it: the functions their `tools/track.sh
+    <verb>` reaches (the verb's own, `-` as `_`, or those its dispatch arm names, and every function they call), with its code
+    outside every function, comments dropped (the sourced helpers, the dispatch); nothing of it for a command running none of its
+    verbs; a file without functions whole."""
+    verbs = {v for c in cmds for v in re.findall(r"tools/track\.sh\s+([\w-]+)", c)}
+    out = dict(files)
+    for p, text in files.items():
+        if not (p.startswith("tools/gate/") and p.endswith(".sh")):
+            continue
+        fn, top, cur, depth = {}, [], None, 0
+        for line in text.splitlines():
+            if m := re.match(r"(\w+)\(\)\s*\{", line):
+                cur, depth, fn[m.group(1)] = m.group(1), 0, ""
+            if cur is None:
+                top.append(line) if not line.lstrip().startswith("#") else None
+                continue
+            fn[cur] += line + "\n"
+            depth += line.count("{") - line.count("}")
+            cur = cur if depth > 0 else None  # a one-liner closes on its own line, a body on the line that balances it
+        if not fn:
+            continue
+        arms = [(a.split("|"), body) for a, body in re.findall(r"([\w|-]+)\)([^;]*);;", "\n".join(top))]
+        want = {v.replace("-", "_") for v in verbs} | {w for a, body in arms if verbs & set(a) for w in re.findall(r"\w+", body)}
+        seen, todo = set(), [w for w in want if w in fn]
+        while todo:
+            w = todo.pop()
+            if w not in seen:
+                seen.add(w)
+                todo += [x for x in re.findall(r"(?<![\w/$.-])\w+(?![\w/=.-])", re.sub(r"(^|\s)#.*", "", fn[w], flags=re.M)) if x in fn]  # a name called, not in a comment or a path
+        out[p] = "\n".join(top) + "".join(fn[w] for w in sorted(seen)) if seen else ""
+    return out
+
+
+def size(text):
+    """R5: (memory bytes, CPUs) of the largest container a docker command line or tools text names (--memory=, --cpus=), None without one."""
+    mem = [int(n) * 1024 ** "kmg".index(u.lower()) * 1024 for n, u in re.findall(r"--memory[= ](\d+)([kKmMgG])", text)]
+    cpus = [float(n) for n in re.findall(r"--cpus[= ]([\d.]+)", text)]
+    return (max(mem), max(cpus)) if mem and cpus else None
+
+
+def room(F, prune=False):
+    """R5: the host room's ledger, state/room/<pid>.json {pid, start, mem, cpus, owner, held}, of the processes alive (`hd room`'s
+    containers: held, or waiting for room); prune drops the others' files."""
+    out = {}
+    for f in sorted((STATE / "room").glob("*.json")):
+        try:
+            e = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if F.alive(e["pid"], e["start"]):
+            out[e["pid"]] = e
+        elif prune:
+            f.unlink(missing_ok=True)
+    return out
+
+
+def fits(F, need, held):
+    """R5: the host holds a container of need (memory, CPUs) beside the held ones: their sum within MemTotal and nproc, or none held."""
+    M, C = F.host()
+    return not held or (sum(m for m, _ in held) + need[0] <= M and sum(c for _, c in held) + need[1] <= C)
 
 
 def track_root(c, track):
@@ -1045,8 +1112,8 @@ class Ctx:
         """R8: the gate key, or with build the build key, or with each every row's key {<slug>/<row id>: key}. On a track with a
         tools branch, the build key is T's tree `-` the hash of tools/build/ (the server tags its image by it); the gate key is
         the build key `-` the hash of tools/gate/ and the files the rows run (tools_run: the rows of the change, or of a batch's
-        `slugs`), with the rows; a row's key is the same over that row alone, so a row whose files did not change keeps its
-        result. A gate-only tools commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch
+        `slugs`), with the rows; a row's key is the same over that row alone and the part of tools/gate/ it runs (gate_part), so a
+        row whose files did not change keeps its result. A gate-only tools commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch
         every key is the tree."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         rows = [(x, row) for x in slugs or [ch["slug"]] for row in (contract(x) or {}).get("rows", [])]
@@ -1059,8 +1126,8 @@ class Ctx:
         files = s.F.tools_files(str(P(r["path"])), t)
         if files is None:
             return None
-        b = tree + "-" + tools_run(files, "tools/build/")[:12]
-        return b if build else out(lambda rs: b + "-" + tools_run(files, "tools/gate/", [c for _, row in rs for c in (row["check"], row["gate"]) if c])[:12])
+        b, cmds = tree + "-" + tools_run(files, "tools/build/")[:12], lambda rs: [c for _, row in rs for c in (row["check"], row["gate"]) if c]
+        return b if build else out(lambda rs: b + "-" + tools_run(gate_part(files, cmds(rs)) if each else files, "tools/gate/", cmds(rs))[:12])
 
     def deploy_key(s, ch, tree):
         """R5: a deploy's key: the tree and the hash of every tools file (a deploy runs build, up and ship), so a tools ship
@@ -1090,15 +1157,30 @@ class Ctx:
     def alive_run(s, ch):
         return next((r for r in s.runs if r["change"] == ch["slug"] and not r.get("ended")), None)
 
+    def room_of(s, ch):
+        """R5: the host room one of the track's builds takes: the largest container its tools/build/ names, None without one."""
+        r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
+        t = r.get("tools") and s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
+        files = t and s.F.tools_files(str(P(r["path"])), t) or {}
+        return size("\n".join(v for p, v in files.items() if p.startswith("tools/build/")))
+
+    def builds_fit(s, need):
+        """R5: one more build of need fits the host beside every one alive: the pass's builds, each the room it takes from its start
+        to its end, and every container of the room ledger not one of theirs (a gate's, a dev's own build)."""
+        mine = {f"{f.parent.name}/build": r["room"] for f in STATE.glob("*/proc-build.json") if (r := json.loads(f.read_text())).get("room") and s.F.alive(r["pid"], r["start"])}
+        return fits(s.F, need, list(mine.values()) + [(e["mem"], e["cpus"]) for e in room(s.F).values() if e.get("owner") not in mine])
+
     def proc(s, slug, name):
         p = rec(slug, f"proc-{name}")
         return None if not p else "alive" if s.F.alive(p["pid"], p["start"]) else "dead"
 
-    def start(s, slug, name, args, env=None, act=True, key=None):
+    def start(s, slug, name, args, env=None, act=True, key=None, need=None):
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
         it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
-        one that died twice on the same args and key without its result is raised once."""
+        one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once;
+        one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
+        further one starts on the observed end of one."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
         if not s.docker or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
@@ -1112,8 +1194,8 @@ class Ctx:
         newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
         if p.get("args") != args or p.get("key") != key or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()):
             p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
-        if st == "dead" and p.get("attempts", 1) >= 2:
-            a = f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)"
+        if st == "dead" and p.get("attempts", 1) >= 3:
+            a = f"{slug}: {name} ended 3 times without a result (state/{slug}/{name}.log)"
             if a not in s.alerts:  # every gated server change reaches the one live ship: one alert
                 s.alerts.append(a)
             return
@@ -1123,13 +1205,15 @@ class Ctx:
                 if o != name and q.get("key") and not (key.startswith(q["key"]) or q["key"].startswith(key)) and s.proc(slug, o) == "alive":
                     s.F.stop(q["pid"], q["start"])
                     event(change=slug, action=f"stopped {o}", key=q["key"], pid=q["pid"])
+        if act and need and not s.builds_fit(need):
+            return  # the host is full: it starts once one alive ends
         if act:
             try:
-                pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", env)
+                pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", {**(env or {}), "HD_PROC": f"{slug}/{name}"})
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, **({"room": need} if need else {})})
 
 
 def step(state, actor, **k):
@@ -1425,7 +1509,7 @@ def nxt(ctx, ch):
         env, script = {**ctx.env(ch, head, tc, bk), "G": gk}, ctx.script(ch)
         b = rec(slug, "build")
         if not b or b["T"] != bk:
-            return step(f"building {short(bk)}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env, key=bk))
+            return step(f"building {short(bk)}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env, key=bk, need=ctx.room_of(ch)))
         if not b["ok"]:
             return step("build failed: dev", "dev", mode="code", input=["build", bk, con["hash"]], detail=result(slug, "build"))
         g = rec(slug, "gate")
@@ -2576,7 +2660,7 @@ HELD = 75  # a row's exit when the step that failed reads nothing of the head (i
 def rows(ctx, ch, con, head, tc, tree, build, gate):
     """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root (TOOLS_ROOT in a gate), each
     with the change's own env (a track script keeps a check of the tree alone once per gate). In a gate, a row whose key
-    (ROWKEYS, from the pass) has a result in state/<slug>/row-<kind>-<id>.json keeps it, unrun; a held row records none.
+    (ROWKEYS, from the pass) has a result in state/<slug>/row-<kind>-<id>.json (its last four keys') keeps it, unrun; a held row records none.
     Cheap and local first, whatever the file's order: every `check:` row, then the `gate:` rows (fork CI among them) only
     when every check passed."""
     env, why = ctx.env(ch, head, tc, tree, build), []
@@ -2593,14 +2677,16 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
             break
         for row in con["rows"]:
             if row[kind] and row["id"] not in waived:
-                rk, m = keys.get(f"{ch['slug']}/{row['id']}"), rec(ch["slug"], f"row-{kind}-{row['id']}")
-                kept = bool(rk and m and m["T"] == rk)
+                rk, m = keys.get(f"{ch['slug']}/{row['id']}"), rec(ch["slug"], f"row-{kind}-{row['id']}") or {}
+                ks = m.get("keys") or ({m["T"]: m} if "T" in m else {})  # each key's result: the live branch's own gate runs a member's rows at its own keys
+                kept = bool(rk and rk in ks)
                 if kept:
-                    rc, out = m["rc"], m["out"]
+                    rc, out = ks[rk]["rc"], ks[rk]["out"]
                 else:
                     rc, out = ctx.F.run(row[kind], root, env)
                     if rk and rc != HELD:
-                        put(ch["slug"], f"row-{kind}-{row['id']}", {"T": rk, "rc": rc, "out": out[-2000:]})
+                        ks = {k: v for k, v in ks.items() if k != rk}
+                        put(ch["slug"], f"row-{kind}-{row['id']}", {"keys": dict(list(ks.items())[-3:] + [(rk, {"rc": rc, "out": out[-2000:]})])})
                 print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (" (kept)" if kept else "") + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} {'held' if rc == HELD else 'failed'}: {out.strip()[-400:]}")
@@ -2891,6 +2977,35 @@ def cmd_commit(a):
     sys.exit(rc)
 
 
+def cmd_room(a):
+    """`hd room <command>`, by a track script: runs a container command (docker run ... --memory=<m> --cpus=<c>) once the host
+    holds it beside every container held in state/room/ (their summed --memory within MemTotal, --cpus within nproc): it
+    waits on the end of one held, never a timer; it execs the command, so its entry holds the room while the container runs
+    (owner: HD_PROC, the pass's process it runs under)."""
+    import select
+    need = size(" ".join(a)) or refuse("hd room: the command names no --memory= and --cpus=")
+    F, me = Facts(), os.getpid()
+    (STATE / "room").mkdir(parents=True, exist_ok=True)
+    while True:
+        with open(STATE / "room.lock", "a") as h:
+            fcntl.flock(h, fcntl.LOCK_EX)
+            held = [e for e in room(F, prune=True).values() if e["held"] and e["pid"] != me]
+            ok = fits(F, need, [(e["mem"], e["cpus"]) for e in held])
+            write(STATE / "room" / f"{me}.json", json.dumps({"pid": me, "start": F.proc_start(me), "mem": need[0], "cpus": need[1], "owner": os.environ.get("HD_PROC", ""), "held": ok}))
+        if ok:
+            os.execvp(a[0], a)
+        fds = []
+        try:
+            for e in held:
+                fds.append(os.pidfd_open(e["pid"]))
+            select.select(fds, [], [])  # a pidfd reads ready once its process ends
+        except ProcessLookupError:
+            pass  # one ended already: room again
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+
 def cmd_tick(a):
     if "--dry-run" in a:
         os.environ["HD_OFFLINE"] = "1"  # R5: a dry-run never reaches the network: GitHub from its cache, git from the local refs
@@ -2906,7 +3021,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

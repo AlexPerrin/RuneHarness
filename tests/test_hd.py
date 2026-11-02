@@ -39,6 +39,7 @@ class Fake(hd.Facts):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
         return 0, "", ""
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
+    def host(s): return s.f.get("host", (64 * 2**30, 64))  # the host's MemTotal and nproc
     def tools_used(s): return s.f.get("tools_used", set())  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
     def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
@@ -1672,34 +1673,39 @@ class R5(Sandbox):
         s.assertIsNone(hd.rec("s1", "repair-down"))                             # the effect observed: the count is gone, one event
         s.assertEqual(sum('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")), 1)
 
-    def test_dead_script_reruns_once_then_raised(s):
+    def test_dead_script_reruns_then_raised_after_its_third(s):  # sweep-18 N7: a host fault (exit 75, no build.json) is the runner's: re-run, never the head's FAIL
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["s1", "Limits:", "none"])
-        hd.tick(s.ctx(F)); hd.tick(s.ctx(F))                                     # the build died without build.json: once more
-        s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
+        for _ in range(3):
+            v = hd.tick(s.ctx(F))                                                # the build ended without build.json (held: the host's fault)
+            st = s.state(F, "s1")
+            s.assertEqual((st["actor"], st["state"].split()[0], hd.rec("s1", "build")), ("script", "building", None))   # never 'build failed: dev'
+        s.assertEqual([a[1] for a in F.spawned], ["build"] * 3)
+        s.assertFalse(any("without a result" in a for a in v["alert"]))
         v = hd.tick(s.ctx(F))
-        s.assertEqual([a[1] for a in F.spawned], ["build", "build"])
-        s.assertTrue(any("build died twice" in a for a in v["alert"]))
+        s.assertEqual([a[1] for a in F.spawned], ["build"] * 3)
+        s.assertTrue(any("build ended 3 times without a result" in a for a in v["alert"]))
+        s.assertFalse(any(r["role"] == "dev" and r["step"].startswith("build failed") for r in hd.runs() if r.get("step")))
 
     def test_attempts_reset_on_new_args_or_a_landed_result(s):
         F = Fake(**FACTS)
         ctx = s.ctx(F)
-        ctx.start("s1", "build", ["b", "T1"]); ctx.start("s1", "build", ["b", "T1"])
-        ctx.start("s1", "build", ["b", "T1"])                                    # died twice on T1: raised, not rerun
-        s.assertEqual(len(F.spawned), 2)
+        ctx.start("s1", "build", ["b", "T1"]); ctx.start("s1", "build", ["b", "T1"]); ctx.start("s1", "build", ["b", "T1"])
+        ctx.start("s1", "build", ["b", "T1"])                                    # ended 3 times on T1: raised, not rerun
+        s.assertEqual(len(F.spawned), 3)
         ctx.start("s1", "build", ["b", "T2"])                                    # a new tree: one death is not two
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
         hd.put("s1", "build", {"T": "T2", "ok": True})                           # the result lands
         ctx.start("s1", "build", ["b", "T2"])
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
         script = s.root / "track.sh"; script.write_text("")
-        ctx.start("s1", "build", [str(script), "T3"]); ctx.start("s1", "build", [str(script), "T3"])
+        ctx.start("s1", "build", [str(script), "T3"]); ctx.start("s1", "build", [str(script), "T3"]); ctx.start("s1", "build", [str(script), "T3"])
         n = len(F.spawned); ctx.start("s1", "build", [str(script), "T3"])
-        s.assertEqual(len(F.spawned), n)                                         # died twice on T3: raised
+        s.assertEqual(len(F.spawned), n)                                         # ended 3 times on T3: raised
         ctx.start("s1", "build", [str(script), "T3"])                            # a second change reaching the same script
-        s.assertEqual(sum("died twice" in a for a in ctx.alerts), 1)             # one alert in a pass, not one per caller
+        s.assertEqual(sum("ended 3 times" in a for a in ctx.alerts), 1)             # one alert in a pass, not one per caller
         pf = hd.STATE / "s1" / "proc-build.json"
         os.utime(script, ns=(pf.stat().st_mtime_ns + 10**9,) * 2)                # the script is fixed
         ctx.start("s1", "build", [str(script), "T3"])
@@ -1786,6 +1792,57 @@ class R5(Sandbox):
         F.f["procs"] = {(7, "1"), (hd.rec("s1", "proc-gate")["pid"], hd.rec("s1", "proc-gate")["start"])}
         F.f["tools_files"][D] = {**f, "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = D       # a gate.sh edit moves every row
         hd.tick(s.ctx(F)); s.assertEqual(len(F.stopped), 1)                      # no row's key holds: stopped and replaced
+
+    def test_builds_alive_at_once_never_hold_more_than_the_host(s):  # sweep-18 N7: a tools ship moved 12 build keys; 12 builds of 5g/4 CPUs started on 16 CPUs / 19 GB
+        slugs = [f"s{i}" for i in range(1, 13)]
+        build = "size=(--cpus=4 --memory=5g)   # each build container's share\nbuild() { docker run \"${size[@]}\"; }\n"
+        heads = {k: f"{i:02d}" * 20 for i, k in enumerate(slugs, 10)}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], **{f"fork/dev/{k}": h for k, h in heads.items()}, "local/harness": B}, "tools_files": {B: {"tools/build/build.sh": build}},
+                    "trees": {**FACTS["trees"], **{h: "t" + h for h in heads.values()}}, "merges": {(B, h): ("ok", h) for h in heads.values()}}, host=(int(19.5 * 2**30), 16))
+        pids = iter(range(5000, 6000))
+        def spawn(args, log, env=None):
+            pid = next(pids); F.spawned.append(args); F.envs.append(env or {}); F.f["procs"] = set(F.f.get("procs", {(7, "1")})) | {(pid, "99")}; return pid, "99"
+        F.spawn = spawn
+        nb = lambda: sum(a[1] == "build" for a in F.spawned)
+        bs = lambda: [a for a in F.spawned if a[1] == "build"]
+        for k in slugs:
+            s.change(k); s.agreed(k)
+            with mock.patch.object(hd, "Facts", lambda: F):
+                hd.cmd_handover([k, "Limits:", "none"])
+        hd.tick(s.ctx(F))
+        s.assertEqual([a[1] for a in F.spawned], ["build"] * 3)               # one pass: min(19.5 GB // 5g, 16 // 4) = 3, not 12
+        s.assertTrue(all(s.state(F, k)["state"].startswith("building") for k in slugs))   # the rest wait: no alert, no dev step
+        hd.tick(s.ctx(F)); s.assertEqual(nb(), 3)                    # nothing ended: none starts
+        first = hd.rec(bs()[0][2], "proc-build"); s.assertEqual(first["room"], [5 * 2**30, 4.0])
+        hd.put(bs()[0][2], "build", {"T": first["key"], "ok": True}); F.f["procs"] -= {(first["pid"], first["start"])}   # one ends, its record landed
+        hd.tick(s.ctx(F)); s.assertEqual(nb(), 4)                    # the next one starts on that end
+        hd.put("room", "777", {"pid": 777, "start": "99", "mem": 5 * 2**30, "cpus": 4.0, "owner": "", "held": True}); F.f["procs"] |= {(777, "99")}   # a dev's own build's container
+        second = hd.rec(bs()[1][2], "proc-build"); F.f["procs"] -= {(second["pid"], second["start"])}
+        hd.tick(s.ctx(F)); s.assertEqual(nb(), 4)                    # the dev's container holds the room the ended build left
+        hd.put("room", "778", {"pid": 778, "start": "99", "mem": 5 * 2**30, "cpus": 4.0, "owner": f"{bs()[2][2]}/build", "held": True}); F.f["procs"] |= {(778, "99")}
+        F.f["procs"] -= {(777, "99")}
+        hd.tick(s.ctx(F)); s.assertEqual(nb(), 5)                    # a pass build's own container is counted once, as its build
+        s.assertEqual(F.envs[F.spawned.index(bs()[-1])]["HD_PROC"], f"{bs()[-1][2]}/build")      # the owner its containers name
+
+    def test_a_container_waits_on_the_end_of_one_held(s):  # hd room: a dev's build and a gate's check share the host's bound with the pass's builds
+        import threading
+        class H(hd.Facts):
+            def host(s_): return 10 * 2**30, 8
+        child = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE)
+        hd.put("room", str(child.pid), {"pid": child.pid, "start": hd.Facts().proc_start(child.pid), "mem": 8 * 2**30, "cpus": 4.0, "owner": "", "held": True})
+        ran = []
+        def execvp(f, a): ran.append(a); raise SystemExit(0)
+        def go():
+            with mock.patch.object(hd, "Facts", H), mock.patch.object(hd.os, "execvp", execvp), s.assertRaises(SystemExit):
+                hd.cmd_room(["docker", "run", "--cpus=4", "--memory=4g", "img"])
+        t = threading.Thread(target=go); t.start()
+        while not (s.root / "state" / "room").glob("*.json") or len(list((s.root / "state" / "room").glob("*.json"))) < 2:
+            pass                                                               # its waiting entry is written
+        s.assertEqual(ran, []); s.assertTrue(t.is_alive())                     # 8g + 4g over 10g: it waits, no container
+        child.communicate(b""); t.join()                                       # the held one ends: it runs, nothing timed
+        s.assertEqual(ran, [["docker", "run", "--cpus=4", "--memory=4g", "img"]])
+        e = hd.rec("room", str(os.getpid())); s.assertEqual((e["held"], e["mem"]), (True, 4 * 2**30))
+        s.assertFalse((s.root / "state" / "room" / f"{child.pid}.json").exists())   # the ended one's entry dropped
 
     def test_a_build_of_a_new_tree_stops_the_gate_of_the_old_one(s):  # server-token-auth's gate.sh ran on while the pass started its new build
         s.change("s1"); s.agreed("s1")
@@ -2547,8 +2604,10 @@ class R8(Sandbox):
         s.assertNotEqual(git("rev-parse", "v8"), T1)                                  # the live branch never moves under an acting pass
         h.close(); t.join(); r = t.r
         s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
-        hd.put("s1", "gate-k", {"ok": True}); r = ship(T1)                            # a T that already landed: a no-op, its gates spent
+        hd.put("s1", "gate-k", {"ok": True}); hd.put("s1", "gate-g", {"ok": True})
+        r = subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T1], env={**os.environ, "HD_ROOT": str(s.root), "G": "g"}, capture_output=True, text=True)   # a T that already landed: a no-op, its gates spent
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
+        s.assertTrue(hd.rec("s1", "gate-g")["ok"])                                    # sweep-21: but the shipped tree's own gate (G), which the live branch's gate reads
         s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
         hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
@@ -3004,8 +3063,10 @@ class Tools(unittest.TestCase):
                                                    "    def test_c(s): import os; os.system('echo FAIL: lint/bad/evil: false # refused: rm -rf / >&2'); print('ERROR: t (x.y)')\n")   # a fixture's own output, through its fds or sys.stdout
         r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True)
         s.assertNotEqual(r.returncode, 0)
-        s.assertEqual([l.split()[0] for l in r.stdout.splitlines()], ["FAIL:", "Ran", "FAILED"], r.stdout)   # the failed test alone: no fixture output, nothing lost
-        s.assertIn("test_a", r.stdout)
+        l = r.stdout.splitlines()
+        s.assertEqual((l[0].split()[:2], [x.split()[0] for x in l[-2:]]), (["FAIL:", "test_a"], ["Ran", "FAILED"]), r.stdout)   # the failed test alone: no fixture output, nothing lost
+        s.assertIn("AssertionError: boom", r.stdout)                            # sweep-21: its reason too, the traceback's tail, not its name alone
+        s.assertFalse(any(x in r.stdout for x in ("noise", "evil", "ERROR: t")), r.stdout)
         shutil.rmtree(build, ignore_errors=True)
 
     def test_check_docs_and_gate_rows(s):
@@ -3131,6 +3192,38 @@ class R3(Sandbox):
         s.assertEqual([c for c in F.ran if c.startswith("tools/")], ["tools/server/text.py subject"])   # only the moved row runs again; CI's result is kept
         F.ran.clear(); hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=False)
         s.assertIn("tools/server/text.py subject", F.ran)                        # a hand-over's check rows always run
+
+    def test_a_row_key_holds_the_part_of_gate_sh_it_runs(s):  # sweep-19 N11: a gate.sh edit of one verb re-ran every server CI
+        gate = ("#!/usr/bin/env bash\n# gate.sh: verbs\n. build.sh\nprojects() { echo p; }\n"
+                "spotless() {  # the check row\n  tree; gradle_check spotless\n}\ntests() { build; gradle_check test; }\n"
+                "gradle_check() {\n  projects; docker run x\n}\ngate_ci() {  # CI on gate/<slug>; tests and spotless are not its\n  git push fork gate/$slug; read_runs\n}\n"
+                "read_runs() {\n  python3 -c '\nimport json\nprint(1)\n'\n}\n"
+                "case $verb in gate|gate-ci) \"${verb//-/_}\" ;; test) arg= tests ;; spotless) spotless ;; esac\n")
+        s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- lint | spotless | check: tools/track.sh spotless\n- t | tests | gate: tools/track.sh test\n- subj | subject | check: tools/server/text.py subject\n")
+        f = {"tools/gate/gate.sh": gate, "tools/build/build.sh": "build() { :; }\n", "tools/server/text.py": "t"}
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: f}})
+        ch = s.ctx(F).changes["s1"]
+        def keys(g):
+            F.f["tools_files"][C] = {**f, **g}; F.f["refs"]["local/harness"] = C
+            return s.ctx(F).key(ch, "tr", each=True)
+        k0 = keys({}); moved = lambda g: sorted(r.split("/")[1] for r, k in keys(g).items() if k != k0[r])
+        s.assertEqual(moved({"tools/gate/gate.sh": gate.replace("projects; docker", "projects; docker --rm")}), ["lint", "t"])   # one verb's code: its rows alone, CI's kept
+        s.assertEqual(moved({"tools/gate/gate.sh": gate.replace("print(1)", "print(2)")}), ["ci"])                            # CI's code (its python, at column 0): CI alone
+        s.assertEqual(moved({"tools/gate/gate.sh": gate.replace("# gate.sh: verbs", "# gate.sh: the verbs")}), [])            # a comment moves none
+        s.assertEqual(moved({"tools/gate/gate.sh": gate.replace(". build.sh", ". ../build/build.sh")}), ["ci", "lint", "t"])   # the shared code: every verb's row
+        s.assertEqual(moved({"tools/build/build.sh": "build() { echo; }\n"}), ["ci", "j1", "lint", "ok", "subj", "t"])                    # the build: every row
+        s.assertEqual(moved({"tools/server/text.py": "t2"}), ["subj"])
+        s.assertNotEqual(s.ctx(F).key(ch, "tr"), (lambda: (keys({"tools/gate/gate.sh": gate + "\n"}), s.ctx(F).key(ch, "tr"))[1])())   # the gate's own key: the whole of tools/gate/
+
+    def test_the_live_branch_s_gate_keeps_the_member_s_row_results(s):  # sweep-21: the base's gate overwrote a member's row-gate-tests.json
+        s.change("s1"); s.agreed("s1", extra="- t | tests | gate: tools/track.sh test\n")
+        F = Fake(**FACTS); ch, con = s.ctx(F).changes["s1"], hd.contract("s1")
+        for k in ("member", "base", "member"):
+            F.ran.clear()
+            with mock.patch.dict(os.environ, {"ROWKEYS": json.dumps({"s1/t": k, "s1/ok": k})}):
+                hd.rows(s.ctx(F), ch, con, A, TA, TA, "", gate=True)
+            ran = [c for c in F.ran if c.startswith("tools/")]
+        s.assertEqual(ran, [])                                                 # the member's gate again: its kept result, unrun
 
     def test_a_row_held_by_its_source_records_no_result(s):  # openrs2's HTTP 500 and GitHub's quota failed heads they never touched
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n")

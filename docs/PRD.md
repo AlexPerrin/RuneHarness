@@ -186,7 +186,9 @@ a live check reads the real state.
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
-   a script dead twice on the same args → raised once, a new args or a landed result restarts the count;
+   a script ended 3 times on the same args without a result → raised once, a new args or a landed result restarts the count;
+   a build or container check failing for the host's cause (memory, disk, docker, a killed run's container) exits 75, records no result and is run again, never the head's FAIL;
+   the builds and container steps alive at once hold at most the host's MemTotal and nproc, a dev's own build counted: a tools ship moving 12 build keys starts 3 builds of 5g/4 CPUs on 19.5 GB/16 CPUs, the next on one's end;
    a build or gate alive under a key no longer current is stopped and the current one started, the proc record naming the key of the process holding it, a carry never stopped, and a batch gate on a prefix still current holds while members arrive;
    a gate row whose files did not change keeps its result, and a gate running such a row finishes;
    a yes recorded then the orchestrator gone → the ship completes;
@@ -232,6 +234,8 @@ a live check reads the real state.
    a carried tools head its branch moved past is rebased by the pass and re-gated with no dev run, a rebase that stops listing the dev with its files;
    a harness hand-over whose carried tools heads' tests fail is refused;
    a build is keyed by T and tools/build/ alone, a gate by the build key, tools/gate/ and the rows' files: a gate-only tools edit rebuilds nothing;
+   a row's key holds only the part of tools/gate/ it runs: an edit of one gate.sh verb re-runs that verb's rows alone, the fork CI row keeping its result;
+   the live branch's own gate keeps a member's row results, and a ship keeps the gate of the tree it shipped;
    a batch merges its members' heads on one tools branch, a tools conflict with an earlier member waiting;
    a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;
    a pin's conflict lists the dev of the oldest gated change at its deploy step;

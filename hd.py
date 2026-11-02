@@ -334,7 +334,8 @@ class Facts:
         if not shutil.which(args[0]):
             raise FileNotFoundError(f"No such file or executable: {args[0]}")
         scope = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--"] if shutil.which("systemd-run") and not os.environ.get("HD_SUITE") else []  # R5: builds and gates outside the pass's cgroup; the scope execs the command, so the pid is the script's; a suite's pass keeps them in the suite's cgroup, ended with it
-        p = subprocess.Popen(scope + args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
+        rc = ["sh", "-c", '"$@"; echo $? > "$0"', str(Path(log).with_suffix(".rc"))]  # R5: the script's exit status is its result, written at its end (none: killed)
+        p = subprocess.Popen(scope + rc + args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
                              stderr=subprocess.STDOUT, start_new_session=True)
         return p.pid, s.proc_start(p.pid)
 
@@ -1310,7 +1311,7 @@ class Ctx:
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
         it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
-        one that ended three times without its result (a host fault, a held row, a crash), on the same args and key or on the same
+        one that ended three times without its result (its record, or exit 0 for a script that records none: a host fault, a held row, a crash, a kill), on the same args and key or on the same
         cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
@@ -1324,11 +1325,12 @@ class Ctx:
                 return
             s.F.stop(p["pid"], p["start"])
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
-        res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
+        res, pf, rc = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json", STATE / slug / f"{name}.rc"
         newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
-        c = cause(STATE / slug / f"{name}.log") if st == "dead" else ""
-        if not p or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
-            p = {}  # the result landed, the script was fixed after the last start, or new args whose death is not the last one's cause: the count starts over
+        ok = st == "dead" and (newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none)
+        c = cause(STATE / slug / f"{name}.log") if st == "dead" and not ok else ""
+        if not p or st == "alive" or ok or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
+            p = {}  # it ended with its result, the script was fixed after the last start, or new args whose death is not the last one's cause: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 3:
             log = STATE / slug / f"{name}.log"
             fails = [l.strip() for l in (log.read_text(errors="replace") if log.exists() else "").splitlines() if re.search(r"(?i)error|fail", l)][-2:]
@@ -1346,6 +1348,7 @@ class Ctx:
         if act and need and not s.builds_fit(need):
             return  # the host is full: it starts once one alive ends
         if act:
+            rc.unlink(missing_ok=True)  # the last run's exit status is not this one's
             try:
                 pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", {**(env or {}), "HD_PROC": f"{slug}/{name}"})
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass

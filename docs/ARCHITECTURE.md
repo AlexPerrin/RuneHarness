@@ -164,8 +164,9 @@ state/briefs/<run>.md          the prompt;
                                read streamed, each byte once per process);
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
                                state/orchestrator-read/<pid>-<start>  the orchestrator.md blob `hd` last printed that session in full
-state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, since, cause, room} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key, or across them while each death's cause (the last line its log holds, hashes dropped) is the last one's, since the last result or the script's last change, raised once at 3;
+state/<slug>/proc-<script>.json {pid, start, args, key, rows, attempts, since, cause, room} (key: the key its result is recorded under, none for a carry; rows: a gate's row keys; attempts count on the same args and key, or across them while each death's cause (the last line its log holds, hashes dropped) is the last one's, since the last result (its record written after its start, or exit 0 in <script>.rc) or the script's last change, raised once at 3;
                                room: a build's [memory, CPUs], the largest container its tools/build/ names);
+state/<slug>/<script>.rc        the script's exit status, written by spawn's wrapper at its end (none: killed), removed at its start
 state/room/<pid>.json          {pid, start, mem, cpus, owner, held}: one container `hd room` admitted (held) or holds waiting;
                                owner: HD_PROC, `<slug>/<script>` of the pass's process it runs under, '' for a dev's
 state/<slug>/tools-conflict-<repo>.json {head, onto, detail}: the pass's rebase of a carried tools head stopped, its files named; repair-<name>.json {attempts}: a script or repair in flight

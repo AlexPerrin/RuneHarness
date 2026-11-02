@@ -86,10 +86,10 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     git -C "$wt" merge-base --is-ancestor HEAD "$sha" || moved="$moved $branch"; todo="$todo $t"
   done
   if [ -n "$landed" ] && [ -z "$todo" ] && [ -z "$moved" ]; then
-    rm -f "$state/proc-ship.json"; kept; echo "${tc:0:9} is already on the live branch, every carried tools head on its branch"; exit 0
+    kept; echo "${tc:0:9} is already on the live branch, every carried tools head on its branch"; exit 0
   fi
   if [ -n "$moved" ]; then  # a branch moved past the gated base: the next pass rebases a carried head onto its moved branch (a conflict: the dev) and re-gates
-    rm -f "$state/proc-ship.json"; echo "$moved moved past T's base; the next pass merges the batch again"; exit 0
+    echo "$moved moved past T's base; the next pass merges the batch again"; exit 0
   fi
   for t in $todo; do  # each carried tools branch first, in its worktree, pushed to its repo's own remote (the fork's is never origin: upstream)
     IFS=: read -r path branch sha name <<< "$t"; wt=$path/.worktrees/${branch##*/}

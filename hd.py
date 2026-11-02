@@ -1321,13 +1321,14 @@ def deps_held(ctx, ch):
 
 
 def late_answers(slug, ho, head):
-    """R3: the answer rows newer than the hand-over and than the last verdict on head (one a verdict already judged is
-    not), as (the user's, joined filings'): the user's word is the dev's before the head is built, gated or shipped; a
+    """R3: the answer rows newer than the brief of the run that handed over (its `given`; the hand-over itself when no run
+    did) and than the last verdict on head (one a verdict already judged is not), as (the user's, joined filings'): a row
+    its brief did not hold is late, though written before the hand-over; the user's word is the dev's before the head is built, gated or shipped; a
     joined filing is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate."""
     con = contract(slug)
     if not (ho and con):
         return [], []
-    since = max([ho["ts"]] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
+    since = max([ho.get("given", ho["ts"])] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
     late = [r for r in con["rows"] if r["id"].startswith("answer-") and r["text"][:20] >= since]
     return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
             [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
@@ -1867,8 +1868,9 @@ def dispatch(ctx, ch, st, act):
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
+    listed = now()  # before the brief reads the contract: a row written while it is written is late (late_answers)
     r = {"name": name, "role": role, "change": slug, "step": st["state"], "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
-         "console_pid": None, "console_start": None, "listed": now(), "started": None, "started_at": 0,
+         "console_pid": None, "console_start": None, "listed": listed, "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
     ctx.runs.append(r)
@@ -2558,7 +2560,8 @@ def cmd_handover(a):
             why.append(f"a carried tools head's tests fail: {out.strip()[-400:]}")
     if why:
         refuse(*why)
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:])})
+    given = max([r["listed"] for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")], default=now())
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), "given": given})  # given: when the handing run's brief was written
     drop(ch["slug"], "ask")
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
@@ -2851,7 +2854,7 @@ def merge_limit(c, o):
     if o.limit_of and o.limit_of not in m.setdefault("limit-of", []):
         m["limit-of"].append(o.limit_of)
     f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + f"\n\nAlso ({o.limit_of or 'filed'}): {o.title}\n{o.body}\n")
-    event(change=c["slug"], action="limit", by=o.limit_of or o.slug)
+    event(change=c["slug"], action="joined" if not o.limit_of else "limit", by=o.limit_of or o.slug)
     add_answer(c["slug"], c, " ".join(f"{o.title}: {o.body}".replace("|", "/").split()).rstrip(":"), by=f"filed by {o.limit_of or o.slug}")
     print(f"merged into {c['slug']} ({mechanism(c)})")
 

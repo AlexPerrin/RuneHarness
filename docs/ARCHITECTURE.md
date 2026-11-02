@@ -190,8 +190,8 @@ none for a held row) unrun, so a tools change to one row's file re-runs that row
 in a row's key each tools/gate/*.sh is only the part the row runs (`hd.gate_part`): the functions its `tools/track.sh <verb>` reaches (the verb's own, its dispatch arm's, every function they call) and the file's code outside every function, comments dropped;
 a row running no verb of the file hashes none of it, a file without functions is whole;
 so an edit of one verb moves that verb's rows alone and the fork CI row keeps its result, while the shared code (the dispatch, the sourced build.sh in the build key) moves every row;
-on a track with a public act a check row's key and the gate key also hash the change's texts (`hd.texts_key`: pr-title.txt, pr-body.md, pr-comment.md, every pr-reply-*.md, release-notes.md), joined after the tree without a tools branch;
-so a text written after the gate gates again, its check rows run and the fork CI row keeps its result;
+on a track with a public act the gate key and the key of each check row whose code names a text (`hd.reads_texts` over the part the row runs, every check row while the tools are unknown) also hash the change's texts (`hd.texts_key`: pr-title.txt, pr-body.md, pr-comment.md, every pr-reply-*.md, release-notes.md), joined after the tree without a tools branch;
+so a text written after the gate gates again, its text rows run and every other row (spotless, the fork CI) keeps its result;
 a script gets the build key as `T` (the artefact it builds or uses) and the gate key as `G` (the gate's record);
 a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit outside both (docs, tests, up's code) neither;
 `hd tree` prints the build key, so a dev's build is the pass's;

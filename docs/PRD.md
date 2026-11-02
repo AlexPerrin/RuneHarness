@@ -42,6 +42,7 @@ A claim with no record counts for nothing;
 an unknown fact stops a step.
 A limit in the mechanism a change touches is fixed in that change: a hand-over states its limits, each a filed change, and one naming an in-scope limit, or stating one otherwise, is refused;
 every open harness change names its mechanism, and the planner merges the open changes sharing one that no dependency orders;
+a merged change holds until the user closes it, and a user's alert names its close command;
 changes on one mechanism a dependency orders stay apart, so a fix the user wants first is never held behind its follow-up;
 a limit in another mechanism, and any filing on a mechanism with an open change it neither waits on nor blocks, joins that change (one per mechanism), and a change cannot file a limit on a mechanism of the changes it was filed from, so filing converges.
 

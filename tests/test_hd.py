@@ -3667,6 +3667,9 @@ class R3(Sandbox):
         s.assertEqual((g["h1"]["superseded"], g["h2"]["superseded"], g["r1"]["mechanism"]), ("r1", "r1", "hold"))
         s.assertNotIn("closed", g["h1"])                                        # closing is the user's word: held with no runs
         s.assertEqual(s.state(Fake(refs={"HEAD": B}, trees={B: TB}), "h1"), {"state": "superseded by r1: the user's hd close", "actor": "wait"})
+        v = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})))
+        s.assertEqual([a for a in v["alert"] if a.startswith("user: h")], ["user: h1 is superseded by r1 and holds until closed: `hd close h1 superseded by r1`",
+                                                                          "user: h2 is superseded by r1 and holds until closed: `hd close h2 superseded by r1`"])   # the wait on the user names its command
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # a later issue on it joins it
         g = hd.defs("changes")
         s.assertNotIn("p9", g); s.assertIn("hold drops a run", g["r1"]["body"])

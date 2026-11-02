@@ -5,6 +5,7 @@ title: A refused token login logs why the server refused it
 kind: change
 priority: P2
 deps:
+- server-token-auth
 - harness-tree-transitive-central
 created: '2026-11-02T19:41:12Z'
 ---

@@ -3514,7 +3514,12 @@ def cmd_new(a):
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
     for k in held:
         tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
-    into = next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not asked(c) and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
+    mine = after(tie, o.slug) | set(sup)  # what the filing waits on already (a superseded change's waits follow the carrier)
+    same = [k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not asked(c) and not ordered(tie, o.slug, k)]  # one held on a question is no join: the filing would wait on an answer about something else
+    behind = [k for k in same if any(not shut(d, graph[d]) for d in after(graph, k) - mine - {k} if d in graph)]  # nor one waiting on deps the filing does not
+    into = next((k for k in same if k not in behind), None)
+    if not into:
+        held += [k for k in behind if k not in held]  # the filing stands ahead of each waiting change on its mechanism
     if not into and o.pr and TRACK[o.track]["public"] == "upstream" and o.kind == "change":  # R6: a fix on a PR joins its one open round
         on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and k not in sup and not shut(k, c)
               and not (rec(k, "state") or {}).get("state", "").startswith("carried")}

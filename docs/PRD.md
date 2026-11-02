@@ -271,7 +271,7 @@ a live check reads the real state.
    while a change of a higher tier has a run due and none listed or alive, no run is listed for a lower one, a dependency of the higher change still runs, and the lower is listed while every higher change only waits, has a run listed or alive, or has a due run the pass cannot list, which shows as an alert;
    `hd new` makes a harness change P1 at least;
    two passes over unchanged facts append no event;
-   a run over the context limit is told to start no new work and hand off cleanly (commit and push its work in progress, record what it judged, collect its subagents and stop its processes, write the hand-off file: what is proven, what is left, the exact next step, whether a server or desktop is up), and its successor, the same role on the same change, is listed in the same pass with the hand-off file and that commit, past the tier hold and the agent count;
+   a run over the context limit is told to start no new work and hand off cleanly (commit and push its work in progress, collect its subagents and stop its processes, record what it judged, write the hand-off file: what is proven, what is left, the exact next step, whether a server or desktop is up), and its successor, the same role on the same change, is listed in the same pass with the hand-off file and that commit, past the tier hold and the agent count;
    three runs of a change past it since its last handover or the last planner run that handed back on that alert are raised;
    a session of no run past it is told nothing;
    a run whose desktops are up through a stretch of tool calls with no devtools call is told once to bring them down, the count starting again at its next devtools call or up;

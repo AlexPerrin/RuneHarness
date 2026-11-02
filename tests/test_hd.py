@@ -2139,11 +2139,31 @@ class R5(Sandbox):
                  mock.patch("sys.stdout", new_callable=io.StringIO) as out:
                 hook.deny_foreign_kill({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
             return '"deny"' in out.getvalue()
-        for c in ("kill 100", "kill -9 100 2>/dev/null || true", "kill %1", "ps -ef | grep kill", "cat kill.log", "pgrep -af mobile_login"):
+        for c in ("kill 100", "kill -9 100 2>/dev/null || true", "kill %1", "ps -ef | grep kill", "cat kill.log", "pgrep -af mobile_login",
+                  "tail -f L | grep x & kill $!", "tail -f L | grep x & p=$!; until test -e f; do sleep 1; done; kill $p",   # sweep-77 P4-a: its own bg job
+                  "x & p=$!; kill ${p}"):
             s.assertFalse(denied(c), c)
-        for c in ("kill 200", "kill 100 200", "kill 300", "kill $(pgrep -f mobile_login)", "pkill -f mobile_login", "killall python3", "cd x && kill 0"):
+        for c in ("kill 200", "kill 100 200", "kill 300", "kill $(pgrep -f mobile_login)", "pkill -f mobile_login", "killall python3", "cd x && kill 0",
+                  "kill $p", "p=$(cat pid); kill $p"):
             s.assertTrue(denied(c), c)
         s.assertFalse(denied("kill 200", owner=None))                              # not a run's agent: the permission rules judge it
+
+    def test_a_denial_names_the_run_and_change_of_its_agent(s):  # sweep-76 P5-a: time-bound and pgrep denials named no run
+        for owner, want in (({"name": "s1-1", "change": "s1"}, {"run": "s1-1", "change": "s1"}), (None, {})):
+            with mock.patch.object(hook, "owner_run", lambda p: owner), mock.patch.object(hd, "event") as ev, \
+                 mock.patch("sys.stdout", new_callable=io.StringIO):
+                hook.deny_time_bound({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": "timeout 5 x"}})
+            e = ev.call_args.kwargs
+            s.assertEqual((e["action"], e["agent"], e.get("run"), e.get("change")), ("denied", "d1", want.get("run"), want.get("change")))
+
+    def test_a_monitor_command_meets_the_bash_rules(s):  # sweep-77 P4-a: a Monitor command is a shell command
+        p = {"hook_event_name": "PreToolUse", "agent_id": "d1", "agent_type": "dev", "tool_name": "Monitor", "tool_input": {"command": "timeout 5 x"}}
+        with mock.patch.object(hook, "owner_run", lambda p: None), mock.patch.object(hook, "bind", lambda p: None), \
+             mock.patch.object(hook, "stop_ended", lambda p: None), mock.patch.object(hook, "refuse_ended", lambda p: None), \
+             mock.patch("sys.stdin", io.StringIO(json.dumps(p))), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.main()
+        s.assertIn('"deny"', out.getvalue())
+        s.assertIn("Monitor", json.load(open(Path(hook.__file__).parent / ".claude" / "settings.json"))["hooks"]["PreToolUse"][0]["matcher"])
 
     def test_a_pgrep_that_matches_its_own_command_is_denied(s):  # sweep-43 P2-a: until ! pgrep -f 'track.sh up X' never ended
         def denied(c):

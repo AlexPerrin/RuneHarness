@@ -422,6 +422,18 @@ def deny_self_pgrep(p):
             return True
 
 
+def deny_time_bound(p):
+    """R5: a subagent's step ends on its observed outcome, never on a bound of time: a `timeout` command is denied (the
+    Bash call's own `timeout` parameter is the call's limit; when it ends first, the same wait is issued again)."""
+    if p.get("tool_name") != "Bash" or not p.get("agent_id") or not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", bare(p)):
+        return
+    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="timeout bound on a step")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          "a step ends on its own outcome, never under `timeout N`: run it in the foreground (Bash `timeout` 600000 is the call's limit; "
+          "when it ends first, issue the same wait again), or wait on the fact the step makes (a state file, a log line, a port)."}}))
+    return True
+
+
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
 WRITES = re.compile("|".join((
     r"(?<![-=>])\d*>>?\|?(?!&)\s*(?!/dev/null\b)[^\s&|;)]",                       # a redirection to a file
@@ -579,7 +591,7 @@ def reread(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

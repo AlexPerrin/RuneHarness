@@ -1862,6 +1862,18 @@ class R5(Sandbox):
                   "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f"):
             s.assertFalse(denied(c), c)
 
+    def test_a_step_under_a_timeout_is_denied(s):  # sweep-48 P2-b: timeout 600 tools/track.sh test, timeout 20 python3 -m unittest
+        def denied(c, agent="d1"):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_time_bound({"agent_id": agent, "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
+            return '"deny"' in out.getvalue()
+        for c in ("timeout 600 tools/track.sh test s1", "cd x && timeout 20 python3 -m unittest", "FOO=1 timeout -s KILL 5 curl x",
+                  "bash -c 'timeout 5 sleep 9'", "x=$(timeout 3 cat f)"):
+            s.assertTrue(denied(c), c)
+        for c in ("grep timeout hook.py", "echo 'timeout 5'", "curl --max-time 5 x", "cat <<'EOF' > x\ntimeout 5 y\nEOF", "tools/track.sh test s1"):
+            s.assertFalse(denied(c), c)
+        s.assertFalse(denied("timeout 5 x", agent=None))                         # the user's own session: not a run's step
+
     def test_a_run_waits_on_the_fact_never_a_task_output_or_a_bound(s):  # sweep-45 P2-c: timeout 175 ... until grep <task output>
         root = Path(__file__).parent.parent
         for f in (".claude/agents/dev.md", ".claude/agents/qa.md", "hook.py"):

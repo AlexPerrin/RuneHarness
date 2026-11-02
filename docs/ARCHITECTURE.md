@@ -360,6 +360,7 @@ a deploy alive is never stopped, a newer tree or tools ship included: the pass d
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every `hd-*.slice` no live run holds once its owner is gone: a test's `hd-t<pid>.slice` once `<pid>` is dead, any other once empty;
+then bring down a stack no started live run uses with the script its record names (a run the pass ends has its stack down in that pass, so the run's own down its end cut is never needed), a stopped stack's containers removed by name, a repair missing twice on the same stack raised once and tried no more;
 remove every temp root a suite or test runner made outside a run (`hd-<kind>-<pid>-*` in the temp dir, named by its process) once `<pid>` is dead, whatever ended it;
 a temp root is removed whole, each dir in it made writable first, so a read-only dir a test left in it never keeps it;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
@@ -367,7 +368,6 @@ end a started run once its change's `next` is the other role's run (dev or qa) o
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
-bring down a stack no live run uses with the script its record names, a stopped stack's containers removed by name, a repair missing twice on the same stack raised once and tried no more;
 remove a tools copy nothing uses.
 
 **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session the user starts once with `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` in the user's terminal), so it and every agent it spawns show in the user's console with their transcripts (an agent a run spawns, its `reader`, shows under it;

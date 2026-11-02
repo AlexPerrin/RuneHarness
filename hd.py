@@ -450,7 +450,7 @@ class Facts:
         if r is None or r[0] != 200:
             return None
         p = r[1]
-        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body")}
+        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body"), "state": p.get("state"), "merged": p.get("merged")}
 
     @_read
     def ci(s, repo, sha):
@@ -1083,7 +1083,7 @@ class Ctx:
         return s.landed(ch) if on else on
 
     def done(s, ch, head):
-        """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live
+        """A6: a server change when upstream main holds head or its PR is merged at a tip holding head; a release when its tag exists; every other change when live
         and its last verdict passes (a local server head reaches the test server in another change's deploy before it is judged)."""
         if ch["kind"] == "release":
             r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
@@ -1091,7 +1091,18 @@ class Ctx:
         if TRACK[ch["track"]]["public"] == "upstream" and ch["kind"] != "local":
             if not head:
                 return False
-            return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
+            if not (o := s.own(ch, head)):
+                return o
+            if (c := s.F.contains(s.clone(ch), s.base(ch), head)) is not False:
+                return c
+            pr = ch.get("pr") or (rec(ch["slug"], "opened") or {}).get("pr")  # a merged PR is no longer listed open
+            if not pr:
+                return False
+            if (op := s.upstream_pr(ch)) is None or op:  # an open PR is not merged (an unread list: its PR step says unknown)
+                return False
+            up = s.cfg["repos"][TRACK[ch["track"]]["repo"]].get("upstream")
+            p = s._m(("pr", up, pr), lambda: s.F.pr(up, pr))  # a squash or rebase merge leaves main without the head: the PR says merged
+            return None if p is None else bool(p.get("merged")) and (p["head"] == head or s.F.contains(s.clone(ch), p["head"], head))
         return s.live(ch, head) and bool(passed(ch["slug"], head))
 
     def comments(s, track, pr):
@@ -1780,11 +1791,13 @@ def public(ctx, ch, head):
         return step(f"gated; the PR's card is {first}'s", "wait")  # same-head tips of one PR: one card
     if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started
         return step("carrying upstream", "script", act=lambda: None)
-    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head):  # the carry found the head's defect
+    again = reopen(ch, head)
+    if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head) \
+            and not (again and sh["detail"].startswith("CI failure")):  # the carry found the head's defect (a CI one the user's reopen answers)
         return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
     if (bad := failed_ci(ctx, ch, head)) is None:
         return step("upstream CI unknown", "unknown")
-    if bad:  # before any yes: a carry at this head could not pass
+    if bad and not again:  # before any yes: a carry at this head could not pass
         return step(f"CI failed upstream at {head[:9]}: dev", "dev", mode="code", input=["ci", head], detail=(
             f"CI failed at {head[:9]} on PR {ch['pr']}: {bad}. CI never runs again at a head: commit a fix, or rebase onto main "
             "when the failing step is outside the head; the fresh head's push starts CI."))
@@ -2718,6 +2731,8 @@ def card(ctx, ch, head):
                 f"open a draft PR on {up} from {branch} into main (base {(ctx.base(ch) or '?')[:9]}), with the title and body below"
                 if not ch.get("pr") else f"update upstream PR {ch['pr']} of {up} (base main {(ctx.base(ch) or '?')[:9]})"
                 + "".join(f", replacing its {w} with the one below" for w, _, t in txt if w in ("title", "body") and unsigned(p.get(w)) != t),
+                *([f"close and reopen upstream PR {ch['pr']} so CI runs again at the head (it failed there: {bad}; the user's one reopen at this head)"]
+                  if reopen(ch, head) and (bad := failed_ci(ctx, ch, head)) else []),
                 *(["wait for every CI check to pass at the head (a failed one stops the carry: the PR stays as it is)"]
                   if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
                 "mark it ready for review"]
@@ -2807,6 +2822,12 @@ def failed_ci(ctx, ch, head):
     return None if cs is None else ", ".join(f"{c['name']} {c['url']}".strip() for c in cs if c["state"] == "failure")
 
 
+def reopen(ch, head):
+    """R4: the user's one allowance at head (the definition's `reopen: <full head sha>`), not yet spent: the carry closes and
+    reopens the PR, whose pull_request trigger starts CI again at the same head."""
+    return bool(head) and ch.get("reopen") == head and (rec(ch["slug"], "reopened") or {}).get("head") != head
+
+
 def known(v, what):
     """A carry's GitHub read: the fact, or the carry stops (it reruns once GitHub reads again; an exhausted quota holds the pass's step)."""
     if v is None:
@@ -2855,11 +2876,19 @@ def carry(ctx, ch, head, txt):
     elif (edit := [w for w in ("title", "body") if w in t and unsigned(v.get(w)) != t[w]]):  # REST: gh pr edit reads the retired Projects (classic)
         must("gh", "api", "-X", "PATCH", f"repos/{up}/pulls/{pr}", *[x for w in edit for x in ("-f", f"{w}={t[w]}{ATTRIBUTION if w == 'body' else ''}")])
         log(f"updated the {' and '.join(edit)} of PR {pr}")
+    if reopen(ch, head) and (cur := checks(ctx.F, up, pr, head))[0] == "failure":  # the user's one reopen: spent before the act, never repeated
+        put(ch["slug"], "reopened", {"head": head, "failed": cur[2]})
+        must("gh", "pr", "close", str(pr), "-R", up)
+        log(f"closed PR {pr} to start CI again at {head[:9]}"); v["state"] = "closed"
+    if v.get("state") == "closed" and (ro := rec(ch["slug"], "reopened") or {}).get("head") == head:  # a rerun after the close reopens it
+        must("gh", "pr", "reopen", str(pr), "-R", up)
+        log(f"reopened PR {pr}: CI starts again at {head[:9]}")
+    old = set(ro["failed"]) if (ro := rec(ch["slug"], "reopened") or {}).get("head") == head else set()  # the failed checks the reopen replaces
     if pushed or v["draft"]:  # only a commit waits on CI (pushed now, or before a rerun while still draft): a reply adds none
         log(f"CI wait: every check of PR {pr} completed at {head[:9]}")
         seen = None
         while (cur := checks(ctx.F, up, pr, head))[0] != "success":
-            if cur[0] == "failure":  # CI never runs again at this head: a fresh one is the dev's
+            if cur[0] == "failure" and not set(cur[2]) <= old:  # CI never runs again at this head: a fresh one is the dev's
                 raise Defect(f"CI failure at {head[:9]}: {cur[1]}: the PR stays as it is; a fresh head (a fix, or a rebase onto main) starts CI")
             if cur != seen:  # each new fact the wait stands on, once
                 log(f"CI wait: {cur[0]}: {cur[1]}"); seen = cur

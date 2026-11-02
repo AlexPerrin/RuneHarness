@@ -135,6 +135,7 @@ a live check reads the real state.
    a change with a live dependency goes from defined to live with no `approve`, `answer` or console call;
    a closed change lists no run and leaves T_int;
    a dependency in another repo's upstream PR holds its dependent until live, its card until merged upstream, and one of the same PR until gated;
+   merged upstream means upstream main holds the head or its PR is merged at a tip holding it (a squash or rebase merge leaves main without the head);
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a dependency a late answer or joined filing reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
    a fresh dev ref the base contains is neither live nor done until handed over;
@@ -194,6 +195,7 @@ a live check reads the real state.
    the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, posts one PR comment per head and text: the push summary naming every pushed commit, then each finding's reply, quoting it and @ each asker once (a review-thread finding too: no thread reply);
    it readies the PR, asks review of the maintainers who reviewed it (none: GitHub asks CODEOWNERS on ready) and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card);
    CI never runs again at a head (no re-run, no close and reopen): a failed check at the draft PR's head, in a step the head reads or not, is the change's dev step before any yes is asked, and only a fresh head (a fix, or a rebase onto main) starts CI;
+   the one exception is the user's word allowing one close and reopen of the PR at that head: its card shows that act, and the carry does it once, so CI runs again at the same head;
    every other stop records its result, the PR as it is: a failure only a new head or text mends (a failed CI check, a reply naming others) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
    only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;

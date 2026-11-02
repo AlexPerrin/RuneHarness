@@ -265,6 +265,7 @@ next(change):
     carried (its own ship.json, the PR open at it and ready, or a same-PR change's built on it; or the PR at head, ready, ours answering every finding)?
       yes → wait on the maintainers (a release: until its tag exists)
     a dependency upstream in another repo, not merged there?
+      merged: upstream main holds its head, or its PR (the definition's or opened.json's), no longer open, reads merged at a head holding it (`Ctx.done`)
       yes → wait on its upstream merge (it is in no PR of this repo);
       its card held by the user: one user's alert naming that hold (lift it, or hold this card too), gone once this card is held too, the test server deploy going on
     an open change of the PR it waits for (head not in this head, or built on it)?
@@ -275,7 +276,8 @@ next(change):
     the one comment quotes every finding of the round no comment of ours answers?
       no → dev (input findings, head, the ones it misses): no card
     the draft PR at head has a failed CI check (read afresh; unread → unknown)?
-      yes → dev (input ci, head): no card, and `hd handover` refuses that head: CI never runs again at a head, so a fix or a rebase onto main starts it
+      yes → dev (input ci, head): no card, and `hd handover` refuses that head: CI never runs again at a head, so a fix or a rebase onto main starts it;
+      unless the definition's `reopen: <full head sha>` (the orchestrator commits it on the user's word) names head and reopened.json is not at head: then the card, its acts led by closing and reopening the PR
     approval.json at head, texts?
       no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;
@@ -289,6 +291,7 @@ next(change):
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     Success: ship.json, approval.json removed (the yes is spent).
     A failed check stops the carry as the change's FAIL: nothing re-runs CI at a head.
+    The user's reopen at head (above): reopened.json {head, the failed checks} written first, so it is done once; `gh pr close`, then `gh pr reopen` (a rerun finding the PR closed reopens it), whose pull_request trigger starts CI at the same head; the wait ignores the failed checks it replaced.
     Failure: ship.json ok false, the PR as it is;
     fault head (a failed CI check, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
     the dev handing the same head over after it (a text fixed, no commit) answers it, decided on the two records' heads and order alone; a failed CI check stays the dev's while GitHub lists it at the head, whatever the records say.

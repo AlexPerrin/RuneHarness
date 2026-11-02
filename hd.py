@@ -850,6 +850,19 @@ def run_slice(name):
     return f"hd-{name.replace('-', '_')}.slice"
 
 
+def own_slice():
+    """R5: the run slice this process runs in (hd scope moved its shell there), or None: who filed a change."""
+    try:
+        return (m := re.search(r"/(hd-[^/]+\.slice)/", Path("/proc/self/cgroup").read_text())) and m[1]
+    except OSError:
+        return None
+
+
+def scope_unit(run, task):
+    """R5: the scope a run's Bash command runs in, named by its task (the command's output file, `<task>.output`), so a TaskStop of that task stops it."""
+    return f"{run_slice(run)[:-6]}-{task}.scope"
+
+
 def cmd_scope(a):
     """R5: the hook starts each Bash command of a run with `hd scope <run>`: the command's shell (this process's parent)
     moves into a scope of the run's slice before it starts anything, so all it starts, reparented or not, ends with the run.
@@ -857,7 +870,11 @@ def cmd_scope(a):
     if not a:
         return print("hd scope: no run named", file=sys.stderr)
     pid = os.getppid()
-    unit = f"{run_slice(a[0])[:-6]}-{pid}.scope"
+    try:
+        out = Path(os.readlink(f"/proc/{pid}/fd/1"))
+    except OSError:
+        out = Path()
+    unit = scope_unit(a[0], out.stem if out.suffix == ".output" else pid)   # a shell with no task output file: its pid
     r = Facts().sh(["busctl", "--user", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit",
                     "ssa(sv)a(sa(sv))", unit, "fail", "2", "PIDs", "au", "1", str(pid), "Slice", "s", run_slice(a[0]), "0"], timeout=60)
     err = None if r and r[0] == 0 else (r[2].strip()[-200:] if r else "busctl not run")
@@ -2017,10 +2034,12 @@ def unlistable(ctx, ch, st):
     """R5 R6: why no run can be listed for the change's due step, as its alert; None when one can (the agent count aside).
     The latest run on the input (by its listed time) settles the step only by a record that answers it: a hand-off, or
     a dependency it filed, leaves the step listable (the step is due only once deps_held clears that dependency); one retry
-    follows the last run with a record."""
+    follows the last run with a record. A run the pass ended (its step moved or waits, its change went) neither settles
+    the step nor counts as a try: only its own hand-back, the head's stop or its console's death does."""
     role, slug = st["actor"], ch["slug"]
     inp = json.dumps(st.get("input"), sort_keys=True)
-    same = sorted([r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp],
+    same = sorted([r for r in ctx.runs if r["change"] == slug and r["role"] == role and r.get("started") and r.get("ended") and r.get("input") == inp
+                   and r.get("reason") in (None, "stopped by the head", "console died")],
                   key=lambda r: r["listed"])
     if not same or (EVID / slug / "handoff.md").exists():
         return None
@@ -2254,17 +2273,17 @@ def repairs(ctx, act):
             repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
 
 
-def own_limit(ctx, ch, r, d):
-    """R6: d is a limit the run filed since it started (`hd new --limit-of` its change): a wait on it alone is still the run's step, as it hands over after the filing."""
+def runs_dep(ctx, ch, r, d):
+    """R6: a wait on d alone is still the started run's step: d was met when the run started (a run starts only on its
+    step, its deps held), so it only re-gates (a tools ship, its new head), or it is a limit the run filed since it started
+    (`hd new --limit-of` its change), as it hands over after the filing. Only a dep filed since the start, by another, blocks it."""
     dep = ctx.changes.get(d)
-    if not dep or ch["slug"] not in (dep.get("limit-of") or []):
-        return False
-    return str(dep.get("created", "")) >= r["started"] or any(e.get("change") == d and e.get("by") == ch["slug"] and e["ts"] >= r["started"] for e in evs(b'"action": "limit"'))
+    return bool(dep) and (str(dep.get("created", "")) < r["started"] or ch["slug"] in (dep.get("limit-of") or []))
 
 
 def produced(r):
     """The run's record, newer than its start and its change's last answer (an answered ask is not a record): a
-    hand-over, verdict, question, agreed contract or filed change."""
+    hand-over, verdict, question, agreed contract or a change it filed (from its own slice; another's filing is not its record)."""
     slug = r["change"]
     since, answered = r.get("started") or r["listed"], max([""] + [e["ts"] for e in evs(b'"record": "answer"') if e.get("change") == slug and e.get("record") == "answer"])
     newer = lambda ts: ts >= since and ts > answered
@@ -2275,7 +2294,8 @@ def produced(r):
     con = contract(slug)
     if con and con["agreed"] == r["name"]:
         return True
-    return any(e.get("action") == "new" and newer(e["ts"]) for e in evs(b'"action": "new"'))
+    sl = run_slice(r["name"])
+    return any(e.get("slice") == sl and e.get("action") in ("new", "joined", "limit") and newer(e["ts"]) for e in evs(f'"slice": "{sl}"'.encode()))
 
 
 def close_branches(ctx, ch, act):
@@ -2438,7 +2458,7 @@ def _pass(ctx, act):
                 if r["change"] != ch["slug"] or r.get("ended"):
                     continue
                 moved = r.get("started") and (work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role or to a wait: a run never outlives its step
-                                              or work["actor"] == "wait" and (not work.get("dep") or deps_held(ctx, {**ch, "deps": [d for d in ch["deps"] if not own_limit(ctx, ch, r, d)]})))
+                                              or work["actor"] == "wait" and (not work.get("dep") or deps_held(ctx, {**ch, "deps": [d for d in ch["deps"] if not runs_dep(ctx, ch, r, d)]})))
                 if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
                     if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
                         # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
@@ -3177,7 +3197,7 @@ def merge_limit(c, o):
         m["limit-of"].append(o.limit_of)
     m["deps"] = list(dict.fromkeys((m.get("deps") or []) + getattr(o, "join_deps", [])))
     f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + f"\n\nAlso ({o.limit_of or 'filed'}): {o.title}\n{o.body}\n")
-    event(change=c["slug"], action="joined" if not o.limit_of else "limit", by=o.limit_of or o.slug)
+    event(change=c["slug"], action="joined" if not o.limit_of else "limit", by=o.limit_of or o.slug, slice=own_slice())
     add_answer(c["slug"], c, " ".join(f"{o.title}: {o.body}".replace("|", "/").split()).rstrip(":"), by=f"filed by {o.limit_of or o.slug}")
     print(f"merged into {c['slug']} ({mechanism(c)})")
 
@@ -3193,7 +3213,7 @@ def new_def(meta, body, **ev):
     f = DEFS / "changes" / f"{meta['slug']}.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text("---\n" + yaml.safe_dump({**meta, "created": now()}, sort_keys=False) + "---\n" + body + "\n")
-    event(change=meta["slug"], action="new", track=meta["track"], **ev)
+    event(change=meta["slug"], action="new", track=meta["track"], slice=own_slice(), **ev)
     return str(f)
 
 

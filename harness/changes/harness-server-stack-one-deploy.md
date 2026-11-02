@@ -10,6 +10,7 @@ deps:
 - harness-build-gate-keyed-process
 - harness-issuer-official-shapes
 - server-token-auth
+- harness-qa-login-idle
 mechanism: server
 created: '2026-11-02T01:54:03Z'
 ---
@@ -20,8 +21,8 @@ Merges harness-run-idle-logout-off (P0, the user's split) and harness-server-sta
 Carries: harness-live-issuer-cutover's tools commit 67cf143 (T 4a13623), harness-live-deploy-evidence's idle-logout work (6ef5218). (harness-run-idle-logout-off-1 and -2 were stopped before any hand-over: no dev ref exists; the idle-logout work starts from 6ef5218's definition only.)
 
 Acceptance:
-1. A run's own server (tools/track.sh up) starts with idleLogout off; the live server keeps the official idle logout; a test checks the run's rendered game.yml.
-2. A run's desktop that is logged out anyway (disconnect, restart) logs back in by facts (the login screen observed -> the run's login path), never waits at the login screen; a test covers it.
+1. (moved to harness-qa-login-idle, the user's word 2026-11-01: a run's idle logout.)
+2. (moved to harness-qa-login-idle: a logged-out desktop logs back in.)
 3. Each deploy attempt writes build-<tree>-<attempt>.log and its failure line is in state/live/ship.log; the cache volume is shared across build trees, keyed by cache version (no 16 min re-download on a retry); the cause of the 13 first-attempt 'build failed' lines is found and fixed; a test covers two attempts keeping two logs. (Evidence: integration ee13b4cf / live b5e0bddbc attempt 1 failed 22:08:13-22:09:21Z, attempt 2 overwrote its log.)
 4. The live stack takes the APK's tokens from issuer.py with its DIR mounted; served jav_config params 11, 20, 22, 28 point at it; game.yml token-login holds its secret; the sidecar runs with LOCAL_AUTH false. Proof: the APK (OPENRUNE=1 LOCAL_AUTH=1) logs in on a change's stack through the issuer, contacting only local hosts. It changes a live component: before ship, hd ask the user for a yes on the cutover. (Needs server-token-auth.)
 5. Server track.md:64 says 'login (auth type 7)'; rsprot 241 GameLoginDecoder decodes token login as auth type 2 (server-token-auth-12 QA FAIL, fixed at e40d5e9dd): the doc says auth type 2.

@@ -9,6 +9,7 @@ deps:
 - client-devtools-login
 - harness-no-powershell
 - harness-desktop-devtools-jar
+- harness-qa-login-idle
 mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 ---
@@ -18,8 +19,8 @@ One login path replaces those rules (the user's word: "Login was a pain point in
 
 Acceptance: desktop_login.py's keystroke and coordinate code and the old mobile tap code are removed, with the docs/ISSUES.md entry; a refused login returns its code and exits; a restart behind the disconnected dialog ends LOGGED_IN with no manual step; proof is one server up with the desktop clients logged in and the time from client start to LOGGED_IN recorded in evidence. One test per requirement touched.
 
-Also (filed): a run's first up gets no desktop home copy after a WSL interop error
+Also (moved to harness-qa-login-idle): a run's first up gets no desktop home copy after a WSL interop error
 genie-review-355-134 hand-back: the first 'STAFF=1 tools/track.sh up genie-review-355' failed: instance 6 got no home copy and the log showed a WSL interop error; after down, the retry came up cleanly. Evidence: state/genie-review-355/up-134.log
 
-Also (filed): desktop_login.py token never returns once the desktop sits on a refusal screen
+Also (moved to harness-qa-login-idle): desktop_login.py token never returns once the desktop sits on a refusal screen
 server-token-auth-14 hand-back (qa): 'desktop_login.py <port> token' hangs once the desktop shows a login refusal ('Incorrect username or password.'): Enter does not press 'Try again'. The run worked around it with evidence/server-token-auth/qa9-try.py. A refusal screen is a login fact: the login path presses Try again (or returns the refusal) and never waits.

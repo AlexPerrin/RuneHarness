@@ -21,7 +21,7 @@ mechanisms:               # the harness's components (docs/ARCHITECTURE.md): eve
   - mobile        # the mobile: emulator, APK install, launch, network
   - devtools      # the devtools front and the clients' devtools API
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
-agents: 6                 # runs alive at once (raised from 3 while the harness fixes run: the user's word)
+agents: 7                 # runs alive at once (raised from 3, then 6->7 for the P0 qa login fix: the user's word)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list
   - fix/06-varrock-single-juliet

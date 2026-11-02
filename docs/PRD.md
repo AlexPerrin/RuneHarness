@@ -156,6 +156,7 @@ a live check reads the real state.
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;
    a hand-over with a failing script row, or whose pushed ref is not the head it names, is refused;
    a gate whose only failing rows are held (exit 75) exits 75, recording no result;
+   a row ended by a signal the harness sent while it ran (its stop record, state/stopped) is held, and any other end, a crash among them, is the head's result;
    a harness hand-over reads its local dev ref, never a pushed one;
    a script row the user's answer waives is not run;
    an answer recorded after a hand-over and the head's last verdict, on any track and on a done change, makes the next step a dev run whose brief carries it, the head not built, gated or shipped until a new hand-over, and one a verdict on the head already judged does not;

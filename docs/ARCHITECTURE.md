@@ -144,12 +144,15 @@ evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob
                                rows `- id | text | check: <cmd> | judge`;
                                a track seed row the file lacks (by id) is written into it by the pass at a head not carried upstream (`hd.unseeded`);
                                a changed seed row replaces its row (by id) in a file the pass wrote from the seeds (derived or not yet agreed), never in a reviewer's;
-                               a row tagged `| upstream` (it judges or checks the upstream PR's texts or commits) seeds only a change that opens one (`hd.upstream`)
+                               a row tagged `| upstream` (it judges or checks the upstream PR's texts or commits) seeds only a change that opens one (`hd.upstream`);
+                               one the file holds for a change that opens none (its kind changed) is dropped by the pass at a head not carried upstream
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
 state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate.json      {T, ok, detail, head}
 state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
-state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
+state/<slug>/ask.json          {text, def}: def keys the definition's front matter (`hd.settled`, findings aside);
+                               an edit of it settles the question (`hd.asked`)
+state/<slug>/hold.json         {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names, modulus, key, containers}
 state/runs/<name>.json         {role, change, step, input, brief, given, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
@@ -240,7 +243,7 @@ next(change):
     the dependent with no pr or branch of its own joins its PR, a chain one PR;
     one with a branch of its own is its own PR, its card waiting on the dependency's upstream merge)
     a dependency a late answer or joined filing reopened (its own step not done) → wait on it until its dev hands over
-  question open (hd ask)?
+  question open (hd ask, its definition's front matter unedited since)?
     yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?
     no → qa run (server, central) | derived from the definition and seed rows (client, harness, a PR round filed from a finding)

@@ -2861,6 +2861,17 @@ class R5(Sandbox):
         s.assertIsNone(hd.rec("s1", "ask"))
         hd.cmd_ask(["s1", "another?"])                                          # after the answer, a new question may open
 
+    def test_a_definition_edit_settles_an_open_question(s):  # sweep 80: kind local + deps settled the qa's ask, which held until hd answer
+        s.change("s1")
+        hd.cmd_ask(["s1", "kind local?"])
+        f = s.root / "harness" / "changes" / "s1.md"
+        f.write_text(f.read_text() + ", and more")                               # the body alone settles nothing
+        s.assertEqual(s.state(Fake(**FACTS), "s1")["state"], "question open: kind local?")
+        f.write_text(f.read_text().replace('deps: []', 'kind: "local"\ndeps: ["s0"]'))
+        s.assertIsNone(hd.asked(hd.defs("changes")["s1"]))
+        s.assertNotIn("question open", s.state(Fake(**FACTS), "s1")["state"])
+        hd.cmd_ask(["s1", "another?"])                                          # a settled question is no open one
+
     def test_open_question_holds_gate_and_ship_until_answered(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -4358,6 +4369,16 @@ class R3(Sandbox):
         s.assertEqual(([r["id"] for r in hd.contract("s2")["rows"]], [r["id"] for r in hd.contract("s3")["rows"]]),
                       (["ok", "j1", "lint"], ["ok", "j1", "subject", "lint"]))
 
+    def test_a_change_made_local_drops_its_upstream_seed_rows(s):  # sweep 80: server-world-entity-login-tick kept 5 upstream rows after kind local
+        t = s.root / "fork" / ".worktrees" / "harness" / "tools" / "track.md"
+        t.write_text(t.read_text() + "- subject | feat: subjects | check: false | upstream\n")
+        s.change("s1"); s.agreed("s1")
+        s.change("s1", kind="local")
+        st = s.state(Fake(**FACTS), "s1")
+        s.assertEqual(st["state"], "contract: seed rows subject dropped"); st["act"]()
+        s.assertEqual([r["id"] for r in hd.contract("s1")["rows"]], ["ok", "j1"])
+        s.assertNotIn("seed rows", s.state(Fake(**FACTS), "s1")["state"])
+
     def test_check_rows_run_before_gate_rows_which_wait_on_them(s):  # a seed spotless appended after ci ran only after a CI round
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- lint | spotless | check: false\n- late | local | check: true\n")
         F = Fake(**FACTS)
@@ -4645,6 +4666,8 @@ class R3(Sandbox):
         alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # one no dependency orders on the mechanism, one naming none
         s.assertIn("mechanism hold: 4 open changes h3, p6, p7, r1: merge them into one root-cause change", alerts)
         s.assertIn("no mechanism: h4: name each one's", alerts)
+        with s.assertRaises(SystemExit):
+            hd.cmd_new(["s8", "--track", "server", "--title", "a raft", "--kind", "local"])        # every product filing names its code, a local one too
         hd.cmd_new(["s9", "--track", "server", "--title", "a quest", "--touches", "none"])           # a product change needs none
         s.assertEqual(hd.mechanism(hd.defs("changes")["s9"]), "s9")
         repo = Path(__file__).parent.parent

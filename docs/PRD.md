@@ -141,7 +141,7 @@ a live check reads the real state.
    an MCP server whose mcp/ files change restarts at the session's next request once its requests in flight are answered, the session's initialize given to the new server and its tools list told changed;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
    `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run;
-   a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command or monitor it started has not reported its end, and its record newer than its change's last answer;
+   a run being alive through its idle stops until the stop after its hand-back, an idle stop refused while a background command, monitor or subagent it started has not reported its end, the refusal naming each as what it is (a command to block on, a subagent to wait for), and its record newer than its change's last answer;
    a trigger is the subject it names (the process log an alert names, a gate failure's change and T, the run an alert names): one an open change's body names, or a planner handed back on since its process's count last started over, lists no planner however reworded or recounted, and a gate failure lists none while it is its dev's (no dev run handed back on that T, or a run of the change alive);
    `hd` lists no relayed message and `hd tell` is no command, the orchestrator's brief carries the card, question and alert steps, its frontmatter only its name and description, and the hook denies its session the AskUserQuestion tool;
    with no `claude --agent orchestrator` process the user is told to start it with `tools/orchestrator.sh`, and no planner is listed for it;
@@ -205,7 +205,8 @@ a live check reads the real state.
    console gone → its runs end and their artefacts are removed in one pass;
    a tools ship never changes the tools a running track script reads (each runs from its copy, removed once nothing uses it);
    a run the orchestrator stops (TaskStop of its agent, one resumed after its hand-back too, or `hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;
-   a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
+   a run's Bash command, and one of an agent it spawned, runs in its slice with its temp files under the slice's temp root, and the pass stops an ended run's slice, the Windows processes a track script recorded under it and its temp root, and an empty slice no live run holds;
+   a run lists its own slice's processes (`hd ps`), so it finds and kills its own hung step;
    a run's TaskStop of its Bash command ends every process that command started;
    a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;

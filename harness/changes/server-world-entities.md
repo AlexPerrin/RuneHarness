@@ -13,6 +13,7 @@ deps:
 - harness-server-build-musicrepository
 - harness-desktop-first-login
 - harness-joined-finding-not-users-answer
+- harness-devtools-endpoint-owner
 ---
 Blocks the client-api probe's WorldEntity (9) and WorldEntityConfig (6) rows (client change client-api-probe-reach): WorldView.worldEntities() is always empty in the Android host, so they stay unreached.
 

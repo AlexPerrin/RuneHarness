@@ -9,6 +9,7 @@ mechanism: devtools
 deps: []
 limit-of:
 - hunter-feat-pr
+- server-world-entities
 created: '2026-11-02T05:43:53Z'
 ---
 sweep-43 P0-a: the stray input on desktop1:7780 ('/hi::item egg 1', chat tick 592, 04:57:26Z) came from quest-cooksassistant-14's own script evidence/quest-cooksassistant/qa14/qdt.py, whose P = int(os.environ.get('PORT', '7780')) had no PORT set while its up was desktop2:7781; npc-examine-6 owned 7780. The same helper sits in qa15, interrupt/, server-445/play/ and quest-witchspotion/. The hook's port rule covers only mcp__osrs-devtools-* calls; every endpoint is open on 127.0.0.1 to any process. An instance's endpoint answers only its owner: a per-up token in state/<slug>/up.json the endpoint requires (the bridge and run scripts pass it). Correct harness-up-owns-its-instance's body: its hygiene stays, its diagnosis was wrong. evidence/monitor/sweep-43.md
@@ -24,3 +25,6 @@ Root cause: tools/server/test_tools.py test_one_up_restart_or_down_of_a_slug_at_
 
 Also (filed): Nothing ends a run whose devtools call never returns
 Monitor sweep 48 P1-a: server-clan-channels-5 last wrote its transcript at 06:24:20Z (hover on 7780) and was still hung at 06:45:41Z with its record live and 5 keepers polling; the orchestrator's stale bridge (pid 2233412, pre-0989166) has only a 240 s per-read urlopen timeout and no whole-call bound. The orchestrator stopped the run. Acceptance: a run's desktop call always returns within its bound in every live session (stale bridges included, or no run is spawned on one).
+
+Also (server-world-entities): Server tools test kills every 'sleep 30' on the host
+server-world-entities-12: the gate of server-world-entities at T 8d0e20c4a (gate commit 88c122034) failed row ci with 'Terminated' rc 143 at 2026-11-02T06:48:42Z, 93 s after gate-ci started (06:47:09Z): its 'sleep 30' between reads of the CI runs was SIGTERMed, the same kill as hunter-feat-pr's (tools/server/test_tools.py test_one_up_restart_or_down_of_a_slug_at_a_time ends with pkill -f '^sleep 30$'). A gate fails on a process another run stopped. Fix as stated on this mechanism: the test stops only the process it started.

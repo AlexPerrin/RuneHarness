@@ -371,9 +371,10 @@ class R2(Sandbox):
         s.assertFalse((s.root / "state" / hd.RESTARTING).exists())
         F.f["unsupervised"] = []
         s.assertFalse([a for a in hd.tick(s.ctx(F))["alert"] if a.startswith("user: no orchestrator")])   # under it: no alert
-        for script, want in ((hd.SUPERVISOR, True), ("tools/other.sh", False)):   # the fact read from /proc: the parent runs the supervisor
-            f = s.root / script; f.parent.mkdir(exist_ok=True); f.write_text("sleep 60 & echo $!; wait\n")
-            sup = subprocess.Popen(["bash", str(f)], stdout=subprocess.PIPE, text=True)
+        for script, run, want in ((hd.SUPERVISOR, None, True), ("tools/other.sh", None, False),   # the fact read from /proc: the parent runs the supervisor
+                                  (hd.SUPERVISOR, "./orchestrator.sh", True)):   # named relative to tools/, then cd'd away as the real one does
+            f = s.root / script; f.parent.mkdir(exist_ok=True); f.write_text("cd /; sleep 60 & echo $!; wait\n")
+            sup = subprocess.Popen(["bash", run or str(f)], cwd=f.parent, stdout=subprocess.PIPE, text=True)
             kid = int(sup.stdout.readline())
             try:
                 s.assertEqual(hd.Facts().supervised(kid), want)

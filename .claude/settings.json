@@ -10,7 +10,7 @@
       {"matcher": "Bash|SubagentHandback|AskUserQuestion", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"matcher": "Bash|Read|Edit|Write|Agent|TaskStop|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|Read|Edit|Write|Agent|TaskStop|SendMessage|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
     ],
     "SubagentStop": [
       {"matcher": "dev|qa|planner", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 30}]}

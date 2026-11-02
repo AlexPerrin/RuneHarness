@@ -1079,9 +1079,12 @@ class R4(Sandbox):
         hold("--all", "after the auth changes")                                  # held at every head until the lift
         s.assertEqual(hd.defs("changes")["s1"]["held"], "all: after the auth changes")
         s.assertEqual(s.state(F, "s1")["actor"], "wait")
-        hold("--lift")
+        rows = hd.contract("s1")["rows"]
+        hold("--lift", "1. Lift the hold")                                      # sweep-24: the user's word on when it ships is no answer row
         s.assertNotIn("held", (s.root / "harness" / "changes" / "s1.md").read_text())
-        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        s.assertEqual(s.state(F, "s1")["actor"], "user")                         # no dev run: the head is unchanged scope
+        s.assertEqual(hd.contract("s1")["rows"], rows)
+        s.assertTrue(any(e.get("why") == "1. Lift the hold" for e in hd.evs(b'"record": "hold"')))
 
     def test_a_release_card_and_its_publish_after_the_yes(s):
         s.change("rel", "client", kind="release", version="0.1.3"); hd.write_contract(hd.cfg(), "rel", "client", "derived")
@@ -3524,6 +3527,24 @@ class R3(Sandbox):
         s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")
         s.assertTrue(any(e.get("action") == "joined" and e.get("by") == "p9" for e in hd.evs(b'"action": "joined"')))   # a plain filing, not a limit
 
+    def test_a_filing_the_running_dev_was_told_is_not_late(s):  # sweep-25 P2-a: the orchestrator's relay counts as taken
+        s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.tick(s.ctx(F))
+        r = [r for r in hd.runs() if r["change"] == "h1"][0]
+        hook.bind(payload(r, "ag1", "SubagentStart", s.root))
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joined while it runs
+        hook.told({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "tool_input": {"to": "nobody"}})   # no run's agent: nothing
+        s.assertNotIn("told", hd.runs()[0])
+        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hook.told({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "tool_input": {"to": "ag1", "message": "answer-1: hold drops a run"}})
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:01Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertEqual(hd.rec("h1", "handover")["given"], "2999-01-01T00:00:00Z")
+        D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})   # its head, done: the filing was its
+        s.assertEqual(s.state(D, "h1")["state"], "done")
+
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -3604,6 +3625,16 @@ class R3(Sandbox):
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F2)  # re-judged against b2
         s.assertEqual(s.state(F2, "s1")["state"], "gated; waiting for the user's yes")
         s.assertEqual(s.state(Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): None}), "s1")["actor"], "unknown")
+
+    def test_a_rule_file_absent_upstream_moves_nothing(s):  # central-token-login-op-8: 'absent' in the header, '' from blob()
+        s.change("s1"); s.agreed("s1")
+        p = s.root / "evidence" / "s1" / "contract.md"
+        p.write_text(p.read_text().replace("rules: ", f"rules: AGENTS.md=absent README.md=r1 base={B}"))
+        F = Fake(**FACTS, blobs={("origin/HEAD", "AGENTS.md"): "", ("origin/HEAD", "README.md"): "r1", ("origin/HEAD", "base"): ""})
+        s.gated("s1", F)
+        s.assertEqual(s.state(F, "s1")["state"], "review due")                   # no verdict yet: a review, no rule moved
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 
     def test_a_seeded_check_row_keeps_the_verdict(s):
         s.change("s1"); s.agreed("s1")

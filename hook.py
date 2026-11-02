@@ -14,6 +14,7 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the orchestrator's TaskStop of a run's agent (one resumed after its hand-back too) ends that run, as `hd stop` does.  R2
+                a SendMessage to a live run's agent records when it was told: the contract rows written until then are its own.  R3
                 the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 start no new work and hand off cleanly: commit (and, off the harness track, push) its work in progress on the
                 dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; else, while the
@@ -241,6 +242,13 @@ def end_stopped(p):
     start_pass()
 
 
+def told(p):
+    """R3: a SendMessage to a run's agent tells it the contract as it stands: its rows written until then are its hand-over's, never late."""
+    to = p.get("tool_name") == "SendMessage" and (p.get("tool_input") or {}).get("to")
+    if to and (f := hd.STATE / "runs" / "by-agent" / str(to)).exists():
+        hd.fact(fact="told", run=f.read_text().strip())
+
+
 def start_pass():
     """The pass runs after every run end, never waited on."""
     r = subprocess.run(["systemctl", "--user", "start", "--no-block", "hd-tick.service"], capture_output=True)
@@ -451,7 +459,7 @@ def reread(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: end_stopped(p) or stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_orphan(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_orphan(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

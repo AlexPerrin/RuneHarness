@@ -944,6 +944,30 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual(len([r for r in hd.runs() if r["role"] == "planner"]), 1)
 
+    def test_planner_trigger_is_the_subject_an_alert_names(s):
+        F = Fake(**FACTS)
+        ctx = s.ctx(F)
+        planners = lambda: [r for r in hd.runs() if r["role"] == "planner"]
+        def alert(a):
+            hd.plan(s.ctx(F), {"change": [], "alert": [a], "goal": []}, True)
+        for _ in range(3):
+            ctx.start("s1", "ship", ["b", "T1"])
+        s.assertTrue(hd.rec("s1", "proc-ship")["since"])                          # when its count started
+        hd.put("s1", "proc-ship", {**hd.rec("s1", "proc-ship"), "since": "2000"})   # before the planner below
+        a = "s1: ship died twice without a result (state/s1/ship.log)"
+        s.change("h1", track="harness", body=f"fix: {a}")                         # an open change names the alert
+        alert("s1: ship ended 3 times without a result (state/s1/ship.log)")   # reworded and recounted: still carried
+        s.assertEqual(planners(), [])
+        s.change("h1", track="harness", closed="answer-1: done")
+        alert(a)
+        p = planners()[0]
+        p.update(started=hd.now(), ended=hd.now(), record=True); hd.save_run(p)   # the planner hands back on it
+        alert("s1: ship ended 3 times without a result (state/s1/ship.log)")   # the same fault reworded: handled
+        s.assertEqual(len(planners()), 1)
+        hd.put("s1", "proc-ship", {**hd.rec("s1", "proc-ship"), "since": "9999"})   # its count started over after the hand-back
+        alert("s1: ship ended 3 times without a result since 9999 (state/s1/ship.log)")   # it failed again: a new fact
+        s.assertEqual(len(planners()), 2)
+
     def test_a_run_reads_its_change_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

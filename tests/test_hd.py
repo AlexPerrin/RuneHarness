@@ -65,6 +65,7 @@ class Fake(hd.Facts):
     def tools_files(s, clone, commit): return s.f.get("tools_files", {}).get(commit, {})
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
+    def show(s, clone, ref, path): return s.f.get("shows", {}).get((ref, path), "")  # shows {(ref, path): text}
     def holds(s, clone, ref, path, text=""): return (ref, f"{path}:{text}" if text else path) in s.f.get("code", ())  # code {(ref, path or path:text)}
     def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
     def proc_start(s, pid): return "1"
@@ -4444,6 +4445,18 @@ class R3(Sandbox):
         s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # main holds the head, the tools branch not yet
         F.f["anc"].add(("local/harness", C))
         s.assertEqual(s.state(F, "h1")["state"], "done")
+
+    def test_a_repo_the_head_adds_carries_its_tools_commit(s):  # sweep 89 P2-a: the filestore entry came with the change, its tools commit was never gated
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        fork, fs = str(s.root / "fork"), str(s.root / "fs")
+        y = hd.yaml.safe_load((s.root / "hd.yaml").read_text())
+        y["repos"]["filestore"] = {"name": "o/fs", "path": fs, "tools": "local/harness", "upstream": "u/fs"}
+        F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C, f"{fs}:harness/h1": D}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)},
+                 anc={(C, "local/harness"), (D, "local/harness")}, shows={(A, "hd.yaml"): hd.yaml.safe_dump(y)})
+        ho = s.gated("h1", F)
+        s.assertEqual(ho["tools"], {"fork": C, "filestore": D})                 # hd.yaml at the head names the repo the live one lacks
+        hd.tick(s.ctx(F))
+        s.assertEqual(F.envs[-1]["TOOLS"], f"{fs}:local/harness:{D}:o/fs {fork}:local/harness:{C}:o/f")   # gated and shipped with the rest
 
     def test_a_seed_row_added_later_applies_at_a_head_not_carried(s):  # spotless joined the server seed rows after contracts were agreed
         s.change("s1", pr=7); s.agreed("s1")

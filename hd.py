@@ -1212,19 +1212,20 @@ class Ctx:
 
     def gated(s, ch, head, kept=False):
         """R8: the gate passed at the change's current key, the test nxt() applies, and no verdict failed the head: True | False | None (unknown).
-        kept (T_int's test, and a Central head's live): a pass at the same tree under an earlier tools key holds too, until the re-gate's result replaces it."""
+        kept (T_int's test, and a Central head's live): a pass of the same head (the record's `head`) at an earlier key holds too (the base, a
+        dependency or the tools moved), until the re-gate's result replaces it."""
         g = rec(ch["slug"], "gate")
         if not g or not g.get("ok") or passed(ch["slug"], head) is False:
             return False
-        if shipped(s, ch, head):  # the upstream PR's live head: its gate holds though main moved
+        if shipped(s, ch, head) or kept and g.get("head") == head:  # the upstream PR's live head: its gate holds though main moved
             return True
         T = s.T(ch, head)
         if T is None or T[0] != "ok":
             return None if T is None else False
         t = s.tree(ch, T[1])
         k = s.key(ch, t)
-        # a tools key is `<tree>-<build hash>-<gate hash>`: rsplit gives back the tree it gated
-        return None if k is None else g["T"] == k or bool(kept and t and k != t and g["T"].rsplit("-", 2)[0] == t)
+        # shortcut: a record from before gates named their head holds at the same tree under an earlier tools key (`<tree>-<build>-<gate>`); drop once every gate.json has `head`
+        return None if k is None else g["T"] == k or bool(kept and "head" not in g and t and k != t and g["T"].rsplit("-", 2)[0] == t)
 
     def key(s, ch, tree, slugs=None, build=False, each=False):
         """R8: the gate key, or with build the build key, or with each every row's key {<slug>/<row id>: key}. On a track with a

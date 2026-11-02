@@ -144,7 +144,7 @@ evidence/<slug>/contract.md    rules: {AGENTS.md: <blob>, CONTRIBUTING.md: <blob
                                a row tagged `| upstream` (it judges or checks the upstream PR's texts or commits) seeds only a change that opens one (`hd.upstream`)
 evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment.md (the push summary;
                                a reply-only change's: its reply), pr-reply-<finding>.md, release-notes.md, in-game evidence, handoff.md
-state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate.json      {T, ok, detail}
+state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate.json      {T, ok, detail, head}
 state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
 state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
@@ -174,7 +174,7 @@ Every `state/` JSON record is written to a temp file beside it and renamed over 
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;
 a merge-tree conflict only in content of the source docs is merged line by line (`hd.merge_lines`: each side's changed lines kept, a conflict only where both change overlapping lines differently), so neighbouring facts never conflict;
 the integration tree T_int is the same over every gated open server head plus the permanent pins.
-A head stays in T_int (a Central head live) while its gate passed at the same tree under an earlier tools key, until its re-gate's result replaces that record (`gated(kept=True)`), so a tools ship takes no content off the live server.
+A head stays in T_int (a Central head live) while its gate record passed for the same head (its `head`) at an earlier key, until its re-gate's result replaces that record (`gated(kept=True)`), so a move of the base, a dependency or the tools takes no content off the live server.
 A head whose last verdict fails is not gated (`hd.passed`), so it leaves T_int and unblocks no dependent;
 a change whose target is live (not upstream main or a tag) is done only once its last verdict passes, since another change's deploy carries a gated head before it is judged.
 Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).
@@ -188,7 +188,7 @@ so an edit of one verb moves that verb's rows alone and the fork CI row keeps it
 a script gets the build key as `T` (the artefact it builds or uses) and the gate key as `G` (the gate's record);
 a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit outside both (docs, tests, up's code) neither;
 `hd tree` prints the build key, so a dev's build is the pass's;
-T_int admits a change whose gate passed at its current key, the test `nxt` applies).
+T_int admits a change whose gate passed at its current key, the test `nxt` applies, or for its same head at an earlier key).
 A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`;
 `hd tree` prints it third);
 T_int carries the one of its heads' central dependencies.

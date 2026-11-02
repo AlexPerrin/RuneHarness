@@ -455,6 +455,12 @@ class Facts:
                  "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body")} for p in r[1]]
 
     @_read
+    def branch_prs(s, repo, head):
+        """R4: the PRs of an upstream repo, open or closed, whose head is owner:branch [{number, merged}], None unknown."""
+        r = s.api(f"repos/{repo}/pulls?state=all&head={head}")
+        return None if r is None or r[0] != 200 else [{"number": p["number"], "merged": bool(p.get("merged_at"))} for p in r[1]]
+
+    @_read
     def pr(s, repo, n):
         """R4: one upstream PR {branch, head, draft, title, body}, None unknown."""
         r = s.api(f"repos/{repo}/pulls/{n}")
@@ -1147,12 +1153,17 @@ class Ctx:
                 return o
             if (c := s.F.contains(s.clone(ch), s.base(ch), head)) is not False:
                 return c
+            up = s.cfg["repos"][TRACK[ch["track"]]["repo"]].get("upstream")
             pr = ch.get("pr") or (rec(ch["slug"], "opened") or {}).get("pr")  # a merged PR is no longer listed open
+            if not pr and rec(ch["slug"], "ship"):  # a carry with no PR record: its merged PR is found by its head branch among closed PRs too
+                br = f"{s.owner(ch)}:{ch.get('branch') or 'content/' + ch['slug']}"
+                if (ps := s._m(("branch", up, br), lambda: s.F.branch_prs(up, br))) is None:
+                    return None
+                pr = next((p["number"] for p in ps if p["merged"]), None)
             if not pr:
                 return False
             if (op := s.upstream_pr(ch)) is None or op:  # an open PR is not merged (an unread list: its PR step says unknown)
                 return False
-            up = s.cfg["repos"][TRACK[ch["track"]]["repo"]].get("upstream")
             p = s._m(("pr", up, pr), lambda: s.F.pr(up, pr))  # a squash or rebase merge leaves main without the head: the PR says merged
             return None if p is None else bool(p.get("merged")) and (p["head"] == head or s.F.contains(s.clone(ch), p["head"], head))
         return s.live(ch, head) and bool(passed(ch["slug"], head))

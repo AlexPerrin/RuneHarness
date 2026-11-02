@@ -76,6 +76,7 @@ class Fake(hd.Facts):
     def review_comments(s, repo, pr): return None if s.f.get("comments", {}) is None else s.f.get("comments", {}).get(pr, [])  # None in f = GitHub unreadable
     def pr_comments(s, repo, pr): return None if s.f.get("talk", {}) is None else s.f.get("talk", {}).get(pr, [])
     def open_prs(s, repo): return None if s.f.get("prs", {}) is None else s.f.get("prs", {}).get(repo, [])  # the open upstream PRs; None in f = GitHub unreadable
+    def branch_prs(s, repo, head): return None if s.f.get("branch_prs", {}) is None else s.f.get("branch_prs", {}).get(head, [])   # branch_prs {owner:branch: [{number, merged}]}
     def pr(s, repo, n): return s.next(s.f.get("pull", {}), n)    # pull {n: {branch, head, draft}}
     def ci(s, repo, sha): return s.next(s.f, "ci") if "ci" in s.f else []   # ci [the checks at each read]; none reported unless a test says
     def next(s, d, k):  # a list answers each read in turn, its last answer from then on
@@ -4298,6 +4299,19 @@ class R3(Sandbox):
         F.f["pull"][7]["merged"] = True                                           # squash or rebase merge: main holds no head of it
         s.assertEqual(s.state(F, "s1")["state"], "done")
         s.assertIs(s.ctx(F).done(s.ctx(F).changes["s1"], A), True)
+
+    def test_a_carried_change_with_no_pr_record_is_done_when_its_branch_pr_merged(s):  # quest-cooksassistant: carried before the PR records, #445 merged
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "pull": {445: {"branch": "content/s1", "head": A, "draft": False, "state": "closed", "merged": True}},
+                    "branch_prs": {"o:content/s1": [{"number": 445, "merged": True}]}})
+        s.assertNotEqual(s.state(F, "s1")["state"], "done")                       # never carried: no PR is looked up
+        hd.put("s1", "ship", {"head": A, "ok": True, "detail": "upstream PR 445 at a"})
+        s.assertEqual(s.state(F, "s1")["state"], "done")                          # merged, no longer listed open: done, no second PR
+        s.assertEqual(hd.tick(s.ctx(F), act=False).get("card", []), [])
+        F.f["branch_prs"]["o:content/s1"][0]["merged"] = False                     # closed unmerged: not done
+        s.assertNotEqual(s.state(F, "s1")["state"], "done")
+        F.f["branch_prs"] = None
+        s.assertIsNone(s.ctx(F).done(s.ctx(F).changes["s1"], A))                  # GitHub unread: unknown
 
     def test_harness_change_carries_its_tools_commits(s):
         s.change("h1", track="harness"); s.agreed("h1", track="harness")

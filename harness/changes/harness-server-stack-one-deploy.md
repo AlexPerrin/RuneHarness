@@ -14,6 +14,7 @@ deps:
 mechanism: server
 created: '2026-11-02T01:54:03Z'
 superseded: harness-live-stack-issuer
+closed: 'answer-2: superseded by harness-deploy-survives-tools-ship and harness-live-stack-issuer'
 ---
 Root cause (PRD workflow: a change's stack is deployed so QA and the user test it; the live server runs what was carried): the server stack's facts are scattered across ship, track.sh up and docker-compose.yml, keyed by build tree instead of by instance and attempt, so each new requirement (evidence, cache, idle logout, token issuer, relogin) patched one path, and 6ef5218 ("a run's server never idle-logs out its clients") only edited a definition, no code. One deploy step renders the stack for an instance (live | run) and an attempt from tools/server; ship and track.sh up both call it; a run's desktop that is logged out logs back in by facts.
 

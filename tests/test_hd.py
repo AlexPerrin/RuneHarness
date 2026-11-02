@@ -1595,7 +1595,7 @@ class R4(Sandbox):
             return '"deny"' in out.getvalue()
         for c in ("python3 ~/osrs-harness/hd.py", "hd", "cd x && python3 hd.py 2>&1 | tail -40", "HD_ROOT=x hd.py tick", "hd tick; ls"):
             s.assertTrue(denied(c), c)
-        for c in ("python3 ~/osrs-harness/hd.py show s1", "hd tick --dry-run | head", "hd handover s1 Limits: none", "grep -n 'hd tick' hd.py", "ls hd.py.bak"):
+        for c in ("python3 ~/osrs-harness/hd.py show s1", "hd tick --dry-run | head", "hd handover s1 Limits: none", "python3 hd.py --help", "hd -h 2>&1", "grep -n 'hd tick' hd.py", "ls hd.py.bak"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("python3 ~/osrs-harness/hd.py", agent_type="orchestrator"))   # the orchestrator runs the pass
         s.assertIn("hd tick --dry-run", (Path(__file__).parent.parent / ".claude/agents/dev.md").read_text())
@@ -1931,11 +1931,11 @@ class R5(Sandbox):
         for c in ("echo x > f", "grep x f 2>err.txt", "rm -rf d", "git -C r commit -m x", "git push", "git checkout main",
                   "RESUME=1 tools/track.sh up s", "tools/track.sh build s", "~/r/tools/track.sh gate s", "tools/track.sh down s",
                   "docker run img", "cat f | tee out", "ls | xargs rm", "sed -i s/a/b/ f", "gh api -X POST repos/x",
-                  "gh api repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'",
+                  "gh api repos/x -f a=b", "gh api -X PATCH repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'",
                   "git branch x", "git branch -D x", "git -C r branch -m a b", "git branch --set-upstream-to=o/x", "git branch -f x HEAD"):
             s.assertTrue(denied(c), c)
         for c in ("cat f", "grep -n 'a > b' f", "sed -n 1,20p f", "jq . f 2>/dev/null", "git log 2>&1 | head", "git show HEAD:x",
-                  "gh api repos/x/pulls", "gh api -X GET repos/x", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f",
+                  "gh api repos/x/pulls", "gh api -X GET repos/x", "gh api -X GET search/code -f q=x", "gh api --method=GET s -F q=1", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f",
                   "git branch", "git branch --show-current", "git branch --list 'h*'", "git branch -a", "git branch -r",  # sweep-54 P3-c
                   "git -C r branch -vv", "git branch --contains abc", "git branch 2>/dev/null | head"):
             s.assertFalse(denied(c), c)

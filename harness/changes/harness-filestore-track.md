@@ -5,7 +5,8 @@ title: 'OpenRune-FileStore is a target track: fork, clone, tools branch and gate
 kind: change
 priority: P1
 mechanism: build-gate
-deps: []
+deps:
+- harness-attempts-test-mtime-flake
 created: '2026-11-02T21:00:26Z'
 ---
 The user (2026-11-02, answer to server-448-cickwdoqbbpt88aaaabijnvha): '(a) add OpenRune-FileStore as a target repo, port the fix as a new PR there and close #448 pointing to it' after Mark7625 asked on #448 to 'pr this to https://github.com/OpenRune/OpenRune-FileStore instead please so its built into current cs2 system'. hd.yaml repos has no FileStore entry. Needed: the fork AlexPerrin/OpenRune-FileStore (forks are free), its clone, an hd.yaml repos entry with upstream OpenRune/OpenRune-FileStore, and a tools branch with tools/track.sh (build, gate rows against FileStore's CI and its AGENTS.md/CONTRIBUTING/PR template) and tools/track.md, so a change on that track builds, gates and carries a PR there. The orchestrator commits the hd.yaml entry the run names.

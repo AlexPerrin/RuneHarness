@@ -41,8 +41,6 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
     def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
-    def supervised(s, pid): return s.f.get("supervised", False)
-    def end_session(s, pid): s.ended = getattr(s, "ended", []) + [pid]
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
@@ -255,54 +253,42 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
-    def test_a_shipped_orchestrator_definition_restarts_the_session(s):
+    def test_a_shipped_orchestrator_definition_reaches_the_live_session(s):
         blobs = {("HEAD", hd.ORCH): "new"}
         v = hd.tick(s.ctx(Fake(**FACTS, blobs=blobs, started_on={"1": "new"})))
         s.assertFalse(any(a.startswith("orchestrator ") for a in v["alert"]))                # started on the live definition: no step
         s.change("s1"); s.agreed("s1")
-        F = Fake(**FACTS, blobs=blobs, started_on={"1": "old"}, supervised=True)
-        v = hd.tick(s.ctx(F))
-        s.assertEqual([a for a in v["alert"] if a.startswith("orchestrator ")], [a for a in v["alert"] if a.startswith("orchestrator 7: your definition changed")])
-        s.assertEqual(len([a for a in v["alert"] if a.startswith("orchestrator ")]), 1)    # one step: wrap up, then `hd restart`
-        s.assertIn("hd restart", v["alert"][-1])
+        F = Fake(**FACTS, blobs=blobs, started_on={"1": "old"})
+        (s.root / ".claude" / "agents").mkdir(parents=True); (s.root / hd.ORCH).write_text("the live definition\n")
         def hd_(cmd, *a):
-            with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-                try:
-                    cmd(list(a))
-                except SystemExit as e:
-                    return str(e)
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (7, "1"), create=True), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                cmd(list(a))
             return out.getvalue()
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len([a for a in v["alert"] if a.startswith("orchestrator 7: your definition changed")]), 1)
+        s.assertTrue(v["spawn"])                                                              # listed runs are not held behind it
         out = hd_(hd.cmd_tick)
-        s.assertTrue(out.startswith("alert: orchestrator 7: your definition changed"))
-        s.assertNotIn("spawn:", out)                                                          # wrapping up, it spawns nothing
-        r = hd.runs()[0]; r.update(started=hd.now(), console_pid=7, console_start="1"); hd.save_run(r)
-        s.assertIn("runs bound to you are alive", hd_(hd.cmd_restart))                      # a run in flight keeps the session
-        r["ended"] = hd.now(); hd.save_run(r)
-        s.assertIn("orchestrator-handoff.md first", hd_(hd.cmd_restart))
-        (s.root / "state" / "orchestrator-handoff.md").write_text("open: x")
-        F.f["supervised"] = False
-        s.assertIn("outside its supervisor", hd_(hd.cmd_restart))
-        F.f["supervised"] = True
-        hd_(hd.cmd_restart)
-        s.assertEqual(F.ended, [7])                                                           # it ends itself, marked for the supervisor
-        s.assertTrue((s.root / "state" / "orchestrator.restart").exists())
-        bin_ = s.root / "bin"; bin_.mkdir()                                                   # the supervisor starts the fresh session: no user step
-        (bin_ / "claude").write_text('#!/bin/sh\necho "$@" >> calls\n')
-        (bin_ / "claude").chmod(0o755)
-        sup = Path(__file__).parent.parent / hd.SUPERVISOR
-        subprocess.run([str(sup)], env={**os.environ, "HD_ROOT": str(s.root), "PATH": f"{bin_}:{os.environ['PATH']}"}, check=True, timeout=60)
-        s.assertEqual((s.root / "calls").read_text().splitlines(), ["--agent orchestrator drive"])   # the mark starts one fresh session; its own end ends the loop
-        s.assertFalse((s.root / "state" / "orchestrator.restart").exists())
-        F.f.update(orchestrators=[(8, "2")], started_on={"2": "new"})
-        with mock.patch.object(hd.Facts, "console", lambda f: (8, "2")):
-            out = hd_(hd.cmd_tick)
-            s.assertIn("alert: orchestrator 8: read ", out)                                   # the fresh one reads the hand-off
-            (s.root / "state" / "orchestrator-handoff.md").unlink()
-            s.assertFalse(any(l.startswith("alert: orchestrator ") for l in hd_(hd.cmd_tick).splitlines()))   # and the alert clears
-        brief = (Path(__file__).parent.parent / ".claude" / "agents" / "orchestrator.md").read_text()
-        s.assertIn("state/orchestrator-handoff.md", brief.split("2.")[0])                 # step 1 reads the hand-off
-        s.assertIn("hd restart", brief.split("2.")[0])
-        s.assertIn("memory", brief.split("2.")[0])                                       # what it learned outlives the session
+        s.assertIn("spawn: s1-1", out)                                                        # the session goes on: it spawns
+        s.assertIn("definition: the live", out); s.assertIn("the live definition", out)       # and is printed the live file in full
+        s.assertFalse(any(a.startswith("orchestrator ") for a in hd.tick(s.ctx(F))["alert"]))  # once: it now holds the live blob
+        s.assertNotIn("definition:", hd_(hd.cmd_tick))
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (7, "1"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.reread({"hook_event_name": "SessionStart", "source": "compact"})
+        s.assertIn("the live definition", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])   # a compaction reads it again
+        F.f["started_on"] = {"1": "new"}
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (7, "1"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.reread({"hook_event_name": "SessionStart", "source": "compact"})
+        s.assertEqual(out.getvalue(), "")                                                     # started on the live one: nothing to add
+        F.f["orchestrators"] = [(8, "2")]
+        hd.tick(s.ctx(F))
+        s.assertEqual(list((s.root / "state" / "orchestrator-read").glob("*")), [])          # a gone session's read is dropped
+        s.assertFalse(hasattr(hd, "cmd_restart"))                                             # no session ends for a definition
+        s.assertIn("exec claude --agent orchestrator", (Path(__file__).parent.parent / hd.SUPERVISOR).read_text())
+        settings = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
+        s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "compact")
 
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
@@ -316,7 +302,13 @@ class R2(Sandbox):
         brief = (root / ".claude" / "agents" / "orchestrator.md").read_text()
         for step in ("`card`", "`question`", "`alert`", "`! python3 ~/osrs-harness/hd.py approve", "`! python3 ~/osrs-harness/hd.py close", "monitor sweep", "evidence/monitor/sweep-<n>.md", "On session start, also start a monitor sweep"):   # the head skill's steps; the user types the yes and the close
             s.assertIn(step, brief)
-        s.assertIn("disallowedTools: AskUserQuestion", brief.split("---")[1])    # the only spawner never waits on the user
+        s.assertEqual(re.findall(r"^(\w+):", brief.split("---")[1], re.M), ["name", "description"])   # nothing a reread could not carry
+        ask = {"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion", "agent_type": "orchestrator"}
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            s.assertTrue(hook.deny_ask(ask))                                                   # the only spawner never waits on the user
+            s.assertFalse(hook.deny_ask({**ask, "agent_id": "a1"}))                            # a subagent's own question is not its
+        s.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "deny")
+        s.assertIn("AskUserQuestion", json.loads((root / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"][0]["matcher"])
         v = hd.tick(s.ctx(Fake(**{**FACTS, "orchestrators": []})))
         s.assertTrue(any(a.startswith("user: no orchestrator session") for a in v["alert"]))
         s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))                       # the user's to fix, no planner

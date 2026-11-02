@@ -734,6 +734,19 @@ def rec(slug, name):
     return json.loads(f.read_text()) if f.exists() else None
 
 
+def rehanded(slugs, at):
+    """R6: a failure recorded at `at` (now()'s form) is answered by a later hand-over of one of slugs, its dev's word after
+    reading it (the suite run again at T), so that build, gate or row runs again; a pass, or a failure no hand-over followed, stays."""
+    return bool(at) and any((rec(s, "handover") or {}).get("ts", "") > at for s in slugs)
+
+
+def outcome(slug, name, slugs=None):
+    """R6: a build or gate record, None when it is a failure answered (rehanded) by a hand-over of slugs (default: slug's own)."""
+    r, f = rec(slug, name), STATE / slug / f"{name}.json"
+    at = r and datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return None if r and not r["ok"] and rehanded(slugs or [slug], at) else r
+
+
 def result(slug, name):
     """R2 R7: a build or gate record as one line, its verdict and key (the image's tag); the log stays in the file it names."""
     r = rec(slug, name)
@@ -1663,12 +1676,12 @@ def nxt(ctx, ch):
         if bk is None or gk is None:
             return step("tree unknown", "unknown")
         env, script = {**ctx.env(ch, head, tc, bk), "G": gk}, ctx.script(ch)
-        b = rec(slug, "build")
+        b = outcome(slug, "build")
         if not b or b["T"] != bk:
             return step(f"building {short(bk)}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env, key=bk, need=ctx.room_of(ch)))
         if not b["ok"]:
             return step("build failed: dev", "dev", mode="code", input=["build", bk, con["hash"]], detail=result(slug, "build"))
-        g = rec(slug, "gate")
+        g = outcome(slug, "gate")
         if not g or g["T"] != gk:
             return step(f"gate on {short(gk)}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], {**env, "ROWKEYS": json.dumps(ctx.key(ch, t, each=True), sort_keys=True)}, key=gk))
         if not g["ok"]:
@@ -1755,7 +1768,7 @@ def batch(ctx, track):
                 continue
             cur, tools = r[1], mt
             pre.append((c, cur, k, dict(tools), kb))
-        res = [rec(me["slug"], f"gate-{p[2]}") for p in pre]
+        res = [outcome(me["slug"], f"gate-{p[2]}", [q[0]["slug"] for q in pre[:i + 1]]) for i, p in enumerate(pre)]
         if not (res and res[0] and not res[0]["ok"]):
             break
         c = pre[0][0]  # the first member alone fails: the live branch's own gate (its rows at the base) decides whose failure it is
@@ -3088,7 +3101,7 @@ def rows(ctx, ch, con, head, tc, tree, build, gate, term=()):
             if row[kind] and row["id"] not in waived:
                 rk, m = keys.get(f"{ch['slug']}/{row['id']}"), rec(ch["slug"], f"row-{kind}-{row['id']}") or {}
                 ks = m.get("keys") or ({m["T"]: m} if "T" in m else {})  # each key's result: the live branch's own gate runs a member's rows at its own keys
-                kept = bool(rk and rk in ks)
+                kept = bool(rk and rk in ks and not (ks[rk]["rc"] and rehanded([ch["slug"]], ks[rk].get("ts"))))
                 if kept:
                     rc, out = ks[rk]["rc"], ks[rk]["out"]
                 else:
@@ -3096,7 +3109,7 @@ def rows(ctx, ch, con, head, tc, tree, build, gate, term=()):
                     rc = HELD if term else rc   # this gate's own stop (its scope's or slice's): held; any other end (its own crash) is the head's
                     if rk and rc != HELD:
                         ks = {k: v for k, v in ks.items() if k != rk}
-                        put(ch["slug"], f"row-{kind}-{row['id']}", {"keys": dict(list(ks.items())[-3:] + [(rk, {"rc": rc, "out": out[-2000:]})])})
+                        put(ch["slug"], f"row-{kind}-{row['id']}", {"keys": dict(list(ks.items())[-3:] + [(rk, {"rc": rc, "out": out[-2000:], "ts": now()})])})
                 print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (" (kept)" if kept else "") + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} {'held' if rc == HELD else 'failed'}: {out.strip()[-400:]}")

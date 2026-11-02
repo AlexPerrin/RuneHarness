@@ -245,7 +245,8 @@ a live check reads the real state.
    a script of this repo (the harness track's gate and ship, a carry by `hd ship`) starts while docker is down.
 
 6. **R6** `tests.test_hd.R6`: the same T never builds or gates twice;
-   a ship keeps a failed prefix's gate, so its tree on the new base is not gated again;
+   a ship keeps a failed prefix's gate for one ship, so its tree on the new base is not gated again and a failure never sticks to its tree after a second;
+   a failed build, gate or row is final only until its change's dev hands over again (the suite run again at T), the same head then built, gated or run again;
    the same head and contract never judge twice;
    no more than the configured agents are listed, the planner outside that count;
    with a band held, no run is listed for a change below it and a listed one is dropped;

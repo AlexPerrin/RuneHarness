@@ -501,13 +501,26 @@ class R2(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # h1 live and done: c1 goes on
-        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joins h1 after its done head
-        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")
-        s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # a joined filing holds only h1: the head c1 needed is live
-        hd.cmd_ask(["h1", "which?"]); hd.cmd_answer(["h1", "split it"])          # the user's word, quoting the question
-        s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # met only once its dev acts on it
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # c1 waits on h1: no join reopens it
+        s.assertEqual((hd.defs("changes")["p9"]["deps"], s.state(D, "h1")["state"]), (["h1"], "done"))
+        hd.cmd_ask(["h1", "which?"]); hd.cmd_answer(["h1", "split it"])          # the user's late word, quoting the question, reopens it
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: the user answered after the hand-over (answer-1)")
+        s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # its step reopened: met only once its dev acts on it
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")
+
+    def test_a_joined_filing_holds_the_changes_it_names(s):  # sweep-88 P1-a: client-login-segv-osclient-6 started before the issuer acted on the limit it joined
+        s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness"); s.change("c1", "client")
+        D = Fake(refs={"HEAD": A, "harness/h1": A, "origin/HEAD": B, "origin/client/c1": "", "origin/client/c2": ""}, trees={A: TA}, merges={(A, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold", "--blocks", "c1"])   # joins h1, naming c1
+        s.assertEqual(hd.defs("changes")["c1"]["deps"], ["h1"]); s.assertEqual(hd.contract("h1")["rows"][-1]["holds"], "c1")
+        s.change("c2", "client", deps=["h1"])                                   # a dependent the filing does not name
+        s.assertEqual((s.state(D, "c1")["state"], s.state(D, "c2")["state"] != "waiting on h1"), ("waiting on h1", True))
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])                          # its dev hands over after the join
         s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")
 
     def test_fresh_dev_ref_in_the_base_is_not_done(s):
@@ -4652,7 +4665,21 @@ class R3(Sandbox):
         s.change("h2", track="harness", mechanism="loop")
         hd.cmd_new(["x2", "--track", "harness", "--title", "carry drops", "--mechanism", "carry", "--limit-of", "h2"])
         g = hd.defs("changes")
-        s.assertNotIn("x2", g); s.assertIn("carry drops", g["x1"]["body"])        # the next limit joins the startable one
+        s.assertIn("x2", g); s.assertNotIn("carry drops", g["x1"]["body"])        # the startable one has dependents: the next limit stands behind it
+        s.assertEqual((g["x2"]["deps"], g["h2"]["deps"]), (["x1"], ["x2"]))
+
+    def test_a_filing_never_joins_a_change_others_wait_on(s):  # sweep-87 P2-a: a rewrite joined a one-test flake fix filestore waited on
+        s.change("f1", track="harness", mechanism="tree")
+        hd.cmd_new(["d1", "--track", "harness", "--title", "mtime flake", "--mechanism", "loop", "--limit-of", "f1"])
+        hd.cmd_new(["x1", "--track", "harness", "--title", "deps_held rewrite", "--body", "the big one", "--mechanism", "loop"])
+        g = hd.defs("changes")
+        s.assertIn("x1", g); s.assertNotIn("deps_held rewrite", g["d1"]["body"])   # f1 waits on the flake fix alone
+        s.assertEqual((g["f1"]["deps"], g["x1"]["deps"]), (["d1"], ["d1"]))       # the filing stands behind it, never beside it on the same code
+        s.change("h3", track="harness", mechanism="hold")
+        hd.cmd_new(["y1", "--track", "harness", "--title", "a", "--mechanism", "dispatch", "--blocks", "h3"])
+        hd.cmd_new(["y2", "--track", "harness", "--title", "dispatch again", "--mechanism", "dispatch", "--limit-of", "h3"])
+        g = hd.defs("changes")
+        s.assertNotIn("y2", g); s.assertIn("dispatch again", g["y1"]["body"])     # its only dependent is the filing's own finder: it joins
 
     def test_a_hand_over_hands_back_its_one_recorded_line(s):  # sweep-59 P3-b: 'Limits: none' handed back beside its own risks in prose
         s.change("s1"); s.agreed("s1")

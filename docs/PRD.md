@@ -144,7 +144,8 @@ a live check reads the real state.
    a carried change with no PR record finds its merged PR by its head branch, so a merged PR is never opened again;
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a dependency the user's late answer reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
-   a joined filing holds only its own change: a dependent's need is met once the head it waited on is live;
+   a joined filing holds its own change and the changes it names (its `--blocks`, its finder) until that change's dev hands over after it: every other dependent's need is met once the head it waited on is live;
+   a change others wait on takes no joined filing: the filing is its own change behind it, so no dependent waits on scope it never needed;
    a fresh dev ref the base contains is neither live nor done until handed over;
    a fresh dev ref the base contains is no head in flight: the dev's step names the answer or filing that reopened it;
    a head whose last verdict fails is the dev's step before it is built, gated or judged again;

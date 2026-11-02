@@ -354,6 +354,8 @@ Its runs bind to its process as their console.
 It loads its definition only at start, so a shipped one reaches it by being read: `swap` compares the orchestrator.md blob each `claude --agent orchestrator` process holds (the one in its `state/orchestrator-read/<pid>-<start>`, else the one it started on: the live checkout's HEAD at its start time, by the HEAD reflog) with HEAD's, and alerts a session on another blob;
 its own `hd` (`reread`) prints it the live file in full after its sections and records that blob held, so it acts on it from then on while its runs and spawns go on: no session ends for a definition;
 a compaction keeps only the start-time definition, so the SessionStart hook (compact) gives the session the live file again when the two differ;
+hooks and MCP servers load only at a session's start, so `swap` also compares each session's start-time `LOADED` blobs (.claude/settings.json, .mcp.json) with HEAD's and raises one `user:` alert per session naming the changed ones and `tools/orchestrator.sh` for its restart;
+an mcp/ file needs none, serve.py carries it;
 a gone session's read record is dropped by the pass.
 `hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists, naming `tools/orchestrator.sh`.
 It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and acts on the user's other words at once;

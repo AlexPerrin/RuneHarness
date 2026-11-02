@@ -1568,14 +1568,30 @@ class R4(Sandbox):
         s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))
         s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
 
-    def test_the_pass_reruns_an_alive_carry_on_a_fixed_hd_py(s):  # sweep-73 P1-a: the #448 carry hung on code its pass had since fixed
+    def test_the_pass_never_stops_an_alive_carry_on_a_fixed_hd_py(s):  # sweep-89 P0-a: a harness ship stopped goblin-367's carry between its body edit and its comment
         F = Fake(**{**FACTS, "refs": dict(FACTS["refs"]), "trees": dict(FACTS["trees"])}); s.ready(F); s.approve(F, "s1", A)
         hd.tick(s.ctx(F)); F.f["procs"] = {(7, "1"), (4242, "99")}; n = len(F.spawned)
         hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len(F.spawned)), ([], n))   # alive on the current hd.py: kept
         (s.root / "hd.py").write_text("fixed")
         s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")
         hd.tick(s.ctx(F))
-        s.assertEqual((F.stopped, F.spawned[n:]), ([4242], [[str(hd.ROOT / "hd.py"), "ship", "s1", A]]))   # stopped and rerun on the fixed one
+        s.assertEqual((F.stopped, len(F.spawned)), ([], n))                     # it holds a yes: it finishes on the code it started on
+
+    def test_a_stopped_carry_resumes_with_the_approved_texts_skipping_its_done_steps(s):  # sweep-89 P0-a: #367 left pushed, its body edited, no comment, draft
+        pr = lambda h, body: {"number": 42, "branch": "content/s1", "owner": "o", "head": h, "draft": True, "title": "s1", "body": body, "state": "open"}
+        F = Fake(**{**FACTS, "prs": {"u/f": [pr(B, "old")]}}); s.ready(F, pr=42); s.approve(F, "s1", A)
+        yes = hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"])
+        s.assertEqual([w for w, _, _ in yes], ["body", "comment"])
+        F.f.update(pull={42: [pr(B, "old"), pr(A, "old")]}, ci=[None])          # the carry pushes, edits the body, then stops in its CI wait
+        with s.assertRaises(SystemExit):
+            s.ship(F, GH())
+        F.f.update(prs={"u/f": [pr(A, "body" + hd.ATTRIBUTION)]}, pull={42: pr(A, "body" + hd.ATTRIBUTION)}, ci=[[{"name": "b", "url": "", "state": "success"}]])
+        s.assertNotEqual(hd.public_texts(s.ctx(F), s.ctx(F).changes["s1"]), yes)   # its own writes moved the texts recomputed from the live PR
+        s.assertEqual(s.state(F, "s1")["state"], "carrying upstream")           # the yes holds at its head: the rerun is the pass's
+        g = GH(); s.ship(F, g)
+        s.assertEqual(([" ".join(c[1:3]) for c in g.calls if c[0] == "gh"], g.did("push")), (["pr comment", "pr ready"], []))   # no push, no body edit
+        s.assertTrue(g.did("pr comment")[0][-1].startswith(yes[1][2]))          # the approved comment, its push summary kept
+        s.assertTrue(hd.rec("s1", "ship")["ok"]); s.assertIsNone(hd.rec("s1", "approval"))
 
     def test_the_ci_at_a_head_is_the_latest_run_of_each_check(s):  # sweep-69 P1-a: #448's reopen left the old failed run beside the new green one
         run = lambda i, n, c: {"id": i, "name": n, "details_url": f"https://ci/{i}", "status": "completed", "conclusion": c}
@@ -1612,6 +1628,33 @@ class R4(Sandbox):
         F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "state": "closed"}}, ci=[b("success")])
         g = GH(); s.ship(F, g)
         s.assertEqual([" ".join(c[1:3]) for c in g.calls if c[0] == "gh"], ["pr reopen", "pr ready"])   # its rerun reopens, never closes again
+
+    def test_a_round_moved_to_another_repo_is_closed_with_a_link_by_the_carry_of_its_carrier(s):  # sweep-89 P2-a: #448's round moved to FileStore had no act closing #448
+        s.change("z0", track="central", pr=9, finding="IC_1", superseded="s1")   # the user's answer moved z0's PR into s1's repo (hd new --supersedes)
+        F = Fake(**{**FACTS, "prs": {"u/z": [{"number": 9, "branch": "fix/z", "owner": "o", "head": B, "draft": False}]},
+                    "talk": {9: [{"id": "IC_1", "author": "rev", "bot": False, "reply": None, "body": "please pr this to f instead"}]}})
+        s.ready(F)
+        st = s.state(F, "s1"); s.assertEqual((st["state"], st["actor"]), ("the closing comment of PR 9 misses findings IC_1: dev", "dev"))
+        (s.root / "evidence" / "s1" / "pr-close-z0.md").write_text("> please pr this to f instead\n\n@rev moved there."); s.regate("s1", F)
+        s.assertEqual(s.state(F, "s1")["actor"], "user")
+        c = hd.card(s.ctx(F), s.ctx(F).changes["s1"], A)
+        s.assertIn("post the comment below on upstream PR 9 of u/z, with a last line 'Moved to u/f#<this PR>', then close that PR", c)
+        s.assertIn("### close z0\n(finding by rev on the PR: please pr this to f instead)", c)
+        s.approve(F, "s1", A)
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True}, 9: {"branch": "fix/z", "head": B, "draft": False, "state": "open"}},
+                   ci=[[{"name": "b", "url": "", "state": "success"}]])
+        g = GH(**{"pr create": (0, "https://github.com/u/f/pull/42", "")}); log = s.ship(F, g)
+        s.assertEqual([" ".join(c[1:3]) for c in g.calls if c[0] == "gh"], ["pr create", "pr comment", "pr ready", "pr comment", "pr close"])
+        s.assertEqual(g.did("pr comment")[1][3:6], ("9", "-R", "u/z"))
+        s.assertTrue(g.did("pr comment")[1][-1].startswith("> please pr this to f instead\n\n@rev moved there.\n\nMoved to u/f#42."))
+        s.assertIn("closed PR 9 of u/z, linking PR 42", log)
+        F.f["prs"] = {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": False}], "u/z": F.f["prs"]["u/z"]}
+        hd.put("s1", "opened", {"pr": 42, "head": A})
+        s.assertNotIn("carried", s.state(F, "s1")["state"])                     # its PR is up but the moved PR is still open: not carried
+        F.f["prs"]["u/z"] = []
+        s.assertEqual(s.state(F, "s1")["state"], f"carried at {A[:9]}; waiting on the maintainers")
+        F.f["prs"]["u/z"] = None
+        s.assertEqual(s.state(F, "s1")["actor"], "unknown")
 
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
@@ -2725,9 +2768,7 @@ class R5(Sandbox):
         script = s.root / "hd.py"; script.write_text("fixed")                   # sweep-69 P1-a: a carry hung on code since fixed
         n = len(F.spawned)
         ctx.start("s2", "ship", [str(script), "ship", "s2", A])
-        s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"], 4242], n + 1))  # stopped and rerun on the fixed script
-        F.f["procs"] = {(7, "1"), (4242, "99")}; ctx.start("s2", "ship", [str(script), "ship", "s2", A])
-        s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"], 4242], n + 1))  # the rerun runs the current script: kept
+        s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"]], n))            # sweep-89 P0-a: a carry holds a yes: never stopped, on a fixed script too
 
     def test_a_gate_running_a_row_whose_key_holds_finishes(s):  # sweep-17 N5: a text.py-only tools ship stopped 11 gates, 8 CI runs ~15 min in
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- subj | subject | check: tools/server/text.py subject\n")

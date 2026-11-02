@@ -62,6 +62,7 @@ only a commit waits on CI.
 A maintainer's word is a finding (a defect or a request) or an acknowledgement, judged by the orchestrator before anything is filed;
 a finding that asks a decision of scope (move the PR to another repo, close it) opens its round with the user's question, the round waiting on the answer;
 a target repo is added as a repo with its upstream in hd.yaml, a track of its own;
+a round the user moves to another repo is a change on that repo's track superseding it, whose card's carry, after its own PR, closes the old PR with one comment answering its findings and linking the new PR;
 an acknowledgement files no change, lists no run and is never answered.
 A PR round is one change: each maintainer finding, and each fix filed on the PR, joins the PR's one open change not yet carried as a judged row (a change filed when none is open);
 its dev answers every finding (a commit stacked on the PR for each that needs code, a reply for each), one qa run judges every row at its last head, and one card's one comment answers every finding;
@@ -203,6 +204,8 @@ a live check reads the real state.
    the same-head tips of one PR show one card;
    `hd approve` records the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw it;
    the carry runs only while the yes holds;
+   once its carry starts the yes holds at its head alone and the carry posts the texts approved, a rerun skipping each step done, since its own writes move the texts read from the live PR;
+   a carry alive is never stopped, on a fixed hd.py too;
    a release card is published after the yes;
    the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, posts one PR comment per head and text: the push summary naming every pushed commit, then each finding's reply, quoting it and @ each asker once (a review-thread finding too: no thread reply);
    it readies the PR, asks review of the maintainers who reviewed it (none: GitHub asks CODEOWNERS on ready) and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card);
@@ -214,6 +217,7 @@ a live check reads the real state.
    a PR the carry opened keeps the yes on a rerun;
    a rerun's card updates that PR, never opens a second;
    a PR already at the head, ready, with every reply posted, gets no card;
+   a change superseded by one on another repo, its PR open, is that change's: its card closes the PR after its own acts with the comment pr-close-<superseded>.md quoting the PR's unanswered findings and a last line linking the new PR, and it is carried only once that PR is closed;
    a round with no dev ref has its PR tip's head and no gate;
    a maintainer's word not yet triaged is a view line that wakes the orchestrator and files nothing;
    `hd triage <id> ack` files nothing for it ever and closes a round filed from it alone with no hand-over, `finding` joins or files the round;

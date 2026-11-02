@@ -12,3 +12,6 @@ Sweep 57 P3-a: stopped() writes one global time to state/stopped on every slice 
 
 Also (filed): A harness gate and ship start while Docker is down
 Sweep 58 P3-a: Ctx.start returns at once when Docker is down (hd.py:1267), for every script, the harness batch gate and ship included (hd.py:1750); dockerless() (hd.py:1224-1226) already exempts harness runs, and a harness gate with tools: {} runs only check-tests, dry-run, docs and tools. Three harness heads sat at 'gate on 29c0f993a' with no gate started (events.jsonl:9851-9853; state/ship-harness/proc-gate.json still the 08:23:28Z gate). The Docker alert (hd.py:2314, 'no script starts') hides it. Evidence: evidence/monitor/sweep-58.md
+
+Also (filed): A ship keeps a failed prefix's gate result at its key
+Sweep 59 P4-d: clearing kept gate records on ship drops a failing prefix's result, which is then gated again at the same key: a5d5cbc58 gated 15:01:52Z, cleared by the 15:04:45Z ship, re-gated 15:07:34Z (~1 min each). Evidence: evidence/monitor/sweep-59.md

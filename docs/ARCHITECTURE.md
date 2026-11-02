@@ -405,6 +405,7 @@ A run's `kill` is denied unless every target is a pid in its own slice or the sh
 A Bash command's `pgrep -f <pattern>` (outside a heredoc body) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and a wait on it never ends.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
 A desktop's devtools endpoint answers only a request carrying its up's token (up.json `token`, sent as `Authorization: Bearer`), any other 401: every JVM of the instance loads the server tools' DevtoolsOwner, the JDK's HttpServer provider filtering the devtools port, and the bridge and desktop_login.py send the token of the up whose instance owns the port.
+A desktop up while a session's desktop bridge runs without mcp/serve.py (it predates serve.py, never reloads and sends no token, read from the processes) answers any caller until its down.
 A run's own agent stops (`continue: false`) at its next tool call, its hand-back let through, once the pass, the head or `hd stop` ended its run.
 
 **Base, head**

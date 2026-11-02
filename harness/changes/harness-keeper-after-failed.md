@@ -20,3 +20,6 @@ Monitor sweep 49 P1-a (evidence/monitor/sweep-49.md), on tools 6a1081baf: each o
 
 Also (server-clan-guest): up waits forever on a desktop whose devtools plugin could not bind its port
 server-clan-guest-3 (2026-11-02 ~06:33Z): track.sh up server-clan-guest 2 claimed instance 11 (devtools port 7790); its client log (run/11/home/.runelite/logs/client.log) shows OpenRuneDevToolsPlugin 'Failed to start MCP server on port 7790' BindException: Address already in use (the port was free again a minute later, so likely a JVM of the instance's previous claim still closing). desktop_start (tools/track.sh:122-125) loops until the port is listened on or the launcher JVM exits; the client lives on without the endpoint, so up never ends. Acceptance: an up whose desktop's devtools endpoint cannot bind fails naming the bind error (or binds after the previous holder is gone), never waits without an ending fact.
+
+Also (joined): A desktop launch dies on a WSL vsock accept failure with nothing after it
+Monitor sweep 51 P3-b: server-clan-channels' desktop6 launch logged only 'WSL ... UtilAcceptVsock:273: accept4 failed 110' at 07:01:39Z (state/server-clan-channels/desktop6.log, 67 bytes); the next up used desktop1/2 only. Same family as answer-3 (up waits forever when the desktop's devtools endpoint never comes up): up must end on the launch's failure, whatever its cause.

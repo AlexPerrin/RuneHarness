@@ -438,8 +438,8 @@ def deny_time_bound(p):
     if p.get("tool_name") != "Bash" or not p.get("agent_id"):
         return
     cmd = bare(p)
-    loops = [m for m in re.finditer(r"(?:^|[;&|(\n'\"]|\bdo|\bthen)\s*(for|while|until)\b((?:(?!\bdone\b).)*)", cmd, re.S) if re.search(r"\bsleep\b", m.group(2))]
-    if not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", cmd) and not any(m.group(1) == "for" or COUNTED.search(m.group(2)) for m in loops):
+    loops = [(k, t) for k, t in own_loops(cmd) if re.search(r"\bsleep\b", t)]
+    if not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", cmd) and not any(k == "for" or COUNTED.search(t) for k, t in loops):
         return
     hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="time bound on a step")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
@@ -447,6 +447,24 @@ def deny_time_bound(p):
           "run it in the foreground (Bash `timeout` 600000 is the call's limit; when it ends first, issue the same wait again), "
           "or wait on the fact the step makes with one `until <fact>; do sleep N; done` (a state file, a log line, a port)."}}))
     return True
+
+
+def own_loops(cmd):
+    """Each loop of cmd as (keyword, its own text): from its keyword to its `done`, without the loops nested in it, so a
+    sleep counts against the innermost loop that holds it (a `for` over ports wrapping an `until <fact>` sleeps in the until)."""
+    out, stack, at = [], [], 0
+    for m in re.finditer(r"(?:^|[;&|(\n'\"]|\bdo|\bthen)\s*(for|while|until)\b|\bdone\b", cmd):
+        end = m.start(1) if m.group(1) else m.end()
+        if stack:
+            stack[-1][1] += cmd[at:end]
+        if m.group(1):
+            stack.append([m.group(1), ""])
+        elif stack:
+            out.append(tuple(stack.pop()))
+        at = m.end()
+    if stack:   # an unclosed loop (a python for, a quoted script): the innermost one's text runs to the end
+        stack[-1][1] += cmd[at:]
+    return out + [tuple(l) for l in stack]
 
 
 COUNTED = re.compile(r"\bseq\s|\+\+|\w\s*[+-]=\s*\d|\$\(\(\s*\$?\w+\s*[+-]\s*\d|\blet\s|\brange\(")   # a loop's counter

@@ -3081,7 +3081,8 @@ def cmd_handover(a):
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="handover", head=head)
-    print(f"handed over {head} (tree {tree[:9]})")
+    name = handing[0]["name"] if len(handing) == 1 else "<name>"  # R3: the one line the hook accepts as the run's hand-back, to copy
+    print(f"run {name}: handed over {head[:9]} {' '.join(a[1:])}")
 
 
 HELD = 75  # a row's exit when the step that failed reads nothing of the head (its source down): no result, never the head's FAIL

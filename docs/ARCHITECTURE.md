@@ -225,7 +225,7 @@ next(change):
   contract.md?
     no → qa run (server, central) | derived from the definition and seed rows (client, harness, a PR round filed from a finding)
   handover at the dev ref's tip, no answer since (newer than it and the head's last verdict;
-  a joined filing or finding counts at once on an upstream change, else once its head is done)?
+  a joined filing or finding counts at once on an upstream change, else once its head is done or no head of its own is in flight)?
     no → dev run, even on a done change (it reopens) (a hand-off file lists its successor;
     FAIL findings and gate details in the brief)
   carried tools head behind branch?
@@ -315,6 +315,7 @@ next(change):
 ```
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in);
 a fresh dev ref cut at a base commit is neither.
+A fresh dev ref is no head in the dev step's reason: it names the answer or filing that reopened the change, never the base tip.
 A contract's rule rows carry the upstream rule files' blob shas;
 a verdict records each file's blob on upstream main ('' for a file absent there), and when one moves from the last verdict's, only those rows are re-judged.
 A reviewer is listed only where the contract has `judge:` rows (client changes have none;
@@ -342,6 +343,7 @@ a deploy alive is never stopped, a newer tree or tools ship included: the pass d
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every `hd-*.slice` no live run holds once its owner is gone: a test's `hd-t<pid>.slice` once `<pid>` is dead, any other once empty;
+remove every temp root a suite or test runner made outside a run (`hd-<kind>-<pid>-*` in the temp dir, named by its process) once `<pid>` is dead, whatever ended it;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;

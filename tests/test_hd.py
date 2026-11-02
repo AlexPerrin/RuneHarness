@@ -9,7 +9,7 @@ NESTED = os.environ.get("HD_SUITE")                                           # 
 if NESTED == "1":                                                             # a test's gate ran a row that runs this suite: refuse, never recurse
     raise ImportError("refused: the test suite runs inside itself (HD_SUITE=1); a test's gate never runs the suite")
 os.environ["HD_SUITE"] = "1"
-SUITE_TMP = tempfile.TemporaryDirectory(prefix="hd-suite-", ignore_cleanup_errors=True)   # R5: every temp dir of the suite (HD_ROOT, each test's, each
+SUITE_TMP = tempfile.TemporaryDirectory(prefix=f"hd-suite-{os.getpid()}-", ignore_cleanup_errors=True)   # R5: every temp dir of the suite (HD_ROOT, each test's, each
 tempfile.tempdir = os.environ["TMPDIR"] = SUITE_TMP.name                     # process's) is under it, removed at the suite's end, a failed test's too
 os.environ["HD_ROOT"] = tempfile.mkdtemp()
 import hd, hook  # noqa: E402  (both read HD_ROOT at import)
@@ -2060,7 +2060,11 @@ class R5(Sandbox):
         s.assertEqual([x[1:] for x in F.ran if x[0].endswith("taskkill.exe")], [["/F", "/PID", "4812", "/FI", "IMAGENAME eq java.exe"]])
         s.assertFalse((w / hd.run_slice(a["name"])).exists()); s.assertTrue((w / hd.run_slice(b["name"]) / "5120").exists())
         s.assertFalse(hd.run_tmp(hd.run_slice(a["name"])).exists()); s.assertTrue(hd.run_tmp(hd.run_slice(b["name"])).exists())   # sweep-48 P2-c: a run's temp dirs go with it
-        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 0}; hd.tick(s.ctx(F))
+        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 0}
+        for n in ("hd-suite-1-x", "hd-run-2-y", "hd-run-z"): (Path(tempfile.gettempdir()) / n).mkdir()   # sweep-51 P3-a: a suite's or runner's temp root, its process dead or alive, and one naming none
+        hd.tick(s.ctx(F))
+        s.assertEqual(sorted(p.name for p in Path(tempfile.gettempdir()).glob("hd-*-*")), ["hd-run-2-y", "hd-run-z"])
+        for n in ("hd-run-2-y", "hd-run-z"): (Path(tempfile.gettempdir()) / n).rmdir()
         s.assertEqual([x for x in F.ran if "stop" in x or x[0].endswith("taskkill.exe")], [])   # ended once, stopped once
 
     @unittest.skipUnless(shutil.which("busctl") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
@@ -4081,6 +4085,8 @@ class R3(Sandbox):
         s.assertTrue(s.state(F, "h1")["state"].startswith("gate on"))           # the handed-over head is still gated and shipped
         D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})
         s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")   # its scope, on top
+        N = Fake(refs={"HEAD": C, "harness/h1": C}, trees={C: TC}, merges={(C, C): ("ok", C)}, line={C})
+        s.assertEqual(s.state(N, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")   # sweep-52 P3-a: a fresh dev ref at the base tip is no head
         with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(s.state(D, "h1")["state"], "done")

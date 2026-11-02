@@ -44,7 +44,9 @@ Never: a public act (PR, release, upstream comment); a push to any ref but your 
 action is never worked around: the hook records it, and one your change cannot do without is reported in a `handoff` hand-back. A harness dev ref stays local (hd reads it there): rebase
 it at will, never push it. A fix that belongs to another track or repo is filed, never asked about: `hd new <new-slug>
 --track <t> --title "..." --body "..." --blocks <slug>` writes its definition and makes your change wait on it; hand back
-`run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change
+`run <name>: filed <new-slug>`. A change the user's answer drops, its scope moved to another change, is superseded by the
+filing that carries that scope: `hd new <new-slug> ... --supersedes <slug>` (it joins the open change on its mechanism and marks
+yours superseded by it), then hand back `run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change
 should do): `hd ask <slug> "..."`, once, then hand back.
 
 Before the hand-back remove every temporary worktree and branch you made that is not the change's own (the loop removes

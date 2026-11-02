@@ -6,7 +6,7 @@ kind: change
 priority: P1
 mechanism: server
 deps:
-- server-js5-idle-relogin
+- harness-desktop-one-login-path
 created: '2026-11-02T06:18:23Z'
 superseded: harness-server-stack-one-record
 closed: 'answer-3: superseded by harness-server-stack-one-record'

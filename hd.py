@@ -3348,7 +3348,7 @@ def cmd_new(a):
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
     p.add_argument("--mechanism", help="the mechanism the change fixes: one of hd.yaml's `mechanisms`, required on the harness track (else its slug)")
     p.add_argument("--limit-of", help="the change whose run found this limit, outside that change's scope")
-    p.add_argument("--supersedes", default="", help="open harness changes this root-cause change replaces, comma-separated: each is marked superseded (held, no runs) until the user closes it")
+    p.add_argument("--supersedes", default="", help="open changes whose whole scope this filing carries (a planner merge, a change the user's answer drops), comma-separated: each is marked superseded by the carrier (held, no runs) until the user closes it")
     o = p.parse_args(a)
     if o.track == "harness" and PRIO.get(o.priority, 9) > 1:
         o.priority = "P1"  # the user's word: a harness change is never below P1
@@ -3359,8 +3359,8 @@ def cmd_new(a):
         refuse(f"{blocked} does not exist")
     graph = defs("changes")
     sup = [k for k in o.supersedes.split(",") if k]
-    if (bad := [k for k in sup if k not in graph or graph[k]["track"] != "harness" or shut(k, graph[k])]):
-        refuse("supersedes only open harness changes: " + ", ".join(bad))
+    if (bad := [k for k in sup if k not in graph or shut(k, graph[k])]):
+        refuse("supersedes only open changes: " + ", ".join(bad))
     if o.track == "harness" and o.mechanism not in (ms := cfg()["mechanisms"]):
         refuse(f"--mechanism names the harness mechanism the change fixes, one of: {', '.join(ms)}")
     m = o.mechanism or o.slug
@@ -3373,9 +3373,9 @@ def cmd_new(a):
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
     for k in held:
         tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
-    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c) and not rec(k, "ask") and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
-    if not into and not sup and o.pr and TRACK[o.track]["public"] == "upstream" and o.kind == "change":  # R6: a fix on a PR joins its one open round
-        on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and not shut(k, c)
+    into = next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not rec(k, "ask") and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
+    if not into and o.pr and TRACK[o.track]["public"] == "upstream" and o.kind == "change":  # R6: a fix on a PR joins its one open round
+        on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and k not in sup and not shut(k, c)
               and not (rec(k, "state") or {}).get("state", "").startswith("carried")}
         into = next(iter(sorted(k for k in on if not any(k in c["deps"] for c in on.values()))), None)
         o.join_deps = [d for d in o.deps.split(",") if d and d != into]  # what the fix waits on, the round waits on
@@ -3399,23 +3399,24 @@ def cmd_new(a):
     else:
         print(new_def(meta, o.body))
     for k in sup:  # closing is the user's word (hd close): a superseded change holds with no runs
-        mark(graph[k], "superseded", o.slug)
-        event(change=k, record="superseded", by=o.slug)
+        mark(graph[k], "superseded", carrier)
+        event(change=k, record="superseded", by=carrier)
     for k, c in moved.items():  # each waiting change follows the fix, uncommitted like the definition
         f = P(c["path"])
         fm, body = _frontmatter(f.read_text())
         f.write_text("---\n" + yaml.safe_dump({**fm, "deps": c["deps"]}, sort_keys=False) + "---\n" + body)
-        event(change=k, action="dep", dep=carrier)
-    for k in {*held, *moved}:  # R6: a change made to wait lists no run: its unspawned listing ends now, so a spawn of it is refused
+        if k != carrier:
+            event(change=k, action="dep", dep=carrier)
+    for k in {*held, *moved} - {carrier}:  # R6: a change made to wait lists no run: its unspawned listing ends now, so a spawn of it is refused
         for r in runs():
             if r["change"] == k and not r.get("started") and not r.get("ended"):
                 fact(fact="waits", run=r["name"], dep=carrier)
 
 
 def retarget(graph, old, new):
-    """The definitions whose deps name a slug in `old`, each with those deps renamed `new` (once, never on `new` itself)."""
-    return {k: {**c, "deps": list(dict.fromkeys(new if d in old else d for d in c["deps"]))}
-            for k, c in graph.items() if k != new and set(c["deps"]) & old}
+    """The definitions whose deps name a slug in `old`, each with those deps renamed `new` (once; on `new` itself dropped: it carries them)."""
+    return {k: {**c, "deps": list(dict.fromkeys(e for d in c["deps"] if (e := new if d in old else d) != k))}
+            for k, c in graph.items() if set(c["deps"]) & old}
 
 
 def merge_limit(c, o):

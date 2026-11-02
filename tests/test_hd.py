@@ -4337,10 +4337,26 @@ class R3(Sandbox):
         r = next(r for r in hd.runs() if r["name"] == "h1-2")
         s.assertEqual((bool(r["ended"]), r["reason"]), (True, "change superseded by r1"))   # held with no runs, a started one too
 
+    def test_a_change_the_users_answer_drops_is_superseded_by_the_join_carrying_it(s):  # planner-33: server-js5-idle-relogin stayed due
+        s.change("h1", track="harness", mechanism="runs", deps=["s1"]); s.change("s1"); s.agreed("s1"); s.change("c1", track="client", deps=["s1"])
+        F = Fake(**{**FACTS, "refs": {"origin/HEAD": B}})
+        hd.tick(s.ctx(F))
+        r = hd.runs()[0]; s.assertEqual(r["change"], "s1")                     # its dev run is listed
+        hd.save_run({**r, "started": hd.now(), "console_pid": 7, "console_start": "1"})
+        hd.cmd_new(["x1", "--track", "harness", "--title", "the login path", "--mechanism", "runs", "--supersedes", "s1"])   # its own run files the dropped scope
+        g = hd.defs("changes")
+        s.assertNotIn("x1", g); s.assertIn("the login path", g["h1"]["body"])   # joined: h1 carries it
+        s.assertEqual((g["s1"]["superseded"], g["h1"]["deps"], g["c1"]["deps"]), ("h1", [], ["h1"]))   # waits on s1 follow the carrier, h1's own dropped
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(s.state(F, "s1"), {"state": "superseded by h1: the user's hd close", "actor": "wait"})
+        s.assertEqual([x for x in v["spawn"] + v["run"] if x.startswith("s1")], [])   # no run listed, the started one ended
+        s.assertTrue(next(x for x in hd.runs() if x["name"] == r["name"])["ended"])
+        s.assertEqual([a for a in v["alert"] if "s1" in a], [f"user: s1 is superseded by h1 and holds until closed: ! python3 {hd.ROOT}/hd.py close s1 superseded by h1"])
+
     def test_planner_merges_changes_on_one_mechanism(s):
         s.change("h1", track="harness"); s.change("h2", track="harness"); s.change("s1")
         with s.assertRaises(SystemExit):
-            hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--mechanism", "hold", "--supersedes", "h1,s1"])   # only open harness changes
+            hd.cmd_new(["r1", "--track", "harness", "--title", "x", "--mechanism", "hold", "--supersedes", "h1,nope"])   # only open changes
         hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1,h2"])
         g = hd.defs("changes")
         s.assertEqual((g["h1"]["superseded"], g["h2"]["superseded"], g["r1"]["mechanism"]), ("r1", "r1", "hold"))

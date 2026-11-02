@@ -450,6 +450,7 @@ a server up's stack is one record, `state/<slug>/up.json`, written before its fi
 `down` and the pass's repair act on the containers and the script the record names, and `down` removes the record once none of them is left;
 its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>[,<M>...]` those desktops' administrators, the rights read back after the logins;
 a login that made an account but its own, a lost key, logged out and in again;
+each desktop's disk cache is the cache its server serves, so no login fetches a cache group its interfaces' onLoad scripts would run before;
 a login whose inventory widget does not show container 93 fails up, as does one whose widget has no slots 10 game ticks after the first event after LOGGED_IN), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
 A harness dev runs the unit tests in its worktree;
 the harness track's `build` refuses without the loop's T and TCOMMIT.

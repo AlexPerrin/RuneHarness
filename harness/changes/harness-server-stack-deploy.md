@@ -1,0 +1,24 @@
+---
+slug: harness-server-stack-deploy
+track: harness
+title: 'One deploy of the test-server stack: each instance (live or a run''s) and
+  each attempt rendered from one declaration in tools/server'
+kind: change
+priority: P1
+deps:
+- harness-build-gate-keyed-process
+- harness-issuer-official-shapes
+- server-token-auth
+mechanism: server
+created: '2026-11-02T00:46:49Z'
+---
+Root cause (PRD workflow: a change's stack is deployed so QA and the user test it; the live server runs what was carried): the server stack's facts are scattered across ship, track.sh up and docker-compose.yml, keyed by build tree instead of by instance and attempt, so each new requirement (evidence, cache, idle logout, token issuer) patched one path. One deploy step renders the stack for an instance (live | run) and an attempt from tools/server, and ship and track.sh up both call it.
+
+Carries: harness-live-issuer-cutover's tools commit 67cf143 (T 4a13623) and harness-live-deploy-evidence's joined idle-logout work (6ef5218).
+
+Acceptance (all of the superseded changes):
+1. Each deploy attempt writes build-<tree>-<attempt>.log and its failure line is in state/live/ship.log; the cache volume is shared across build trees, keyed by cache version (no 16 min re-download on a retry); the cause of today's 13 first-attempt 'build failed' lines is found and fixed; a test covers two attempts keeping two logs. (Evidence: integration ee13b4cf / live b5e0bddbc attempt 1 failed 22:08:13-22:09:21Z, attempt 2 overwrote its log.)
+2. A run's own server starts with idleLogout off; the live server keeps the official idle logout; a test checks the run's rendered game.yml. (Evidence: genie-review-355-131 desktops 3 and 4 logged out 00:19:59Z and ~00:21:01Z, 5 min after last input, server up.)
+3. The live stack takes the APK's tokens from issuer.py with its DIR mounted; served jav_config params 11, 20, 22, 28 point at it; game.yml token-login holds its secret; the sidecar runs with LOCAL_AUTH false. Proof: the APK (OPENRUNE=1 LOCAL_AUTH=1) logs in on a change's stack through the issuer, contacting only local hosts. It changes a live component: before ship, hd ask the user for a yes on the cutover.
+
+The change waits on all three deps (part 3 needs server-token-auth and harness-issuer-official-shapes).

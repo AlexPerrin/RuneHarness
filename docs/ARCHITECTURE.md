@@ -386,6 +386,7 @@ each desktop of an up is kept logged in until `down`: a logout observed is logge
 a failed login that left the desktop logged in (no inventory) is logged out and tried again at once, a second such failure waiting like any other;
 a desktop's endpoint runs its up's tool calls one at a time in arrival order (the plugin interrupts the active call on each new one, and a run and its keeper both call), a cancel notification passing at once;
 a cancelled keeper call starts its login again, never read as the endpoint gone;
+a keeper call once sent waits for its answer however long it queues (only its connect is bounded), so no step it gave up on runs later;
 `restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
 a desktop login ends on a page Enter does not submit: Escape, Enter again, else the refusal named;
 a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;

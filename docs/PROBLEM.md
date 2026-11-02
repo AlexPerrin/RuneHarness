@@ -135,7 +135,7 @@ Everything below is how that runs unattended.
 Every **change** has one shape on every track: defined, given a contract, built by a dev agent into one commit against a tree built once, gated by scripts, judged once by a reviewer against the contract, and shipped.
 A server change reaches two targets independently: the test server as soon as it is gated, upstream after the user's yes on its card (the console's text of the complete upstream PR: head, acts and exact texts).
 The user is asked only for that yes and for decisions of scope or accuracy;
-a maintainer's finding files a new change on the same PR with the finding as a contract row.
+a PR round is one change: every maintainer finding on the PR, and every fix filed on it, joins the PR's one open change as a contract row, its fixes stacked as commits on the PR, gated, judged and carried once at its last head.
 Each goal is measured when its target moves, and a planner run files the changes that close the gap, with dependencies across tracks;
 the same role watches operations and files a harness change for each issue it finds.
 The orchestrator, a long-lived session of its own, drives the loop: it spawns and stops every run and handles their hand-backs, and it is the user's chat: it shows cards, questions and alerts and acts on the user's other words at once, while the user's yes and close are the user's own, never an agent's.

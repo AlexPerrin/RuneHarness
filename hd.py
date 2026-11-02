@@ -2977,12 +2977,13 @@ def cmd_new(a):
             refuse(f"no change {o.limit_of}")
         if m in (own := scope(graph, o.limit_of)):
             refuse(f"{m} is in {o.limit_of}'s scope ({', '.join(sorted(own))}): fix it there, rewriting the mechanism if the limit is in its design")
+    held = list(dict.fromkeys(k for k in (o.blocks, o.limit_of) if k))  # the changes that wait on the fix: --blocks and the limit's finder
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
-    if o.blocks:
-        tie[o.blocks] = {**tie[o.blocks], "deps": [*tie[o.blocks]["deps"], o.slug]}
+    for k in held:
+        tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
     into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c) and not ordered(tie, o.slug, k)), None)
     if into:
-        o.deps = ""  # a joined filing adds no change of its own: only the --blocks edge follows it into `into`
+        o.deps = ""  # a joined filing adds no change of its own: only the held changes' edges follow it into `into`
     carrier = into or o.slug  # the change that carries the fix: every wait on the filing or a superseded change names it
     meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks", "supersedes", "limit_of")}
     if o.limit_of:
@@ -2991,8 +2992,8 @@ def cmd_new(a):
     if o.units:
         meta["units"] = o.units.split(",")
     graph = {**graph, o.slug: meta}
-    if o.blocks:
-        graph[o.blocks] = {**graph[o.blocks], "deps": [*graph[o.blocks]["deps"], o.slug]}
+    for k in held:
+        graph[k] = {**graph[k], "deps": [*graph[k]["deps"], o.slug]}
     moved = retarget({**graph, **defs("goals")}, {o.slug, *sup}, carrier)
     if (cy := [c for c in cycles({**graph, **moved}) if carrier in c]):
         refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))

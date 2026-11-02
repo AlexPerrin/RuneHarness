@@ -27,7 +27,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
 tools/track.sh    the harness track's script;
                   tools/track.md its rules and seed rows;
                   tools/docfmt.py writes the source docs one fact per line (a break after each semicolon and sentence end, a table a block per row), and its --check fails the docs row on a doc it would change.
-                  Each product repo holds its own track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log <slug> [T], blocking on facts, build, gate and the contract rows' verbs in its tools/gate/gate.sh;
+                  Each product repo holds its own track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log <slug> [T], blocking on facts, the build in its tools/build/build.sh, the gate and the contract rows' verbs in its tools/gate/gate.sh (which sources build.sh);
                   its judgment skills under its .claude/skills/
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring), reader.md (a run's read-only lookup, returning its conclusion)
 mcp/              osrs-mcp (cache, wiki, gamevals);
@@ -125,21 +125,27 @@ state/briefs/<run>.md          the prompt;
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
                                state/orchestrator-handoff.md  a restarting orchestrator session's hand-off to the fresh one;
                                state/orchestrator.restart  `hd restart`'s mark: the supervisor starts a fresh session
-state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
+state/<slug>/proc-<script>.json {pid, start, args, key, attempts} (key: the key its result is recorded under, none for a carry; attempts count on the same args and key since the last result or the script's last change);
+state/<slug>/tools-conflict-<repo>.json {head, onto, detail}: the pass's rebase of a carried tools head stopped, its files named; repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges
 ```
 Every `state/` JSON record is written to a temp file beside it and renamed over it (`hd.write`, each track script's writers), so a reader sees the old record or the new one, never a partial one.
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;
 a merge-tree conflict only in content of the source docs is merged line by line (`hd.merge_lines`: each side's changed lines kept, a conflict only where both change overlapping lines differently), so neighbouring facts never conflict;
 the integration tree T_int is the same over every gated open server head plus the permanent pins.
-Build and gate are keyed by T's tree joined with `-<hash12>` of the tools they run when the track has a tools branch: at its tip, every file under `tools/gate/` (the code a build or gate runs: `tools/gate/gate.sh` holds build, gate and every verb a contract row runs, and tools/track.sh only dispatches those verbs to it) and each other tools file a row's command names, with the contract's script rows (`hd.tools_run`);
-a tools fix re-builds and re-gates, a tools commit outside them (docs, tests, up's code) neither;
+Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).
+The build key is T's tree joined with `-<hash12>` of every file under `tools/build/` (the code a build runs: build.sh, the Dockerfile, central.init.gradle);
+the gate key is the build key joined with `-<hash12>` of every file under `tools/gate/` (the gate and every verb a contract row runs) and each other tools file a row's command names, with the contract's script rows;
+a script gets the build key as `T` (the artefact it builds or uses) and the gate key as `G` (the gate's record);
+a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit outside both (docs, tests, up's code) neither;
+`hd tree` prints the build key, so a dev's build is the pass's;
 T_int admits a change whose gate passed at its current key, the test `nxt` applies).
 A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`;
 `hd tree` prints it third);
 T_int carries the one of its heads' central dependencies.
 Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by its batch tree without `harness/`, so a definition commit on the live branch re-builds, re-gates and blocks the ship of nothing;
 ship fast-forwards to the current batch tree).
+A server build holds its slug's `state/<slug>/build.lock` while it builds alone, never through the gate's rows (gate-ci's CI wait), so a rekeyed build or a dev's build waits on no gate.
 The game cache is keyed by the hash of its inputs (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned).
 The build copy is `<repo>/.worktrees/<slug>-build`, the dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo;
 a track's `tools/` sit on its repo's `tools` branch (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing.
@@ -173,8 +179,8 @@ next(change):
     no → dev run, even on a done change (it reopens) (a hand-off file lists its successor;
     FAIL findings and gate details in the brief)
   carried tools head behind branch?
-    rebase it in the pass, record it in the hand-over;
-    conflict → dev
+    rebase it in the pass (its tools worktree), record it in the hand-over;
+    a rebase that stops → recorded, dev, its files named
   T
     conflict → dev;
     an upstream head holding unmerged commits of another PR's change (stacked), or not holding the head of a same-PR dependency it joins → dev
@@ -225,10 +231,13 @@ next(change):
   batch (`hd.batch`: harness, and client code; a release is gated alone)
     every change of the track at this step, in hand-over order, merged onto the live branch (no per-change build or gate):
     a conflict with the branch → dev;
-    with an earlier member, or tools of a repo an earlier member carries → wait for the next batch.
+    with an earlier member → wait for the next batch.
+    Members' heads on one tools branch merge in the same order (the merged commit is the batch's head there, which ship fast-forwards the branch to);
+    a member whose tools conflict with an earlier member's → wait for the next batch.
     Each prefix is a tree, its gate `state/ship-<track>/gate-<key>.json` (NAMES: its changes, each change's rows with its own env;
     a harness check of the tree alone runs once per gate);
     the longest passing prefix ships (one ship moves every member of it);
+    a gate running on a prefix still current with no result holds, the state naming its key;
     none passing: gate the whole batch, after a failure the first half of the failing prefix, down to the first member alone, then the live branch with that member's rows:
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
@@ -261,6 +270,7 @@ then new content: an upstream change without a PR;
 each at the best priority of the open changes it blocks, by a dep or by the conflict a change's last state names as holding its test server deploy), compute `next`;
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
+a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;

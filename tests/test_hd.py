@@ -25,7 +25,7 @@ class Fake(hd.Facts):
 
     def __init__(s, **f):
         super().__init__()
-        s.f, s.spawned, s.ran, s.envs = f, [], [], []
+        s.f, s.spawned, s.ran, s.envs, s.stopped = f, [], [], [], []
 
     def sh(s, args, cwd=None, env=None, timeout=600):
         if args[3:] == ["config", "user.email"]:
@@ -69,6 +69,7 @@ class Fake(hd.Facts):
     def slices(s): return s.f.get("slices", set())                       # the active run slices
     def alive(s, pid, start): return (pid, start) in s.f.get("procs", {(7, "1")})  # the console is alive unless a test says otherwise
     def spawn(s, args, log, env=None): s.spawned.append(args); s.envs.append(env or {}); return 4242, "99"
+    def stop(s, pid, start): s.stopped.append(pid); s.f["procs"] = set(s.f.get("procs", {(7, "1")})) - {(pid, start)}
     def run(s, cmd, cwd, env): s.ran.append(cmd); return s.f.get("rows", {}).get(cmd, (1, "false") if cmd.startswith("false") else (0, ""))
     def review_comments(s, repo, pr): return None if s.f.get("comments", {}) is None else s.f.get("comments", {}).get(pr, [])  # None in f = GitHub unreadable
     def pr_comments(s, repo, pr): return None if s.f.get("talk", {}) is None else s.f.get("talk", {}).get(pr, [])
@@ -1241,7 +1242,7 @@ class R4(Sandbox):
         s.ready(F, deps=["z1"])                                                  # the server PR is gated and judged: no card while Central's PR is unmerged
         s.assertEqual((s.state(F, "s1")["state"], s.state(F, "s1")["actor"]), ("waiting on z1's upstream merge", "wait"))
         F.f["anc"] = {(B, D)}                                                    # Central's main holds z1: the hold lifts (the server rebuilds without it)
-        s.assertEqual(s.state(F, "s1")["state"], "building tatatatat")
+        s.assertEqual(s.state(F, "s1")["state"], "building tatatatat-cbbbbbbbb")   # the state names the key: the Central part too
 
     def test_a_finding_on_the_pr_conversation_is_answered_by_a_pr_comment_once(s):
         s.change("s0", pr=7); s.agreed("s0"); s.change("s1", deps=["s0"], pr=7, finding="IC_x"); s.agreed("s1")
@@ -1677,36 +1678,87 @@ class R5(Sandbox):
 
     def test_a_tools_fix_reruns_a_failed_gate(s):
         s.change("s1"); s.agreed("s1")
-        sh, gs = "up() {\n  echo up\n}\n", "build() {\n  record true build\n}\ngate() { build; }\nrecord() { echo; }\n"
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": sh, "tools/gate/gate.sh": gs}}})
-        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x]   # the contract's script rows are in the key
-        k = f"{s.gated('s1', F)['T']}-{hd.tools_run(F.f['tools_files'][B], rows)[:12]}"
-        hd.put("s1", "build", {"T": k, "ok": True})
-        hd.put("s1", "gate", {"T": k, "ok": False, "detail": "FAIL: ci: a tools bug"})
+        bs, gs = "build() {\n  record true build\n}\n", "gate() { build; }\nrecord() { echo; }\n"
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "up() { :; }\n", "tools/build/build.sh": bs, "tools/gate/gate.sh": gs}}})
+        rows = [x for r in hd.contract("s1")["rows"] for x in (r["check"], r["gate"]) if x]   # the contract's script rows are in the gate key
+        t = s.gated("s1", F)["T"]
+        bk = lambda c: f"{t}-{hd.tools_run(F.f['tools_files'][c], 'tools/build/')[:12]}"
+        gk = lambda c: f"{bk(c)}-{hd.tools_run(F.f['tools_files'][c], 'tools/gate/', rows)[:12]}"
+        hd.put("s1", "build", {"T": bk(B), "ok": True})
+        hd.put("s1", "gate", {"T": gk(B), "ok": False, "detail": "FAIL: ci: a tools bug"})
         s.assertEqual(s.state(F, "s1")["actor"], "dev")                      # the failure stands while the tools stand
-        F.f["tools_files"][C] = {"tools/track.sh": sh.replace("echo up", "echo up again"), "tools/gate/gate.sh": gs, "tools/server/README.md": "x"}
+        F.f["tools_files"][C] = {**F.f["tools_files"][B], "tools/track.sh": "up() { echo up; }\n", "tools/server/README.md": "x"}
         F.f["refs"] = {**F.f["refs"], "local/harness": C}                    # a tools commit outside what build and gate run
-        s.assertEqual(hd.tools_run(F.f["tools_files"][B], rows), hd.tools_run(F.f["tools_files"][C], rows))
+        s.assertEqual((bk(B), gk(B)), (bk(C), gk(C)))
         s.assertEqual(s.state(F, "s1")["actor"], "dev")                      # the failure still stands
-        F.f["tools_files"][D] = {"tools/track.sh": sh, "tools/gate/gate.sh": gs.replace("echo;", "echo 2;")}
+        F.f["tools_files"][D] = {**F.f["tools_files"][B], "tools/gate/gate.sh": gs.replace("echo;", "echo 2;")}
         F.f["refs"] = {**F.f["refs"], "local/harness": D}                    # the tools fix ships: a gate file
+        s.assertEqual(bk(D), bk(B))                                          # a gate edit never rekeys the build
         st = s.state(F, "s1")
-        s.assertEqual((st["actor"], st["state"]), ("script", f"building {hd.rec('s1', 'build')['T'][:9]}"))
+        s.assertEqual((st["actor"], st["state"]), ("script", f"gate on {hd.short(gk(D))}"))
         hd.tick(s.ctx(F))
-        s.assertEqual([x[1] for x in F.spawned], ["build"])                 # build and gate re-run under the new tools
-        s.assertEqual(F.envs[0]["T"], f"{hd.rec('s1', 'handover')['T']}-{hd.tools_run(F.f['tools_files'][D], rows)[:12]}")
-        hd.put("s1", "gate", {"T": F.envs[0]["T"], "ok": True})
+        s.assertEqual([x[1] for x in F.spawned], ["gate"])                  # the gate re-runs, nothing is rebuilt
+        s.assertEqual((F.envs[0]["T"], F.envs[0]["G"]), (bk(D), gk(D)))      # T names the build (the image), G the gate's record
+        hd.put("s1", "gate", {"T": F.envs[0]["G"], "ok": True})
         s.assertIn("s1", hd.integration(s.ctx(F))["names"])                  # the re-run gate still admits the hand-over to T_int
+        F.f["tools_files"][A] = {**F.f["tools_files"][D], "tools/build/Dockerfile": "FROM b"}
+        F.f["refs"] = {**F.f["refs"], "local/harness": A}                    # a build edit rekeys both
+        s.assertEqual(s.state(F, "s1")["state"], f"building {hd.short(bk(A))}"); s.assertNotEqual(gk(A), gk(D))
+
+    def test_a_script_alive_under_an_outdated_key_is_stopped_and_replaced(s):  # 10 gates kept their old key while their new builds waited
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/gate/gate.sh": "1"}}})
+        s.gated("s1", F); hd.drop("s1", "gate"); hd.tick(s.ctx(F))
+        hd.put("s1", "build", {"T": F.envs[-1]["T"], "ok": True})               # built; a gate gate.sh's key never rebuilds
+        k1 = s.state(F, "s1")["state"]; hd.tick(s.ctx(F))
+        p1 = hd.rec("s1", "proc-gate"); F.f["procs"] = {(7, "1"), (p1["pid"], p1["start"])}
+        hd.tick(s.ctx(F)); s.assertEqual((len(F.spawned), F.stopped), (2, []))   # alive under the current key: kept
+        F.f["tools_files"][C] = {"tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = C   # the gate's code moves: its key does
+        st = s.state(F, "s1"); s.assertNotEqual(st["state"], k1)
+        hd.tick(s.ctx(F))
+        s.assertEqual((F.stopped, [x[1] for x in F.spawned]), ([p1["pid"]], ["build", "gate", "gate"]))   # the outdated gate is stopped, the current one started; no rebuild
+        s.assertEqual(hd.rec("s1", "proc-gate")["key"], F.envs[-1]["G"])        # the record names the key of the process holding it
+        s.assertEqual(st["state"], f"gate on {hd.short(F.envs[-1]['G'])}")
+        ctx = s.ctx(F); F.f["procs"] = {(7, "1"), (4242, "99")}
+        ctx.start("s2", "ship", ["hd.py", "ship", "s2", A]); ctx.start("s2", "ship", ["hd.py", "ship", "s2", A])
+        s.assertEqual(F.stopped, [p1["pid"]])                                    # a carry has no key: never stopped
+
+    def test_a_batch_gate_on_a_prefix_still_current_holds(s):  # a member arriving restarted no gate, and the state named the running one
+        for k in ("h1", "h2"):
+            s.change(k, track="harness"); s.agreed(k, track="harness")
+        H1, H2, M2 = "1" * 40, "2" * 40, "m2" * 20
+        F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2}, trees={B: "t0", H1: "t1", H2: "t2", M2: "t12"},
+                 merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (H1, H2): ("ok", M2)})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        hd.tick(s.ctx(F)); F.f["procs"] = {(7, "1"), (4242, "99")}               # h1 alone: its gate runs
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h2"])
+        s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], ["gate on t1", "waiting for the batch ahead (gate on t1)"])
+        hd.tick(s.ctx(F)); s.assertEqual((len(F.spawned), F.stopped), (1, []))  # the running gate holds: nothing restarted
+        hd.put("ship-harness", "gate-t1", {"ok": True}); F.f["procs"] = {(7, "1")}
+        s.assertEqual(s.state(F, "h1")["state"], "shipping")                     # its prefix ships; h2 follows in the next batch
+        hd.drop("ship-harness", "gate-t1"); F.f["procs"] = {(7, "1"), (4242, "99")}
+        F.f["refs"]["harness/h1"] = "9" * 40                                     # h1's head moves: the running gate's prefix is gone
+        F.f["trees"]["9" * 40] = "t9"; F.f["merges"].update({(B, "9" * 40): ("ok", "9" * 40), ("9" * 40, H2): ("ok", "m9" * 20)}); F.f["trees"]["m9" * 20] = "t92"
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"])
+        hd.tick(s.ctx(F))
+        s.assertEqual((F.stopped, F.envs[-1]["G"]), ([4242], "t92"))           # stopped, the current batch's gate started
 
     def test_the_tools_key_holds_only_what_build_and_gate_run(s):
-        f = {"tools/track.sh": "case $1 in build|gate) exec gate/gate.sh ;; esac\nup() { :; }\n", "tools/gate/gate.sh": "build() { :; }\n",
-             "tools/gate/Dockerfile": "FROM a", "tools/server/login.py": "x", "tools/server/text.py": "t", "tools/server/test_tools.py": "u"}
-        k = lambda g, rows=("tools/server/text.py texts", "tools/track.sh spotless"): hd.tools_run({**f, **g}, list(rows))
-        for g in ({"tools/gate/gate.sh": "build() { echo; }\n"}, {"tools/gate/Dockerfile": "FROM b"}, {"tools/gate/new.py": ""}, {"tools/server/text.py": "t2"}):
-            s.assertNotEqual(k({}), k(g), g)                                   # a gate file, a new one, a file a row names
-        for g in ({"tools/track.sh": "case $1 in build|gate) exec gate/gate.sh ;; esac\nup() { echo up; }\n"}, {"tools/server/login.py": "y"},
+        f = {"tools/track.sh": "case $1 in build) exec build/build.sh ;; gate) exec gate/gate.sh ;; esac\nup() { :; }\n", "tools/build/build.sh": "build() { :; }\n",
+             "tools/build/Dockerfile": "FROM a", "tools/gate/gate.sh": "gate() { :; }\n", "tools/server/login.py": "x", "tools/server/text.py": "t", "tools/server/test_tools.py": "u"}
+        rows = ["tools/server/text.py texts", "tools/track.sh spotless"]
+        b = lambda g: hd.tools_run({**f, **g}, "tools/build/")
+        k = lambda g, r=rows: hd.tools_run({**f, **g}, "tools/gate/", list(r))
+        for g in ({"tools/build/build.sh": "build() { echo; }\n"}, {"tools/build/Dockerfile": "FROM b"}, {"tools/build/new.py": ""}):
+            s.assertNotEqual(b({}), b(g), g)                                   # a build file, a new one
+        for g in ({"tools/gate/gate.sh": "gate() { echo; }\n"}, {"tools/gate/new.py": ""}, {"tools/server/text.py": "t2"}):
+            s.assertNotEqual(k({}), k(g), g); s.assertEqual(b({}), b(g), g)    # a gate file or a file a row names: the gate alone
+        for g in ({"tools/track.sh": f["tools/track.sh"].replace("up() { :; }", "up() { echo up; }")}, {"tools/server/login.py": "y"},
                   {"tools/server/test_tools.py": "u2"}):
-            s.assertEqual(k({}), k(g), g)                                      # up's code in track.sh (a row's verb runs in gate/), other files
+            s.assertEqual((b({}), k({})), (b(g), k(g)), g)                     # up's code in track.sh (a row's verb runs in gate/), other files
         s.assertNotEqual(k({}), k({}, ["tools/server/text.py texts"]))         # the rows themselves
 
     def test_track_root_and_repair_on_the_tools_branch_worktree(s):
@@ -2256,17 +2308,34 @@ class R8(Sandbox):
         fork = str(s.root / "fork")
         F = Fake(refs={"HEAD": B, "harness/h1": A, f"{fork}:harness/h1": C}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)}, anc={(C, "local/harness")})
         s.gated("h1", F)
-        F.f["anc"] = set()                                                       # another change shipped: local/harness moved past C
-        F.f["merges"][("local/harness", C)] = ("conflict", "CONFLICT (content): tools/x")
+        F.f["anc"] = set(); F.f["refs"]["local/harness"] = B                    # another change shipped: local/harness moved past C
+        F.f["rebases"] = {"harness/h1": ("conflict", "conflict in tools/x\nCONFLICT (content): Merge conflict in tools/x")}
         st = s.state(F, "h1")
-        s.assertEqual((st["actor"], st["detail"]), ("dev", "CONFLICT (content): tools/x"))   # a conflict is the dev's
-        del F.f["merges"][("local/harness", C)]; F.f["rebases"] = {"harness/h1": ("ok", D)}
+        s.assertEqual(st["actor"], "script"); st["act"]()                        # the pass tries the rebase itself
         st = s.state(F, "h1")
-        s.assertEqual(st["actor"], "script"); st["act"]()                        # no conflict: the pass rebases, no dev run
+        s.assertEqual((st["actor"], st["state"], st["detail"].split("\n")[0]), ("dev", f"tools conflict in {fork}: dev", "conflict in tools/x"))  # the rebase stopped: the dev's, naming the files
+        F.f["refs"]["local/harness"] = D                                         # the branch moves again: the pass tries again
+        F.f["rebases"] = {"harness/h1": ("ok", D)}
+        st = s.state(F, "h1")
+        s.assertEqual(st["actor"], "script"); st["act"]()                        # a clean rebase: no dev run
         s.assertIn(["rebase", fork, "harness/h1", "local/harness"], F.ran)
         F.f["refs"][f"{fork}:harness/h1"] = D; F.f["anc"] = {(D, "local/harness")}
         s.assertEqual((hd.rec("h1", "handover")["tools"], hd.rec("h1", "handover")["T"]), ({"fork": D}, TA + "+" + D[:12]))
         s.assertEqual(s.state(F, "h1")["state"], f"gate on {TA[:9]}")          # the new head is recorded and re-gated in its batch
+
+    def test_a_batch_merges_its_members_tools_heads_in_one_go(s):  # one carrying the fork's tools waited for another's ship, then rebased
+        for k in ("h1", "h2"):
+            s.change(k, track="harness"); s.agreed(k, track="harness")
+        fork, H1, H2, M2, T1, T2, TM = str(s.root / "fork"), "1" * 40, "2" * 40, "m2" * 20, "e" * 40, "f" * 40, "9" * 40
+        F = Fake(refs={"HEAD": B, "harness/h1": H1, "harness/h2": H2, f"{fork}:harness/h1": T1, f"{fork}:harness/h2": T2}, trees={B: "t0", H1: "t1", H2: "t2", M2: "t12"},
+                 merges={(B, H1): ("ok", H1), (B, H2): ("ok", H2), (H1, H2): ("ok", M2), (T1, T2): ("ok", TM)}, anc={(T1, "local/harness"), (T2, "local/harness")})
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["h1"]); hd.cmd_handover(["h2"])
+        s.assertEqual([s.state(F, k)["state"] for k in ("h1", "h2")], [f"gate on t12+{TM[:5]}"] * 2)   # one batch: both tools heads merged
+        hd.tick(s.ctx(F))
+        s.assertEqual((F.envs[-1]["NAMES"], F.envs[-1]["TOOLS"]), ("h1,h2", f"{fork}:local/harness:{TM}:o/f"))   # ship fast-forwards the branch to the merge
+        F.f["merges"][(T1, T2)] = ("conflict", "CONFLICT (content): tools/x")
+        s.assertEqual(s.state(F, "h2")["state"], "waiting for the batch ahead: its fork tools conflict with h1's")
 
     def test_ready_harness_siblings_ship_in_one_gate_a_failure_bisected_to_its_change(s):
         for k in ("h1", "h2", "h3"):

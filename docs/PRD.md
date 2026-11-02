@@ -81,7 +81,7 @@ Every run is an agent of a visible session.
 ### R8 Trees (from P6 P9)
 A change's tree T is its base, its dependencies and its head merged;
 an upstream PR is self-contained: its head holds no unmerged commit of another PR's change, so its T is its head on upstream main (with its same-PR dependencies), and its card and carry follow its own gate there (a head the upstream PR is already at is never rebuilt or re-gated because main moved), the test server deploy running beside them and holding neither;
-a carried tools head rebased onto its moved branch;
+a carried tools head rebased onto its moved branch by the pass, a dev step only where the rebase stops;
 a conflict is the dev's step, and a resolution against a permanent pin is a merge ref of both heads, used by the integration tree only and kept while the base moves past it and it still merges.
 Two changes conflict only where they change the same fact: the source docs (PROBLEM.md, PRD.md, ARCHITECTURE.md) hold one fact per line, each requirement and paragraph a block of its own, and the gate's docs row fails a doc out of that format.
 Two changes to different fact lines of a source doc merge, neighbouring lines included, with no dev run.
@@ -93,6 +93,7 @@ a pin's conflict, with the base or another head, holds the deploy and is the dev
 one pass names every conflict.
 A server change's T includes the Central tree of its central dependencies, a central change being live once gated.
 T is built at most once, in a copy no agent commits from;
+a build or gate is keyed only by what it runs, a gate's code never rekeying a build, and one whose key is no longer current is stopped;
 its artefact serves the dev's check, the gate, the review and the deployment.
 The game cache is rebuilt only when its inputs change.
 Every artefact and process is named after its change or run;
@@ -178,6 +179,7 @@ a live check reads the real state.
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
    a script dead twice on the same args → raised once, a new args or a landed result restarts the count;
+   a build or gate alive under a key no longer current is stopped and the current one started, the proc record naming the key of the process holding it, a carry never stopped, and a batch gate on a prefix still current holds while members arrive;
    a yes recorded then the orchestrator gone → the ship completes;
    a repair whose effect is not observed is not logged;
    the same repair twice raises once;
@@ -217,7 +219,9 @@ a live check reads the real state.
    a conflict lists the dev;
    two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
    one change editing a fact line and another inserting a fact on the line before it merge in either order, while a code conflict beside them stays the dev's;
-   a carried tools head its branch moved past is rebased by the pass and re-gated, a conflict listing the dev;
+   a carried tools head its branch moved past is rebased by the pass and re-gated with no dev run, a rebase that stops listing the dev with its files;
+   a build is keyed by T and tools/build/ alone, a gate by the build key, tools/gate/ and the rows' files: a gate-only tools edit rebuilds nothing;
+   a batch merges its members' heads on one tools branch, a tools conflict with an earlier member waiting;
    a merge ref `local/merge/<a>-<b>` stands in for heads a and b (the base one of them) in T_int while b is an ancestor of the current partner and it merges;
    a pin's conflict lists the dev of the oldest gated change at its deploy step;
    T_int merges heads by priority, then creation, and a lower-priority head's conflict lists its dev while the higher-priority heads deploy;

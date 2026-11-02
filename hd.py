@@ -271,9 +271,10 @@ class Facts:
         if r is None:
             return None
         s.forget(repo, wt)
-        if r[0]:
+        if r[0]:  # the rebase stopped: the files it left unmerged name the conflict
+            u = s.sh(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"])
             s.sh(["git", "-C", wt, "rebase", "--abort"])
-            return "conflict", (r[1] + r[2])[-2000:]
+            return "conflict", f"conflict in {', '.join((u or [1, ''])[1].split()) or 'unknown files'}\n" + (r[1] + r[2])[-2000:]
         return "ok", s.rev(wt, "HEAD")
 
     @_read
@@ -332,6 +333,22 @@ class Facts:
         p = subprocess.Popen(scope + args, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL, stdout=open(log, "a"),
                              stderr=subprocess.STDOUT, start_new_session=True)
         return p.pid, s.proc_start(p.pid)
+
+    def stop(s, pid, start):
+        """R5: stop a script the pass started, with everything it started: its systemd scope, else its session."""
+        if not s.alive(pid, start):
+            return
+        try:
+            cg, mine = Path(f"/proc/{pid}/cgroup").read_text(), Path("/proc/self/cgroup").read_text()
+        except OSError:
+            return
+        unit = cg.strip().rsplit("/", 1)[-1]  # spawn's own transient scope, never one the pass shares (a login session's)
+        if cg != mine and unit.startswith("run-") and unit.endswith(".scope") and not (s.sh(["systemctl", "--user", "stop", "--no-block", unit]) or [1])[0]:
+            return
+        try:
+            os.killpg(pid, signal.SIGTERM)  # spawn starts each script in its own session
+        except OSError:
+            pass
 
     def run(s, cmd, cwd, env):
         """A contract script row, inline: (rc, output)."""
@@ -551,10 +568,15 @@ def tools_wt(r):
     return P(r["path"]) / ".worktrees" / r["tools"].rsplit("/", 1)[-1] if r.get("tools") else None
 
 
-def tools_run(files, cmds):
-    """The hash of the tools a build and gate run: every file under tools/gate/ (where the track keeps that code; tools/track.sh
-    only dispatches to it) and each other tools file a contract row's command names, with those commands."""
-    run = sorted(p for p in files if p.startswith("tools/gate/") or (p != "tools/track.sh" and any(p in c for c in cmds)))
+def short(k):
+    """A key as a state names it: each `-` part (the tree, the build tools, the gate tools) to 9 characters."""
+    return "-".join(p[:9] for p in k.split("-"))
+
+
+def tools_run(files, d, cmds=()):
+    """The hash of the tools one script step runs: every file under its dir d (a track keeps a build's code in tools/build/, a
+    gate's in tools/gate/; tools/track.sh only dispatches to them) and each other tools file a contract row's command names, with those commands."""
+    run = sorted(p for p in files if p.startswith(d) or (p != "tools/track.sh" and any(p in c for c in cmds)))
     return hashlib.sha1("\0".join(list(cmds) + [f"{p}\n{files[p]}" for p in run]).encode()).hexdigest()
 
 
@@ -1003,10 +1025,11 @@ class Ctx:
         k = s.key(ch, s.tree(ch, T[1]))
         return None if k is None else g["T"] == k
 
-    def key(s, ch, tree, slugs=None):
-        """The build and gate key: T's tree, plus (on a track with a tools branch) the hash of the tools its build and gate
-        run (tools_run: the rows of the change, or of a batch's `slugs`), so a tools commit outside them re-runs neither. `-`
-        joins it: the server tags its image by the key."""
+    def key(s, ch, tree, slugs=None, build=False):
+        """R8: the gate key, or with build the build key. On a track with a tools branch, the build key is T's tree `-` the hash
+        of tools/build/ (the server tags its image by it); the gate key is the build key `-` the hash of tools/gate/ and the
+        files the rows run (tools_run: the rows of the change, or of a batch's `slugs`), with the rows. A gate-only tools
+        commit rebuilds nothing, a tools commit outside both re-runs neither; without a tools branch both are the tree."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         if tree is None or not r.get("tools"):
             return tree
@@ -1015,7 +1038,10 @@ class Ctx:
             return None if t is None else tree
         files = s.F.tools_files(str(P(r["path"])), t)
         rows = [r for x in slugs or [ch["slug"]] for r in (contract(x) or {}).get("rows", [])]
-        return None if files is None else tree + "-" + tools_run(files, [x for row in rows for x in (row["check"], row["gate"]) if x])[:12]
+        if files is None:
+            return None
+        b = tree + "-" + tools_run(files, "tools/build/")[:12]
+        return b if build else b + "-" + tools_run(files, "tools/gate/", [x for row in rows for x in (row["check"], row["gate"]) if x])[:12]
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
@@ -1041,15 +1067,20 @@ class Ctx:
         p = rec(slug, f"proc-{name}")
         return None if not p else "alive" if s.F.alive(p["pid"], p["start"]) else "dead"
 
-    def start(s, slug, name, args, env=None, act=True):
-        """R5: start a track script once; one that died twice on the same args without its result is raised once."""
-        st = s.proc(slug, name)
-        if st == "alive" or not s.docker:
+    def start(s, slug, name, args, env=None, act=True, key=None):
+        """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
+        another key is outdated, stopped and replaced; one that died twice on the same args and key without its result is raised once."""
+        st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
+        if not s.docker or st == "alive" and (key is None or p.get("key") == key):
             return
-        p = rec(slug, f"proc-{name}") or {}
+        if st == "alive":
+            if not act:
+                return
+            s.F.stop(p["pid"], p["start"])
+            event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
         res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
         newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
-        if p.get("args") != args or newer(res) or newer(Path(args[0]).expanduser()):
+        if p.get("args") != args or p.get("key") != key or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()):
             p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 2:
             a = f"{slug}: {name} died twice without a result (state/{slug}/{name}.log)"
@@ -1062,7 +1093,7 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "attempts": p.get("attempts", 0) + 1})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "attempts": p.get("attempts", 0) + 1})
 
 
 def step(state, actor, **k):
@@ -1074,15 +1105,21 @@ def digest(t):
 
 
 def rebase_tools(ctx, ch, ho, behind):
-    """R8: rebase each carried tools head behind its branch and record the new heads in the hand-over, which re-gates."""
+    """R8: rebase each carried tools head behind its branch onto it, in the change's tools worktree, and record the new heads in
+    the hand-over, which re-gates; a rebase that stops is recorded (tools-conflict-<repo>, the files it names): the dev's step."""
     slug, tools, key = ch["slug"], dict(ho["tools"]), ho["T"]
-    for n, path in behind.items():
-        r = ctx.F.rebase(path, f"harness/{slug}", ctx.cfg["repos"][n]["tools"], f"{path}/.worktrees/{slug}")
-        if not r or r[0] != "ok" or not r[1]:  # shortcut: a rebase that conflicts where the merge did not is an alert; a dev step if it ever happens
-            raise RuntimeError(f"harness/{slug} in {path} did not rebase onto {ctx.cfg['repos'][n]['tools']}: {(r or ['', 'unknown'])[1][:300]}")
+    for n, (path, branch, tip) in behind.items():
+        r = ctx.F.rebase(path, f"harness/{slug}", branch, f"{path}/.worktrees/{slug}")
+        if r and r[0] == "conflict":
+            put(slug, f"tools-conflict-{n}", {"head": tools[n], "onto": tip, "detail": r[1]})
+            event(change=slug, action="tools conflict", repo=n, detail=r[1].split("\n", 1)[0])
+            continue
+        if not r or not r[1]:  # someone's edits in the worktree, or git unreadable: raised, nothing rebased under them
+            raise RuntimeError(f"harness/{slug} in {path} did not rebase onto {branch}: {(r or ['', 'edits in its worktree or git unreadable'])[1][:300]}")
         key, tools[n] = key.replace("+" + tools[n][:12], "+" + r[1][:12]), r[1]
-    put(slug, "handover", {**ho, "tools": tools, "T": key})
-    event(change=slug, action="rebased tools", tools=tools)
+    if tools != ho["tools"]:
+        put(slug, "handover", {**ho, "tools": tools, "T": key})
+        event(change=slug, action="rebased tools", tools=tools)
 
 
 def upstream(ch):
@@ -1299,18 +1336,18 @@ def nxt(ctx, ch):
         return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
                     else f"dev run due: the user answered after the hand-over ({', '.join(late)})", "dev", mode="code",
                     input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
-    behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; a conflict is the dev's step
+    behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; only a rebase that stops is the dev's step
     for n, h in tools.items():
         r = ctx.cfg["repos"][n]
         path = str(P(r["path"]))
-        c = ctx.F.contains(path, h, r["tools"])
-        m = None if c is None or c else ctx.F.merge(path, r["tools"], h, "")
-        if c is None or (not c and m is None):
+        c, tip = ctx.F.contains(path, h, r["tools"]), ctx.F.rev(path, r["tools"])  # tip: the branch commit a recorded conflict was against
+        if c is None or tip is None:
             return step("tools refs unknown", "unknown")
-        if m and m[0] == "conflict":
-            return step(f"tools conflict in {path}: dev", "dev", mode="code", input=["tools", head, h, con["hash"]], detail=m[1])
-        if m:
-            behind[n] = path
+        x = rec(slug, f"tools-conflict-{n}") or {}
+        if not c and x.get("head") == h and x.get("onto") == tip:
+            return step(f"tools conflict in {path}: dev", "dev", mode="code", input=["tools", head, h, tip, con["hash"]], detail=x["detail"])
+        if not c:
+            behind[n] = (path, r["tools"], tip)
     if behind:
         return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
     if not batched(ch) and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a batched head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
@@ -1339,20 +1376,21 @@ def nxt(ctx, ch):
                         return step(f"joins {d}'s PR without its head: dev", "dev", mode="code", input=["joined", head, dh, con["hash"]], detail=(
                             f"This change ships in {d}'s PR ({ch.get('branch') or '#' + str(ch['pr'])}): its head {head[:9]} must hold {d}'s head {dh[:9]}; "
                             "rebase its commits onto it. The PR's title, body and comment cover both changes."))
-        tree = ctx.key(ch, ctx.tree(ch, tc))
-        if tree is None:
+        t = ctx.tree(ch, tc)
+        bk, gk = ctx.key(ch, t, build=True), ctx.key(ch, t)
+        if bk is None or gk is None:
             return step("tree unknown", "unknown")
-        env, script = ctx.env(ch, head, tc, tree), ctx.script(ch)
+        env, script = {**ctx.env(ch, head, tc, bk), "G": gk}, ctx.script(ch)
         b = rec(slug, "build")
-        if not b or b["T"] != tree:
-            return step(f"building {tree[:9]}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env))
+        if not b or b["T"] != bk:
+            return step(f"building {short(bk)}", "script", act=lambda: ctx.start(slug, "build", [script, "build", slug, tc], env, key=bk))
         if not b["ok"]:
-            return step("build failed: dev", "dev", mode="code", input=["build", tree, con["hash"]], detail=result(slug, "build"))
+            return step("build failed: dev", "dev", mode="code", input=["build", bk, con["hash"]], detail=result(slug, "build"))
         g = rec(slug, "gate")
-        if not g or g["T"] != tree:
-            return step(f"gate on {tree[:9]}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], env))
+        if not g or g["T"] != gk:
+            return step(f"gate on {short(gk)}", "script", act=lambda: ctx.start(slug, "gate", [script, "gate", slug, tc], env, key=gk))
         if not g["ok"]:
-            return step("gate failed: dev", "dev", mode="code", input=["gate", tree, con["hash"]], detail=g.get("detail", ""))
+            return step("gate failed: dev", "dev", mode="code", input=["gate", gk, con["hash"]], detail=g.get("detail", ""))
     if any(r["judge"] for r in con["rows"]):  # a reviewer judges only where the contract has judge rows (client: releases)
         vs = [v for v in verdicts(slug) if v["head"] == head and v["contract"] == con["hash"]]
         blobs = {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in con["rules"]}
@@ -1385,8 +1423,9 @@ def batched(ch):
 
 def batch(ctx, track):
     """R8: a track's ship → {slug: step}. Every change of the track at its ship step, in hand-over order, merges onto the live
-    branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member, or carrying a repo's
-    tools another member carries, waits for the next batch. Each prefix of the batch is a tree, its gate keyed by that tree
+    branch: one conflicting with the branch is its dev's; one conflicting only with an earlier member waits for the next batch.
+    Members' heads on one tools branch merge too, in the same order, the merged commit the batch's head there (a member whose
+    tools conflict with an earlier member's waits). Each prefix of the batch is a tree, its gate keyed by that tree
     (state/ship-<track>/gate-<key>.json): the longest prefix whose gate passed ships; with none, the whole batch is gated, and
     after a failure the first half of the failing prefix, down to the first member alone. Its failure is its dev's, and it
     leaves the batch, unless the live branch fails that member's rows alone (its own gate): an alert, no member blamed.
@@ -1402,13 +1441,13 @@ def batch(ctx, track):
     me = {"slug": f"ship-{track}", "track": track, "deps": [], "kind": "code"}
     clone, base, failed, script, repos = ctx.clone(me), ctx.base(me), {}, ctx.script(me), ctx.cfg["repos"]
 
-    def key(commit, ms, tools):  # a tree's gate key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
+    def key(commit, ms, tools, build=False):  # a tree's gate (or build) key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
         t = ctx.F.tree(clone, commit, "harness" if track == "harness" else "")
-        return t and ctx.key(me, t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), [m["slug"] for m in ms])
+        return t and ctx.key(me, t + "".join(f"+{tools[n][:12]}" for n in sorted(tools)), [m["slug"] for m in ms], build)
 
     held = None  # the members behind the first while the live branch's own gate runs
     while True:
-        out, pre, cur, tools = dict(failed), [], base, {}  # pre: [(change, T commit, key, tools)], one per prefix
+        out, pre, cur, tools = dict(failed), [], base, {}  # pre: [(change, T commit, gate key, tools, build key)], one per prefix
         for c in members:
             slug, h, t = c["slug"], ctx.head(c), ctx.tools(c)
             alone = base and ctx.F.merge(clone, base, h, f"T: {slug} {h[:9]} onto {base[:9]}")
@@ -1418,24 +1457,31 @@ def batch(ctx, track):
             if alone[0] == "conflict":
                 out[slug] = step("tree conflict: dev", "dev", mode="code", input=["conflict", h, contract(slug)["hash"]], detail=alone[1])
                 continue
-            if (o := next((p[0]["slug"] for p in pre if set(ctx.tools(p[0])) & set(t)), None)):
-                out[slug] = step(f"waiting for the batch ahead: {o} carries tools of {', '.join(sorted(set(t) & set(tools)))}", "wait")
+            mt, why = dict(tools), None  # the prefix's tools heads with this member's merged in
+            for n, th in sorted(t.items()):
+                m = ctx.F.merge(str(P(repos[n]["path"])), mt[n], th, f"tools: {slug} {th[:9]}") if n in mt else ("ok", th)
+                if m is None or m[0] != "ok":
+                    why = n if m else ""  # "": unknown
+                    break
+                mt[n] = m[1]
+            if why is not None:
+                out[slug] = step("tree unknown", "unknown") if not why else step(f"waiting for the batch ahead: its {why} tools conflict with {', '.join(p[0]['slug'] for p in pre)}'s", "wait")
                 continue
             r = alone if cur == base else ctx.F.merge(clone, cur, h, f"T: {slug} {h[:9]}")
             if r is None or r[0] != "ok":
                 out[slug] = step("tree unknown", "unknown") if r is None else step(f"waiting for the batch ahead: conflicts with {', '.join(p[0]['slug'] for p in pre)}", "wait")
                 continue
-            k = key(r[1], [p[0] for p in pre] + [c], {**tools, **t})
-            if k is None:
+            k, kb = key(r[1], [p[0] for p in pre] + [c], mt), key(r[1], [], mt, True)
+            if k is None or kb is None:
                 out[slug] = step("tree unknown", "unknown")
                 continue
-            cur, tools = r[1], {**tools, **t}
-            pre.append((c, cur, k, dict(tools)))
+            cur, tools = r[1], mt
+            pre.append((c, cur, k, dict(tools), kb))
         res = [rec(me["slug"], f"gate-{p[2]}") for p in pre]
         if not (res and res[0] and not res[0]["ok"]):
             break
         c = pre[0][0]  # the first member alone fails: the live branch's own gate (its rows at the base) decides whose failure it is
-        bk = key(base, [c], {})
+        bk, bb = key(base, [c], {}), key(base, [], {}, True)
         g = bk and rec(me["slug"], f"gate-{bk}")
         if g and g["ok"]:
             failed[c["slug"]] = step("gate failed: dev", "dev", mode="code", input=["gate", pre[0][2], contract(c["slug"])["hash"]], detail=res[0].get("detail", ""))
@@ -1447,7 +1493,7 @@ def batch(ctx, track):
             ctx.batched[track] = {**out, **{m["slug"]: step("waiting: the live branch fails its own gate" if g else "tree unknown", "wait" if g else "unknown") for m in members}}
             return ctx.batched[track]
         held = [p[0] for p in pre[1:]]
-        pre, res = [(c, base, bk, {})], [None]
+        pre, res = [(c, base, bk, {}, bb)], [None]
         break
     ctx.batched[track] = out
     if not pre:
@@ -1455,11 +1501,14 @@ def batch(ctx, track):
     ok = [i for i, g in enumerate(res) if g and g["ok"]]
     bad = [i for i, g in enumerate(res) if g and not g["ok"]]
     i = ok[-1] if ok else (bad[0] + 1) // 2 - 1 if bad else len(pre) - 1
-    _, tc, k, tl = pre[i]
-    env = {"SLUG": me["slug"], "T": k, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
+    run = rec(me["slug"], "proc-gate") or {}
+    if not ok and ctx.proc(me["slug"], "gate") == "alive":  # a gate running on a prefix still current, not yet passed or failed, holds: the state names its key
+        i = next((j for j, p in enumerate(pre) if p[2] == run.get("key") and res[j] is None), i)
+    _, tc, k, tl, kb = pre[i]
+    env = {"SLUG": me["slug"], "T": kb, "G": k, "TCOMMIT": tc, "HD_ROOT": str(ROOT), "NAMES": ",".join(p[0]["slug"] for p in pre[:i + 1]),
            "TOOLS": " ".join(f"{P(repos[n]['path'])}:{repos[n]['tools']}:{h}:{repos[n]['name']}" for n, h in sorted(tl.items()))}
-    verb, what = ("ship", "shipping") if ok else ("gate", f"gate on the live branch {k[:9]}" if held is not None else f"gate on {k[:9]}")
-    act = lambda: ctx._m(("batch", track, verb, tc, k), lambda: ctx.start(me["slug"], verb, [script, verb, me["slug"], tc], env))
+    verb, what = ("ship", "shipping") if ok else ("gate", f"gate on the live branch {short(k)}" if held is not None else f"gate on {short(k)}")
+    act = lambda: ctx._m(("batch", track, verb, tc, k), lambda: ctx.start(me["slug"], verb, [script, verb, me["slug"], tc], env, key=k))
     for j, p in enumerate(pre):
         out[p[0]["slug"]] = step(what, "script", act=act) if j <= i else step(f"waiting for the batch ahead ({what})", "wait")
     for m in held or []:
@@ -1677,7 +1726,7 @@ def ship_test(ctx, ch, st, tint, act):
     elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
                   {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
-                   "CENTRAL": ctx.central_env(tint["central"])}, act)
+                   "CENTRAL": ctx.central_env(tint["central"])}, act, key=tint["tree"])
         st["state"] = f"test server: deploying {tint['tree'][:9]}"
 
 
@@ -2464,7 +2513,7 @@ def cmd_rows(a):
         ch = ctx.changes.get(slug) or refuse(f"no change {slug}")
         print(f"## {slug}") if "," in a[0] else None
         con = contract(ch["slug"]) or refuse("no contract")
-        why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], ctx.tree(ch, a[1]) or "", a[2], gate=True)
+        why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], os.environ.get("T") or ctx.key(ch, ctx.tree(ch, a[1]), build=True) or "", a[2], gate=True)  # T: the build key the gate built
     sys.exit(1 if why else 0)
 
 
@@ -2622,7 +2671,7 @@ def cmd_tree(a):
         refuse("tree cannot be computed")
     if T[0] == "conflict":
         refuse("conflict with the base or a dependency:\n" + T[1])
-    print(T[1], ctx.tree(ch, T[1]) or "", ctx.central_env(ctx.central(ch)))
+    print(T[1], ctx.key(ch, ctx.tree(ch, T[1]), build=True) or "", ctx.central_env(ctx.central(ch)))  # the build key: a dev's build is the pass's
 
 
 def cmd_new(a):

@@ -25,3 +25,6 @@ sweep-25 P2-b: harness-qa-unjustified-upstream-test, gated ok 02:22Z, was re-gat
 
 Also (filed): a carry posts one PR comment, not a comment plus a reply per finding
 The user (2026-11-01, ET): '4 seperate comments spams the upstream's discord, try and keep it to 1. No need to change now, keep it in fore future'. The #355 card posted the push comment plus four replies (review thread 4433239755, IC_kwDOQBbPT88AAAABeeLhdQ, IC_kwDOQBbPT88AAAABeeLmng, IC_kwDOQBbPT88AAAABfTOu_A). A carry posts one PR comment per head that names the head and answers every finding in it (each quoted, its asker @'d once); an inline review-thread reply only where the finding is on a line and no general comment can answer it. Not for the #355 carry already approved.
+
+Also (filed): a carry that marks a PR ready also requests review
+The user (2026-11-01, ET): 'PR should also be marked for review if ready.' The carry's last act is 'mark it ready for review' (hd.py:2433) and nothing requests reviewers: upstream PR #355 is open, not draft, at 306d7edcd with requested_reviewers [] after the user's approved carry. A carry that leaves a PR ready also requests review (the reviewers named by the upstream rules or CODEOWNERS, else the maintainers who reviewed it), shown on the card as its own act; a PR already ready with no request gets one at its next carry.

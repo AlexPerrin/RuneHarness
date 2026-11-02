@@ -2093,7 +2093,7 @@ def ship_test(ctx, ch, st, tint, act):
             for c in tint["conflicts"]:
                 if c["change"] is None and f"pin {c['conflict']}" not in " ".join(ctx.alerts):
                     ctx.alerts.append(f"pin {c['conflict']} conflicts with the integration tree ({', '.join(c['with'][-3:])}): a resolution ref or a change is needed")
-    elif (dk := ctx.deploy_key(ch, tint["tree"])) and (rec("live", "tree") or {}).get("key") != dk:  # live's record keeps the key it was deployed under: a tools fix of what the image carries deploys too
+    elif (dk := ctx.deploy_key(ch, tint["tree"])) and not deployed(ctx, dk):  # live's record keeps the key it was deployed under: a tools fix of what the image carries deploys too
         if ctx.proc("live", "ship") == "alive":  # a deploy runs to its end (its revision download is lost if stopped): the next pass deploys the newest tree
             st["state"] = f"test server: a deploy runs, then {tint['tree'][:9]}"
             return
@@ -2101,6 +2101,13 @@ def ship_test(ctx, ch, st, tint, act):
                   {"T": tint["tree"], "KEY": dk, "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
                    "CENTRAL": ctx.central_env(tint["central"])}, act, key=dk)
         st["state"] = f"test server: deploying {tint['tree'][:9]}"
+
+
+def deployed(ctx, dk):
+    """R8: the live stack runs as deployed under key dk: its record holds dk and every container it names runs (a host restart
+    leaves one exited, and only a deploy recreates it); docker unreadable is no reason to deploy."""
+    lv, cs = rec("live", "tree") or {}, ctx.F.containers()
+    return lv.get("key") == dk and (cs is None or all(cs.get(c) == "running" for c in lv.get("containers") or []))
 
 
 # ---------------------------------------------------------------- runs
@@ -2638,7 +2645,7 @@ def _pass(ctx, act):
             put(ch["slug"], "state", {"state": st["state"]})
             event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
     srv, lv = {"slug": "integration", "track": "server", "kind": "local", "deps": []}, rec("live", "tree") or {}
-    if "v" not in tint and lv.get("tree") and (dk := ctx.deploy_key(srv, lv["tree"])) and lv.get("key") != dk:  # R8: live's own deploy tools moved with no change at its step: deployed anew
+    if "v" not in tint and lv.get("tree") and (dk := ctx.deploy_key(srv, lv["tree"])) and not deployed(ctx, dk):  # R8: live's own deploy tools moved, or a container of it stopped, with no change at its step: deployed anew
         ship_test(ctx, srv, dst := step("", "ship-test"), integration(ctx), act)
         view["change"].append(f"live [server]: {dst['state']}")
     if act:   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes and removes what they left; a slice no live run holds goes once its owner is gone: a test's (hd-t<pid>) once <pid> is dead, never while it may still start a scope, any other once empty

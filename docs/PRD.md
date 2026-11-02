@@ -230,6 +230,7 @@ a live check reads the real state.
    a dead ship process → rerun;
    a deploy alive runs to its end, whatever tree or tools ship arrives;
    the test server is deployed anew when its deploy key (the integration tree and the deploy tools) differs from the one its live record names, a tools fix of what the image carries with no tree change included;
+   the test server is deployed anew while a container its live record names is not running (a host restart);
    a script ended 3 times on the same args without a result → raised once, a new args or a landed result restarts the count;
    that alert quotes the last failure lines of the script's log, so its cause reads without opening the log;
    a build or container check failing for the host's cause (memory, disk, docker, a killed run's container) exits 75, records no result and is run again, never the head's FAIL;

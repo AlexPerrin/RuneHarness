@@ -3738,6 +3738,17 @@ class R8(Sandbox):
         hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 3)                          # the ship's tools moved at the same tree: live is deployed anew
         s.assertNotEqual(ships()[-1]["KEY"], k); s.assertEqual(ships()[-1]["T"], "tr" * 20)
 
+    def test_a_live_container_a_host_restart_stopped_deploys_live_again(s):  # harness-live-http-mount: osrs-openrune-http exited with its file mount after a WSL restart, live's key unchanged
+        F, R = s.integration_fixture(with_ref=True)
+        ships = lambda: [a for a in F.spawned if a[1] == "ship"]
+        live = {"tree": "tr" * 20, "commit": R, "heads": [], "names": ["local/x"], "containers": ["osrs-openrune", "osrs-openrune-http"]}
+        F.f["containers"] = {"osrs-openrune": "running", "osrs-openrune-http": "running"}
+        s.live(F, live); hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 0)       # every container running under its key: nothing to deploy
+        F.f["containers"]["osrs-openrune-http"] = "exited"
+        F.f["containers"] = None; hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 0)  # docker unreadable: no deploy on a guess
+        F.f["containers"] = {"osrs-openrune": "running", "osrs-openrune-http": "exited"}
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 1)                          # one exited: deployed again, which recreates it
+
     def test_a_resolution_follows_the_head_while_it_merges(s):  # server-token-auth: a comment-only head move dropped local/merge/113f93a-a8cae09
         F, R = s.integration_fixture(with_ref=True)
         A2, Q, R2 = "b2" * 20, "q" * 40, "s" * 40

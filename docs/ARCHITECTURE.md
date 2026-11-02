@@ -21,7 +21,8 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   a run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by none of these starts with a line `hd scope <run>`;
                   a run's SubagentHandback is denied while a background command, monitor or subagent it started has no task notification, TaskStop result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is kept as evidence/<slug>/subagent-<id>.md;
                   SessionStart (compact): an orchestrator session whose start-time definition is not the live one is given the live one (hd.reread);
-                  PostToolUse: a run hands off at the context limit;
+                  PostToolUse: the orchestrator's TaskStop of a run's agent (one a SendMessage resumed after its hand-back too) ends the run as `hd stop` does, a fact the pass folds;
+                  a run hands off at the context limit;
                   else a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since that up or its last devtools call, is told once to `down` until it next plays.
                   An agent whose <session>/subagents/agent-<id>.meta.json names a parentAgentId (a `reader` a run spawned) is part of its parent's run, not a run: none of the above binds, holds, refuses or ends it (the deny rules still apply);
                   once that run has ended it stops (`continue: false`) at its next tool call, since neither the run nor the orchestrator's TaskStop of the run stops it;
@@ -55,7 +56,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd close <slug> <text>`, by the user, as a `!` command in the orchestrator's window: the answer row, and `closed: answer-<n>: <text>` in the definition (the orchestrator commits it): the change is done, its runs end, it leaves T_int and holds no dependent
 
-- `hd stop <run>`, by the orchestrator, with TaskStop (which fires no SubagentStop): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`
+- `hd stop <run>` (the orchestrator's TaskStop of the run's agent ends it the same way, by the hook's stopped fact): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`
 
 - `hd scope <run>`, by the hook, as the first line of each Bash command of a run: moves the command's shell (its parent) into a scope of the run's systemd user slice `hd-<run>.slice` (each `-` of the name a `_`) and returns once the shell is in it: every process the command starts, reparented or not, is the run's;
   a failure is one stderr line, the command runs on
@@ -117,7 +118,7 @@ state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, 
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
-state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|context-limit, run, ...}, one file each;
+state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|stopped|context-limit, run, ...}, one file each;
                                the fold deletes each it applied, a run record keeps the last applied id (`fact`) so a reader applies the rest once
 state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
 state/gh/<hash>.json          {url, code, etag, body, next}: the one cache of GitHub REST reads, keyed by URL, shared by passes, gates, dry-runs and the carry (its PR, CI and comment reads, the CI wait polling them afresh);

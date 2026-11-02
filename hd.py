@@ -705,7 +705,7 @@ def runs(only=None, pending=True):
 
 
 def fact(**e):
-    """R2: a hook's fact (bind, resumed, end, context-limit), a file of its own named by the time it was written: a hook
+    """R2: a hook's fact (bind, resumed, end, stopped, context-limit), a file of its own named by the time it was written: a hook
     never waits on the pass, and the pass deletes each one it folded, so the facts held are only those not yet folded."""
     write(STATE / "facts" / f"{time.time_ns():020d}-{os.getpid()}.json", json.dumps({"ts": now(), **e}, sort_keys=True))
 
@@ -735,6 +735,8 @@ def apply_fact(r, fid, e):
         r.update(usage=e["usage"], last=e["last"])
         if e["handed"]:
             r.update(ended=e["ts"], record=e["record"])
+    elif k == "stopped" and not r.get("ended") and r.get("agent_id") == e["agent_id"]:
+        r.update(ended=e["ts"], reason="stopped by the head")
     elif k == "context-limit" and not r.get("handoff_told"):
         r["handoff_told"] = e["tokens"]
 

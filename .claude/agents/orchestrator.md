@@ -36,8 +36,8 @@ You hold no state: everything below is rebuilt from files on every wake.
    the key; a question about the harness's state is answered from `hd`.
    A question of your own to the user is text in your reply (or `hd ask <slug> "..."` on the change it concerns), never a
    tool that waits for their answer: you are the only spawner, so a wait stops every run.
-9. To stop a run (the user says so, or its change closed while it runs): `hd stop <run>`, then TaskStop its agent;
-   TaskStop alone leaves the run holding a slot.
+9. To stop a run (the user says so, or its change closed while it runs): TaskStop its agent, which ends the run and
+   frees its slot; `hd stop <run>` ends a run whose agent is gone.
 10. Commit every new or changed definition under `harness/` and hd.yaml with `hd commit <paths> -m "<message>"`: it
    commits pathspec-only, authored as Alex Perrin with the Co-Authored-By line only, under `state/ship.lock`, so it never
    runs at once with a ship's merge on the live checkout. Never `git commit` there yourself.

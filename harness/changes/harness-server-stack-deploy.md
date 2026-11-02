@@ -34,3 +34,6 @@ sweep-15 B5 follow-up to sweep-14 B7: up takes T from state/<slug>/build.json (s
 
 Also (filed): a run's server still runs with idleLogout=true
 server-friends-chat-clan-channels-20 hand-back (qa, T f79a9c77f): its own server config still has idleLogout=true, after 6ef5218 ('a run's server never idle-logs out its clients'); its desktop idled out and hung on relogin. The idle-logout acceptance here must hold live on a run's track.sh up. Evidence: evidence/server-friends-chat-clan-channels/in-game.md (Run 20)
+
+Also (filed): a qa run's client sits at the login screen after an idle logout
+The user (2026-11-01 ~20:3x ET): 'genie qa has been sitting at the loggin screen, after idle logged out for 20+mins' (genie-review-355-cickwdoqbbpt88aaaabeelmng-1, since 00:47:13Z). Same as server-friends-chat-clan-channels-20 (idleLogout=true on its server, desktop hung on relogin). A run's server must not idle-log out its clients, and a logged-out client must come back by facts, not wait.

@@ -137,6 +137,7 @@ a live check reads the real state.
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a dependency a late answer or joined filing reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
    a fresh dev ref the base contains is neither live nor done until handed over;
+   a fresh dev ref the base contains is no head in flight: the dev's step names the answer or filing that reopened it;
    a head whose last verdict fails is the dev's step before it is built, gated or judged again;
    an MCP server whose mcp/ files change restarts at the session's next request once its requests in flight are answered, the session's initialize given to the new server and its tools list told changed;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
@@ -208,7 +209,7 @@ a live check reads the real state.
    a run's Bash command, and one of an agent it spawned, runs in its slice with its temp files under the slice's temp root, and the pass stops an ended run's slice, the Windows processes a track script recorded under it and its temp root, and a slice no live run holds once its owner is gone (a test's once its process is dead, never while it lives);
    a run lists its own slice's processes (`hd ps`), so it finds and kills its own hung step;
    a run's TaskStop of its Bash command ends every process that command started;
-   a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
+   a failing test, a test suite and a gate, stopped or killed, leave no temp dir behind (the pass removes one whose process is dead);
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
    a run's own agent once the pass, the head or `hd stop` ended its run only reads, writes its evidence/<slug>/ and hands back, and a started run ends once its change's step is the other role's or a wait that blocks its work (an open question, a dependency filed since it started), never on a dependency met at its start that only re-gates nor on a limit it filed, which it hands over after;
    a run's record is what it handed back, a change filed by another is not, and a run the pass ended neither settles its step nor counts as a try, so its step is listed again;

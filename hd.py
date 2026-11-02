@@ -1536,7 +1536,8 @@ def nxt(ctx, ch):
         return step("target state unknown", "unknown")
     ho = rec(slug, "handover")
     late, joined = late_answers(slug, ho, head)
-    joined = joined if done or upstream(ch) else []  # R3: a joined filing is the dev's once the head it did not reach is done; on a PR round (its gate is the round's last head), at once
+    work = bool(head) and ctx.own(ch, head) is not False   # A6: a fresh dev ref at a base commit is no head of the change's: nothing in flight
+    joined = joined if done or upstream(ch) or not work else []  # R3: a joined filing is the dev's once the head it did not reach is done or when no head is in flight; on a PR round (its gate is the round's last head), at once
     if done and not late and not joined:  # R3: a late answer or joined filing reopens a done change: the dev acts on it
         return step("done", "done")
     if (q := rec(slug, "ask")):  # the user's answer releases it: no run, gate, ship or upstream step until then
@@ -1562,9 +1563,9 @@ def nxt(ctx, ch):
         return step("tools refs unknown", "unknown")
     if ch["kind"] != "release" and (not head or not ho or ho["head"] != head or ho.get("tools", {}) != tools or late or joined):  # a release has no dev: its head is the base tip
         hoff = EVID / slug / "handoff.md"
-        return step("dev run due" if not head else f"dev run due: head {head[:9]} not handed over" if not ho or ho["head"] != head or ho.get("tools", {}) != tools
+        return step(f"dev run due: head {head[:9]} not handed over" if work and (not ho or ho["head"] != head or ho.get("tools", {}) != tools)
                     else f"dev run due: the user answered after the hand-over ({', '.join(late)})" if late
-                    else f"dev run due: a filing or finding joined after the hand-over ({', '.join(joined)})", "dev", mode="code",
+                    else f"dev run due: a filing or finding joined after the hand-over ({', '.join(joined)})" if joined else "dev run due", "dev", mode="code",
                     input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; only a rebase that stops is the dev's step
     for n, h in tools.items():
@@ -2523,6 +2524,9 @@ def _pass(ctx, act):
             if sl in ended or sl in left or ((t := re.fullmatch(r"hd-t(\d+)\.slice", sl)) and ctx.F.proc_start(int(t[1])) is None) or (not t and live[sl] == 0):
                 ctx.F.end_procs(sl)
                 event(**({"change": ended[sl]["change"], "run": ended[sl]["name"]} if sl in ended else {"slice": sl}), action="processes-ended")
+        for d in Path(tempfile.gettempdir()).glob("hd-*"):   # R5: a suite's or test runner's temp root outside a run names its process (hd-<kind>-<pid>-*) and goes once it is dead, whatever ended it
+            if (m := re.fullmatch(r"hd-[a-z]+-(\d+)-.+", d.name)) and ctx.F.proc_start(int(m[1])) is None:
+                shutil.rmtree(d, ignore_errors=True)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
     if q := quota():

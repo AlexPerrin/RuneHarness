@@ -135,6 +135,7 @@ a live check reads the real state.
    a change with a live dependency goes from defined to live with no `approve`, `answer` or console call;
    a closed change lists no run and leaves T_int;
    a dependency in another repo's upstream PR holds its dependent until live, its card until merged upstream, and one of the same PR until gated;
+   merged upstream means upstream main holds the head or its PR is merged at a tip holding it (a squash or rebase merge leaves main without the head);
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a dependency a late answer or joined filing reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
    a fresh dev ref the base contains is neither live nor done until handed over;

@@ -1755,7 +1755,7 @@ class R5(Sandbox):
         calls.clear(); hd.checks(g, "u/f", 7, A)                                # its next poll: each read afresh and conditional
         s.assertEqual(sorted(calls), sorted((u, True) for u in cr))
         src = (Path(hd.__file__).read_text()).split("\n")                       # no GitHub read in hd.py bypasses Facts.page
-        s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "(POST|PATCH)"|"(comment|create|ready)"', l)
+        s.assertEqual([l for l in src if re.search(r'"gh", "(api|pr|release)"', l) and not re.search(r'"-X", "(POST|PATCH)"|"(comment|create|ready|close|reopen)"', l)
                        and "If-None-Match" not in l], [])
         calls.clear()
         quota["reset"] = int(time.time()) + 3600
@@ -3048,14 +3048,15 @@ class R8(Sandbox):
 
     def test_a_pr_with_a_finding_not_in_the_head_gets_no_card(s):
         s.change("s1", pr=9); s.agreed("s1"); s.change("s1-c8", deps=["s1"], pr=9, finding=8)
-        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A}, trees={A: TA, B: TB})
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A}, trees={A: TA, B: TB}, pull={9: {"branch": "content/s1", "head": A, "draft": True, "merged": False}})
         s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         s.assertEqual(s.state(F, "s1")["state"], "gated; the PR waits for s1-c8")
         s.assertEqual(hd.tick(s.ctx(F))["card"], [])                             # not a complete PR: not ready
 
     def test_a_stacked_head_is_refused_at_the_gate(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")
-        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}})
+        F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={A: TA, B: TB, C: TC}, commits={A: {A}, C: {C, A}},
+                 pull={9: {"branch": "content/s1", "head": A, "draft": True, "merged": False}})
         s.gated("s2", F)
         st = s.state(F, "s2")
         s.assertEqual((st["actor"], st["state"]), ("dev", "stacked on s1: dev"))  # s2's branch carries s1's unmerged commit
@@ -3804,6 +3805,14 @@ class R3(Sandbox):
         s.change("s1")
         F = Fake(**{**FACTS, "anc": {(B, A)}})                          # upstream main holds the head: nothing to contract
         s.assertEqual(s.state(F, "s1")["state"], "done")
+
+    def test_a_squash_merged_pr_is_done_though_main_lacks_the_head(s):
+        s.change("s1", pr=7); s.change("s2", deps=["s1"])
+        F = Fake(**{**FACTS, "pull": {7: {"branch": "content/s1", "head": A, "draft": False, "state": "closed", "merged": False}}})
+        s.assertNotEqual(s.state(F, "s1")["state"], "done")                       # closed unmerged: not done
+        F.f["pull"][7]["merged"] = True                                           # squash or rebase merge: main holds no head of it
+        s.assertEqual(s.state(F, "s1")["state"], "done")
+        s.assertIs(s.ctx(F).done(s.ctx(F).changes["s1"], A), True)
 
     def test_harness_change_carries_its_tools_commits(s):
         s.change("h1", track="harness"); s.agreed("h1", track="harness")

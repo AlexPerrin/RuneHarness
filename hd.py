@@ -452,7 +452,7 @@ class Facts:
         if r is None or r[0] != 200:
             return None
         p = r[1]
-        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body"), "state": p.get("state")}
+        return {"branch": p["head"]["ref"], "head": p["head"]["sha"], "draft": p["draft"], "title": p.get("title"), "body": p.get("body"), "state": p.get("state"), "merged": p.get("merged")}
 
     @_read
     def ci(s, repo, sha):
@@ -1085,7 +1085,7 @@ class Ctx:
         return s.landed(ch) if on else on
 
     def done(s, ch, head):
-        """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live
+        """A6: a server change when upstream main holds head or its PR is merged at a tip holding head; a release when its tag exists; every other change when live
         and its last verdict passes (a local server head reaches the test server in another change's deploy before it is judged)."""
         if ch["kind"] == "release":
             r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
@@ -1093,7 +1093,18 @@ class Ctx:
         if TRACK[ch["track"]]["public"] == "upstream" and ch["kind"] != "local":
             if not head:
                 return False
-            return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
+            if not (o := s.own(ch, head)):
+                return o
+            if (c := s.F.contains(s.clone(ch), s.base(ch), head)) is not False:
+                return c
+            pr = ch.get("pr") or (rec(ch["slug"], "opened") or {}).get("pr")  # a merged PR is no longer listed open
+            if not pr:
+                return False
+            if (op := s.upstream_pr(ch)) is None or op:  # an open PR is not merged (an unread list: its PR step says unknown)
+                return False
+            up = s.cfg["repos"][TRACK[ch["track"]]["repo"]].get("upstream")
+            p = s._m(("pr", up, pr), lambda: s.F.pr(up, pr))  # a squash or rebase merge leaves main without the head: the PR says merged
+            return None if p is None else bool(p.get("merged")) and (p["head"] == head or s.F.contains(s.clone(ch), p["head"], head))
         return s.live(ch, head) and bool(passed(ch["slug"], head))
 
     def comments(s, track, pr):

@@ -2639,26 +2639,24 @@ class Defect(RuntimeError):
 
 
 def vouched(slug, head):
-    """R4: the step of the carry's FAIL at head that its dev, handing the same head over after it, judged outside the head
-    (its cause filed as a limit, which the change's deps wait on); None when the FAIL stands."""
+    """R4: the carry's FAIL at head is answered by its dev's hand-over of the same head after it (the cause judged outside
+    the head, filed as a limit the change's deps wait on): decided on the two records' heads and order alone."""
     sh, ho = rec(slug, "ship") or {}, rec(slug, "handover") or {}
-    return sh.get("step") if sh.get("fault") == "head" and sh.get("head") == ho.get("head") == head and ho.get("ts", "") > sh.get("ts", "") else None
+    return sh.get("fault") == "head" and sh.get("head") == ho.get("head") == head and ho.get("ts", "") > sh.get("ts", "")
 
 
 def ci_fault(ctx, ch, up, head, cur, rerun):
     """R4: a failed upstream check is the head's (Defect) unless the track's classifier, the gate's own (`track.sh ci-step
     <slug> <step>`: exit 0 when the step reads nothing the head changes, once that step's source answers), or the dev's
-    same-head hand-over after a FAIL there (vouched) says its failing step is outside the head: then its job is re-run
+    same-head hand-over after a FAIL there (vouched) says the steps failing at it are outside it: then its job is re-run
     (gh run rerun --failed), at most to the run's 3rd attempt."""
     for url in cur[2]:
         m = re.search(r"/actions/runs/(\d+)/job/(\d+)", url)
         j = m and known(ctx.F.job(up, m[2]), f"job {m[2]} of {up}")
-        r = j and (j["step"] == vouched(ch["slug"], head) or not subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]],
+        r = j and (vouched(ch["slug"], head) or not subprocess.run([ctx.script(ch), "ci-step", ch["slug"], j["step"]],
                                                                                env={**os.environ, **ctx.env(ch, head, "", "")}, capture_output=True, text=True).returncode)
         if not r:
-            e = Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
-            e.step = j and j["step"]
-            raise e
+            raise Defect(f"CI failure at {head[:9]}" + (f" in '{j['step']}', a step the head reads" if j else "") + f": {cur[1]}: the PR stays as it is")
         if j["attempt"] >= 3:
             raise RuntimeError(f"CI failed at '{j['step']}' in {j['attempt']} attempts at {head[:9]}, a step the head does not read: {url}")
         must("gh", "run", "rerun", m[1], "--failed", "-R", up)
@@ -2679,7 +2677,8 @@ def answers(ctx, ch, up, pr, fs, body):
     by = {c["id"]: c for c in (cs or []) + (talk or [])}
     if cs is None or talk is None or any(f not in by for f in fs):
         raise Unread(f"the findings {fs} cannot be read on {up}#{pr}")
-    named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", re.sub(r"`[^`]*`", "", body))}
+    own = re.sub(r"`[^`]*`", "", re.sub(r"(?m)^\s*>.*$", "", re.sub(r"(?s)```.*?```", "", body)))  # quoted findings and code name no one
+    named = {n.lower() for n in re.findall(r"(?<![\w`])@([A-Za-z0-9-]+)", own)}
     askers = {by[f]["author"].lower() for f in fs}
     if (miss := unquoted(fs, by, body)) or named != askers:
         raise Defect(f"the comment must quote {miss or 'each finding'} and name only {sorted(askers)} (it names {sorted(named)})")
@@ -3016,7 +3015,7 @@ def cmd_ship(a):
     except Unread as e:
         sys.exit(f"carry held: {e}")   # no result: the pass starts it again once GitHub reads
     except RuntimeError as e:  # every other stop is the carry's result: the change's defect its dev step, any other fault the card again for a new yes
-        put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e), "step": getattr(e, "step", None)})
+        put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e)})
         if not isinstance(e, Defect):
             drop(ch["slug"], "approval")
         sys.exit(f"carry failed: {e}")

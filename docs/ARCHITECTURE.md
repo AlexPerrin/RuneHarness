@@ -266,13 +266,14 @@ next(change):
     release: gh release with the APK, notices and log.
     Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones (REST PATCH: `gh pr edit` reads the retired Projects (classic)), CI green at head when it pushed or the PR is draft, one PR comment naming the head (once per head and text: its marker), the push summary then each finding's reply (no review-thread reply);
     it quotes each finding and @ only their askers, each once (a later mention keeps the bare name), else the change's FAIL;
+    an @ on a '>' quote line or in code is no mention;
     ready, review requested of the maintainers who reviewed the PR (no bot, not ours) and read back (none: upstream's CODEOWNERS asks on ready);
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     Success: ship.json, approval.json removed (the yes is spent).
     A failed check: its job's failing step asked of the track's `ci-step` (gate-ci's classifier); outside the head, `gh run rerun --failed` once its source answers (the classifier blocks until then), its old failure pending until GitHub lists the new attempt, up to the run's 3rd attempt.
     Failure: ship.json ok false, the PR as it is;
     fault head (a CI step the head reads, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
-    the dev handing the same head over after it vouches the failed step outside the head (its cause filed as a limit, the deps holding it until that lands): the carry runs again and re-runs that step's job, up to the run's 3rd attempt.
+    the dev handing the same head over after it vouches the failing steps outside the head (its cause filed as a limit, the deps holding it until that lands), decided on the two records' heads and order alone: the carry runs again and re-runs the jobs its fresh CI read finds failed, up to the run's 3rd attempt.
     fault carry (any other: a GitHub write refused, a 3rd attempt outside the head): the yes spent, the card again naming what stopped it.
     A GitHub read that fails: no result (carry held), the pass reruns it, a second death on the same args an alert
   batch (`hd.batch`: harness, and client code; a release is gated alone)

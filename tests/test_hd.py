@@ -1539,6 +1539,11 @@ class R4(Sandbox):
         s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))
         s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
 
+    def test_the_ci_at_a_head_is_the_latest_run_of_each_check(s):  # sweep-69 P1-a: #448's reopen left the old failed run beside the new green one
+        run = lambda i, n, c: {"id": i, "name": n, "details_url": f"https://ci/{i}", "status": "completed", "conclusion": c}
+        g = hd.Facts(); g.api = lambda p: (200, {"check_runs": [run(9, "build", "success"), run(3, "build", "failure"), run(4, "lint", "success")]} if "check-runs" in p else {"statuses": []})
+        s.assertEqual(sorted((c["name"], c["url"], c["state"]) for c in g.ci("u/f", A)), [("build", "https://ci/9", "success"), ("lint", "https://ci/4", "success")])
+
     def test_the_users_one_reopen_at_a_failed_head_is_a_card_act_done_once(s):
         old, new = "https://ci/run/1", "https://ci/run/2"
         b = lambda st, u=new: [{"name": "build", "url": u, "state": st}]
@@ -2570,6 +2575,12 @@ class R5(Sandbox):
         ctx = s.ctx(F); F.f["procs"] = {(7, "1"), (4242, "99")}
         ctx.start("s2", "ship", ["hd.py", "ship", "s2", A]); ctx.start("s2", "ship", ["hd.py", "ship", "s2", A])
         s.assertEqual(F.stopped, [p1["pid"]])                                    # a carry has no key: never stopped
+        script = s.root / "hd.py"; script.write_text("fixed")                   # sweep-69 P1-a: a carry hung on code since fixed
+        pf = hd.STATE / "s2" / "proc-ship.json"; os.utime(pf, ns=(1, 1)); n = len(F.spawned)
+        ctx.start("s2", "ship", [str(script), "ship", "s2", A])
+        s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"], 4242], n + 1))  # stopped and rerun on the fixed script
+        F.f["procs"] = {(7, "1"), (4242, "99")}; ctx.start("s2", "ship", [str(script), "ship", "s2", A])
+        s.assertEqual((F.stopped, len(F.spawned)), ([p1["pid"], 4242], n + 1))  # the rerun runs the current script: kept
 
     def test_a_gate_running_a_row_whose_key_holds_finishes(s):  # sweep-17 N5: a text.py-only tools ship stopped 11 gates, 8 CI runs ~15 min in
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n- subj | subject | check: tools/server/text.py subject\n")

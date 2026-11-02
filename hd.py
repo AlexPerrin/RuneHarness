@@ -455,13 +455,15 @@ class Facts:
 
     @_read
     def ci(s, repo, sha):
-        """R4: the checks reported at a commit [{name, url, state: success | failure | pending}] (check runs and commit statuses), None unknown."""
+        """R4: the checks reported at a commit [{name, url, state: success | failure | pending}] (the latest run of each check name,
+        as a run started again at the head replaces the one before it, and commit statuses), None unknown."""
         runs, st = s.api(f"repos/{repo}/commits/{sha}/check-runs"), s.api(f"repos/{repo}/commits/{sha}/status")
         if runs is None or st is None or runs[0] != 200 or st[0] != 200:
             return None
         ok = ("success", "neutral", "skipped")
-        return ([{"name": c.get("name") or "", "url": c.get("details_url") or "", "state": "pending" if c.get("status") != "completed" else "success" if c.get("conclusion") in ok else "failure"}
-                 for c in runs[1].get("check_runs") or []]
+        latest = {c.get("name") or "": c for c in sorted(runs[1].get("check_runs") or [], key=lambda c: c.get("id") or 0)}  # GitHub's ids grow with each run
+        return ([{"name": n, "url": c.get("details_url") or "", "state": "pending" if c.get("status") != "completed" else "success" if c.get("conclusion") in ok else "failure"}
+                 for n, c in latest.items()]
                 + [{"name": c.get("context") or "", "url": c.get("target_url") or "", "state": "pending" if c.get("state") == "pending" else "success" if c.get("state") in ok else "failure"}
                    for c in st[1].get("statuses") or []])
 
@@ -1314,19 +1316,21 @@ class Ctx:
         one that ended three times without its result (its record, or exit 0 for a script that records none: a host fault, a held row, a crash, a kill), on the same args and key or on the same
         cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
+        a carry (no key) alive on a script fixed after its start is outdated too;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
-        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
-            return
+        res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
+        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
+        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (not newer(Path(args[0]).expanduser()) if key is None else p.get("key") == key or set(p.get("rows") or []) & set(rows)):
+            return  # a carry (no key) alive on a script fixed after its start is outdated: its rerun resumes on the fixed one
         if st == "alive":
             if not act:
                 return
             s.F.stop(p["pid"], p["start"])
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
-        res, pf, rc = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json", STATE / slug / f"{name}.rc"
-        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
+        rc = STATE / slug / f"{name}.rc"
         ok = st == "dead" and (not p.get("rc") or newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none); a record started with no exit status to read counts no strike
         c = cause(STATE / slug / f"{name}.log") if st == "dead" and not ok else ""
         if not p or st == "alive" or ok or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):

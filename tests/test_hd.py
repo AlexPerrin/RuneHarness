@@ -1754,6 +1754,25 @@ class R5(Sandbox):
         ctx.start("s2", "ship", ["hd.py", "ship", "s2", A]); ctx.start("s2", "ship", ["hd.py", "ship", "s2", A])
         s.assertEqual(F.stopped, [p1["pid"]])                                    # a carry has no key: never stopped
 
+    def test_a_build_of_a_new_tree_stops_the_gate_of_the_old_one(s):  # server-token-auth's gate.sh ran on while the pass started its new build
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/build/build.sh": "1", "tools/gate/gate.sh": "1"}}})
+        s.gated("s1", F); hd.drop("s1", "gate"); hd.tick(s.ctx(F))
+        hd.put("s1", "build", {"T": F.envs[-1]["T"], "ok": True}); hd.tick(s.ctx(F))
+        p1 = hd.rec("s1", "proc-gate"); F.f["procs"] = {(7, "1"), (p1["pid"], p1["start"])}
+        F.f["tools_files"][C] = {"tools/build/build.sh": "2", "tools/gate/gate.sh": "1"}; F.f["refs"]["local/harness"] = C   # the build's code moves
+        s.assertTrue(s.state(F, "s1")["state"].startswith("building"))
+        hd.tick(s.ctx(F))
+        s.assertEqual((F.stopped, F.spawned[-1][1]), ([p1["pid"]], "build"))     # the old tree's gate is stopped as the new build starts
+
+    def test_a_deploy_is_keyed_on_the_tools_it_runs(s):  # the integration deploy ran on pre-ship tools, still downloading openrs2
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "ship() { :; }", "tools/build/build.sh": "1"}}})
+        ctx = s.ctx(F); ch = ctx.changes["s1"]; k = ctx.deploy_key(ch, "tr")
+        F.f["tools_files"][C] = {"tools/track.sh": "ship() { echo; }", "tools/build/build.sh": "1"}; F.f["refs"]["local/harness"] = C
+        s.assertNotEqual(s.ctx(F).deploy_key(ch, "tr"), k)                       # a tools ship moves the key: the running deploy is replaced
+        s.assertTrue(k.startswith("tr-"))
+
     def test_a_batch_gate_on_a_prefix_still_current_holds(s):  # a member arriving restarted no gate, and the state named the running one
         for k in ("h1", "h2"):
             s.change(k, track="harness"); s.agreed(k, track="harness")
@@ -2771,6 +2790,15 @@ class R8(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertIn(["ship", "integration", A], [x[1:] for x in F.spawned])         # the P1 deploys
         s.assertTrue(any(x.startswith("lo-") for x in v["spawn"]))                 # the P1 has no run due: the P3's conflict is its dev's
+
+    def test_a_check_row_at_the_hand_over_builds_the_pass_s_key(s):  # a dev's build of server-token-auth ran as <tree>-c<central>, the pass's as <tree>-c<central>-<build>
+        s.change("s1"); s.agreed("s1", extra="- t | tests | check: tools/track.sh test\n")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/build/build.sh": "1"}}})
+        envs = []; run = F.run; F.run = lambda cmd, cwd, env: (envs.append(env), run(cmd, cwd, env))[1]
+        with mock.patch.object(hd, "Facts", lambda: F):
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        ctx = s.ctx(F)
+        s.assertEqual(envs[-1]["T"], ctx.key(ctx.changes["s1"], TA, build=True))
 
     def test_tree_of_a_snapshot(s):
         s.change("s1"); s.agreed("s1")

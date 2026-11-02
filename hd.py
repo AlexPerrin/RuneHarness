@@ -1059,6 +1059,14 @@ class Ctx:
         b = tree + "-" + tools_run(files, "tools/build/")[:12]
         return b if build else b + "-" + tools_run(files, "tools/gate/", [x for row in rows for x in (row["check"], row["gate"]) if x])[:12]
 
+    def deploy_key(s, ch, tree):
+        """R5: a deploy's key: the tree and the hash of every tools file (a deploy runs build, up and ship), so a tools ship
+        replaces a running deploy; the tree alone without a tools branch."""
+        r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
+        t = r.get("tools") and s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
+        files = t and s.F.tools_files(str(P(r["path"])), t)
+        return tree + "-" + tools_run(files, "tools/")[:12] if files else tree
+
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
 
@@ -1085,7 +1093,7 @@ class Ctx:
 
     def start(s, slug, name, args, env=None, act=True, key=None):
         """R5: start a track script once per key (the key its result is recorded under; a carry has none): one alive under
-        another key is outdated, stopped and replaced; one that died twice on the same args and key without its result is raised once."""
+        another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree; one that died twice on the same args and key without its result is raised once."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         if not s.docker or st == "alive" and (key is None or p.get("key") == key):
             return
@@ -1103,6 +1111,12 @@ class Ctx:
             if a not in s.alerts:  # every gated server change reaches the one live ship: one alert
                 s.alerts.append(a)
             return
+        if act and key:  # a slug's processes run for one key: another role's alive under a key this one neither extends nor prefixes is outdated too
+            for f in sorted((STATE / slug).glob("proc-*.json")):
+                o, q = f.stem[5:], rec(slug, f.stem) or {}
+                if o != name and q.get("key") and not (key.startswith(q["key"]) or q["key"].startswith(key)) and s.proc(slug, o) == "alive":
+                    s.F.stop(q["pid"], q["start"])
+                    event(change=slug, action=f"stopped {o}", key=q["key"], pid=q["pid"])
         if act:
             try:
                 pid, start = s.F.spawn(args, STATE / slug / f"{name}.log", env)
@@ -1749,7 +1763,7 @@ def ship_test(ctx, ch, st, tint, act):
     elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
                   {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
-                   "CENTRAL": ctx.central_env(tint["central"])}, act, key=tint["tree"])
+                   "CENTRAL": ctx.central_env(tint["central"])}, act, key=ctx.deploy_key(ch, tint["tree"]))
         st["state"] = f"test server: deploying {tint['tree'][:9]}"
 
 
@@ -2517,7 +2531,7 @@ def cmd_handover(a):
             elif mechanism(graph[k]) in scope(graph, ch["slug"]):
                 why.append(f"{w}: in this change's scope ({mechanism(graph[k])}): fix it here, rewriting the mechanism if the limit is in its design")
     tree = ctx.tree(ch, T[1])
-    why += rows(ctx, ch, con, head, T[1], tree, "", gate=False)
+    why += rows(ctx, ch, con, head, T[1], ctx.key(ch, tree, build=True) or tree, "", gate=False)  # T: the build key, as the pass's build, so a check row's build is the pass's
     if tools and not why:  # R3: the carried tools heads' own tests, as the gate's check-tools runs them, before any gate is spent on them
         rc, out = ctx.F.run("tools/track.sh check-tools", str(track_root(ctx.cfg, "harness")), ctx.env(ch, head, T[1], tree))
         if rc:

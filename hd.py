@@ -820,7 +820,7 @@ def apply_fact(r, fid, e):
     elif k == "stopped" and not r.get("ended") and r.get("agent_id") == e["agent_id"]:
         r.update(ended=e["ts"], reason="stopped by the head")
     elif k == "told" and not r.get("ended"):  # a message to the live run carries its contract's rows written until then
-        r["told"] = e["ts"]
+        r["given"] = e.get("given", e["ts"])
     elif k == "waits" and not r.get("started") and not r.get("ended"):  # hd new made its change wait: an unspawned listing goes (a bound run is a run)
         r.update(ended=e["ts"], reason=f"waiting on {e['dep']}")
     elif k == "context-limit" and not r.get("handoff_told"):
@@ -1447,15 +1447,29 @@ def late_answers(slug, ho, head):
     did) and than the last verdict on head (one a verdict already judged is not), as (the user's, joined filings'): a row
     its brief did not hold is late, though written before the hand-over; the user's word is the dev's before the head is built, gated or shipped; a
     joined filing or finding is scope the head does not hold, the dev's on top of it once it is done, never a reason to drop its gate
-    (on an upstream change at once: a PR round is gated at its last head). A row of the brief's own second is in the brief."""
+    (on an upstream change at once: a PR round is gated at its last head). Ordered by the rows' sequence (answer-n), never by time."""
     con = contract(slug)
     if not (ho and con):
         return [], []
-    g = ho.get("given")
-    since = max([g or ho["ts"]] + [v["ts"] for v in verdicts(slug) if v["head"] == head])
-    late = [r for r in con["rows"] if r["id"].startswith("answer-") and (r["text"][:20] > since or r["text"][:20] == since != g)]
+    since = max([seen(con, ho.get("given", ho["ts"]))] + [nth(k) for v in verdicts(slug) if v["head"] == head for k in v["rows"] if k.startswith("answer-")])
+    late = [r for r in con["rows"] if r["id"].startswith("answer-") and nth(r["id"]) > since]
     return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
             [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
+
+
+def nth(answer):
+    return int(answer.split("-", 1)[1])
+
+
+def seen(con, mark):
+    """R3: how many answer rows a record was given: answer-n is the nth row written, so a count orders each row before or after it, with no tie.
+    shortcut: a record written before counts were kept marks a time instead; drop once no such record is live."""
+    return mark if isinstance(mark, int) else sum(r["id"].startswith("answer-") and r["text"][:20] <= mark for r in con["rows"])
+
+
+def given_now(slug):
+    """The answer rows a contract holds now: what a brief, a message or a hand-over written now is given (seen)."""
+    return sum(r["id"].startswith("answer-") for r in (contract(slug) or {"rows": []})["rows"])
 
 
 def nxt(ctx, ch):
@@ -1835,6 +1849,7 @@ def findings(ctx, open_prs, act):
                 m, body = _frontmatter(f.read_text())
                 rnd["finding"] = m["finding"] = fids(m) + [c["id"]]
                 f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + "\n\nAlso: " + quote + "\n")
+                finding_rows(rnd["slug"], rnd, [c["id"]], {c["id"]: c})
                 event(change=rnd["slug"], action="joined", finding=c["id"], pr=pr)
             else:
                 slug = f"{track}-{pr}-c{re.sub(r'[^a-z0-9]', '', str(c['id']).lower())}"  # the PR and the finding: no other change names it
@@ -2043,12 +2058,13 @@ def dispatch(ctx, ch, st, act):
         return
     n = max([int(r["name"].rsplit("-", 1)[1]) for r in ctx.runs if r["change"] == slug and r["name"].rsplit("-", 1)[1].isdigit()] + [0]) + 1
     name = f"{slug}-{n}"
-    listed = now()  # before the brief reads the contract: a row written while it is written is late (late_answers)
+    listed = now()
     again = max([x for x in ctx.runs if x["change"] == slug and x["role"] == role and x.get("started") and x.get("input") == inp], key=lambda x: x["listed"], default=None)
+    given = given_now(slug)  # before the brief reads the contract: a row written while it is written is late (late_answers)
     cause = again and (again.get("reason") or ("a hand-off at the context limit" if again.get("handoff_told") else "its hand-back"))
     why = f"{st['state']} (again after {again['name']}: {cause})" if again else st["state"]   # R6: a run beyond one per input names its cause
     r = {"name": name, "role": role, "change": slug, "step": why, "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
-         "console_pid": None, "console_start": None, "listed": listed, "started": None, "started_at": 0,
+         "console_pid": None, "console_start": None, "listed": listed, "given": given, "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
     ctx.runs.append(r)
@@ -2365,15 +2381,17 @@ def _pass(ctx, act):
     prio, key = order(ctx)
     due = []  # R6: a due run holds the tiers below only until it is listed; one alive or listed holds nothing, one the pass cannot list is an alert
     for k, c in ctx.changes.items():
-        if (st := nxt(ctx, c))["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")) and not ctx.alive_run(c):
+        st = nxt(ctx, c)
+        if TRACK[c["track"]]["public"] == "upstream" and c.get("pr") and st["actor"] != "done":
+            open_prs.add((c["track"], c["pr"]))
+        if st["actor"] in ("dev", "qa") and not ctx.dockerless(c, st.get("mode")) and not ctx.alive_run(c):
             if (why := unlistable(ctx, c, st)) and why not in ctx.alerts:
                 ctx.alerts.append(why)
             due += [] if why else [prio[k]]
+    findings(ctx, open_prs, act)  # R6: before the changes' steps, so a joined finding's row reaches a listed run's brief in this pass
     hold = "P%d" % min([PRIO.get(p, 9) for p in due] + [PRIO.get(ctx.cfg.get("hold"), 9)])  # R6: no run below the best tier with a run due, nor below the user's held band
     for ch in sorted(ctx.changes.values(), key=key):
         st = work = nxt(ctx, ch)
-        if TRACK[ch["track"]]["public"] == "upstream" and ch.get("pr") and st["actor"] != "done":
-            open_prs.add((ch["track"], ch["pr"]))
         dues = {(st["actor"], json.dumps(st.get("input"), sort_keys=True))}
         if st["actor"] == "ship-test" or st.get("deploy"):  # R8: the test server deploy, beside the card and the ship, holding neither
             if "v" not in tint:
@@ -2415,7 +2433,7 @@ def _pass(ctx, act):
                 if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
                     if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
                         # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
-                        r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now())
+                        r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now(), given=given_now(ch["slug"]))
                         r["brief"] = brief(ctx, ch, work, r["name"], r["role"])
                         save_run(r)
                         event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
@@ -2439,7 +2457,6 @@ def _pass(ctx, act):
             if r.get("ended") and (run_slice(r["name"]) in live or (STATE / "winpids" / run_slice(r["name"])).exists()):
                 ctx.F.end_procs(r["name"])
                 event(change=r["change"], run=r["name"], action="processes-ended")
-    findings(ctx, open_prs, act)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
     if q := quota():
@@ -2835,8 +2852,9 @@ def cmd_handover(a):
             why.append(f"a carried tools head's tests fail: {out.strip()[-400:]}")
     if why:
         refuse(*why)
-    given = max([max(r["listed"], r.get("told") or "") for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")], default=None)
-    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), **({"given": given} if given else {})})  # given: when the handing run's brief was written, or it was last told by a message
+    given = max([seen(con, r.get("given", max(r["listed"], r.get("told") or ""))) for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "dev" and r.get("started") and not r.get("ended")],
+                default=given_now(ch["slug"]))  # given: the answer rows the handing run's brief or its last message held; the hand-over's own when no run did
+    put(ch["slug"], "handover", {"head": head, "T": tree, "commit": T[1], "tools": tools, "summary": " ".join(a[1:]), "given": given})
     drop(ch["slug"], "ask")
     drop(ch["slug"], "swept")  # a reopened change's new branches are swept again once it is done
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)

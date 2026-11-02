@@ -249,7 +249,8 @@ def told(p):
     """R3: a SendMessage to a run's agent tells it the contract as it stands: its rows written until then are its hand-over's, never late."""
     to = p.get("tool_name") == "SendMessage" and (p.get("tool_input") or {}).get("to")
     if to and (f := hd.STATE / "runs" / "by-agent" / str(to)).exists():
-        hd.fact(fact="told", run=f.read_text().strip())
+        name = f.read_text().strip()
+        hd.fact(fact="told", run=name, **({"given": hd.given_now(r[0]["change"])} if (r := hd.runs(name)) else {}))
 
 
 def start_pass():

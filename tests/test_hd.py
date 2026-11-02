@@ -1,5 +1,5 @@
 """One class per requirement (docs/PRD.md, Acceptance), driven against a dict-backed Fake of Facts in a sandbox root."""
-import hashlib, io, json, os, re, shutil, subprocess, sys, tempfile, time, unittest
+import hashlib, io, json, os, re, shutil, signal, subprocess, sys, tempfile, time, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -1560,6 +1560,17 @@ class R5(Sandbox):
                                 "pathlib.Path(tempfile.mkdtemp(), 'f').write_text('x'); raise AssertionError('a failing test')", str(Path(__file__).parent)],
                                env={**os.environ, "TMPDIR": t, "HD_SUITE": "nested"}, capture_output=True, text=True)
             s.assertIn("a failing test", r.stderr); s.assertEqual(os.listdir(t), [])
+
+    def test_a_stopped_gate_s_test_runner_leaves_no_temp_dir(s):
+        unit = re.search(r"^unit='(.*?)'   #", (Path(__file__).parents[1] / "tools" / "track.sh").read_text(), re.M)[1]
+        with tempfile.TemporaryDirectory() as t, tempfile.TemporaryDirectory() as src:
+            Path(src, "test_wait.py").write_text("import pathlib, tempfile, time, unittest\nclass W(unittest.TestCase):\n    def test_w(s):\n"
+                                                 "        pathlib.Path(tempfile.mkdtemp(), 'f').write_text('x'); print(tempfile.gettempdir(), flush=True); time.sleep(600)\n")
+            p = subprocess.Popen(["bash", "-c", 'exec python3 -c "$1" test_wait.py 3>/dev/null', "_", unit], cwd=src, env={**os.environ, "TMPDIR": t},
+                                 stdout=subprocess.PIPE, text=True, start_new_session=True)
+            s.assertTrue(p.stdout.readline().startswith(t))                    # the test runs, its temp dir under the runner's root
+            os.killpg(p.pid, signal.SIGTERM); p.wait(); p.stdout.close()     # the pass's stop of a gate (Facts.stop)
+            s.assertEqual(os.listdir(t), [])
 
     def test_an_ended_run_s_processes_end_in_the_pass(s):
         s.change("s1"); s.agreed("s1"); s.change("s2"); s.agreed("s2")

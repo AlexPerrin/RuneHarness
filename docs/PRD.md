@@ -181,7 +181,7 @@ a live check reads the real state.
    a tools ship never changes the tools a running track script reads (each runs from its copy, removed once nothing uses it);
    a run the orchestrator stops (TaskStop of its agent, one resumed after its hand-back too, or `hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;
    a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
-   a failing test, a test suite and a gate leave no temp dir behind;
+   a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;

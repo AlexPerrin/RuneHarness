@@ -710,15 +710,24 @@ def contract(slug):
     return c
 
 
+def row_id(l):
+    return l[2:].split("|", 1)[0].strip()
+
+
 def unseeded(c, slug, track, up=True):
-    """The track's seed rows the contract file lacks (by id)."""
-    ids = {l[2:].split("|", 1)[0].strip() for l in (EVID / slug / "contract.md").read_text().splitlines() if l.startswith("- ")}
-    return [l for l in seed_rows(c, track, up).splitlines() if l[2:].split("|", 1)[0].strip() not in ids]
+    """The track's seed rows the contract file lacks (by id) or, when the pass wrote it from them (derived or not yet agreed), holds otherwise;
+    a reviewer's contract keeps its own wording of a seed row."""
+    con = contract(slug)
+    rows = {row_id(l): l for l in con["text"].splitlines() if l.startswith("- ")}
+    own = con["agreed"] in (None, "derived")
+    return [l for l in seed_rows(c, track, up).splitlines() if row_id(l) not in rows or own and rows[row_id(l)] != l]
 
 
 def add_seeds(slug, new):
-    f = EVID / slug / "contract.md"
-    f.write_text(f.read_text().rstrip("\n") + "".join("\n" + l for l in new) + "\n")
+    """Each row replaces the file's row of its id, or is appended."""
+    f, by = EVID / slug / "contract.md", {row_id(l): l for l in new}
+    lines = [by.pop(row_id(l), l) if l.startswith("- ") else l for l in f.read_text().rstrip("\n").splitlines()]
+    f.write_text("\n".join(lines + list(by.values())) + "\n")
 
 
 def write_contract(c, slug, track, agreed, rules=None, up=True):
@@ -1592,11 +1601,11 @@ def nxt(ctx, ch):
     con = contract(slug)
     if con is None:
         return step("contract: seed rows pending", "script", act=lambda: write_contract(ctx.cfg, slug, track, "derived" if TRACK[track]["public"] != "upstream" or fids(ch) else "", up=upstream(ch)))
-    if (new := unseeded(ctx.cfg, slug, track, upstream(ch))):  # R3: a seed row added later applies at a head not carried; a carried head keeps its verdict until it moves
+    if (new := unseeded(ctx.cfg, slug, track, upstream(ch))):  # R3: a seed row added or changed later applies at a head not carried; a carried head keeps its verdict until it moves
         if upstream(ch) and ctx.upstream_pr(ch) is None:
             return step("upstream PR unknown", "unknown")
         if not shipped(ctx, ch, head):
-            return step(f"contract: seed rows {', '.join(l[2:].split('|', 1)[0].strip() for l in new)} added", "script", act=lambda: add_seeds(slug, new))
+            return step(f"contract: seed rows {', '.join(map(row_id, new))} written", "script", act=lambda: add_seeds(slug, new))
     if (miss := [f for f in fids(ch) if f"finding {f} by " not in con["text"]]) and not carried(ctx, ch, head):  # R6: each finding of the round is a judged row (a carried head keeps its verdict)
         cs, talk = (ctx.comments(track, ch["pr"]), ctx.talk(track, ch["pr"])) if ch.get("pr") else ([], [])
         if cs is None or talk is None:

@@ -15,3 +15,6 @@ Orchestrator (2026-11-01 23:30Z): harness-tools-pinned-per-process carries a reb
 
 Also (filed): A run's own server never idle-logs out the run's clients while the run is alive
 The user saw 2/3 clients show 'You were disconnected from the server.' A lookup found genie-review-355-131's two desktops (instances 3 and 4) logged out at 00:19:59Z and ~00:21:01Z, about 5 minutes after the agent's last input (00:15:39Z). The server was up throughout, with no crash and no restart. The run's game.yml has idleLogout=true. An agent that spends more than 5 minutes thinking or reading loses its login, and its next in-game check fails or needs a re-login. Acceptance: a run's own server (track.sh up for a run) starts with idleLogout off, or the devtools keep the run's clients active; the live test server keeps the official idle logout; a test checks the run's rendered game.yml.
+
+Also (filed): server track.md calls the desktop token login auth type 7; rsprot decodes token login as auth type 2
+server-token-auth-13 hand-back: ~/src/OpenRune-Server/.worktrees/harness/tools/track.md:64 says 'login (auth type 7)'. rsprot 241 GameLoginDecoder decodes token login as auth type 2 (server-token-auth-12 QA FAIL on the same fact in game.example.yml, fixed at e40d5e9dd). Fix the harness doc to auth type 2.

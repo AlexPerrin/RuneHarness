@@ -502,10 +502,11 @@ class Facts:
         return out
 
     def supervised(s, pid):
-        """R2: the session's parent runs SUPERVISOR, the one process that starts its successor after `hd restart`."""
+        """R2: the session's parent runs SUPERVISOR, the one process that starts its successor after `hd restart`: the script file
+        bash holds open on fd 255, an absolute path however the user named it (./orchestrator.sh) and wherever it cd'd since."""
         try:
             ppid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
-            return any(a.decode(errors="replace").endswith(SUPERVISOR) for a in Path(f"/proc/{ppid}/cmdline").read_bytes().split(b"\0"))
+            return os.readlink(f"/proc/{ppid}/fd/255").endswith("/" + SUPERVISOR)
         except (OSError, IndexError, ValueError):
             return False
 

@@ -7,6 +7,7 @@ priority: P0
 mechanism: server
 deps: []
 created: '2026-11-02T01:55:00Z'
+superseded: harness-server-stack-one-deploy
 ---
 The user (2026-11-01, ET): "qa idles for 5 mins, and it' client logs out, it freezes at the login screen"; earlier "genie qa has been sitting at the loggin screen, after idle logged out for 20+mins". The user's yes (2026-11-01) to split this out of harness-server-stack-deploy as its own P0 change with no deps.
 

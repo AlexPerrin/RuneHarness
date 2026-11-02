@@ -10,7 +10,6 @@ priority: P2
 deps:
 - harness-build-gate-keyed-process
 - harness-deploy-survives-tools-ship
-- quest-completion-recorded-ticks
 finding:
 - IC_kwDOQBbPT88AAAABeeLlXg
 - IC_kwDOQBbPT88AAAABhyfg1w

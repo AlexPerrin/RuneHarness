@@ -244,7 +244,8 @@ next(change):
     carried (its own ship.json, the PR open at it and ready, or a same-PR change's built on it; or the PR at head, ready, ours answering every finding)?
       yes → wait on the maintainers (a release: until its tag exists)
     a dependency upstream in another repo, not merged there?
-      yes → wait on its upstream merge (it is in no PR of this repo)
+      yes → wait on its upstream merge (it is in no PR of this repo);
+      its card held by the user: one alert naming that hold (lift it, or hold this card too), the test server deploy going on
     an open change of the PR it waits for (head not in this head, or built on it)?
       yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips), its texts covering every change of it;
       a finding with no dev ref has its tip's head

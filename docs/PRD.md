@@ -11,8 +11,10 @@ Each goal is measured by its command whenever its target moves, shown with the t
 A server change unblocks the client once live on the test server.
 
 ### R2 Flow (from P3 P10)
-A defined change reaches its live target with no person involved once the changes it depends on are live (a dependency of another upstream PR: merged upstream;
+A defined change reaches its live target with no person involved once the changes it depends on are live (in the fork's integration tree: gated, merged and tested there;
 of the same PR: gated);
+a dependency upstream in another repo holds only its dependent's card until merged there, never its dev work;
+upstream contributions that belong together are bundled into one card by the user's word, and dev work goes on past the contribution queue;
 a change the user closes takes no further step and leaves the integration tree;
 a done or closed change leaves no worktree or local branch.
 The orchestrator, a top-level session visible in the user's console, spawns and stops every run and is the user's chat: it shows each card in full and shows questions and alerts and acts on the user's other words, never waiting on the user (a question is text in its reply and the loop goes on);
@@ -126,7 +128,7 @@ a live check reads the real state.
    a pass reads the world outside the state lock, takes the result of a fetch another pass has in flight instead of fetching again, and streams the events file;
    a change with a live dependency goes from defined to live with no `approve`, `answer` or console call;
    a closed change lists no run and leaves T_int;
-   a dependency of another upstream PR holds its dependent until merged upstream, one of the same PR until gated;
+   a dependency in another repo's upstream PR holds its dependent until live, its card until merged upstream, and one of the same PR until gated;
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
    a fresh dev ref the base contains is neither live nor done until handed over;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
@@ -164,6 +166,7 @@ a live check reads the real state.
 
 4. **R4** `tests.test_hd.R4`: a gated, judged, complete PR (every open change of it in its tip's head) is one card in the view, at that head: its acts in order (push, open the draft or update the open PR found by its head branch without the owner prefix, replacing its title and body where they differ from the live ones, CI, the comment, each reply, ready), each exact text, the finding each reply quotes, the verdict and evidence, and the yes, no and close commands;
    `hd hold` hides the card at its head (held by the user, a wait), a new head shows it again, `--all` holds every head until `--lift`;
+   a card waiting on a dependency's upstream merge whose card the user holds is one alert naming that hold, and the dependent's dependents go on;
    the same-head tips of one PR show one card;
    `hd approve` records the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw it;
    the carry runs only while the yes holds;
@@ -216,7 +219,8 @@ a live check reads the real state.
    every run record carries its usage and transcript.
    Live: `tools/track.sh up <slug> 2` prints two logged-in desktops' ports and returns.
 
-7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and prints no step name as a state.
+7. **R7** `tests.test_hd.R7`: `hd` output contains only spawns, cards, questions, runs, goals and change facts, and prints no step name as a state;
+   a command missing an argument it reads prints its usage, never a traceback.
    Live: `python3 hd.py` on the real state.
 
 8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head;

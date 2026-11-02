@@ -34,7 +34,7 @@ tools/track.sh    the harness track's script;
                   its judgment skills under its .claude/skills/
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring), reader.md (a run's read-only lookup, returning its conclusion)
 mcp/              osrs-mcp (cache, wiki, gamevals);
-                  the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, and an exception is an error answer;
+                  the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, a desktop call waits ANSWER_WAIT past its own timeoutMs at most, the whole call, and an exception is an error answer;
                   mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
@@ -353,6 +353,10 @@ the track file holds the rules.
 A dev run commits in its clone, builds with `tools/track.sh build <slug>` (the working copy snapshotted to an anonymous commit, T computed, the build copy checked out at T, built incrementally), brings the result up with `up <slug> [N]` (server from `or:<T>` on the change's ports, accounts seeded, N desktops started, each given `OPENRUNE_ENDPOINT=http://127.0.0.1:<port>` (the launcher takes jav_config from it alone, and jav_config names every other endpoint), loading the devtools jar of the client track's build of slug `live` (the client's main), and logged in by widget actions, blocks until every devtools endpoint answers, a key or typing call the starting client never received resent once a state read answers again;
 a server change's quest requirements in the mode its front matter `quest-mode` names, `respect-progress` unless `assume-completed`;
 `restart <slug>` keeps that mode and the database;
+a server up's game.yml has idle logout off (live keeps the image's), so a run's desktops stay logged in while its agent reads;
+each desktop of an up is kept logged in until `down`: a logout observed is logged in again, a failed login retried once the server is ready after it, never while the same server refuses it;
+`restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
+a desktop login ends on a page Enter does not submit: Escape, Enter again, else the refusal named;
 a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;
 its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>` the Nth desktop's an administrator, the rights read back after the logins;
 a login that made an account but its own, a lost key, logged out and in again;

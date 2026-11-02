@@ -2139,6 +2139,19 @@ class R6(Sandbox):
             b.handle("desktop", ["http://127.0.0.1:7780/mcp"], call)
         s.assertEqual((out[0][0], "truncated body" in out[0][1]["error"]["message"]), (7, True))   # an exception is an error answer
 
+    def test_a_desktop_call_is_answered_within_its_bound_when_the_client_hangs(s):   # cannon -4 and goblin -6: get_chat_history showed no result for 20+ min
+        import importlib.util, threading, time
+        spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")
+        b = importlib.util.module_from_spec(spec); spec.loader.exec_module(b)
+        hung = threading.Event(); s.addCleanup(hung.set)
+        body = mock.MagicMock(); body.__enter__.return_value.read.side_effect = lambda: hung.wait() and b""   # each socket read within its timeout, the body never ends
+        with mock.patch.object(b, "ANSWER_WAIT", 0.2), mock.patch.object(b, "listening", lambda p: True), mock.patch.object(b.urllib.request, "urlopen", return_value=body) as u:
+            t0 = time.monotonic()
+            r = b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "get_chat_history", "arguments": {}})
+            s.assertLess(time.monotonic() - t0, 2); s.assertIn("did not answer within 0.2 s", r["error"]["message"])
+            b.post("http://127.0.0.1:7780/mcp", "tools/call", {"name": "wait_for", "arguments": {"timeoutMs": 1000}})
+            s.assertEqual(u.call_args.kwargs["timeout"], 1.2)          # a call's own wait is added to its bound
+
     def test_desktop_screenshot_answers_while_another_call_waits(s):   # central-login-whitelist-binds-3: a screenshot hung 30 min
         import importlib.util, io, threading
         spec = importlib.util.spec_from_file_location("bridge", Path(__file__).parent.parent / "mcp" / "devtools_bridge.py")

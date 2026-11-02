@@ -1806,6 +1806,16 @@ class R7(Sandbox):
         for line in out.getvalue().splitlines():
             s.assertTrue(line.split(":")[0] in v, line)
 
+    def test_a_step_a_started_run_holds_reads_live_not_due(s):  # sweep-67 P5: 'dev run due' written while its run was live
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        s.assertTrue(hd.rec("s1", "state")["state"].startswith("dev run due"))   # listed, not started: due
+        hd.save_run({**hd.runs()[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(hd.rec("s1", "state")["state"], "dev run s1-1 live")
+        s.assertTrue(any(c.endswith(": dev run s1-1 live") for c in v["change"]))
+
     def test_show_prints_the_change_its_contract_and_every_verdict(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

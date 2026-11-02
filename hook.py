@@ -9,6 +9,7 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 AskUserQuestion is denied in the orchestrator's session (its definition's frontmatter holds only name and description). R2
                 A bare `hd` or `hd tick` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.  R5
                 A run's kill of a pid outside its own slice, and its pkill or killall, is denied.                          R5
+                A Monitor command is judged as a Bash command; each denial's event names the run and change of its agent. R5
                 A while/until loop's `pgrep -f` whose pattern matches the command's own text (its own `bash -c` line) is denied. R5
                 The denial names `hd ps`, which lists the run's own processes (pid, command line) for its `kill`.          R5
                 A run's own agent whose run the pass, the head or `hd stop` ended only reads, writes its evidence/<slug>/ and hands back.  R2
@@ -25,7 +26,7 @@ PostToolUse     the orchestrator's TaskStop of a run's agent (one resumed after 
                 a SendMessage to a live run's agent records when it was told: the contract rows written until then are its own.  R3
                 the context size (the transcript's last assistant usage) past cfg.context_limit → tell the run once to
                 start no new work and hand off cleanly: commit (and, off the harness track, push) its work in progress on the
-                dev ref, record what it judged, collect its subagents and stop its processes, write evidence/<slug>/handoff.md, hand back; else, while the
+                dev ref, collect its subagents and stop its processes, record what it judged, write evidence/<slug>/handoff.md, hand back; else, while the
                 change's up.json lists desktops, IDLE_CALLS tool calls in a row with no desktop devtools call since that up
                 → tell the run once to `down` until it next plays (a devtools call or a new up starts the count again).   R6
 SubagentStop    record usage and last message; the stop after SubagentHandback also ends the run with its record (the
@@ -232,12 +233,20 @@ def handover_line(p):
     m = re.fullmatch(r"run (\S+): handed over ([0-9a-f]{7,40}) (Limits: .+)", msg, re.I)
     if m and m[1] == r["name"] and ho.get("head", "").startswith(m[2]) and m[3].lower() == (ho.get("limits") or "").lower():
         return
-    hd.event(change=r["change"], run=r["name"], action="denied", rule="hand-back beside its hand-over")
+    denied(p, "hand-back beside its hand-over")
     want = f"`run {r['name']}: handed over {ho['head'][:9]} {ho['limits']}`" if ho.get("limits") else "none recorded: `hd handover` first"
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           f"A hand-over's hand-back is its one recorded line, nothing beside it: {want}. A limit of this change is fixed before "
           "the hand-over, one in another mechanism filed and named as `limit:<slug>` in it; a risk stated in prose is a limit not fixed."}}))
     return True
+
+
+def denied(p, rule, **e):
+    """R5: every denial is one event naming the rule, the agent and, when the agent works for a run (its own or one it
+    spawned), that run and its change, so the events of a change hold each of its denials."""
+    r = owner_run(p)
+    hd.event(action="denied", rule=rule, **{k: v for k, v in {"agent": p.get("agent_id"), "role": p.get("agent_type"),
+             **({"change": r["change"], "run": r["name"]} if r else {}), **e}.items() if v})
 
 
 def owner_run(p):
@@ -376,7 +385,7 @@ def deny_ask(p):
     """R2: the orchestrator never waits on the user (it is the only spawner): AskUserQuestion is denied in its session, by a
     rule here rather than its definition's frontmatter, which a running session never rereads."""
     if p.get("tool_name") == "AskUserQuestion" and p.get("agent_type") == "orchestrator" and not p.get("agent_id"):
-        hd.event(action="denied", role="orchestrator", rule="AskUserQuestion")
+        denied(p, "AskUserQuestion", role="orchestrator")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
               "You never wait on the user: ask as text in your reply (or `hd ask <slug>`) and go on with the loop."}}))
         return True
@@ -390,7 +399,7 @@ def deny_users_word(p):
     m = (p.get("agent_id") or p.get("agent_type")) and \
         re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(\.py)?\s+(approve|close)\b", cmd)
     if m:
-        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"hd {m[2]} is the user's")
+        denied(p, f"hd {m[2]} is the user's")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": f"hd {m[2]} is the user's own word, typed by the user as a `!` command, never run by an agent. Report it; do not work around it."}}))
         return True
@@ -402,7 +411,7 @@ def deny_pass(p):
     and ends runs, starts gates and ships, and prints the orchestrator's spawn lines. The orchestrator alone runs it."""
     if not p.get("agent_id") or not re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(?:\.py)?(?:(?=[ \t]*(?:$|[;&|)\n<>]|\d+>))|\s+tick\b(?![^;&|\n]*--dry-run))", bare(p)):
         return
-    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="hd pass in a subagent")
+    denied(p, "hd pass in a subagent")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           "a bare `hd` or `hd tick` is the orchestrator's acting pass: view with `hd show <slug>` or `hd tick --dry-run`."}}))
     return True
@@ -410,28 +419,30 @@ def deny_pass(p):
 
 def deny_foreign_kill(p):
     """R5: a run signals only its own processes, those in its slice: a `kill` whose every target is a pid in the run's
-    slice (or the shell's own job, %n) goes; a pkill or killall (a pattern matches other runs' processes) or a kill of
+    slice (or the shell's own job: %n, $!, or a variable the same command set to $!) goes; a pkill or killall (a pattern matches other runs' processes) or a kill of
     any other pid is denied. A run's processes end with `track.sh down <slug>` or the run's own end."""
     if p.get("tool_name") != "Bash" or not (r := owner_run(p)):
         return
-    sl, bad = hd.run_slice(r["name"]), []
-    for m in re.finditer(AT + r"(pkill|killall|kill)\b([^;&|\n)]*)", bare(p)):
+    sl, bad, cmd = hd.run_slice(r["name"]), [], bare(p)
+    bg = {"$!"} | {f"${v}" for v in re.findall(r"\b(\w+)=\$!", cmd)} | {f"${{{v}}}" for v in re.findall(r"\b(\w+)=\$!", cmd)}   # the job this command put in the background
+    for m in re.finditer(AT + r"(pkill|killall|kill)\b([^;&|\n)]*)", cmd):
         args = [x for x in re.split(r"\s\d*[<>]", " " + m[2])[0].split() if not x.startswith("-")]   # shortcut: `kill -s SIG pid` reads SIG as a target and is denied; write `kill -SIG pid`
         if m[1] != "kill" or not args:
             bad.append(verb(m))
         for x in args if m[1] == "kill" else []:
             try:
-                ok = x.startswith("%") or x.isdigit() and int(x) > 1 and f"/{sl}/" in Path(f"/proc/{x}/cgroup").read_text()
+                ok = x.startswith("%") or x in bg or x.isdigit() and int(x) > 1 and f"/{sl}/" in Path(f"/proc/{x}/cgroup").read_text()
             except OSError:
                 ok = False
             if not ok:
                 bad.append(x)
     if not bad:
         return
-    hd.event(change=r["change"], run=r["name"], action="denied", rule=f"kill outside the run's slice: {' '.join(bad)[:80]}")
+    denied(p, f"kill outside the run's slice: {' '.join(bad)[:80]}")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           f"a run signals only its own processes ({sl}); {' '.join(bad)[:120]!r} is a pattern or a pid outside it. Stop yours with "
-          "`track.sh down <slug>`, or `kill <pid>` of a process you started (its pid from your own command's output)."}}))
+          "`track.sh down <slug>`, `kill <pid>` of a process you started (its pid from your own command's output), "
+          "or, inside one command, `kill $p` after `x & p=$!` (or `kill %1`)."}}))
     return True
 
 
@@ -462,7 +473,7 @@ def deny_self_pgrep(p):
         except re.error:
             hit = args[-1] in cmd
         if hit:
-            hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"self-matching pgrep -f {args[-1][:60]}")
+            denied(p, f"self-matching pgrep -f {args[-1][:60]}")
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
                   f"`pgrep -f {args[-1]!r}` matches this command's own shell (its text is in the `bash -c` line), so it never ends. "
                   "Run the step in the foreground (it ends on its own fact), or wait on the fact the step makes: a state file, a log line, a port (never the task's output file). "
@@ -481,7 +492,7 @@ def deny_time_bound(p):
     loops = [(k, t) for k, t in own_loops(cmd) if re.search(r"\bsleep\b", t)]
     if not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", cmd) and not any(k == "for" or COUNTED.search(t) for k, t in loops):
         return
-    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="time bound on a step")
+    denied(p, "time bound on a step")
     raw = (p.get("tool_input") or {}).get("command") or ""
     unbound = re.sub(r"\btimeout\s+(?:-[ks]\s+\S+\s+|-\S+\s+)*\d\S*\s+", "", raw)   # the step itself, for the run to issue as it is
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
@@ -548,7 +559,7 @@ def deny_reader_write(p):
     on GitHub or hd is denied (its rules say so; this makes it so)."""
     if p.get("agent_type") != "reader" or not (m := WRITES.search(bare(p))):
         return
-    hd.event(action="denied", agent=p.get("agent_id"), role="reader", rule=f"reader writes: {verb(m)[:60]}")
+    denied(p, f"reader writes: {verb(m)[:60]}", role="reader")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
           f"a reader only reads ({verb(m)!r} writes or acts): read with cat, grep, sed -n, jq, git log/show/diff, gh api GET; "
           "if the answer needs a write, say so in your answer and let your run do it."}}))
@@ -572,7 +583,7 @@ def stop_ended(p):
         return
     if own:
         msg = f"{r['name']} ended ({r['reason']}): write what is proven and left to {ev}/handoff.md, then hand back; nothing else runs."
-        hd.event(change=r["change"], run=r["name"], action="denied", rule="run ended: hand-off only")
+        denied(p, "run ended: hand-off only")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": msg}}))
         return True
     msg = f"{r['name']} ended: an agent it spawned stops with it."
@@ -589,7 +600,7 @@ def deny_dep_cycle(p):
     cmd = (p.get("tool_input") or {}).get("command") or ""
     if re.search(r"\bgit\b[^;&|\n]*\bcommit\b", cmd) and "harness/" in cmd and (cy := hd.cycles(hd.defs("changes"))):
         why = "; ".join(" -> ".join(c) for c in cy)
-        hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"dependency cycle {why}")
+        denied(p, f"dependency cycle {why}")
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                  "permissionDecisionReason": f"the definitions hold a dependency cycle ({why}): remove one of its deps, then commit."}}))
         return True
@@ -707,6 +718,8 @@ def orchestrator_context(p):
 
 def main():
     p = json.load(sys.stdin)
+    if p.get("tool_name") == "Monitor" and (p.get("tool_input") or {}).get("command"):
+        p = {**p, "tool_name": "Bash"}   # R5: a Monitor command is a shell command: every Bash rule judges it
     try:
         {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or handover_line(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or orchestrator_context(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault

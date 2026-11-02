@@ -10,6 +10,7 @@ priority: P2
 deps:
 - harness-build-gate-keyed-process
 - harness-deploy-survives-tools-ship
+- harness-ci-latest-run-per-check
 finding:
 - IC_kwDOQBbPT88AAAABeeLlXg
 - IC_kwDOQBbPT88AAAABhyfg1w

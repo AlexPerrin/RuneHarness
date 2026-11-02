@@ -67,7 +67,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
-  a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) joins that change instead: its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
+  a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) and no open `hd ask` holds joins that change instead (a held one joins nothing and counts in no merge alert until answered): its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   the finder waits on the fix as with `--blocks`, whether the filing is new or joined;
   `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;

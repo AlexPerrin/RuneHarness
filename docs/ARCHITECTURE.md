@@ -389,6 +389,7 @@ a server up's game.yml has idle logout off (live keeps the image's), so a run's 
 each desktop of an up is kept logged in until `down`: a logout observed is logged in again, a failed login retried once the server is ready after it, never while the same server refuses it;
 a failed login that left the desktop logged in (no inventory) is logged out and tried again at once, a second such failure waiting like any other;
 a desktop's endpoint runs its up's tool calls one at a time in arrival order (the plugin interrupts the active call on each new one, and a run and its keeper both call), a cancel notification passing at once;
+the endpoint answers every tool call within 20 s past its own timeoutMs, its wait for the call ahead included, an error (code -32002, which a keeper takes as a cancel and logs in again) when the plugin has not answered (a hung plugin, a stream that never ends), so a call is bounded whatever bridge sent it;
 a cancelled keeper call starts its login again, never read as the endpoint gone;
 a keeper call once sent waits for its answer however long it queues (only its connect is bounded), so no step it gave up on runs later;
 `restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
@@ -415,8 +416,8 @@ A subagent's `timeout` command (outside a heredoc body or a quoted argument) is 
 A subagent's sleeping loop that counts (a `for` loop, or a `while`/`until` loop with a counter) is denied as the same bound by another name;
 a loop that sleeps until its condition, the fact, holds is the wait.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
-A desktop's devtools endpoint answers only a request carrying its up's token (up.json `token`, sent as `Authorization: Bearer`), any other 401: every JVM of the instance loads the server tools' DevtoolsOwner, the JDK's HttpServer provider filtering the devtools port, and the bridge and desktop_login.py send the token of the up whose instance owns the port.
-A desktop up while a session's desktop bridge runs without mcp/serve.py (it predates serve.py, never reloads and sends no token, read from the processes) answers any caller until its down.
+A desktop's devtools endpoint answers only a request carrying the token in its instance's guard file, read on each request (its up's up.json `token`, sent as `Authorization: Bearer`), any other 401: every JVM of the instance loads the server tools' DevtoolsOwner, the JDK's HttpServer provider filtering the devtools port, and the bridge and desktop_login.py send the token of the up whose instance owns the port.
+The guard file is empty, any caller answered, while a session's desktop bridge runs without mcp/serve.py (it predates serve.py, never reloads and sends no token, read from the processes): desktop_login.py writes it at the desktop's start and its keeper again on each change of that fact, so the guard turns on once none lives.
 A run's own agent stops (`continue: false`) at its next tool call, its hand-back let through, once the pass, the head or `hd stop` ended its run.
 
 **Base, head**

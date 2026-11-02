@@ -2210,12 +2210,13 @@ def _pass(ctx, act):
         if (a := rec(ch["slug"], "ask")):
             view["question"].append(f"{ch['slug']}: {a['text']}")
         last = rec(ch["slug"], "state")
-        if act:  # a done or closed change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
+        if act:  # a done, closed or superseded change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
+            gone = "change closed" if ch.get("closed") else f"change superseded by {ch['superseded']}" if ch.get("superseded") else "change done" if st["actor"] == "done" else ""
             for r in ctx.runs:
                 if r["change"] != ch["slug"] or r.get("ended"):
                     continue
-                if ch.get("closed") or st["actor"] == "done" or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
-                    r["ended"], r["reason"] = now(), "change closed" if ch.get("closed") else "change done" if st["actor"] == "done" else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due"
+                if gone or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+                    r["ended"], r["reason"] = now(), gone or (f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
                     if r.get("started"):
                         r["record"] = produced(r)
                         event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
@@ -2637,8 +2638,9 @@ def cmd_verdict(a):
         refuse(*why)
     (STATE / ch["slug"]).mkdir(parents=True, exist_ok=True)
     rules = {k: ctx.F.blob(ctx.clone(ch), TRACK[ch["track"]]["base"], k) for k in con["rules"]}
+    qa = next((r["name"] for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "qa" and r.get("started") and not r.get("ended")), "")  # the run judging
     with open(STATE / ch["slug"] / "verdicts.jsonl", "a") as f:
-        f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "judged": con["judged"], "rows": rows, "rules": rules, "run": os.environ.get("HD_RUN", "")}, sort_keys=True) + "\n")
+        f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "judged": con["judged"], "rows": rows, "rules": rules, "run": qa}, sort_keys=True) + "\n")
     failed = [k for k, v in rows.items() if str(v).startswith("fail")]
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="verdict", head=head, failed=len(failed))

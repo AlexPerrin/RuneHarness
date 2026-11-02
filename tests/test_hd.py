@@ -3212,6 +3212,14 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "fixed", "Limits:", "limit:h2"])
         s.assertEqual(hd.rec("h1", "handover")["head"], A)
 
+    def test_a_superseded_change_ends_its_started_run(s):
+        s.change("h1", track="harness", mechanism="hold")
+        hd.save_run({"name": "h1-2", "change": "h1", "role": "dev", "input": "", "started": hd.now(), "console_pid": 7, "console_start": "1"})
+        hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1"])
+        hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})))
+        r = next(r for r in hd.runs() if r["name"] == "h1-2")
+        s.assertEqual((bool(r["ended"]), r["reason"]), (True, "change superseded by r1"))   # held with no runs, a started one too
+
     def test_planner_merges_changes_on_one_mechanism(s):
         s.change("h1", track="harness"); s.change("h2", track="harness"); s.change("s1")
         with s.assertRaises(SystemExit):
@@ -3358,9 +3366,12 @@ class R3(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         s.verdict("s1", A, {"ok": "pass", "j1": "fail: wrong"}, F)
+        hd.save_run({"name": "s1-4", "change": "s1", "role": "qa", "input": "", "started": hd.now()})   # the qa run judging
+        hd.save_run({"name": "s1-3", "change": "s1", "role": "qa", "input": "", "started": hd.now(), "ended": hd.now()})
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         v = hd.verdicts("s1")
         s.assertEqual([x["rows"]["j1"] for x in v], ["fail: wrong", "pass"])
+        s.assertEqual([x["run"] for x in v], ["", "s1-4"])                     # the verdict names its started, unended qa run
 
     def test_text_only_fix_keeps_verdict_valid(s):
         s.change("s1"); s.agreed("s1")

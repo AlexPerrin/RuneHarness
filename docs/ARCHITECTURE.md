@@ -80,6 +80,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
   keyed to the head and `judged`, the hash of the rows without a script (a check or gate row is gated, never judged);
+  `run` names the change's started, unended qa run;
   refused if a row is missing, or not judged with none failing
 
 - `hd tree <slug> <commit>`, by a track script: the T commit and tree of a working-copy snapshot, so a dev builds T
@@ -171,6 +172,7 @@ A done or closed change leaves nothing behind: the pass ends its runs (a started
 one whose status shows only untracked symlinks holds no edits and goes forced, one with edits stays), then those branches, the dev ref last;
 a branch goes once the base, the repo's tools branch or the change's head holds its tip, or the change is closed;
 `swept.json` keeps the head the dev ref held;
+a superseded change's runs end the same way, its clone and branches kept until the user's `hd close`;
 remote branches are public and stay;
 a script that cannot start is an alert;
 containers, volumes, mobiles and desktops carry the slug or the run name.

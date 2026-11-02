@@ -2661,7 +2661,7 @@ def card(ctx, ch, head):
         lines += [f"### {w}"] + [f"(finding by {q['author']}" + (f" on {q['path']}:{q['line']}" if q.get("path") else " on the PR") + ": "
                                  + " ".join(q["body"].split())[:500] + ")" for f in fs or [] if (q := by.get(f))] + [t or "(empty)"]
     lines += ["(each post ends with the Claude Code attribution line)",
-              f"verdict at {head[:12]}: {len(v[-1]['rows'])} rows pass (run {v[-1].get('run', '')})" if v else "gated; no judged rows",
+              f"verdict at {head[:12]}: {len(v[-1]['rows'])} rows pass" + (f" (run {v[-1]['run']})" if v[-1].get("run") else "") if v else "gated; no judged rows",
               f"evidence {EVID / slug}",
               f"yes: ! python3 {ROOT}/hd.py approve {slug} {head}    no: python3 {ROOT}/hd.py hold {slug} [--all] <why>    close: ! python3 {ROOT}/hd.py close {slug} <why>"]
     return "\n".join(lines)

@@ -1271,6 +1271,10 @@ class R4(Sandbox):
                      "### title\nfeat: x", "### body\nFixes #354 thanks @rev", f"### comment\n{PUSHED}", "rows pass",
                      f"evidence {s.root / 'evidence' / 's1'}", f"yes: ! python3 {hd.ROOT}/hd.py approve s1 {A}"):
             s.assertIn(want, c)
+        s.assertIn("rows pass (run s1-qa-t)", c)                                     # the run that recorded the verdict
+        vf = s.root / "state" / "s1" / "verdicts.jsonl"
+        vf.write_text(vf.read_text().replace('"run": "s1-qa-t"', '"run": ""'))
+        s.assertRegex(hd.tick(s.ctx(F), act=False)["card"][0], r"rows pass\n")            # none recorded: no empty parenthesis
         F.f["prs"] = {"u/f": [{"number": 445, "branch": "content/s1", "owner": "other", "head": D, "draft": False}]}
         s.assertIn("2. open a draft PR", hd.tick(s.ctx(F), act=False)["card"][0])           # another owner's branch of that name: not ours
         F.f["prs"]["u/f"].append({"number": 446, "branch": "content/s1", "owner": "o", "head": D, "draft": False})

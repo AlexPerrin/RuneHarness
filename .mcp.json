@@ -2,23 +2,23 @@
   "mcpServers": {
     "osrs-mcp": {
       "type": "stdio",
-      "command": "mcp/osrs-mcp.sh",
-      "args": []
+      "command": "/home/alex/osrs-harness/mcp/serve.py",
+      "args": [
+        "osrs-mcp"
+      ]
     },
     "osrs-devtools-mobile": {
       "type": "stdio",
-      "command": "/home/alex/osrs-harness/mcp/devtools_bridge.py",
+      "command": "/home/alex/osrs-harness/mcp/serve.py",
       "args": [
-        "mobile",
-        "/home/alex/osrs-plugins-reverse/tools/devtools-mcp.sh"
+        "osrs-devtools-mobile"
       ]
     },
     "osrs-devtools-desktop": {
       "type": "stdio",
-      "command": "/home/alex/osrs-harness/mcp/devtools_bridge.py",
+      "command": "/home/alex/osrs-harness/mcp/serve.py",
       "args": [
-        "desktop",
-        "http://127.0.0.1:7780/mcp"
+        "osrs-devtools-desktop"
       ]
     }
   }

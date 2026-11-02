@@ -33,7 +33,8 @@ tools/track.sh    the harness track's script;
                   Each product repo holds its own track the same way (the fork's on branch local/harness): build | up | down | gate | ship | measure | log <slug> [T], blocking on facts, the build in its tools/build/build.sh, the gate and the contract rows' verbs in its tools/gate/gate.sh (which sources build.sh);
                   its judgment skills under its .claude/skills/
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring), reader.md (a run's read-only lookup, returning its conclusion)
-mcp/              osrs-mcp (cache, wiki, gamevals);
+mcp/              serve.py runs each server of .mcp.json (`serve.py <name>`, its command line in servers.json): once a file in mcp/ changes it holds the next request, lets the requests in flight answer, stops the server and runs itself again, replaying the session's initialize (its answer dropped) and the held request, and sends tools/list_changed;
+                  osrs-mcp (cache, wiki, gamevals);
                   the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, a desktop call waits ANSWER_WAIT past its own timeoutMs at most, the whole call, and an exception is an error answer;
                   mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored

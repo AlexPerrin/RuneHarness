@@ -1944,10 +1944,12 @@ class R5(Sandbox):
 
     def test_a_deploy_is_keyed_on_the_tools_it_runs(s):  # the integration deploy ran on pre-ship tools, still downloading openrs2
         s.change("s1"); s.agreed("s1")
-        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "ship() { :; }", "tools/build/build.sh": "1"}}})
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "local/harness": B}, "tools_files": {B: {"tools/track.sh": "ship() { :; }", "tools/build/build.sh": "1", "tools/gate/gate.sh": "1"}}})
         ctx = s.ctx(F); ch = ctx.changes["s1"]; k = ctx.deploy_key(ch, "tr")
-        F.f["tools_files"][C] = {"tools/track.sh": "ship() { echo; }", "tools/build/build.sh": "1"}; F.f["refs"]["local/harness"] = C
-        s.assertNotEqual(s.ctx(F).deploy_key(ch, "tr"), k)                       # a tools ship moves the key: the running deploy is replaced
+        F.f["tools_files"][C] = {"tools/track.sh": "ship() { :; }", "tools/build/build.sh": "1", "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = C
+        s.assertEqual(s.ctx(F).deploy_key(ch, "tr"), k)                          # sweep-26 P0-a: a gate-only tools ship is no deploy's
+        F.f["tools_files"][D] = {"tools/track.sh": "ship() { echo; }", "tools/build/build.sh": "1", "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = D
+        s.assertNotEqual(s.ctx(F).deploy_key(ch, "tr"), k)                       # a fix of what it runs moves the key: its count starts over
         s.assertTrue(k.startswith("tr-"))
 
     def test_a_batch_gate_on_a_prefix_still_current_holds(s):  # a member arriving restarted no gate, and the state named the running one
@@ -3015,6 +3017,10 @@ class R8(Sandbox):
         s.assertIn("s1 [server P2]: gated; waiting for the user's yes; test server: deploying trtrtrtrt", v["change"])
         F.f["procs"] = {(7, "1"), (4242, "99")}                                      # the deploy is running: not started again
         hd.tick(s.ctx(F)); s.assertEqual(len([x for x in F.spawned if x[1] == "ship"]), 1)
+        F.f["trees"][R] = "tz" * 20                                                  # sweep-26 P0-a: a newer tree mid-deploy (its 213 MB download at 47%)
+        v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"])), ([], 1))   # it runs to its end
+        s.assertIn("test server: a deploy runs, then tztztztzt", v["change"][0])
+        F.f["trees"][R] = "tr" * 20
         hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
 

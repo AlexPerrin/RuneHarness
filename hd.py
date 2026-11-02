@@ -587,7 +587,7 @@ def short(k):
 
 
 def tools_run(files, d, cmds=()):
-    """The hash of the tools one script step runs: every file under its dir d (a track keeps a build's code in tools/build/, a
+    """The hash of the tools one script step runs: every file under its dir d (or each of dirs d) (a track keeps a build's code in tools/build/, a
     gate's in tools/gate/; tools/track.sh only dispatches to them) and each other tools file a contract row's command names, with those commands."""
     run = sorted(p for p in files if p.startswith(d) or (p != "tools/track.sh" and any(p in c for c in cmds)))
     return hashlib.sha1("\0".join(list(cmds) + [f"{p}\n{files[p]}" for p in run]).encode()).hexdigest()
@@ -1136,12 +1136,12 @@ class Ctx:
         return b if build else out(lambda rs: b + "-" + tools_run(gate_part(files, cmds(rs)) if each else files, "tools/gate/", cmds(rs))[:12])
 
     def deploy_key(s, ch, tree):
-        """R5: a deploy's key: the tree and the hash of every tools file (a deploy runs build, up and ship), so a tools ship
-        replaces a running deploy; the tree alone without a tools branch."""
+        """R5: a deploy's key: the tree and the hash of the tools files it runs (tools/track.sh, tools/build/, tools/server/), so a
+        tools fix restarts the count of a deploy that ended without its result; the tree alone without a tools branch."""
         r = s.cfg["repos"][TRACK[ch["track"]]["repo"]]
         t = r.get("tools") and s._m(("tooltip", ch["track"]), lambda: s.F.rev(str(P(r["path"])), r["tools"]))
         files = t and s.F.tools_files(str(P(r["path"])), t)
-        return tree + "-" + tools_run(files, "tools/")[:12] if files else tree
+        return tree + "-" + tools_run(files, ("tools/track.sh", "tools/build/", "tools/server/"))[:12] if files else tree
 
     def script(s, ch):
         return str(track_root(s.cfg, ch["track"]) / "tools" / "track.sh")
@@ -1877,6 +1877,9 @@ def ship_test(ctx, ch, st, tint, act):
                 if c["change"] is None and f"pin {c['conflict']}" not in " ".join(ctx.alerts):
                     ctx.alerts.append(f"pin {c['conflict']} conflicts with the integration tree ({', '.join(c['with'][-3:])}): a resolution ref or a change is needed")
     elif (rec("live", "tree") or {}).get("tree") != tint["tree"]:
+        if ctx.proc("live", "ship") == "alive":  # a deploy runs to its end (its revision download is lost if stopped): the next pass deploys the newest tree
+            st["state"] = f"test server: a deploy runs, then {tint['tree'][:9]}"
+            return
         ctx.start("live", "ship", [ctx.script(ch), "ship", "integration", tint["commit"]],
                   {"T": tint["tree"], "TCOMMIT": tint["commit"], "HEADS": " ".join(tint["heads"]), "NAMES": " ".join(tint["names"]), "HD_ROOT": str(ROOT),
                    "CENTRAL": ctx.central_env(tint["central"])}, act, key=ctx.deploy_key(ch, tint["tree"]))

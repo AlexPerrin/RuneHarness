@@ -20,3 +20,6 @@ Acceptance: desktop_login.py's keystroke and coordinate code and the old mobile 
 
 Also (filed): a run's first up gets no desktop home copy after a WSL interop error
 genie-review-355-134 hand-back: the first 'STAFF=1 tools/track.sh up genie-review-355' failed: instance 6 got no home copy and the log showed a WSL interop error; after down, the retry came up cleanly. Evidence: state/genie-review-355/up-134.log
+
+Also (filed): desktop_login.py token never returns once the desktop sits on a refusal screen
+server-token-auth-14 hand-back (qa): 'desktop_login.py <port> token' hangs once the desktop shows a login refusal ('Incorrect username or password.'): Enter does not press 'Try again'. The run worked around it with evidence/server-token-auth/qa9-try.py. A refusal screen is a login fact: the login path presses Try again (or returns the refusal) and never waits.

@@ -28,3 +28,6 @@ Acceptance:
 6. Trace how a qa run's up got a tree other than the gated T: state/genie-review-355/build-52b39cc9*.log 00:45:37Z "Cannot locate tasks ':or-cache:qaCacheToolsClasspath'" after 'STAFF=1 tools/track.sh up genie-review-355 2'; gated T 286823c78; up takes T from state/<slug>/build.json (server tools/track.sh:139); the task was removed in 3db4e240a; find who invoked it and fix it there. (evidence/monitor/sweep-14.md B7, sweep-15.md B5)
 
 Evidence (idle logout): genie-review-355-131 desktops 3 and 4 logged out 00:19:59Z and ~00:21:01Z, 5 min after last input; server-friends-chat-clan-channels-20 (evidence/server-friends-chat-clan-channels/in-game.md, Run 20: idleLogout=true, desktop hung on relogin); genie-review-355-cickwdoqbbpt88aaaabeelmng-1 at the login screen 20+ min (stopped 01:19:38Z); cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq-4 (the user's report ~01:4xZ).
+
+Also (filed): the server track.sh header also calls the token desktop auth type 7
+server-token-auth-14 hand-back: besides track.md:64 (already filed here), the server tools/track.sh header says the token desktop sends 'auth type 7'; rsprot decodes token login as auth type 2. Fix both.

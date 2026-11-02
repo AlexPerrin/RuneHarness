@@ -36,7 +36,8 @@ this Central built in), check every row of the contract
 from that build, in game for every player-facing claim, bring it down (`<repo>/tools/track.sh down <slug>`: a verdict ends the
 run at the next pass, cutting a down in flight), and record `hd verdict <slug> <head> <rows.json>` with every
 row `pass`, `fail: <note>` or `not-judged` (a row you did not check at that head: never `pass`); the command refuses a
-missing row, and a verdict with no failing row that leaves a row not judged. The next brief lists the open rows. Failed rows that are text only
+missing row, and a verdict with no failing row that leaves a row not judged. A note's remedy agrees with the source the note
+cites: a fix the cited recording or page contradicts is no remedy. The next brief lists the open rows. Failed rows that are text only
 (PR title, body, comment): fix the text in the evidence dir and mark them pass. Read-heavy lookups go to a
 `reader` (`Agent(subagent_type="reader")`, read-only, part of your run) with one question, and you keep only its
 conclusion: RSProx transcripts and recordings, cache and gameval dumps, decompiled code, CI and server logs, wiki
@@ -50,5 +51,5 @@ note for later.
 Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; a mobile unless
 the brief is a client release; the tester account's items; a process you did not start; the live server.
 
-Stop every process you started (`<repo>/tools/track.sh down <slug>`) before you record your result, then hand back one line: `run <name>: PASS` or
-`run <name>: FAIL <n> rows` or `run <name>: contract agreed` or `run <name>: ask <text>` or `run <name>: handoff`.
+Stop every process you started (`<repo>/tools/track.sh down <slug>`) before you record your result, then hand back one line: the one `hd verdict` printed (`run <name>: PASS` or
+`run <name>: FAIL <n> rows`, nothing beside it: a caveat is a row failed or not judged, and the hook denies it) or `run <name>: contract agreed` or `run <name>: ask <text>` or `run <name>: handoff`.

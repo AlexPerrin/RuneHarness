@@ -800,6 +800,12 @@ def verdicts(slug):
     return [json.loads(l) for l in f.read_text().splitlines() if l.strip()] if f.exists() else []
 
 
+def verdict_line(run, rows):
+    """R3: a qa run's hand-back, the one line its verdict records."""
+    failed = sum(str(v).startswith("fail") for v in rows.values())
+    return f"run {run}: " + (f"FAIL {failed} rows" if failed else "PASS")
+
+
 def judged(slug, head, con):
     """The verdicts on head that judged the contract's judged rows as they stand (rule rows are keyed by their shas)."""
     return [v for v in verdicts(slug) if v["head"] == head and (v.get("judged") == con["judged"] or v["contract"] == con["hash"])]
@@ -3270,6 +3276,7 @@ def cmd_verdict(a):
     (EVID / ch["slug"] / "handoff.md").unlink(missing_ok=True)
     event(change=ch["slug"], record="verdict", head=head, failed=len(failed))
     print(f"verdict at {head[:9]}: {'PASS' if not failed else f'FAIL {len(failed)} rows'}" + (f", {len(open_)} not judged" if open_ else ""))
+    print(verdict_line(qa, rows))   # the hand-back to copy, nothing beside it
 
 
 def cmd_ask(a):

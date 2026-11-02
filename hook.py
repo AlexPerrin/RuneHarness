@@ -222,22 +222,31 @@ def hold_handback(p):
 
 
 def handover_line(p):
-    """R3: a run that handed over hands back the one line its hand-over recorded, `run <name>: handed over <head> Limits: ...`:
-    a limit of its change stated beside it is in scope, fixed before the hand-over, never handed back in prose."""
+    """R3: a run that recorded its result hands back the one line it recorded, nothing beside it: a dev's hand-over
+    `run <name>: handed over <head> Limits: ...` (a limit of its change stated beside it is in scope, fixed before the
+    hand-over, never handed back in prose), a qa's verdict `run <name>: PASS` or `run <name>: FAIL <n> rows` (a caveat
+    beside a PASS is a row it failed or did not judge)."""
     if p.get("tool_name") != "SubagentHandback" or not is_run(p) or not (r := find_run(p)):
         return
     msg = ((p.get("tool_input") or {}).get("message") or "").strip()
-    if not re.match(r"run \S+: handed over ", msg):
+    if re.match(r"run \S+: handed over ", msg):
+        ho = hd.rec(r["change"], "handover") or {}
+        m = re.fullmatch(r"run (\S+): handed over ([0-9a-f]{7,40}) (Limits: .+)", msg, re.I)
+        if m and m[1] == r["name"] and ho.get("head", "").startswith(m[2]) and m[3].lower() == (ho.get("limits") or "").lower():
+            return
+        want = f"`run {r['name']}: handed over {ho['head'][:9]} {ho['limits']}`" if ho.get("limits") else "none recorded: `hd handover` first"
+    elif re.match(r"run \S+: (PASS|FAIL)\b", msg, re.I):
+        v = next((v for v in reversed(hd.verdicts(r["change"])) if v.get("run") == r["name"]), None)
+        if v and msg == (line := hd.verdict_line(r["name"], v["rows"])):
+            return
+        want = f"`{line}`" if v else "none recorded: `hd verdict` first"
+    else:
         return
-    ho = hd.rec(r["change"], "handover") or {}
-    m = re.fullmatch(r"run (\S+): handed over ([0-9a-f]{7,40}) (Limits: .+)", msg, re.I)
-    if m and m[1] == r["name"] and ho.get("head", "").startswith(m[2]) and m[3].lower() == (ho.get("limits") or "").lower():
-        return
-    denied(p, "hand-back beside its hand-over")
-    want = f"`run {r['name']}: handed over {ho['head'][:9]} {ho['limits']}`" if ho.get("limits") else "none recorded: `hd handover` first"
+    denied(p, "hand-back beside its record")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
-          f"A hand-over's hand-back is its one recorded line, nothing beside it: {want}. A limit of this change is fixed before "
-          "the hand-over, one in another mechanism filed and named as `limit:<slug>` in it; a risk stated in prose is a limit not fixed."}}))
+          f"A recorded result's hand-back is its one recorded line, nothing beside it: {want}. A limit of this change is fixed before "
+          "the hand-over, one in another mechanism filed and named as `limit:<slug>` in it; a qa's caveat is a row it failed or did not judge; "
+          "a risk stated in prose is a limit not fixed."}}))
     return True
 
 

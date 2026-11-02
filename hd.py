@@ -760,6 +760,15 @@ def judged(slug, head, con):
     return [v for v in verdicts(slug) if v["head"] == head and (v.get("judged") == con["judged"] or v["contract"] == con["hash"])]
 
 
+def passed(slug, head):
+    """R2: the last verdict on head passes every row: True | False (failed) | None (not judged yet). A contract with no judge rows has no verdict: True."""
+    con = contract(slug)
+    if not con or not any(r["judge"] for r in con["rows"]):
+        return True
+    vs = [v for v in verdicts(slug) if v["head"] == head]
+    return all(r == "pass" for r in vs[-1]["rows"].values()) if vs else None
+
+
 def runs(only=None, pending=True):
     """R5: the run records with the hooks' facts not yet folded applied: the facts are read before the records, which
     the fold writes before it deletes them, so a fact is never missed; one already in its run's record is skipped."""
@@ -1024,7 +1033,8 @@ class Ctx:
         return s.landed(ch) if on else on
 
     def done(s, ch, head):
-        """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live."""
+        """A6: a server change when upstream main holds head; a release when its tag exists; every other change when live
+        and its last verdict passes (a local server head reaches the test server in another change's deploy before it is judged)."""
         if ch["kind"] == "release":
             r = s._m(("release", ch["slug"]), lambda: s.F.release(s.cfg["repos"]["client"]["name"], f"v{ch['version']}"))
             return None if r is None else bool(r)
@@ -1032,7 +1042,7 @@ class Ctx:
             if not head:
                 return False
             return s.own(ch, head) and s.F.contains(s.clone(ch), s.base(ch), head)
-        return s.live(ch, head)
+        return s.live(ch, head) and bool(passed(ch["slug"], head))
 
     def comments(s, track, pr):
         """The PR's inline review comments, read once per pass; None when GitHub cannot be read."""
@@ -1102,9 +1112,9 @@ class Ctx:
         return cur
 
     def gated(s, ch, head):
-        """R8: the gate passed at the change's current key, the test nxt() applies: True | False | None (unknown)."""
+        """R8: the gate passed at the change's current key, the test nxt() applies, and no verdict failed the head: True | False | None (unknown)."""
         g = rec(ch["slug"], "gate")
-        if not g or not g.get("ok"):
+        if not g or not g.get("ok") or passed(ch["slug"], head) is False:
             return False
         if shipped(s, ch, head):  # the upstream PR's live head: its gate holds though main moved
             return True

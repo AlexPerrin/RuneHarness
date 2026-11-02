@@ -3186,6 +3186,18 @@ class R8(Sandbox):
         s.assertTrue(any(x.startswith("s1-") for x in v["spawn"]))
         s.assertEqual([a for a in v["alert"] if a.startswith("pin ")], [])
 
+    def test_a_failed_local_head_is_neither_in_t_int_nor_done_though_deployed(s):  # server-world-entities went done over a FAIL
+        s.change("s1", kind="local"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.assertEqual(hd.integration(s.ctx(F))["names"], ["s1"])                    # gated, not judged yet: it deploys
+        hd.put("live", "tree", {"tree": "ti" * 20, "commit": A, "heads": [A]})     # another change's deploy carried it
+        s.verdict("s1", A, {"ok": "pass", "j1": "fail: no"}, F)
+        s.assertEqual(hd.integration(s.ctx(F))["names"], [])                       # a failed head leaves the tree
+        s.assertTrue(s.state(F, "s1")["state"].startswith("FAIL 1 rows"))          # live, yet its dev's
+        s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(s.state(F, "s1")["state"], "done")
+
     def test_pin_base_conflict_resolved_by_its_merge_ref(s):
         F, R = s.integration_fixture(with_ref=False)
         P_, M2 = "p" * 40, "n" * 40

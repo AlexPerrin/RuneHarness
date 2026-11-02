@@ -1025,7 +1025,7 @@ class Ctx:
         if not (o := s.own(ch, head)):
             return o
         if ch["track"] == "central":  # its test target is its gate: the locally built Central a dependent server build includes
-            return (rec(ch["slug"], "handover") or {}).get("head") == head and s.gated(ch, head)
+            return (rec(ch["slug"], "handover") or {}).get("head") == head and s.gated(ch, head, kept=True)
         if ch["track"] == "server":
             lv = rec("live", "tree") or {}
             return head in lv.get("heads", []) or bool(lv.get("commit") and s.F.contains(s.clone(ch), lv["commit"], head))
@@ -1111,8 +1111,9 @@ class Ctx:
                 cur = r[1]
         return cur
 
-    def gated(s, ch, head):
-        """R8: the gate passed at the change's current key, the test nxt() applies, and no verdict failed the head: True | False | None (unknown)."""
+    def gated(s, ch, head, kept=False):
+        """R8: the gate passed at the change's current key, the test nxt() applies, and no verdict failed the head: True | False | None (unknown).
+        kept (T_int's test, and a Central head's live): a pass at the same tree under an earlier tools key holds too, until the re-gate's result replaces it."""
         g = rec(ch["slug"], "gate")
         if not g or not g.get("ok") or passed(ch["slug"], head) is False:
             return False
@@ -1121,8 +1122,10 @@ class Ctx:
         T = s.T(ch, head)
         if T is None or T[0] != "ok":
             return None if T is None else False
-        k = s.key(ch, s.tree(ch, T[1]))
-        return None if k is None else g["T"] == k
+        t = s.tree(ch, T[1])
+        k = s.key(ch, t)
+        # a tools key is `<tree>-<build hash>-<gate hash>`: rsplit gives back the tree it gated
+        return None if k is None else g["T"] == k or bool(kept and t and k != t and g["T"].rsplit("-", 2)[0] == t)
 
     def key(s, ch, tree, slugs=None, build=False, each=False):
         """R8: the gate key, or with build the build key, or with each every row's key {<slug>/<row id>: key}. On a track with a
@@ -1854,7 +1857,7 @@ def integration(ctx):
         head, ho = ctx.head(ch), rec(ch["slug"], "handover")
         if not (head and ho and ho["head"] == head and not ch.get("closed")):
             continue
-        if (gd := ctx.gated(ch, head)) is None:
+        if (gd := ctx.gated(ch, head, kept=True)) is None:
             return None
         if gd and not ctx.F.contains(clone, base, head) \
                 and all(d in ctx.changes and (ctx.changes[d].get("closed") or ctx.live(ctx.changes[d], ctx.head(ctx.changes[d]))) for d in ch["deps"]):

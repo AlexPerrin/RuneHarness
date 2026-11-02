@@ -153,6 +153,7 @@ Every `state/` JSON record is written to a temp file beside it and renamed over 
 T = `git merge-tree --write-tree` of the base, the dependencies' heads and the head, made a commit with `commit-tree`, dated the newest of its parents' committer dates (the same inputs give the same commit), so a copy can check it out;
 a merge-tree conflict only in content of the source docs is merged line by line (`hd.merge_lines`: each side's changed lines kept, a conflict only where both change overlapping lines differently), so neighbouring facts never conflict;
 the integration tree T_int is the same over every gated open server head plus the permanent pins.
+A head stays in T_int (a Central head live) while its gate passed at the same tree under an earlier tools key, until its re-gate's result replaces that record (`gated(kept=True)`), so a tools ship takes no content off the live server.
 A head whose last verdict fails is not gated (`hd.passed`), so it leaves T_int and unblocks no dependent;
 a change whose target is live (not upstream main or a tag) is done only once its last verdict passes, since another change's deploy carries a gated head before it is judged.
 Build and gate have their own keys when the track has a tools branch, hashed at its tip by `hd.tools_run` (tools/track.sh only dispatches the verbs).

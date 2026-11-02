@@ -99,7 +99,7 @@ Two changes to different fact lines of a source doc merge, neighbouring lines in
 The harness changes, and the client code changes, ready to ship merge onto their live branch as one batch per track, gated and shipped once, one ship or definition commit at a time on the live checkout;
 a failure drops only the change that causes it, and one the live branch fails alone blames none.
 The integration tree merges the pins, then the gated heads by priority and creation;
-a head its verdict failed is not gated, and a change on the test server is done only once its last verdict passes;
+a head its verdict failed is not gated, its running build or gate stopped, and a change on the test server is done only once its last verdict passes;
 a head's conflict is its own dev step and leaves it out while the rest deploy;
 a pin's conflict, with the base or another head, holds the deploy and is the dev step of the oldest gated change at it;
 one pass names every conflict.

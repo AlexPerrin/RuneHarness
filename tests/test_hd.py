@@ -1004,6 +1004,17 @@ class R2(Sandbox):
         s.assertEqual((st["state"], st["actor"], st["detail"]), ("FAIL 1 rows: dev", "dev", "j1: fail: no"))
         hd.tick(s.ctx(F)); s.assertEqual([x for x in F.spawned if x[1] in ("build", "gate")], [])
 
+    def test_a_failed_verdict_stops_the_gate_of_its_head(s):  # sweep-33 P2-c: a gate ran 14 minutes on after its head's FAIL verdict
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F); hd.drop("s1", "gate"); hd.tick(s.ctx(F))
+        p = hd.rec("s1", "proc-gate"); F.f["procs"] = {(7, "1"), (p["pid"], p["start"])}
+        hd.tick(s.ctx(F)); s.assertEqual(F.stopped, [])                          # no verdict yet: it runs
+        s.verdict("s1", A, {"ok": "pass", "j1": "fail: no"}, F)
+        hd.tick(s.ctx(F), act=False); s.assertEqual(F.stopped, [])              # a dry pass stops nothing
+        hd.tick(s.ctx(F)); s.assertEqual((F.stopped, hd.rec("s1", "proc-gate")), ([p["pid"]], None))   # the verdict fails its head: stopped
+        s.assertEqual(s.state(F, "s1")["state"], "FAIL 1 rows: dev")
+
     def test_a_run_reads_its_change_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

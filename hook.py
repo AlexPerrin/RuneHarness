@@ -431,15 +431,25 @@ def deny_self_pgrep(p):
 
 
 def deny_time_bound(p):
-    """R5: a subagent's step ends on its observed outcome, never on a bound of time: a `timeout` command is denied (the
-    Bash call's own `timeout` parameter is the call's limit; when it ends first, the same wait is issued again)."""
-    if p.get("tool_name") != "Bash" or not p.get("agent_id") or not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", bare(p)):
+    """R5: a subagent's step ends on its observed outcome, never on a bound of time or tries: a `timeout` command is denied,
+    and so is a sleeping loop that counts (a `for` loop, or a `while`/`until` loop with a counter), a time bound by
+    another name; a loop that sleeps until its condition, the fact, holds is the wait (the Bash call's own `timeout`
+    parameter is the call's limit; when it ends first, the same wait is issued again)."""
+    if p.get("tool_name") != "Bash" or not p.get("agent_id"):
         return
-    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="timeout bound on a step")
+    cmd = bare(p)
+    loops = [m for m in re.finditer(r"(?:^|[;&|(\n'\"]|\bdo|\bthen)\s*(for|while|until)\b((?:(?!\bdone\b).)*)", cmd, re.S) if re.search(r"\bsleep\b", m.group(2))]
+    if not re.search(r"(?:" + AT + r"|-c\s+['\"])timeout\s", cmd) and not any(m.group(1) == "for" or COUNTED.search(m.group(2)) for m in loops):
+        return
+    hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="time bound on a step")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
-          "a step ends on its own outcome, never under `timeout N`: run it in the foreground (Bash `timeout` 600000 is the call's limit; "
-          "when it ends first, issue the same wait again), or wait on the fact the step makes (a state file, a log line, a port)."}}))
+          "a step ends on its own outcome, never under a bound of time or tries (`timeout N`, a `for`/`seq` loop of sleeps, a sleep counter): "
+          "run it in the foreground (Bash `timeout` 600000 is the call's limit; when it ends first, issue the same wait again), "
+          "or wait on the fact the step makes with one `until <fact>; do sleep N; done` (a state file, a log line, a port)."}}))
     return True
+
+
+COUNTED = re.compile(r"\bseq\s|\+\+|\w\s*[+-]=\s*\d|\$\(\(\s*\$?\w+\s*[+-]\s*\d|\blet\s|\brange\(")   # a loop's counter
 
 
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position

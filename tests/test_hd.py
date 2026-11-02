@@ -595,14 +595,34 @@ class R2(Sandbox):
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**FACTS)
         hd.tick(s.ctx(F))
-        hd.save_run({**hd.runs()[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
+        s.change("d0", track="harness"); s.change("s1", priority="P1", deps=["d0"])   # a dep older than the run, met at its start, now re-gating
+        s.assertEqual(s.state(F, "s1")["state"], "waiting on d0")
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs("s1-1")[0].get("reason"))                              # sweep answer-1: a re-gating met dep never ends dev work
+        s.change("s1", priority="P1")
         hd.cmd_new(["x2", "--track", "harness", "--title", "a limit s1's run found", "--limit-of", "s1", "--mechanism", "runs"])
         hd.tick(s.ctx(F))
-        s.assertIsNone(hd.runs()[0].get("reason"))                              # a wait on the run's own limit: it hands over next
+        s.assertIsNone(hd.runs("s1-1")[0].get("reason"))                              # a wait on the run's own limit: it hands over next
         hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1", "--mechanism", "loop"])
         hd.tick(s.ctx(F))
-        s.assertTrue(hd.runs()[0].get("reason", "").startswith("waiting on x"))   # any other wait ends it, whichever dep the step names
-        s.assertTrue(hd.runs()[0]["ended"])
+        s.assertTrue(hd.runs("s1-1")[0].get("reason", "").startswith("waiting on x"))   # any other wait ends it, whichever dep the step names
+        s.assertTrue(hd.runs("s1-1")[0]["ended"])
+
+    def test_a_run_s_record_is_its_own_and_a_pass_end_settles_no_step(s):  # answer-2: the orchestrator's filing became three ended runs' record
+        s.change("s1", priority="P1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        hd.save_run({**hd.runs()[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        hd.cmd_new(["x9", "--track", "harness", "--title", "another's filing", "--mechanism", "loop"])
+        s.assertFalse(hd.produced(hd.runs("s1-1")[0]))                         # filed from outside the run's slice: not its record
+        with mock.patch.object(hd, "own_slice", lambda: hd.run_slice("s1-1")):
+            hd.cmd_new(["x8", "--track", "harness", "--title", "its own filing", "--mechanism", "loop"])   # it joins x9: a joined filing is a filing too
+        s.assertTrue(hd.produced(hd.runs("s1-1")[0]))                          # filed from its own slice: its record
+        hd.save_run({**hd.runs("s1-1")[0], "ended": hd.now(), "reason": "waiting on d0", "record": True})   # the pass ended it, a record stored
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([x.split(":")[0] for x in v["spawn"] if x.startswith("s1-")], ["s1-2"])   # the step is listed again, no alert
+        s.assertFalse(any(a.startswith("s1:") for a in v["alert"]))
 
     def test_two_passes_list_a_run_once(s):
         s.change("s1"); s.agreed("s1")
@@ -1775,6 +1795,12 @@ class R5(Sandbox):
             s.assertTrue(hook.stop_ended(reader("PostToolUse", tool_name="Grep")))    # its run ended: it stops at its next call
             s.assertEqual(json.loads(out.getvalue())["continue"], False)
             s.assertTrue(hook.stop_ended(dev("PreToolUse", tool_name="Bash")))        # the run's own agent stops too: nothing acts for an ended run
+            s.assertNotIn('"continue"', out.getvalue().splitlines()[-1])              # answer-1: denied, not stopped: it still writes its hand-off
+            hand = str(hd.EVID / run["change"] / "handoff.md")
+            s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="Write", tool_input={"file_path": hand})))
+            s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="Read", tool_input={"file_path": "/etc/x"})))
+            s.assertFalse(hook.stop_ended(dev("PostToolUse", tool_name="Write")))
+            s.assertTrue(hook.stop_ended(dev("PreToolUse", tool_name="Write", tool_input={"file_path": str(hd.EVID / "other" / "x.md")})))
             s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="SubagentHandback")))   # its last line goes
             hd.save_run({**hd.runs()[0], "reason": None})                              # ended by its own hand-back: a resume may go on
             s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="Bash")))
@@ -1845,6 +1871,13 @@ class R5(Sandbox):
         with mock.patch("sys.stdout", out):
             s.hook({**p, "agent_id": "ot", "agent_type": "Explore", "agent_transcript_path": str(sub / "agent-ot.jsonl")})
         s.assertEqual(out.getvalue(), "")                                       # an agent no run spawned has no slice
+        with mock.patch.object(hook.subprocess, "run") as run_:                 # sweep-41 P1-a': a TaskStop left the scoped shell running
+            s.hook({**p, "hook_event_name": "PostToolUse", "tool_name": "TaskStop", "tool_input": {"task_id": "bq7"}})
+        s.assertEqual(run_.call_args[0][0], ["systemctl", "--user", "stop", "--no-block", hd.scope_unit(run["name"], "bq7")])
+        s.assertEqual(hd.scope_unit("s1-1", "bq7"), "hd-s1_1-bq7.scope")      # hd scope names the command's scope by its task
+        with mock.patch.object(hd.os, "getppid", lambda: 42), mock.patch.object(hd.os, "readlink", lambda f: "/t/tasks/bq7.output"), \
+             mock.patch.object(hd.Facts, "sh", lambda self, c, **k: (_ for _ in ()).throw(AssertionError(c[8]))):
+            s.assertRaisesRegex(AssertionError, "hd-s1_1-bq7.scope", hd.cmd_scope, ["s1-1"])
 
     def hook(s, p):
         with mock.patch("sys.stdin", io.StringIO(json.dumps(p))):

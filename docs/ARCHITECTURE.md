@@ -14,7 +14,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   an agent whose brief names a run already ended is stopped at once, `continue: false` naming the run and why it ended, the run left ended) and end, each a fact file in state/facts/ (a hook never takes the state lock), then the pass started without waiting;
                   a stop fires at each idle turn and leaves the run live (usage, last line), refused (decision block) while a background command or monitor the agent started has no task notification yet;
                   the stop after its SubagentHandback ends it;
-                  its record is newer than its start and the change's last answer;
+                  its record is newer than its start and the change's last answer, a filing its own only when filed from its slice (the `new`, `joined` or `limit` event's `slice`);
                   PreToolUse: a subagent or the orchestrator may not `hd approve` or `hd close` (the user's `!` command fires no hook);
                   the orchestrator's session may not AskUserQuestion (its definition's frontmatter holds only name and description, so a reread carries all of it);
                   a git commit naming harness/ is denied while the definitions hold a dependency cycle;
@@ -62,6 +62,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd stop <run>` (the orchestrator's TaskStop of the run's agent ends it the same way, by the hook's stopped fact): ends the run's record, so it frees its agent slot (and its own agents stop at their next tool call, which the slice's stop returns at once when they wait on a command) and stops the run's processes: its slice, then each Windows process a track script recorded under it in `state/winpids/<slice>/<pid>` (its image, a record the script's `down` drops once it ended that process), by `taskkill /F /PID <pid> /FI "IMAGENAME eq <image>"`
 
 - `hd scope <run>`, by the hook, as the first line of each Bash command of a run: moves the command's shell (its parent) into a scope of the run's systemd user slice `hd-<run>.slice` (each `-` of the name a `_`) and returns once the shell is in it: every process the command starts, reparented or not, is the run's;
+  the scope is `hd-<run>-<task>.scope`, the task the basename of the shell's output file `<task>.output`, so the hook's PostToolUse on the run's TaskStop of that task stops the scope (Claude Code ends only the shell);
   a failure is one stderr line, the command runs on
 
 - `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
@@ -337,7 +338,8 @@ write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
-end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on limits the run filed since it started (`hd new --limit-of`): its agent stops at its next tool call;
+end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
+a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
 remove a tools copy nothing uses.

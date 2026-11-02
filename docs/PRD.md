@@ -204,9 +204,11 @@ a live check reads the real state.
    a tools ship never changes the tools a running track script reads (each runs from its copy, removed once nothing uses it);
    a run the orchestrator stops (TaskStop of its agent, one resumed after its hand-back too, or `hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;
    a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
+   a run's TaskStop of its Bash command ends every process that command started;
    a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
-   a run's own agent stops at its next tool call once the pass, the head or `hd stop` ended its run, and a started run ends once its change's step is the other role's or a wait (a dependency, an open question), but for a wait on a limit it filed, which it hands over after;
+   a run's own agent once the pass, the head or `hd stop` ended its run only reads, writes its evidence/<slug>/ and hands back, and a started run ends once its change's step is the other role's or a wait that blocks its work (an open question, a dependency filed since it started), never on a dependency met at its start that only re-gates nor on a limit it filed, which it hands over after;
+   a run's record is what it handed back, a change filed by another is not, and a run the pass ended neither settles its step nor counts as a try, so its step is listed again;
    a subagent never runs the acting pass (a bare `hd` or `hd tick`), and a run signals no process outside its own slice;
    a run's desktop devtools call acts only on a desktop its change brought up;
    a change `hd new` makes wait keeps no listed, unspawned run;

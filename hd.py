@@ -2362,7 +2362,7 @@ def _pass(ctx, act):
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
     per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
     for k, c in ctx.changes.items():
-        if c["track"] == "harness" and not shut(k, c):
+        if c["track"] == "harness" and not shut(k, c) and not rec(k, "ask"):  # one held on a question merges nothing until answered
             per.setdefault(c.get("mechanism") or "", []).append(k)
     per = {m: v if not m else [k for k in v if any(not ordered(ctx.changes, k, o) for o in v)] for m, v in per.items()}
     view["alert"] += [f"mechanism {m}: {len(v)} open changes {', '.join(sorted(v))}: merge them into one root-cause change" if m else
@@ -3105,7 +3105,7 @@ def cmd_new(a):
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
     for k in held:
         tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
-    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c) and not ordered(tie, o.slug, k)), None)
+    into = None if sup else next((k for k, c in graph.items() if mechanism(c) == m and k != o.slug and not shut(k, c) and not rec(k, "ask") and not ordered(tie, o.slug, k)), None)  # one held on a question is no join: the filing would wait on an answer about something else
     if not into and not sup and o.pr and TRACK[o.track]["public"] == "upstream" and o.kind == "change":  # R6: a fix on a PR joins its one open round
         on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and not shut(k, c)
               and not (rec(k, "state") or {}).get("state", "").startswith("carried")}

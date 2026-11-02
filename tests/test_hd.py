@@ -3749,6 +3749,15 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "fixed", "Limits:", "limit:h2"])
         s.assertEqual(hd.rec("h1", "handover")["head"], A)
 
+    def test_a_filing_never_joins_a_change_held_on_a_question(s):  # sweep-38 P1-b: the pins fix joined the RSA change and waited on its question
+        s.change("h1", track="harness", mechanism="carry"); hd.put("h1", "ask", {"text": "which key?"})
+        hd.cmd_new(["x1", "--track", "harness", "--title", "assign reads the pins", "--mechanism", "carry"])
+        g = hd.defs("changes")
+        s.assertIn("x1", g); s.assertNotIn("assign reads the pins", g["h1"]["body"]); s.assertEqual(g["h1"]["deps"], [])   # its own change
+        s.assertFalse([a for a in hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"] if a.startswith("mechanism carry")])
+        hd.drop("h1", "ask")                                                     # answered: one mechanism, two changes, the planner merges
+        s.assertTrue([a for a in hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"] if a.startswith("mechanism carry")])
+
     def test_a_superseded_change_ends_its_started_run(s):
         s.change("h1", track="harness", mechanism="hold")
         hd.save_run({"name": "h1-2", "change": "h1", "role": "dev", "input": "", "started": hd.now(), "console_pid": 7, "console_start": "1"})

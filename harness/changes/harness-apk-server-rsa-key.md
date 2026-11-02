@@ -15,6 +15,3 @@ harness-live-stack-issuer-1: the live APK fef4307c (OPENRUNE=1 LOCAL_AUTH=1) sig
 
 Also (client-login-segv-osclient): The live APK cannot log in to live: its RSA modulus is not the live image's key
 client-login-segv-osclient-3: the SEGV is gone on the live cache (archive 12 has no name hash 0; the app reaches LOGIN_SCREEN and LOGGING_IN with no Fatal signal), but the login block is refused 'Invalid RSA check' (osrs-openrune 04:19:38Z): the APK modulus (server-tools openrune.sh modulus, 8555c56c...) is not the live /app/.data/game.key's (9FE5D348...). Same root cause as harness-apk-server-rsa-key. Evidence: evidence/client-login-segv-osclient/up-run3-logcat.txt
-
-Also (filed): gamevals.py assign sees the pins without the hd env
-Server track.md tells a dev to run tools/server/gamevals.py assign <clone> by hand, but members() reads the pins only from $PINS, which only hd's env sets; a hand-run assign skips every pin (e.g. feat/hunter, fix/25-ice-mountain-music-area) and hands out ids the hand-over's check then refuses (hunter-feat-pr-17: three ids, and the repeated renumber answers of 2026-10-31). Root cause: two callers derive the member list differently. Fix: one member list for assign and check (read the pins from hd.yaml, or a track.sh verb that runs assign with hd's env), so an assign can never pick an id check refuses.

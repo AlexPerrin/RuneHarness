@@ -448,6 +448,8 @@ Three runs of a change past the limit since its last handover are an alert (the 
 The public act is the carry, `hd ship <slug> <head>`, started by the pass only while approval.json holds that head and the digest of the card's current texts, and re-checking both before it acts.
 The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a `!` command, which fires no hook) are denied inside a subagent or the orchestrator session (a hook input with an agent id or type) when a command runs them (at a command's start);
 a command that only quotes them (grep, echo, a heredoc body) runs.
+Every Bash rule reads the command with its data removed: heredoc bodies, and quoted arguments paired as the shell pairs them (an escaped quote opens none);
+a script quoted after a shell's or python's -c, or eval, is read as a command of its own.
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A bare `hd` is one with no argument at all, as main() runs the pass (`hd --help` prints usage).
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.

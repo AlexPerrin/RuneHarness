@@ -2157,7 +2157,7 @@ class R5(Sandbox):
         for c in ("echo x > f", "grep x f 2>err.txt", "rm -rf d", "git -C r commit -m x", "git push", "git checkout main",
                   "RESUME=1 tools/track.sh up s", "tools/track.sh build s", "~/r/tools/track.sh gate s", "tools/track.sh down s",
                   "docker run img", "cat f | tee out", "ls | xargs rm", "sed -i s/a/b/ f", "gh api -X POST repos/x",
-                  "gh api repos/x -f a=b", "gh api -X PATCH repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'",
+                  "gh api repos/x -f a=b", "gh api -X PATCH repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'", "bash -c \"grep 'x' f > out\"", "grep \\' f > out", "echo \\\"a > b\\\"",
                   "git branch x", "git branch -D x", "git -C r branch -m a b", "git branch --set-upstream-to=o/x", "git branch -f x HEAD",
                   "git stash", "git stash pop", "git worktree add w", "git -C r worktree remove w", "git tag v1", "git tag -d v1",
                   "git config user.name x", "git config --global a.b c", "git merge x", "git config --unset a.b"):
@@ -2168,7 +2168,9 @@ class R5(Sandbox):
                   "git -C r branch -vv", "git branch --contains abc", "git branch 2>/dev/null | head",
                   "git merge-base 049a26312 3aeff1610", "git merge-base --is-ancestor a b", "git merge-tree --write-tree a b",  # sweep-67 P3-a
                   "git stash list", "git -C r stash show -p", "git worktree list", "git tag", "git tag --contains abc", "git tag -l 'v*'",
-                  "git tag | head", "git config --get user.name", "git config --list", "git config -l", "git config get a.b"):
+                  "git tag | head", "git config --get user.name", "git config --list", "git config -l", "git config get a.b",
+                  "for f in a b; do grep -c \"you've just advanced\" $f; grep 'guide</col> > t' $f; done",  # sweep-68 P3-a
+                  "grep \"it's > t\" f", "grep \"a \\\" > b\" f"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
 

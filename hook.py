@@ -356,7 +356,20 @@ def end_run(p):
 def bare(p):
     """The Bash command with its data removed: heredoc bodies, and quoted arguments unless a -c or eval script."""
     raw = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", (p.get("tool_input") or {}).get("command") or "", flags=re.S)
-    return re.sub(r"(?<!-c )(?<!eval )('[^']*'|\"[^\"]*\")", "''", raw)
+    return unquote(raw)
+
+
+def unquote(cmd):
+    """cmd with each quoted argument as '', paired left to right as the shell pairs quotes (an escaped quote opens none);
+    a script quoted after a shell's or python's -c, or eval, is a command of its own, `(script)`, its quoted data removed the same way."""
+    def one(m):
+        q = m[0]
+        if q[0] == "\\":
+            return q
+        if re.search(r"(?:\b(?:ba|z|da|k)?sh|\bpython3?)(?:\s+-\w+)*\s+-c\s+$|\beval\s+$", cmd[:m.start()]):
+            return "(" + unquote(q[1:-1]) + ")"
+        return "''"
+    return re.sub(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", one, cmd, flags=re.S)
 
 
 def deny_ask(p):

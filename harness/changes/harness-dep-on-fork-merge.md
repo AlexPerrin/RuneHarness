@@ -16,3 +16,6 @@ Also (filed): a wait cycle through a user hold shows as plain 'waiting' and rais
 sweep-23 P1-a: server-token-auth showed 'waiting on central-token-login-op's upstream merge' (public() hd.py:1573-1579) while central-token-login-op was held by the user until auth lands; the cycle check (hd.py:875, deps_held 1302) sees no hold edge, so nothing asked the user. A hold that closes a wait cycle raises one question naming the cycle. evidence/monitor/sweep-23.md
 
 Also: moved to its own P0 change harness-runs-proportionate (a distinct root cause; joined here by mechanism only).
+
+Also (filed): hd rows with no slug crashes
+sweep-26 P2-c: 'hd rows' with no slug raises IndexError at hd.py:2699 instead of a usage refusal.

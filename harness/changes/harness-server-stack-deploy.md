@@ -28,3 +28,6 @@ server-token-auth-13 hand-back: ~/src/OpenRune-Server/.worktrees/harness/tools/t
 
 Also (filed): a qa run's up built a tree other than the gated T
 sweep-14 B7: state/genie-review-355/build-52b39cc9*.log 00:45:37Z: "Cannot locate tasks ':or-cache:qaCacheToolsClasspath'" after 'STAFF=1 tools/track.sh up genie-review-355 2'. The gated T is 286823c78 (T: genie-review-355 fc58c24e0 onto d30985ba3); 52b39 lacks main's newer files (ObjTakePluginTest.kt). Root cause unconfirmed: trace how up's tree gets its T. evidence/monitor/sweep-14.md
+
+Also (filed): a build outside the current tools asked for a removed task
+sweep-15 B5 follow-up to sweep-14 B7: up takes T from state/<slug>/build.json (server tools/track.sh:139), 286823c78 for genie-review-355, image exists. The failed build-52b39cc9 (00:45:37Z, .worktrees/genie-review-355-build) asked for :or-cache:qaCacheToolsClasspath, removed in 3db4e240a (2026-10-31); no current tools copy names it. Find who invoked it (the qa agent or a stale tools snapshot). evidence/monitor/sweep-15.md

@@ -5,7 +5,8 @@ mechanism: desktop
 title: restart logs desktops back in past the disconnected dialog
 kind: change
 priority: P1
-deps: [harness-desktop-login-devtools]
+deps:
+- harness-desktop-one-login-path
 created: '2026-11-01T10:55:11Z'
 superseded: harness-desktop-one-login-path
 ---

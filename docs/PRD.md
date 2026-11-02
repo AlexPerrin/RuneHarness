@@ -224,7 +224,7 @@ a live check reads the real state.
    a PR has its card only when every open change of that PR is in its tip's head (one card, one carry);
    a head the upstream PR is at is not re-gated when main moves, and its pending reply's card shows at once;
    three handed-over harness changes merge into one batch tree, gated once and shipped once (a shorter prefix that passed ships only once the one longer fails), no second ship starting while one runs, and a failing batch is bisected to the change that fails alone, which leaves it once the live branch passes its rows alone (failing them, an alert and no member blamed), while one conflicting only with an earlier member waits, and the planner reads a batched member's failure from its batch's gate;
-   `hd commit` waits for a ship's lock and commits its paths alone;
+   `hd commit` waits for a ship's lock, commits its paths alone and pushes the live branch;
    a client code change ships in the client batch;
    a gated change has its card, and its carry planned, while T_int conflicts, the conflict's dev listed beside it;
    a server change's key and `CENTRAL` carry the merge of its central dependencies, and T_int the one of its heads';

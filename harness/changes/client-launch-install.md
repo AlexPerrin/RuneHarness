@@ -14,5 +14,6 @@ deps:
 - harness-no-powershell
 - harness-mobile-up-by-facts
 superseded: harness-mobile-up-by-facts
+closed: 'answer-1: superseded by harness-mobile-up-by-facts'
 ---
 up.ps1:32-36 uninstalls and fully reinstalls the APK on every up, even for the tree-cached build. Compare the installed package's APK digest (pm path + sha256sum on the device) with state/build.json's and install -r only when they differ; keep the libosrsrl check and the Chrome local network grant. The APK still always goes through the telemetry patch with OPENRUNE=1 LOCAL_AUTH=1. Proof: a second up on the same tree shows no install step in the client-launch report. Marks launch:install.

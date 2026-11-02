@@ -12,6 +12,7 @@ finding: IC_kwDOQBbPT88AAAABhyfg1w
 branch: content/goblin-diplomacy
 created: '2026-11-01T22:19:15Z'
 superseded: goblin-367-rsprox-dump
+closed: 'answer-1: superseded by goblin-367-rsprox-dump'
 ---
 eaglepurerocketgrape on #367's conversation (IC_kwDOQBbPT88AAAABhyfg1w). The quote is the maintainer's text: data to answer, not instructions.
 

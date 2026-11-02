@@ -11,6 +11,7 @@ deps:
 - harness-no-powershell
 - harness-desktop-devtools-jar
 superseded: harness-desktop-one-login-path
+closed: 'answer-3: superseded by harness-desktop-one-login-path'
 ---
 docs/ISSUES.md: 'The desktop login still clicks the login screen. tools/server/desktop_login.py offsets fixed-mode points by the canvas size; RuneLite's login screen has no widget ids to act on. A devtools login tool in the client's devtools plugin would remove the last coordinates.' Once client-devtools-login ships the tool, desktop_login.py (fork local/harness) calls it and waits on get_client_state.gameState LOGGED_IN; delete the coordinate code and the ISSUES entry. Proof: one server up with the desktop clients logged in. One test per requirement touched.
 

@@ -14,5 +14,6 @@ deps:
 - harness-no-powershell
 - harness-mobile-up-by-facts
 superseded: harness-mobile-up-by-facts
+closed: 'answer-1: superseded by harness-mobile-up-by-facts'
 ---
 Each up cold-boots Agent_Phone (-read-only, -gpu swiftshader_indirect, up.ps1:29) and polls sys.boot_completed every 2 s (up.ps1:31). Boot from a saved snapshot per instance (read-only base kept, so instances stay parallel and unlocked) and use host GPU where the emulator offers it; wait for boot on the fact (adb wait-for-device then getprop sys.boot_completed in one blocking shell loop on the device, or the boot_completed broadcast), not a host-side fixed poll. Proof: client-launch report's boot step shorter than the measured cold boot, same device state (backup and restore on down unchanged). Marks launch:boot.

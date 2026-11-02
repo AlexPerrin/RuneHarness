@@ -13,5 +13,6 @@ deps:
 - harness-desktop-first-login
 - harness-dupes-from-live-head
 superseded: cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq
+closed: 'answer-2: superseded by cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq'
 ---
 a-thoren inline on #354 at 7a8b2331a, 2026-10-31 20:52-20:55Z, DwarfMulticannon.kt line 463: reset mcannonmulti.

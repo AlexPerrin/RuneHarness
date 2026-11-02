@@ -9,6 +9,7 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 AskUserQuestion is denied in the orchestrator's session (its definition's frontmatter holds only name and description). R2
                 A bare `hd` or `hd tick` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.  R5
                 A run's kill of a pid outside its own slice, and its pkill or killall, is denied.                          R5
+                A Bash command's `pgrep -f` whose pattern matches the command's own text (its own `bash -c` line) is denied. R5
                 A run's own agent whose run the pass, the head or `hd stop` ended only reads, writes its evidence/<slug>/ and hands back.  R2
                 A git commit naming harness/ is denied while the definitions hold a dependency cycle.                      R5
                 A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
@@ -44,7 +45,7 @@ Every write is a fact, a file of its own in state/facts/ (hd.fact), folded into 
 a hook never takes the lock, never waits on a pass. The deny rules run first and read only definitions and the command.
 Never blocks an agent on the pass; never fails an agent: any error here is one event line.
 """
-import json, re, subprocess, sys, time
+import json, re, shlex, subprocess, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -389,6 +390,38 @@ def deny_foreign_kill(p):
     return True
 
 
+def deny_self_pgrep(p):
+    """R5: a Bash command's `pgrep -f <pattern>` whose pattern matches the command's own text is denied: the command runs
+    as `bash -c <command>`, so the pattern matches that shell and a wait on it never ends."""
+    if p.get("tool_name") != "Bash":
+        return
+    cmd = (p.get("tool_input") or {}).get("command") or ""
+    code = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?=\n|$)", "", cmd, flags=re.S)   # a heredoc body is data
+    for m in re.finditer(r"(?<![\w./-])pgrep\s", code):
+        lex, args = shlex.shlex(code[m.end():], posix=True, punctuation_chars=True), []
+        lex.whitespace_split = True
+        try:
+            for t in lex:
+                if t and set(t) <= set(";&|()<>"):
+                    break
+                args.append(t)
+        except ValueError:   # an unclosed quote: the pgrep sits in a quoted -c script; its arguments end before it
+            pass
+        opts = [a for a in args if a.startswith("-")]
+        if not any(a == "--full" or re.fullmatch(r"-[a-zA-Z]*f[a-zA-Z]*", a) for a in opts) or not args or args[-1].startswith("-"):
+            continue
+        try:
+            hit = re.search(args[-1], cmd)
+        except re.error:
+            hit = args[-1] in cmd
+        if hit:
+            hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"self-matching pgrep -f {args[-1][:60]}")
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+                  f"`pgrep -f {args[-1]!r}` matches this command's own shell (its text is in the `bash -c` line), so it never ends. "
+                  "Run the step in the foreground (it ends on its own fact), or wait on an observable fact: its output file, a log line, a port."}}))
+            return True
+
+
 AT = r"(?:^|[;&|(\n`]|\$\()\s*(?:\w+=\S*\s+)*(?:(?:sudo|env|nohup|exec|xargs(?:\s+-\S+)*)\s+)*"   # a command's position
 WRITES = re.compile("|".join((
     r"(?<![-=>])\d*>>?\|?(?!&)\s*(?!/dev/null\b)[^\s&|;)]",                       # a redirection to a file
@@ -546,7 +579,7 @@ def reread(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

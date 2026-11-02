@@ -1835,6 +1835,19 @@ class R5(Sandbox):
             s.assertTrue(denied(c), c)
         s.assertFalse(denied("kill 200", owner=None))                              # not a run's agent: the permission rules judge it
 
+    def test_a_pgrep_that_matches_its_own_command_is_denied(s):  # sweep-43 P2-a: until ! pgrep -f 'track.sh up X' never ended
+        def denied(c):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_self_pgrep({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
+            return '"deny"' in out.getvalue()
+        for c in ("until ! pgrep -f 'track.sh up hunter-feat-pr'; do sleep 5; done", "pgrep -f 'track.sh restart cannon-354'",
+                  'while pgrep -af "track.sh up s1" >/dev/null; do sleep 1; done', "kill $(pgrep -u alex -f mobile_login)",
+                  "bash -c 'until ! pgrep -f \"up s1\"; do sleep 1; done'"):
+            s.assertTrue(denied(c), c)
+        for c in ("pgrep -f '[t]rack.sh up s1'", "pgrep -f 'up (x|y)'", "pgrep java", "until [ -f state/s1/up.json ]; do sleep 5; done",
+                  "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f"):
+            s.assertFalse(denied(c), c)
+
     def test_a_reader_bash_command_that_writes_is_denied(s):
         def denied(c, kind="reader"):
             with mock.patch("sys.stdout", new_callable=io.StringIO) as out:

@@ -399,6 +399,7 @@ The one hook rule: `hd approve` and `hd close` (the user's word, typed by the us
 a command that only quotes them (grep, echo, a heredoc body) runs.
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.
+A Bash command's `pgrep -f <pattern>` (outside a heredoc body) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and a wait on it never ends.
 A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
 A run's own agent stops (`continue: false`) at its next tool call, its hand-back let through, once the pass, the head or `hd stop` ended its run.
 

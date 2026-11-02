@@ -2441,6 +2441,33 @@ class R5(Sandbox):
         ctx.start("s1", "build", [str(script), "T3"])
         s.assertEqual(hd.rec("s1", "proc-build")["attempts"], 1)
 
+    def test_a_script_that_exits_0_ended_with_its_result(s):  # planner-34: three landed harness ships (no ship.json, the same last line 'v8 at') raised 'ended 3 times without a result'
+        F = Fake(**FACTS)
+        ctx, log, rc = s.ctx(F), hd.STATE / "s1" / "ship.log", hd.STATE / "s1" / "ship.rc"
+        def run(arg, code=None):  # one ship on arg that ends logging the same line, with that exit status (None: killed)
+            ctx.start("s1", "ship", ["sh", arg])
+            with open(log, "a") as f: f.write(f"v8 at {arg.lower()}aaaaaaa\n")
+            if code is not None: rc.write_text(f"{code}\n")
+        for a in ("A1", "A2", "A3", "A4"):
+            run(a, 0)
+        s.assertEqual((len(F.spawned), hd.rec("s1", "proc-ship")["attempts"], ctx.alerts), (4, 1, []))   # each exit 0 starts the count over
+        for a in ("B1", "B2", "B3"):
+            run(a, 1)
+        ctx.start("s1", "ship", ["sh", "B4"]); ctx.start("s1", "ship", ["sh", "B4"])
+        s.assertEqual((len(F.spawned), sum("ship ended 3 times" in a for a in ctx.alerts)), (7, 1))   # non-zero on the same cause: raised once, not rerun
+        ctx.alerts.clear(); rc.write_text("0\n")                                                # B3 exited 0 after all: the count starts over
+        for a in ("C1", "C2", "C3"):
+            run(a)                                                                              # each killed: no exit status
+        ctx.start("s1", "ship", ["sh", "C4"])
+        s.assertEqual((len(F.spawned), sum("ship ended 3 times" in a for a in ctx.alerts)), (10, 1))   # a kill is a failure
+
+    def test_spawn_writes_the_exit_status(s):
+        log = s.root / "state" / "x" / "run.log"
+        for code in (0, 3):
+            pid, _ = hd.Facts().spawn(["sh", "-c", f"exit {code}"], log)
+            while not log.with_suffix(".rc").exists(): time.sleep(0.01)
+            os.waitpid(pid, 0); s.assertEqual(log.with_suffix(".rc").read_text().strip(), str(code)); log.with_suffix(".rc").unlink()
+
     def test_dead_script_alert_quotes_its_failure(s):  # sweep 66 P5: the alert names the cause ship.log holds
         F = Fake(**FACTS)
         ctx = s.ctx(F)
@@ -3511,9 +3538,8 @@ class R8(Sandbox):
         s.assertEqual((r.returncode, hd.rec("s1", "gate-f")), (0, None), r.stdout + r.stderr)   # sweep-60 P3-c: for one ship: a flake never sticks to its tree
         s.assertIn("already on the live branch", r.stdout); s.assertTrue((s.root / "state" / "ship.lock").exists())   # taken under the one ship lock
         git("checkout", "-q", "--detach"); T2 = commit("T2 on T1"); git("checkout", "-q", "v8"); moved = commit("the head's own commit")
-        hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
         r = ship(T2)                                                                  # the live branch moved past T2's base
-        s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
+        s.assertEqual((r.returncode, git("rev-parse", "v8")), (0, moved), r.stdout + r.stderr)   # untouched, exit 0: ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
 
     def test_a_pass_whose_hd_py_a_ship_moved_acts_nothing(s):
@@ -3585,10 +3611,10 @@ class R8(Sandbox):
         run(repo, "checkout", "-q", "--detach"); T = commit(repo, "T"); run(repo, "checkout", "-q", "v8"); live = run(repo, "rev-parse", "v8")
         ship = lambda: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", T], env={**os.environ, "HD_ROOT": str(s.root), "TOOLS": f"{fork}:local/harness:{C}:AlexPerrin/OpenRune-Server"}, capture_output=True, text=True)
         moved = commit(wt, "another change shipped to local/harness")
-        hd.put("s1", "gate", {"T": "t", "ok": True}); hd.put("s1", "proc-ship", {"pid": 1, "start": "x", "attempts": 1})
+        hd.put("s1", "gate", {"T": "t", "ok": True})
         r = ship()
-        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness"), hd.rec("s1", "proc-ship")),
-                      (0, live, moved, None), r.stdout + r.stderr)   # nothing moved; the pass rebases the carried head, a new key re-gates
+        s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")),
+                      (0, live, moved), r.stdout + r.stderr)   # nothing moved; the pass rebases the carried head, a new key re-gates
         run(wt, "reset", "-q", "--hard", "HEAD~1")
         r = ship()
         s.assertEqual((r.returncode, run(repo, "rev-parse", "v8"), run(fork, "rev-parse", "local/harness")), (0, T, C), r.stdout + r.stderr)

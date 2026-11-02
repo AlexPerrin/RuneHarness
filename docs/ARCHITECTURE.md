@@ -386,6 +386,7 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
 - Server: script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`;
   the change's head unchanged), its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
   its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent, the first upload standing) on an actions/cache miss, never downloading openrs2's cache (no asset fails that step, the runner's, re-run once the asset is listed);
+  a head that changes a cache input (or-cache/, /pack/, gamevals, raw-cache, game.example.yml) restores neither, so its CI runs `:or-cache:freshCache`, the step the classifier calls the head's;
   each step carries the job's timeout-minutes, so a timeout names the step that ran out;
   a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, the cache's generation when the head changes no cache input) is re-run once its source answers, held after its third attempt
 - Central: `gradle test`, evidence files, commit subjects

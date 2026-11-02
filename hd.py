@@ -787,7 +787,7 @@ def runs(only=None, pending=True):
 
 
 def fact(**e):
-    """R2: a hook's fact (bind, resumed, end, stopped, context-limit), a file of its own named by the time it was written: a hook
+    """R2: a hook's fact (bind, resumed, end, stopped, context-limit) or hd new's (waits), a file of its own named by the time it was written: a hook
     never waits on the pass, and the pass deletes each one it folded, so the facts held are only those not yet folded."""
     write(STATE / "facts" / f"{time.time_ns():020d}-{os.getpid()}.json", json.dumps({"ts": now(), **e}, sort_keys=True))
 
@@ -821,6 +821,8 @@ def apply_fact(r, fid, e):
         r.update(ended=e["ts"], reason="stopped by the head")
     elif k == "told" and not r.get("ended"):  # a message to the live run carries its contract's rows written until then
         r["told"] = e["ts"]
+    elif k == "waits" and not r.get("started") and not r.get("ended"):  # hd new made its change wait: an unspawned listing goes (a bound run is a run)
+        r.update(ended=e["ts"], reason=f"waiting on {e['dep']}")
     elif k == "context-limit" and not r.get("handoff_told"):
         r["handoff_told"] = e["tokens"]
 
@@ -2398,7 +2400,8 @@ def _pass(ctx, act):
             for r in ctx.runs:
                 if r["change"] != ch["slug"] or r.get("ended"):
                     continue
-                if gone or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+                moved = r.get("started") and work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role: a run never outlives its step
+                if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
                     if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
                         # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
                         r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now())
@@ -2406,7 +2409,7 @@ def _pass(ctx, act):
                         save_run(r)
                         event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
                         continue
-                    r["ended"], r["reason"] = now(), gone or (f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
+                    r["ended"], r["reason"] = now(), gone or (f"step moved to {work['actor']}" if moved else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
                     if r.get("started"):
                         r["record"] = produced(r)
                         event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
@@ -2897,8 +2900,9 @@ def cmd_verdict(a):
     if why:
         refuse(*why)
     (STATE / ch["slug"]).mkdir(parents=True, exist_ok=True)
+    qa = next((r["name"] for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "qa" and r.get("started") and not r.get("ended")), None) \
+        or refuse("no started, unended qa run of this change: a verdict is the judging run's, and an ended run judges nothing")
     rules = {k: ctx.F.blob(ctx.clone(ch), TRACK[ch["track"]]["base"], k) for k in con["rules"]}
-    qa = next((r["name"] for r in ctx.runs if r["change"] == ch["slug"] and r["role"] == "qa" and r.get("started") and not r.get("ended")), "")  # the run judging
     with open(STATE / ch["slug"] / "verdicts.jsonl", "a") as f:
         f.write(json.dumps({"ts": now(), "head": head, "contract": con["hash"], "judged": con["judged"], "rows": rows, "rules": rules, "run": qa}, sort_keys=True) + "\n")
     failed = [k for k, v in rows.items() if str(v).startswith("fail")]
@@ -3112,6 +3116,10 @@ def cmd_new(a):
         fm, body = _frontmatter(f.read_text())
         f.write_text("---\n" + yaml.safe_dump({**fm, "deps": c["deps"]}, sort_keys=False) + "---\n" + body)
         event(change=k, action="dep", dep=carrier)
+    for k in {*held, *moved}:  # R6: a change made to wait lists no run: its unspawned listing ends now, so a spawn of it is refused
+        for r in runs():
+            if r["change"] == k and not r.get("started") and not r.get("ended"):
+                fact(fact="waits", run=r["name"], dep=carrier)
 
 
 def retarget(graph, old, new):

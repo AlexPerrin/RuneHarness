@@ -145,8 +145,15 @@ class Sandbox(unittest.TestCase):
         f = s.root / "rows.json"
         fr = {r["id"]: "pass" for r in (hd.contract(slug) or {"rows": []})["rows"] if r["id"].startswith("answer-") and " finding " in r["text"][:30]}
         f.write_text(json.dumps({**fr, **rows}))                               # a round's finding rows pass unless a test says
+        live = any(r["change"] == slug and r["role"] == "qa" and r.get("started") and not r.get("ended") for r in hd.runs())
+        if not live:                                                           # a verdict is a live qa run's: the test's judging run
+            hd.save_run({"name": f"{slug}-qa-t", "change": slug, "role": "qa", "input": "", "listed": hd.now(), "started": hd.now()})
         with mock.patch.object(hd, "Facts", lambda: F):
-            hd.cmd_verdict([slug, head, str(f)])
+            try:
+                hd.cmd_verdict([slug, head, str(f)])
+            finally:
+                if not live:
+                    (hd.STATE / "runs" / f"{slug}-qa-t.json").unlink()
 
 
 FACTS = dict(refs={"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
@@ -560,14 +567,29 @@ class R2(Sandbox):
         F = Fake(**FACTS)
         s.assertEqual(len(hd.tick(s.ctx(F))["spawn"]), 1)
         hd.cmd_new(["x1", "--track", "harness", "--title", "a fix s1 waits on", "--blocks", "s1", "--mechanism", "loop"])
+        s.assertEqual(hd.runs()[0]["reason"], "waiting on x1")                     # sweep-35 P2-a: hd new ends the listing at once, before any pass
         v = hd.tick(s.ctx(F))
         s.assertTrue(any(c.startswith("s1 ") and "waiting on x1" in c for c in v["change"]))
         s.assertEqual([x for x in v["spawn"] if x.startswith("s1-")], [])          # the listed run is dropped, not kept
-        s.assertEqual(hd.runs()[0]["reason"], "no longer due")
+        s.assertEqual(hd.runs()[0]["reason"], "waiting on x1")
         s.change("s1", priority="P1")                                              # the dep dropped again
         v = hd.tick(s.ctx(F))
         s.assertEqual([x.split(":")[0] for x in v["spawn"] if x.startswith("s1-")], ["s1-2"])   # due again: listed afresh
         s.assertFalse(any("ended without a record" in a for a in v["alert"]))     # an unspawned run is no failed attempt
+
+    def test_a_started_run_ends_when_its_step_moves_to_the_other_role(s):  # sweep-33 P2-a: qa runs alive on 'dev run due'
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        hd.save_run({**hd.runs()[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs()[0].get("reason"))                              # its step is still the dev's: it lives
+        s.gated("s1", F)                                                         # it hands over: the step is the qa's
+        v = hd.tick(s.ctx(F))
+        dev = next(r for r in hd.runs() if r["role"] == "dev")
+        s.assertEqual(dev["reason"], "step moved to qa")
+        s.assertFalse(any(dev["name"] in x for x in v["run"]))                     # no longer shown as a live run
+        s.assertTrue(any(x.startswith("s1-") for x in hd.tick(s.ctx(F))["spawn"]))   # the qa run is listed
 
     def test_two_passes_list_a_run_once(s):
         s.change("s1"); s.agreed("s1")
@@ -1474,6 +1496,18 @@ class R4(Sandbox):
                 hook.deny_users_word({"agent_id": "a1", "agent_type": "dev", "tool_input": {"command": c}})
         s.assertEqual(out.getvalue().count('"deny"'), 7)
 
+    def test_hook_denies_the_acting_pass_in_a_subagent(s):  # sweep-33 P1-a: runs viewed hd by running its pass
+        def denied(c, **who):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_pass({**(who or {"agent_id": "a1", "agent_type": "dev"}), "tool_input": {"command": c}})
+            return '"deny"' in out.getvalue()
+        for c in ("python3 ~/osrs-harness/hd.py", "hd", "cd x && python3 hd.py 2>&1 | tail -40", "HD_ROOT=x hd.py tick", "hd tick; ls"):
+            s.assertTrue(denied(c), c)
+        for c in ("python3 ~/osrs-harness/hd.py show s1", "hd tick --dry-run | head", "hd handover s1 Limits: none", "grep -n 'hd tick' hd.py", "ls hd.py.bak"):
+            s.assertFalse(denied(c), c)
+        s.assertFalse(denied("python3 ~/osrs-harness/hd.py", agent_type="orchestrator"))   # the orchestrator runs the pass
+        s.assertIn("hd tick --dry-run", (Path(__file__).parent.parent / ".claude/agents/dev.md").read_text())
+
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
         (repo / "tools").mkdir(parents=True); build.mkdir()
@@ -1685,12 +1719,34 @@ class R5(Sandbox):
         s.assertEqual((out.getvalue(), tick.called), ("", False))                    # not held, not refused, no pass
         s.assertEqual([(r["agent_id"], r["ended"]) for r in hd.runs()], [("d1", None)])   # not bound as a run; the parent's run not ended
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            s.assertFalse(hook.stop_orphan(reader("PostToolUse", tool_name="Grep")))  # its run lives: it carries on
+            s.assertFalse(hook.stop_ended(reader("PostToolUse", tool_name="Grep")))   # its run lives: it carries on
+            s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="Bash")))       # and so does the run's own agent
             hd.cmd_stop([run["name"]])
             out.truncate(0); out.seek(0)
-            s.assertTrue(hook.stop_orphan(reader("PostToolUse", tool_name="Grep")))   # its run ended: it stops at its next call
-        s.assertEqual(json.loads(out.getvalue())["continue"], False)
-        s.assertFalse(hook.stop_orphan(dev("PreToolUse", tool_name="Bash")))           # a run itself is never stopped here
+            s.assertTrue(hook.stop_ended(reader("PostToolUse", tool_name="Grep")))    # its run ended: it stops at its next call
+            s.assertEqual(json.loads(out.getvalue())["continue"], False)
+            s.assertTrue(hook.stop_ended(dev("PreToolUse", tool_name="Bash")))        # the run's own agent stops too: nothing acts for an ended run
+            s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="SubagentHandback")))   # its last line goes
+            hd.save_run({**hd.runs()[0], "reason": None})                              # ended by its own hand-back: a resume may go on
+            s.assertFalse(hook.stop_ended(dev("PreToolUse", tool_name="Bash")))
+
+    def test_a_run_kills_only_processes_in_its_own_slice(s):  # sweep-35 P1-a: a run killed another run's mobile_login.py
+        run = {"name": "s1-1", "change": "s1"}
+        cg = {"100": f"0::/user.slice/{hd.run_slice('s1-1')}/hd-s1_1-9.scope\n", "200": f"0::/user.slice/{hd.run_slice('c1-3')}/x.scope\n"}
+        def path(f):
+            m = mock.Mock(); pid = str(f).split("/")[2]
+            m.read_text.side_effect = (lambda: cg[pid]) if pid in cg else OSError
+            return m
+        def denied(c, owner=run):
+            with mock.patch.object(hook, "owner_run", lambda p: owner), mock.patch.object(hook, "Path", path), \
+                 mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.deny_foreign_kill({"agent_id": "d1", "agent_type": "dev", "tool_name": "Bash", "tool_input": {"command": c}})
+            return '"deny"' in out.getvalue()
+        for c in ("kill 100", "kill -9 100 2>/dev/null || true", "kill %1", "ps -ef | grep kill", "cat kill.log", "pgrep -af mobile_login"):
+            s.assertFalse(denied(c), c)
+        for c in ("kill 200", "kill 100 200", "kill 300", "kill $(pgrep -f mobile_login)", "pkill -f mobile_login", "killall python3", "cd x && kill 0"):
+            s.assertTrue(denied(c), c)
+        s.assertFalse(denied("kill 200", owner=None))                              # not a run's agent: the permission rules judge it
 
     def test_a_reader_bash_command_that_writes_is_denied(s):
         def denied(c, kind="reader"):
@@ -3840,12 +3896,16 @@ class R3(Sandbox):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
         s.verdict("s1", A, {"ok": "pass", "j1": "fail: wrong"}, F)
-        hd.save_run({"name": "s1-4", "change": "s1", "role": "qa", "input": "", "started": hd.now()})   # the qa run judging
-        hd.save_run({"name": "s1-3", "change": "s1", "role": "qa", "input": "", "started": hd.now(), "ended": hd.now()})
+        hd.save_run({"name": "s1-3", "change": "s1", "role": "qa", "input": "", "listed": hd.now(), "started": hd.now(), "ended": hd.now(), "reason": "change superseded by s2"})
+        (f := s.root / "late.json").write_text(json.dumps({"ok": "pass", "j1": "pass"}))
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_verdict(["s1", A, str(f)])                                   # sweep-34 P2-a: the pass ended the only qa run: no verdict
+        s.assertIn("no started, unended qa run", str(e.exception))
+        hd.save_run({"name": "s1-4", "change": "s1", "role": "qa", "input": "", "listed": hd.now(), "started": hd.now()})   # the qa run judging
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
         v = hd.verdicts("s1")
         s.assertEqual([x["rows"]["j1"] for x in v], ["fail: wrong", "pass"])
-        s.assertEqual([x["run"] for x in v], ["", "s1-4"])                     # the verdict names its started, unended qa run
+        s.assertEqual([x["run"] for x in v], ["s1-qa-t", "s1-4"])              # the verdict names its started, unended qa run
 
     def test_text_only_fix_keeps_verdict_valid(s):
         s.change("s1"); s.agreed("s1")

@@ -63,6 +63,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   a failure is one stderr line, the command runs on
 
 - `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
+  each change it makes wait has its listed, unspawned runs ended by a `waits` fact at once, so their spawn is refused;
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
@@ -83,7 +84,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
   keyed to the head and `judged`, the hash of the rows without a script (a check or gate row is gated, never judged);
-  `run` names the change's started, unended qa run;
+  `run` names the change's started, unended qa run, and with none (the pass ended it, or no qa runs) it refuses;
   refused if a row is missing, or not judged with none failing
 
 - `hd tree <slug> <commit>`, by a track script: the T commit and tree of a working-copy snapshot, so a dev builds T
@@ -333,6 +334,7 @@ write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
+end a started run once its change's `next` is the other role's run (dev or qa): its agent stops at its next tool call;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
 remove a tools copy nothing uses.
@@ -388,6 +390,9 @@ Three runs of a change past the limit since its last handover are an alert (the 
 The public act is the carry, `hd ship <slug> <head>`, started by the pass only while approval.json holds that head and the digest of the card's current texts, and re-checking both before it acts.
 The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a `!` command, which fires no hook) are denied inside a subagent or the orchestrator session (a hook input with an agent id or type) when a command runs them (at a command's start);
 a command that only quotes them (grep, echo, a heredoc body) runs.
+A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
+A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.
+A run's own agent stops (`continue: false`) at its next tool call, its hand-back let through, once the pass, the head or `hd stop` ended its run.
 
 **Base, head**
 - Client: `origin/main`, `origin/client/<slug>`

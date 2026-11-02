@@ -158,6 +158,7 @@ a live check reads the real state.
    an answer row written before a SendMessage to the running dev's agent is that run's, not late for its hand-over;
    an answer on a closed change is refused;
    a verdict missing a row, or with a row not judged and none failing, is refused, and the next brief lists the open rows;
+   a verdict with no started, unended qa run of the change is refused;
    a contract row needs no change depending on its own;
    verdicts append;
    a text-only fix leaves the verdict at the same head valid;
@@ -205,6 +206,9 @@ a live check reads the real state.
    a run's Bash command, and one of an agent it spawned, runs in its slice, and the pass stops an ended run's slice and the Windows processes a track script recorded under it;
    a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;
    an agent a run spawns (its `reader`) is not bound, held, refused or ended as a run, and stops at its next tool call once that run has ended;
+   a run's own agent stops at its next tool call once the pass, the head or `hd stop` ended its run, and a started run ends once its change's step is the other role's;
+   a subagent never runs the acting pass (a bare `hd` or `hd tick`), and a run signals no process outside its own slice;
+   a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
    a deploy alive runs to its end, whatever tree or tools ship arrives;

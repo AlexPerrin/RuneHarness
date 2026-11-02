@@ -360,9 +360,10 @@ def deny_users_word(p):
 
 
 def deny_pass(p):
-    """R5: a subagent views hd (`hd show`, `hd tick --dry-run`), never runs its acting pass: a bare `hd` or `hd tick` lists
+    """R5: a subagent views hd (`hd show`, `hd tick --dry-run`), never runs its acting pass: a bare `hd` (no argument at all,
+    as main() runs it; `hd --help` only prints usage) or `hd tick` lists
     and ends runs, starts gates and ships, and prints the orchestrator's spawn lines. The orchestrator alone runs it."""
-    if not p.get("agent_id") or not re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(?:\.py)?(?:(?=[\s;&|)]|$)(?!\s+[A-Za-z])|\s+tick\b(?![^;&|\n]*--dry-run))", bare(p)):
+    if not p.get("agent_id") or not re.search(r"(?:^|[;&|(\n])\s*(?:\w+=\S*\s+)*(?:python3?\s+)?(?:\S*/)?hd(?:\.py)?(?:(?=[ \t]*(?:$|[;&|)\n<>]|\d+>))|\s+tick\b(?![^;&|\n]*--dry-run))", bare(p)):
         return
     hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule="hd pass in a subagent")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
@@ -485,7 +486,8 @@ WRITES = re.compile("|".join((
     r"\btrack\.sh\s+(?:up|build|gate|down|ship|measure|check-\S+)\b",
     AT + r"docker\s+(?!ps\b|logs\b|inspect\b|images\b)\w",
     AT + r"gh\s+(?!api\b)\w+\s+(?:create|edit|merge|close|reopen|comment|delete|review|ready|upload|run|rerun|cancel)\b",
-    AT + r"gh\s+api\b[^;&|\n]*\s(?:-X\s*(?!\s|GET\b)|--method\s+(?!GET\b)|-f\b|-F\b|--field\b|--raw-field\b|--input\b)",
+    # gh api writes by its method: an explicit non-GET one, or fields with none named (they make it a POST)
+    AT + r"gh\s+api\b(?![^;&|\n]*\s(?:-X\s*|--method[\s=]+)GET\b)[^;&|\n]*\s(?:-X|--method|-f|-F|--field|--raw-field|--input)\b",
     AT + r"(?:python3?\s+)?(?:\S*/)?hd(?:\.py)?\s+(?!show\b)\w")))
 
 

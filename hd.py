@@ -11,6 +11,7 @@ import yaml
 
 ROOT = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parent)
 STATE, EVID, DEFS = ROOT / "state", ROOT / "evidence", ROOT / "harness"
+CODE = Path(__file__).read_bytes()  # the hd.py this process runs: a ship that moves it ends the pass (tick)
 AUTHOR = ("Alex Perrin", "44126061+AlexPerrin@users.noreply.github.com")
 SOURCE_DOCS = ("docs/PROBLEM.md", "docs/PRD.md", "docs/ARCHITECTURE.md")  # one fact per line (tools/docfmt.py)
 
@@ -2096,12 +2097,15 @@ def order(ctx):
 
 def tick(ctx=None, act=True):
     """R5: one pass → the view for `hd`. A dry pass gathers every read of the world (git, GitHub, docker) into the Facts
-    memo outside the state lock; under it the pass folds the hooks' facts, re-reads the state, decides and writes."""
+    memo outside the state lock; under it the pass folds the hooks' facts, re-reads the state, decides and writes.
+    None: a ship moved hd.py since this process loaded it, and the pass acts nothing."""
     ctx = ctx or Ctx()
     if not act:
         return _pass(ctx, False)
     _pass(ctx, False)
     with lock():
+        if Path(__file__).read_bytes() != CODE:  # R8: a ship moved hd.py (under this lock) since this process loaded it: no act on the old code
+            return None
         fold()
         ctx.__init__(ctx.F, ctx.cfg)  # R2: decide on the state read under the lock, never on what was read while waiting for it
         return _pass(ctx, True)
@@ -2830,6 +2834,8 @@ def cmd_tick(a):
     if "--dry-run" in a:
         os.environ["HD_OFFLINE"] = "1"  # R5: a dry-run never reaches the network: GitHub from its cache, git from the local refs
     v = tick(act="--dry-run" not in a)
+    if v is None:  # the pass ended on old code: the live hd.py runs it
+        os.execv(sys.executable, [sys.executable, __file__, "tick", *a])
     for k, lines in v.items():
         for l in lines:
             print(f"{k}: {l}" if k != "card" else l)

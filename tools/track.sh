@@ -3,7 +3,7 @@
 # EVIDENCE BUILD HD_ROOT G (the gate key) TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
 # (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
-# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T, push; one ship at
+# past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T under the state lock, push; one ship at
 # a time, under state/ship.lock; a T already on the live branch moves nothing). hd runs
 # gate and ship for the harness batch, slug ship-harness, NAMES its changes.
 set -euo pipefail
@@ -76,7 +76,7 @@ ship() {  # the live branch moves only by fast-forward to T (R8: the pass never 
     [ -n "$remote" ] || { echo "refused: $path has no remote for $name"; exit 1; }
     git -C "$wt" merge -q --ff-only "$sha"; git -C "$path" push -q "$remote" "$branch"; echo "$branch at ${sha:0:9}, pushed to $remote"
   done
-  git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
+  flock "$root/state/.lock" git -C "$repo" merge -q --ff-only "$tc"; git -C "$repo" push -q origin HEAD; echo "$(git -C "$repo" branch --show-current) at $(git -C "$repo" rev-parse --short HEAD)"
   rm -f "$state"/gate-*.json   # every kept gate was of a tree on the old base
 }
 

@@ -1597,7 +1597,7 @@ class R4(Sandbox):
 
     def test_a_run_waits_on_a_fact_never_its_own_pgrep(s):  # sweep-41 P1-a: pgrep -f matched the loop's own bash -c line
         for role in ("dev", "qa"):
-            s.assertIn("never `pgrep -f` on text the waiting command itself carries", (Path(__file__).parent.parent / f".claude/agents/{role}.md").read_text(), role)
+            s.assertIn("never `pgrep -f` on text the waiting command itself carries", " ".join((Path(__file__).parent.parent / f".claude/agents/{role}.md").read_text().split()), role)
 
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
@@ -1857,6 +1857,15 @@ class R5(Sandbox):
         for c in ("pgrep -f '[t]rack.sh up s1'", "pgrep -f 'up (x|y)'", "pgrep java", "until [ -f state/s1/up.json ]; do sleep 5; done",
                   "grep pgrep hook.py", "cat <<'EOF' > x.sh\npgrep -f foo\nEOF", "pgrep -f"):
             s.assertFalse(denied(c), c)
+
+    def test_a_run_waits_on_the_fact_never_a_task_output_or_a_bound(s):  # sweep-45 P2-c: timeout 175 ... until grep <task output>
+        root = Path(__file__).parent.parent
+        for f in (".claude/agents/dev.md", ".claude/agents/qa.md", "hook.py"):
+            t = " ".join(root.joinpath(f).read_text().split())
+            s.assertNotIn("its output file", t, f)                                 # the stand-in the old text named
+            s.assertRegex(t, r"never (on )?the (background )?task's output file", f)
+        for f in (".claude/agents/dev.md", ".claude/agents/qa.md"):
+            s.assertIn("never under a bound of time or tries", " ".join(root.joinpath(f).read_text().split()), f)
 
     def test_a_reader_bash_command_that_writes_is_denied(s):
         def denied(c, kind="reader"):

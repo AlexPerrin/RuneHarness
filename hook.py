@@ -310,8 +310,8 @@ def end_run(p):
         hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
         return print(json.dumps({"decision": "block", "reason":
             f"Your background command(s) {', '.join(ids)} are still running. Never end a turn on your own work: block on it in the "
-            "foreground with one until-loop on an observable fact (its output file, a log line, a port; never `pgrep -f` on text the "
-            "waiting command itself carries, which matches its own loop). A step that cannot "
+            "foreground with one until-loop on the fact the step makes (a state file, a log line, a port; never the task's output file, never "
+            "a bound of time or tries, never `pgrep -f` on text the waiting command itself carries, which matches its own loop). A step that cannot "
             "finish (a hang, a refused login) is an error: stop it and hand back."}))
     rec = handed and bool(hd.produced(r) or r["role"] == "planner")  # the planner's hand-back is its record, filed or not
     if handed:   # an idle stop leaves the run live
@@ -418,7 +418,7 @@ def deny_self_pgrep(p):
             hd.event(action="denied", agent=p.get("agent_id"), role=p.get("agent_type"), rule=f"self-matching pgrep -f {args[-1][:60]}")
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
                   f"`pgrep -f {args[-1]!r}` matches this command's own shell (its text is in the `bash -c` line), so it never ends. "
-                  "Run the step in the foreground (it ends on its own fact), or wait on an observable fact: its output file, a log line, a port."}}))
+                  "Run the step in the foreground (it ends on its own fact), or wait on the fact the step makes: a state file, a log line, a port (never the task's output file)."}}))
             return True
 
 

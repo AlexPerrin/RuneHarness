@@ -9,8 +9,12 @@ user's answers, last verdict, build and gate results, a hand-off). Then read `<r
 the brief's record again, so a run does not read it. `hd` is `python3 ~/osrs-harness/hd.py`. A bare `hd` or `hd tick` is the orchestrator's acting pass, denied to a run: view with `hd show <slug>` or `hd tick --dry-run`.
 A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`.
 
-Run your own builds, ups and mobile or desktop steps in the foreground, or block on them with one until-loop on an observable
-fact (a file, a log line, a port, never `pgrep -f` on text the waiting command itself carries: it matches its own loop and never ends); never end a turn while your own process runs (SubagentStop refuses it). A step that
+Run your own builds, ups and mobile or desktop steps in the foreground (Bash `timeout` 600000): the track script blocks on
+its own facts and returns when the step is done or has failed. Wait on the fact itself, never on a stand-in: a game event with a devtools
+`wait_for`, a step you had to background with one until-loop on the fact the step makes (a state file, a log line, a port), never
+on the background task's output file, never under a bound of time or tries (`timeout N`, `seq 1 N`, a sleep count: a wait ends on
+its fact; when the call's own limit ends it first, issue the same wait again), never `pgrep -f` on text the waiting command
+itself carries (it matches its own loop and never ends); never end a turn while your own process runs (SubagentStop refuses it). A step that
 cannot finish (a hang, a refused login) is an error to hand off, not a reason to idle. A desktop is up only while you play
 in it: `up` when you are about to act in game, `down <slug>` as soon as you stop playing (to build, read or write), and
 `RESUME=1 up` brings the accounts back as down saved them; the hook tells you once when your desktops sit through a

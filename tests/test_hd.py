@@ -574,6 +574,24 @@ class R2(Sandbox):
         s.assertTrue(r["ended"]); s.assertEqual((r["last"], r["usage"]["turns"]), ("run s1-1: handoff", 5))   # the hand-back's stop ends it
         s.assertFalse(r["record"])                                        # nothing newer than the answer: no record
 
+    def test_a_taskstop_ends_a_run_resumed_after_its_hand_back(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=1, handback="run s1-1: handoff"))
+            hook.bind(payload(run, "ag1", "SubagentStart", s.root))                # a SendMessage resumes it
+            s.assertIsNone(hd.runs()[0]["ended"])
+            stop = {"hook_event_name": "PostToolUse", "tool_name": "TaskStop", "tool_input": {"task_id": "ag1"}}
+            hook.end_stopped({**stop, "tool_input": {"task_id": "b1"}})            # a background command's stop is no run's end
+            s.assertIsNone(hd.runs()[0]["ended"])
+            hook.end_stopped(stop)                                                 # the orchestrator kills it: no SubagentStop follows
+        s.assertEqual(hd.runs()[0]["reason"], "stopped by the head")
+        hd.tick(s.ctx(F))
+        s.assertEqual([r["name"] for r in hd.runs() if not r.get("ended")], ["s1-2"])   # its slot and its change are free: the next run is listed
+
     def test_an_idle_stop_is_refused_while_its_own_background_work_runs(s):
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))
@@ -2658,7 +2676,7 @@ class R8(Sandbox):
         (tmp / "x.kt").write_text("x\n")
         git("add", "."); git("commit", "-qm", "base"); base = git("rev-parse", "HEAD")
         L = (tmp / "docs/PRD.md").read_text().split("\n")
-        stop = next(i for i, l in enumerate(L) if "(`hd stop`)" in l)
+        stop = next(i for i, l in enumerate(L) if "ends and frees its slot" in l)
 
         def side(name, edit, kt=None):
             git("checkout", "-q", "-b", name, base)

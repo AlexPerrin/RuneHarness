@@ -430,13 +430,25 @@ class R2(Sandbox):
         s.assertFalse((s.root / "harness" / "changes" / "s1-c8.md").exists())  # a dry run files nothing
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-old")}
-        s.assertEqual(list(new), ["s1-c8"])                                # one change, once: answered (9, 10), ours, bots, carried skipped
-        c = new["s1-c8"]
+        s.assertEqual(list(new), ["server-354-c8"])                                # one change, once: answered (9, 10), ours, bots, carried skipped
+        c = new["server-354-c8"]
         s.assertEqual((c["deps"], c["pr"], c["finding"], c["priority"], c["branch"]), (["s1-old"], 354, 8, "P1", "content/cannon"))  # on the PR's tip
-        con = hd.contract("s1-c8")
-        s.assertIsNone(con["agreed"])                                      # the inherited contract is agreed again by qa
-        s.assertEqual([r["id"] for r in con["rows"]], [r["id"] for r in hd.contract("s1")["rows"]] + ["finding"])
+        con = hd.contract("server-354-c8")
+        s.assertIsNone(con["agreed"])                                      # its own contract, agreed by qa
+        s.assertEqual([r["id"] for r in con["rows"]], [l[2:].split(" |")[0] for l in hd.seed_rows(hd.cfg(), "server").splitlines()] + ["finding"])
         s.assertEqual(con["rows"][-1]["judge"], "judge"); s.assertIn("reset / the varp?", con["rows"][-1]["text"])
+
+    def test_two_findings_on_a_pr_of_two_roots_each_get_their_own_contract_and_slug(s):
+        s.change("cannon-a", pr=354); s.agreed("cannon-a", extra="- answer-1 | a-thoren's mcannonmulti | judge\n")
+        s.change("cannon-b", pr=354); s.agreed("cannon-b", extra="- acc-A1 | the reclaim | judge\n")
+        talk = lambda i, who, body: {"id": i, "author": who, "body": body}
+        F = Fake(**{**FACTS, "comments": {354: []}, "talk": {354: [talk("IC_x", "a-thoren", "mcannonmulti resets"), talk("IC_y", "eagle", "Nulodion's reclaim")]}})
+        hd.tick(s.ctx(F))
+        seeds = [l[2:].split(" |")[0] for l in hd.seed_rows(hd.cfg(), "server").splitlines()]
+        for slug, words in (("server-354-cicx", "mcannonmulti resets"), ("server-354-cicy", "Nulodion's reclaim")):
+            con = hd.contract(slug)
+            s.assertEqual([r["id"] for r in con["rows"]], seeds + ["finding"])   # no root's rows (answer-1, acc-A1): the track's seeds and its own finding
+            s.assertIn(words, con["rows"][-1]["text"]); s.assertIn(f"# Contract: {slug}", con["text"])
 
     def test_a_finding_files_until_a_reply_or_comment_of_ours_answers_it(s):
         s.change("s1", pr=354); s.agreed("s1"); s.change("s1-c8", pr=354, deps=["s1"], finding=8)
@@ -448,12 +460,12 @@ class R2(Sandbox):
                                    talk("PRR_d", "rev", "please split it"), talk("PRR_e", "rev", ""), talk("PRR_f", "O", "ours"), talk("PRR_g", "rev", "rename it now, please")]}})
         hd.tick(s.ctx(F)); hd.tick(s.ctx(F))
         new = {k: v for k, v in hd.defs("changes").items() if k not in ("s1", "s1-c8")}
-        s.assertEqual(sorted(new), ["s1-c11", "s1-cicc", "s1-cprrd"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
-        s.assertEqual((new["s1-c11"]["deps"], new["s1-c11"]["finding"]), (["s1-c8"], 11))
-        s.assertEqual((new["s1-cicc"]["finding"], new["s1-cicc"]["title"]), ("IC_c", "#354: rev on the PR"))
-        s.assertIn("please split it", hd.contract("s1-cprrd")["rows"][-1]["text"])
+        s.assertEqual(sorted(new), ["server-354-c11", "server-354-cicc", "server-354-cprrd"])   # 9 precedes our reply 10, 12 our 51; IC_a is quoted by ours, PRR_g by our inline reply; no dates
+        s.assertEqual((new["server-354-c11"]["deps"], new["server-354-c11"]["finding"]), (["s1-c8"], 11))
+        s.assertEqual((new["server-354-cicc"]["finding"], new["server-354-cicc"]["title"]), ("IC_c", "#354: rev on the PR"))
+        s.assertIn("please split it", hd.contract("server-354-cprrd")["rows"][-1]["text"])
         s.assertEqual(hd.root(F.f["comments"][354], 11), 8)               # its reply goes in thread 8, and answers it only after 11
-        ctx = s.ctx(F); ch = {**ctx.changes["s1-c11"]}
+        ctx = s.ctx(F); ch = {**ctx.changes["server-354-c11"]}
         s.assertEqual((hd.answered(ctx, ch, 11), hd.answered(ctx, ch, "IC_c"), hd.answered(ctx, ch, "IC_a"), hd.answered(ctx, ch, "IC_gone")), (False, False, True, False))
         F.f["comments"][354].append(com(13, "O")); F.f["talk"][354].append(talk("IC_h", "O", "> still wrong\n\n@rev now right."))
         s.assertEqual((hd.answered(s.ctx(F), ch, 11), hd.answered(s.ctx(F), ch, "IC_c")), (True, True))
@@ -468,10 +480,10 @@ class R2(Sandbox):
         ctx = s.ctx(F); ctx.cfg["bots"] = ["CI-X"]                                      # hd.yaml's bots: a bot GitHub does not mark
         hd.tick(ctx, act=False); s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), [])
         hd.tick(ctx)
-        s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), ["s1-cica", "s1-cicb"])  # no comment of ours, no date: both; the rest are bots
+        s.assertEqual(sorted(k for k in hd.defs("changes") if k != "s1"), ["server-354-cica", "server-354-cicb"])  # no comment of ours, no date: both; the rest are bots
         s.change("s2", pr=355); s.agreed("s2"); F.f["talk"][355] = [talk("IC_z", "rev")]; F.f["comments"] = None
         hd.tick(s.ctx(F))
-        s.assertNotIn("s2-cicz", hd.defs("changes"))                                       # the inline comments unread: nothing files
+        s.assertNotIn("server-355-cicz", hd.defs("changes"))                                       # the inline comments unread: nothing files
 
     def test_spawn_listed_exactly_while_agent_step_unmet_and_no_run_alive(s):
         s.change("s1"); s.agreed("s1")

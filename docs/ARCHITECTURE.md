@@ -311,7 +311,8 @@ next(change):
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
     A ship runs under `state/ship.lock`, a T already on the live branch moves only the carried tools branches not yet holding (and pushed at) their heads;
-    it clears the kept gates but the one of the tree it shipped (`gate-<G>`)
+    it clears the kept passed gates but the one of the tree it shipped (`gate-<G>`);
+    a failed gate stays, since its tree recurs on the new base (the members after the shipped prefix) and is never gated again
   wait
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;

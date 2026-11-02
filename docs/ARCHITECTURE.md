@@ -35,7 +35,7 @@ tools/track.sh    the harness track's script;
 .claude/agents/   orchestrator.md (the driver session), dev.md, qa.md, planner.md (cross-track planning and monitoring), reader.md (a run's read-only lookup, returning its conclusion)
 mcp/              serve.py runs each server of .mcp.json (`serve.py <name>`, its command line in servers.json): once a file in mcp/ changes it holds the next request, lets the requests in flight answer, stops the server and runs itself again, replaying the session's initialize (its answer dropped) and the held request, and sends tools/list_changed;
                   osrs-mcp (cache, wiki, gamevals);
-                  the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` picks it, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, a desktop call waits ANSWER_WAIT past its own timeoutMs at most, the whole call, and an exception is an error answer;
+                  the devtools front (desktop: POST to a desktop's devtools port, each call in its own thread so the runs sharing it never queue behind one another, a tool's `port` names it and a call naming none is refused, and walk_to walks any distance in minimap clicks of 12 tiles until the player stands on the tile or a click moves it no closer, every answer names a session that dropped to the login screen, and every request is answered: the netstat probe for a listening port waits NETSTAT_WAIT at most, its start included, a desktop call waits ANSWER_WAIT past its own timeoutMs at most, the whole call, and an exception is an error answer;
                   mobile: the client repo's bridge), answering with none running from a cache or the snapshot
 harness/          goals/, changes/ (definitions, committed); state/, evidence/ at the root, git-ignored
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
@@ -393,6 +393,7 @@ The one hook rule: `hd approve` and `hd close` (the user's word, typed by the us
 a command that only quotes them (grep, echo, a heredoc body) runs.
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n), and its pkill and killall are denied.
+A run's desktop devtools call names a port of its change's up.json desktops: one naming none is given the run's one desktop, any other is denied, its reason naming the run's ports.
 A run's own agent stops (`continue: false`) at its next tool call, its hand-back let through, once the pass, the head or `hd stop` ended its run.
 
 **Base, head**

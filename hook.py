@@ -14,6 +14,8 @@ PreToolUse      bind if the start found no prompt yet; `hd approve` and `hd clos
                 A run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by
                 none of these, starts with `hd scope <run>`: its shell joins the run's systemd slice, which the pass stops
                 once the run ended (hd stop stops it at once).                                                           R5
+                A run's desktop devtools call (or one of an agent it spawned) acts only on a desktop of its change's up.json:
+                one naming no port is given the run's one desktop; any other is denied, its reason naming the run's ports. R5
                 A run's SubagentHandback is denied while a background command, monitor or subagent it started has no task
                 notification yet (a run cannot TaskStop its subagent: it asks it to return with SendMessage and waits).   R2
 PostToolUse     the orchestrator's TaskStop of a run's agent (one resumed after its hand-back too) ends that run, as `hd stop` does.  R2
@@ -233,6 +235,28 @@ def in_run_slice(p):
     ti = p.get("tool_input") or {}
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput":
           {**ti, "command": f"python3 {Path(__file__).resolve().parent / 'hd.py'} scope {r['name']}\n{ti.get('command') or ''}"}}}))
+
+
+def own_desktop(p):
+    """R5: one bridge serves every run, so a run's desktop devtools call acts only on a desktop of its own change's up.json:
+    a call naming no port is given the run's one desktop, any other is denied with the run's ports."""
+    if not (p.get("tool_name") or "").startswith("mcp__osrs-devtools-desktop__") or not (r := owner_run(p)):
+        return
+    try:
+        ports = re.findall(r":(\d+)", json.loads((hd.STATE / r["change"] / "up.json").read_text()).get("desktops") or "")
+    except (OSError, ValueError):
+        ports = []
+    ti = p.get("tool_input") or {}
+    if "port" not in ti and len(ports) == 1:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**ti, "port": int(ports[0])}}}))
+        return True
+    if str(ti.get("port")) in ports:
+        return
+    why = (f"your desktops are on ports {' '.join(ports)}: name yours with `port`" if ports else
+           f"you have no desktop up: `tools/track.sh up {r['change']}` starts yours")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason":
+          f"run {r['name']}: a desktop devtools call acts only on your own desktop ({why})" + (f"; port {ti['port']} is not yours." if "port" in ti else ".")}}))
+    return True
 
 
 def end_stopped(p):
@@ -501,7 +525,7 @@ def reread(p):
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

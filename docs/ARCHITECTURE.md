@@ -88,7 +88,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   `--touches` (required on a product track) names the code the change edits: each piece missing on the base and the deps' branches makes the one open change whose dev ref holds it (the holder the other holders wait on) a dep, refused when none or several unordered hold it;
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
-  a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) and no open `hd ask` holds joins that change instead (a held one joins nothing and counts in no merge alert until answered): its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
+  a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) and no open `hd ask` holds joins that change instead (a held one joins nothing and counts in no merge alert until answered): its text appended to the body and as an answer row `filed by <filer>` with `holds: <a,b>`, the changes it makes wait (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
+  an open change that another open change waits on (transitively), other than the filing's own `--blocks` and `--limit-of` changes, takes no join: the filing is its own change waiting on it, so no dependent waits on scope it never needed;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   the finder waits on the fix as with `--blocks`, whether the filing is new or joined;
   `--supersedes` marks those open changes, on any track, `superseded: <carrier>`, the new change or the one the filing joined: each holds with no runs until the user's `hd close`;
@@ -102,6 +103,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
   anything else runs as `false`;
+  an answer row of the user's word carries the field `user`, which tells it from a joined filing or finding;
   a row whose id an earlier row has runs as `false`, but an answer row's is renumbered in the file one above the highest answer row), refuses on any failure, a conflict, an empty evidence dir, a word before or a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, limits, given, at} (given: the highest answer-n the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own when no run;
   answer-n is numbered one above the highest answer row the contract holds, whatever rows a rewrite dropped, so a row above given, and above every answer row the head's last verdict judged, is late for that hand-over unless stamped before at, the earliest brief's time (a renumbered duplicate keeps its stamp, so it is never late): never ordered by time alone)
 
@@ -250,7 +252,7 @@ next(change):
     no → wait on them (a same-track upstream dependency: gated;
     the dependent with no pr or branch of its own joins its PR, a chain one PR;
     one with a branch of its own is its own PR, its card waiting on the dependency's upstream merge)
-    a dependency the user's late answer reopened → wait on it until its dev hands over (a joined filing holds only its own change)
+    a dependency the user's late answer reopened, or one a joined filing reopened whose `holds` names this change (no other dependent) → wait on it until its dev hands over
   question open (hd ask, its definition's front matter unedited since)?
     yes → wait for the answer: no run, gate, ship or upstream step
   contract.md?

@@ -694,7 +694,8 @@ def seed_rows(c, track, up=True):
 def contract(slug):
     """evidence/<slug>/contract.md → {hash, rules, agreed, rows, text} | None.
     Rows `- id | text | check: <cmd>` (hand-over and gate) | `gate: <cmd>` (gate only) | `judge: <skill>` (qa);
-    an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run.
+    an answer row (the user's word) may carry `waive: <row id>`, and that row's script is not run;
+    the user's word carries `user`, a joined filing `holds: <a,b>`, the changes it makes wait.
     The file alone: a seed row added later is written into it by the pass (`unseeded`) at a head not carried upstream."""
     f = EVID / slug / "contract.md"
     if not f.exists():
@@ -708,9 +709,9 @@ def contract(slug):
             c["agreed"] = l[7:].strip() or None
         elif l.startswith("- ") and "|" in l:
             p = [x.strip() for x in l[2:].split("|")]
-            row = {"id": p[0], "text": p[1] if len(p) > 1 else "", "check": None, "gate": None, "judge": None, "waive": None}
+            row = {"id": p[0], "text": p[1] if len(p) > 1 else "", "check": None, "gate": None, "judge": None, "waive": None, "user": None, "holds": None}
             for x in p[2:]:
-                for k in ("check", "gate", "judge", "waive"):
+                for k in ("check", "gate", "judge", "waive", "user", "holds"):
                     if x.startswith(k + ":") or x == k:
                         row[k] = x[len(k) + 1:].strip() or k
             for k in ("check", "gate"):  # a row's command is a track script or a test run, never an arbitrary shell line
@@ -1615,7 +1616,8 @@ def cycles(changes):
 
 def deps_held(ctx, ch):
     """The step a change or goal waits on while a dependency is neither live nor closed, or is reopened by the user's late answer; None when none holds it.
-    A joined filing holds only its own change: a dependent's need is met once the head it waited on is live. R8: a
+    A joined filing holds its own change and the changes it names (`holds`: its --blocks and --limit-of) until the dep hands over after it;
+    every other dependent's need is met once the head it waited on is live. R8: a
     same-track dependency that goes upstream holds until gated (the dependent joins its PR, or with a branch of its own its card waits on the dependency's merge)."""
     if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
         return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
@@ -1634,7 +1636,8 @@ def deps_held(ctx, ch):
                 return step(f"waiting on {d}", "unknown" if ok is None else "wait", dep=d)
         elif not ctx.live(dep, dh):
             return step(f"waiting on {d}", "wait", dep=d)
-        if late_answers(d, rec(d, "handover"), dh)[0]:  # R3: the user's word on a dependency is met only once its dev acts on it
+        late, joined = late_answers(d, rec(d, "handover"), dh)
+        if late or joined and any(ch["slug"] in (r["holds"] or "").split(",") for r in contract(d)["rows"] if r["id"] in joined):  # R3: met only once its dev acts on it
             return step(f"waiting on {d}", "wait", dep=d)
     return None
 
@@ -1651,8 +1654,8 @@ def late_answers(slug, ho, head):
         return [], []
     since = max([seen(con, ho.get("given", ho["ts"]))] + [nth(k) for v in verdicts(slug) if v["head"] == head for k in v["rows"] if k.startswith("answer-")])
     late = [r for r in con["rows"] if r["id"].startswith("answer-") and nth(r["id"]) > since and r["text"][:20] >= ho.get("at", ho["ts"])]  # a renumbered row keeps its stamp
-    return ([r["id"] for r in late if r["text"][21:].startswith("the user")],  # the user's word, quoting the question it closes or not
-            [r["id"] for r in late if not r["text"][21:].startswith("the user")])
+    user = lambda r: r["user"] or not (r["holds"] or r["text"][21:].startswith(("filed by", "finding ")))  # shortcut: a row written before the `user` field reads by its text; drop once no contract holds one
+    return [r["id"] for r in late if user(r)], [r["id"] for r in late if not user(r)]
 
 
 def nth(answer):
@@ -3396,7 +3399,7 @@ def cmd_answer(a):
     return add_answer(slug, ch, text, waive=waive)
 
 
-def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
+def add_answer(slug, ch, text, by="the user", waive=None, quiet=False, holds=()):
     """An answer row: the user's word, or a filing or maintainer finding joined to the change (`by` names its filer)."""
     f = EVID / slug / "contract.md"
     if not f.exists():
@@ -3407,7 +3410,7 @@ def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
     q = by == "the user" and asked(ch)  # the row quotes the question it closes: the dev reads the answer with what it answers
     row = " ".join((f'{by}, to "{q["text"]}": ' if q else f"{by}: ").split() + text.split()).replace("|", "/")  # one line, no column break
     with open(f, "a") as o:
-        o.write(f"- answer-{n} | {now()} {row} | {'judge: qa-server' if ch['track'] == 'server' else 'judge' if fids(ch) else 'note'}{f' | waive: {waive}' if waive else ''}\n")
+        o.write(f"- answer-{n} | {now()} {row} | {'judge: qa-server' if ch['track'] == 'server' else 'judge' if fids(ch) else 'note'}{f' | waive: {waive}' if waive else ''}{' | user' if by == 'the user' else ''}{f' | holds: {",".join(holds)}' if holds else ''}\n")
     if by == "the user":  # a joined filing answers no question, nor outdates a run's record (merge_limit logs it)
         drop(slug, "ask")
         event(change=slug, record="answer", text=text[:300], **({"question": q["text"][:300]} if q else {}))
@@ -3540,6 +3543,12 @@ def cmd_new(a):
         tie[k] = {**tie[k], "deps": [*tie[k]["deps"], o.slug]}
     mine = after(tie, o.slug) | set(sup)  # what the filing waits on already (a superseded change's waits follow the carrier)
     same = [k for k, c in graph.items() if mechanism(c) == m and k != o.slug and k not in sup and not shut(k, c) and not asked(c) and not ordered(tie, o.slug, k)]  # one held on a question is no join: the filing would wait on an answer about something else
+    waited = [k for k in same if any(k in after(graph, j) - {j} for j, c in graph.items() if j not in (*held, *sup) and not shut(j, c))]  # nor one others wait on: its dependents would wait on the filing's scope too
+    if waited:  # the filing stands behind it instead, its own change on the same code
+        o.deps = ",".join([*(d for d in o.deps.split(",") if d), *waited])
+        tie[o.slug] = {"deps": [d for d in o.deps.split(",") if d]}
+        mine = after(tie, o.slug) | set(sup)
+        same = [k for k in same if not ordered(tie, o.slug, k)]
     behind = [k for k in same if any(not shut(d, graph[d]) for d in after(graph, k) - mine - {k} if d in graph)]  # nor one waiting on deps the filing does not
     into = next((k for k in same if k not in behind), None)
     if not into:
@@ -3565,7 +3574,7 @@ def cmd_new(a):
     if (cy := [c for c in cycles({**graph, **moved}) if carrier in c]):
         refuse("a dependency cycle: " + "; ".join(" -> ".join(c) for c in cy))
     if into:
-        merge_limit(graph[into], o)  # one root-cause change per mechanism, never one per symptom
+        merge_limit(graph[into], o, held)  # one root-cause change per mechanism, never one per symptom
     else:
         print(new_def(meta, o.body))
     for k in sup:  # closing is the user's word (hd close): a superseded change holds with no runs
@@ -3613,7 +3622,7 @@ def retarget(graph, old, new):
             for k, c in graph.items() if set(c["deps"]) & old}
 
 
-def merge_limit(c, o):
+def merge_limit(c, o, holds=()):
     """A filing on a mechanism that has an open change joins it: its text appended, a limit's finder in `limit-of`, and an
     answer row `filed by` on its contract: scope its next hand-over takes, or the dev's on top of a head already done."""
     f = Path(c["path"])
@@ -3623,7 +3632,7 @@ def merge_limit(c, o):
     m["deps"] = list(dict.fromkeys((m.get("deps") or []) + getattr(o, "join_deps", [])))
     f.write_text("---\n" + yaml.safe_dump(m, sort_keys=False) + "---\n" + body.rstrip("\n") + f"\n\nAlso ({o.limit_of or 'filed'}): {o.title}\n{o.body}\n")
     event(change=c["slug"], action="joined" if not o.limit_of else "limit", by=o.limit_of or o.slug, slice=own_slice())
-    add_answer(c["slug"], c, " ".join(f"{o.title}: {o.body}".replace("|", "/").split()).rstrip(":"), by=f"filed by {o.limit_of or o.slug}")
+    add_answer(c["slug"], c, " ".join(f"{o.title}: {o.body}".replace("|", "/").split()).rstrip(":"), by=f"filed by {o.limit_of or o.slug}", holds=holds)
     print(f"merged into {c['slug']} ({mechanism(c)})")
 
 

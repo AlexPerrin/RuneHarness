@@ -79,8 +79,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd handover <slug> [summary] Limits: none|limit:<slug>...`, by dev: reads the dev ref (pushed;
   a harness one local, never pushed;
   no sha typed), runs every `check:` row of the contract (a `tools/` script, a unittest run or `true`;
-  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, given} (given: when the handing dev run was listed, its brief written, or last told by a SendMessage to its agent (the hook's `told` fact);
-  an answer row from then on is late for that hand-over)
+  anything else runs as `false`), refuses on any failure, a conflict, an empty evidence dir, a missing `Limits:` section, an entry in it that is not `limit:<slug>` (a limit in prose is in scope: fixed, never stated) or a `limit:<slug>` that is no change or is in the change's scope, records {head, T, given} (given: the count of answer rows the handing dev run's brief held when written, or its last SendMessage told it (the hook's `told` fact), the hand-over's own count when no run;
+  answer-n is the nth row, so a row above that count, and above every answer row the head's last verdict judged, is late for that hand-over: never ordered by time)
 
 - `hd verdict <slug> <head> <rows.json>`, by qa: every row pass, fail or not-judged, appended;
   keyed to the head and `judged`, the hash of the rows without a script (a check or gate row is gated, never judged);
@@ -130,9 +130,9 @@ state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: no
 state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
 state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
-state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
+state/runs/<name>.json         {role, change, step, input, brief, given, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
-state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|stopped|context-limit, run, ...}, one file each;
+state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|stopped|told|context-limit, run, ...}, one file each;
                                the fold deletes each it applied, a run record keeps the last applied id (`fact`) so a reader applies the rest once
 state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
 state/gh/<hash>.json          {url, code, etag, body, next}: the one cache of GitHub REST reads, keyed by URL, shared by passes, gates, dry-runs and the carry (its PR, CI and comment reads, the CI wait polling them afresh);
@@ -300,7 +300,7 @@ next(change):
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;
     no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply after it in its thread, or any comment of ours quoting it;
-    no date counts) joins the pr's one open round: its open change not yet carried (the tip, least slug), the id added to its `finding` and a judged answer row `finding <id> by <author>` to its contract;
+    no date counts) joins the pr's one open round: its open change not yet carried (the tip, least slug), the id added to its `finding` and a judged answer row `finding <id> by <author>` to its contract, before the pass decides the changes' steps (a listed run takes it in a rewritten brief);
     with none open, a P1 change <track>-<pr>-c<id> on the pr with deps [the pr's tip changes] and the track's seed rows, derived.
     `hd new --pr <n>` on an upstream track joins that round the same way (an answer row `filed by`, its deps the round's)
   done

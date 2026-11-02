@@ -3882,9 +3882,19 @@ class R3(Sandbox):
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])                          # handed over after the join, without it
         D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})   # its head, done
-        s.assertEqual(hd.rec("h1", "handover")["given"], "2000-01-01T00:00:00Z")
+        s.assertEqual(hd.rec("h1", "handover")["given"], 0)
         s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing or finding joined after the hand-over (answer-1)")
         s.assertTrue(any(e.get("action") == "joined" and e.get("by") == "p9" for e in hd.evs(b'"action": "joined"')))   # a plain filing, not a limit
+
+    def test_an_answer_of_the_handovers_own_second_is_ordered_by_its_row(s):  # late-answer-same-second: a second boundary decided it
+        s.change("h1", track="harness"); s.agreed("h1", track="harness")
+        D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.cmd_answer(["h1", "before"])
+            hd.cmd_handover(["h1", "Limits:", "none"])
+            s.assertEqual(s.state(D, "h1")["state"], "done")                    # the row before it, of its second, is its own
+            hd.cmd_answer(["h1", "after"])
+            s.assertEqual(s.state(D, "h1")["state"], "dev run due: the user answered after the hand-over (answer-2)")
 
     def test_a_filing_the_running_dev_was_told_is_not_late(s):  # sweep-25 P2-a: the orchestrator's relay counts as taken
         s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness")
@@ -3895,12 +3905,12 @@ class R3(Sandbox):
         hook.bind(payload(r, "ag1", "SubagentStart", s.root))
         hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joined while it runs
         hook.told({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "tool_input": {"to": "nobody"}})   # no run's agent: nothing
-        s.assertNotIn("told", hd.runs()[0])
+        s.assertEqual(hd.runs()[0]["given"], 0)
         with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
             hook.told({"hook_event_name": "PostToolUse", "tool_name": "SendMessage", "tool_input": {"to": "ag1", "message": "answer-1: hold drops a run"}})
         with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:01Z"):
             hd.cmd_handover(["h1", "Limits:", "none"])
-        s.assertEqual(hd.rec("h1", "handover")["given"], "2999-01-01T00:00:00Z")
+        s.assertEqual(hd.rec("h1", "handover")["given"], 1)
         D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})   # its head, done: the filing was its
         s.assertEqual(s.state(D, "h1")["state"], "done")
 

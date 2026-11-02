@@ -3392,6 +3392,18 @@ class Tools(unittest.TestCase):
         s.assertFalse(any(x in r.stdout for x in ("noise", "evil", "ERROR: t")), r.stdout)
         shutil.rmtree(build, ignore_errors=True)
 
+    def test_a_gate_s_report_is_the_gate_s_own(s):
+        """sweep-32: a batch gate's test row (ROWS: its memo dir) keeps the report under the gate's state, never a member's that its dev's test overwrites."""
+        import subprocess
+        build, root = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+        for d in (build, root):
+            s.addCleanup(shutil.rmtree, d, True)
+        (build / "tests").mkdir(); (build / "tests" / "test_x.py").write_text("import unittest\nclass X(unittest.TestCase):\n    def test_a(s): s.fail('boom')\n")
+        rows = root / "state" / "ship-harness" / ".rows"; rows.mkdir(parents=True)
+        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build), "HD_ROOT": str(root), "SLUG": "g1", "ROWS": str(rows)}, capture_output=True, text=True)
+        s.assertIn(f"whole report: {root}/state/ship-harness/tests.txt", r.stdout)
+        s.assertIn("AssertionError: boom", (root / "state" / "ship-harness" / "tests.txt").read_text()); s.assertFalse((root / "state" / "g1" / "tests.txt").exists())
+
     def test_a_failed_test_s_whole_report_outlives_the_run(s):
         """sweep-29: a failing test's whole message (longer than any record's tail), its output discarded, read after the runner's temp root is gone."""
         wt, root, tmp = (Path(tempfile.mkdtemp()) for _ in range(3))

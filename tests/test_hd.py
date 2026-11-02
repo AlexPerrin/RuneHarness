@@ -2241,6 +2241,14 @@ class R5(Sandbox):
         for f in (".claude/agents/dev.md", ".claude/agents/qa.md"):
             s.assertIn("never under a bound of time or tries", " ".join(root.joinpath(f).read_text().split()), f)
 
+    def test_a_step_moved_to_the_background_is_waited_on_by_its_notification(s):  # sweep-83 P4: a subagent's step backgrounds at 180 s
+        root = Path(__file__).parent.parent
+        for f in (".claude/agents/dev.md", ".claude/agents/qa.md", "hook.py"):
+            t = " ".join(root.joinpath(f).read_text().split())
+            s.assertNotIn("600000", t, f)                                          # the limit the old text named
+            s.assertRegex(t, r"still running at 180 s moves to the background and keeps running", f)
+            s.assertIn("task notification", t, f)
+
     def test_a_reader_bash_command_that_writes_is_denied(s):
         def denied(c, kind="reader"):
             with mock.patch("sys.stdout", new_callable=io.StringIO) as out:

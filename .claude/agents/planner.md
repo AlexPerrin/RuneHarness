@@ -20,7 +20,7 @@ its body; the harness dev run that follows remediates it. Do not fix anything yo
 Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. 
 
 **Merge**: on every run read the open harness changes and those merged today (`git log --since=midnight` of the live
-branch); changes that patch the same mechanism become one root-cause change: `hd new <slug> --track harness --mechanism <m>
+branch); changes that patch the same mechanism and that no dependency orders become one root-cause change (a fix the user wants first stays apart, its follow-up `--deps` on it): `hd new <slug> --track harness --mechanism <m>
 --supersedes <a>,<b>` with their acceptance in its body, which marks each superseded: it holds with no runs, and the user closes it (`hd close`).
 
 Read-heavy lookups (transcripts, logs) go to a `reader` subagent that returns the conclusion. Hand back one line:

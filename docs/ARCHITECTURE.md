@@ -65,7 +65,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
-  a filing on a mechanism with an open change joins that change instead: its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
+  a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) joins that change instead: its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;
   `--limit-of` records the finder in `limit-of` and is refused on a mechanism in the finder's scope (its own and, transitively, its `limit-of` changes');
   `--supersedes` marks those open harness changes `superseded: <slug>`: each holds with no runs until the user's `hd close`;
   every dependency on a superseded change or on the filing (`--blocks`) is rewritten to the change that carries the fix, the new one or the one it joined, cycle-checked
@@ -311,7 +311,7 @@ a gone session's read record is dropped by the pass.
 It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and acts on the user's other words at once;
 the user's yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook.
 
-**The planner** is a run listed on significant facts only (an alert, among them a mechanism with more than one open harness change or a harness change naming none, which it merges with `--supersedes`;
+**The planner** is a run listed on significant facts only (an alert, among them a mechanism with two open harness changes no dependency orders (one waits on the other, transitively) or a harness change naming none, which it merges with `--supersedes`;
 a gate failure, a goal below target with nothing open;
 never time or an event count;
 a line an open change's body carries, or a planner hand-back answered, is left out until it changes (a gate failure at a new T, an alert with a new count);
@@ -434,7 +434,7 @@ each tools branch ignores __pycache__/; no compiled cache is committed
 
 - R2 Flow: `nxt`, the pass, the briefs, the hook's bind and end, `wake` and the wake file, the orchestrator session
 
-- R3 Contract: contract.md, `hd handover` and `hd verdict` refusals, `hd new`'s one change per mechanism, records bound to T or head and contract, rule-row shas
+- R3 Contract: contract.md, `hd handover` and `hd verdict` refusals, `hd new`'s one change per mechanism (a dependency orders the rest), records bound to T or head and contract, rule-row shas
 
 - R4 Authority: the console card (acts, exact texts), approval.json bound to head and texts as the yes, `hd ship`'s carry re-checking both, the one hook rule
 

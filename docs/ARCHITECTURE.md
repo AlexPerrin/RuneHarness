@@ -285,7 +285,7 @@ next(change):
     an open change of the PR it waits for (head not in this head, or built on it)?
       yes → wait: a card is a complete PR, shown once, at its tip (one card for same-head tips), its texts covering every change of it;
       a round with no dev ref has its tip's head
-    pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list live-head..head, the head fetched by pull/N/head when the clone lacks it)?
+    pr-comment.md names the head (a new PR) or every commit since the live head (git rev-list head ^live-head ^base, the head fetched by pull/N/head when the clone lacks it)?
       no → dev (input comment, head, the commits it misses): no card, no generic text
     the one comment quotes every finding of the round no comment of ours answers?
       no → dev (input findings, head, the ones it misses): no card
@@ -303,6 +303,7 @@ next(change):
     an @ on a '>' quote line or in code is no mention;
     ready, and no review request: the account cannot ask reviewers upstream, so maintainers pick a ready PR up;
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
+    The checks at a head are the latest run of each check name (a run started again at the head replaces the one before it) and the commit statuses.
     Success: ship.json, approval.json removed (the yes is spent).
     A failed check stops the carry as the change's FAIL: nothing re-runs CI at a head.
     The user's reopen at head (above): reopened.json {head, the failed checks} written first, so it is done once; `gh pr close`, then `gh pr reopen` (a rerun finding the PR closed reopens it), whose pull_request trigger starts CI at the same head; the wait ignores the failed checks it replaced.
@@ -359,6 +360,7 @@ each at the best priority of the open changes it blocks, by a dep or by the conf
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
+a carry (no key) alive on an hd.py changed since its start is stopped and started again, so it resumes on the current code;
 a build or gate alive on a head its verdict failed is stopped (`Ctx.halt`), its record dropped, since that head is its dev's;
 a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);

@@ -55,6 +55,7 @@ their no or their word to wait is `hd hold` (recorded by the orchestrator): the 
 a card wakes the orchestrator once per head and texts.
 The carry does the act exactly as shown, rerunnable, and records its result.
 The comment is the dev's push summary (pr-comment.md): a new PR's names its head, an update's every commit since the PR's live head (fetched from the PR when the clone lacks it);
+the base's commits a merge of it brings in are not the PR's, so the merge alone names them;
 until it does the change goes back to its dev with the commits it misses, and no card shows.
 A PR already at the head, ready, with nothing left to post gets no card;
 only a commit waits on CI.
@@ -200,6 +201,7 @@ a live check reads the real state.
    it readies the PR, asks review of the maintainers who reviewed it (none: GitHub asks CODEOWNERS on ready) and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card);
    CI never runs again at a head (no re-run, no close and reopen): a failed check at the draft PR's head, in a step the head reads or not, is the change's dev step before any yes is asked, and only a fresh head (a fix, or a rebase onto main) starts CI;
    the one exception is the user's word allowing one close and reopen of the PR at that head: its card shows that act, and the carry does it once, so CI runs again at the same head;
+   the checks at a head are the latest run of each check, so a run started again replaces the one it repeats;
    every other stop records its result, the PR as it is: a failure only a new head or text mends (a failed CI check, a reply naming others) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
    only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;
@@ -232,6 +234,7 @@ a live check reads the real state.
    a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
+   a ship process alive on code changed since its start → stopped and rerun;
    a deploy alive under an outdated key builds to its end, whatever tree or tools ship arrives, and is stopped and replaced once its build landed;
    a deploy never waits on a game server it did not start;
    the test server is deployed anew when its deploy key (the integration tree and the deploy tools) differs from the one its live record names, a tools fix of what the image carries with no tree change included;

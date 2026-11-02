@@ -455,13 +455,15 @@ class Facts:
 
     @_read
     def ci(s, repo, sha):
-        """R4: the checks reported at a commit [{name, url, state: success | failure | pending}] (check runs and commit statuses), None unknown."""
+        """R4: the checks reported at a commit [{name, url, state: success | failure | pending}] (the latest run of each check name,
+        as a run started again at the head replaces the one before it, and commit statuses), None unknown."""
         runs, st = s.api(f"repos/{repo}/commits/{sha}/check-runs"), s.api(f"repos/{repo}/commits/{sha}/status")
         if runs is None or st is None or runs[0] != 200 or st[0] != 200:
             return None
         ok = ("success", "neutral", "skipped")
-        return ([{"name": c.get("name") or "", "url": c.get("details_url") or "", "state": "pending" if c.get("status") != "completed" else "success" if c.get("conclusion") in ok else "failure"}
-                 for c in runs[1].get("check_runs") or []]
+        latest = {c.get("name") or "": c for c in sorted(runs[1].get("check_runs") or [], key=lambda c: c.get("id") or 0)}  # GitHub's ids grow with each run
+        return ([{"name": n, "url": c.get("details_url") or "", "state": "pending" if c.get("status") != "completed" else "success" if c.get("conclusion") in ok else "failure"}
+                 for n, c in latest.items()]
                 + [{"name": c.get("context") or "", "url": c.get("target_url") or "", "state": "pending" if c.get("state") == "pending" else "success" if c.get("state") in ok else "failure"}
                    for c in st[1].get("statuses") or []])
 
@@ -1314,19 +1316,21 @@ class Ctx:
         one that ended three times without its result (its record, or exit 0 for a script that records none: a host fault, a held row, a crash, a kill), on the same args and key or on the same
         cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
+        a carry (no key) alive on a script fixed after its start is outdated too;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
-        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
-            return
+        res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
+        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
+        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (not newer(Path(args[0]).expanduser()) if key is None else p.get("key") == key or set(p.get("rows") or []) & set(rows)):
+            return  # a carry (no key) alive on a script fixed after its start is outdated: its rerun resumes on the fixed one
         if st == "alive":
             if not act:
                 return
             s.F.stop(p["pid"], p["start"])
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
-        res, pf, rc = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json", STATE / slug / f"{name}.rc"
-        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
+        rc = STATE / slug / f"{name}.rc"
         ok = st == "dead" and (not p.get("rc") or newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none); a record started with no exit status to read counts no strike
         c = cause(STATE / slug / f"{name}.log") if st == "dead" and not ok else ""
         if not p or st == "alive" or ok or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
@@ -1911,7 +1915,7 @@ def user_hold(ch, head):
 
 def unnamed(ctx, ch, head):
     """R4: the commits pr-comment.md must name and does not, sorted: a new PR's head; an open PR's update each commit
-    since its live head (fetched from the PR when the clone lacks it); [] when the carry posts no comment (a release, a PR at
+    since its live head not on upstream main (fetched from the PR when the clone lacks it); [] when the carry posts no comment (a release, a PR at
     head); None unknown."""
     if not upstream(ch):  # a release posts its notes, no comment
         return []
@@ -1925,7 +1929,9 @@ def unnamed(ctx, ch, head):
         clone = ctx.clone(ch)
         if ctx.F.rev(clone, p["head"]) == "":  # the live head is the PR's, wherever it was pushed from: fetch it by the PR
             ctx.F.fetch(clone, "origin", f"pull/{p['number']}/head")
-        new = ctx.F.unmerged(clone, p["head"], head)
+        b = ctx.base(ch)
+        live, mine = ctx.F.unmerged(clone, p["head"], head), ctx.F.unmerged(clone, b, head) if b else None  # main's commits a merge of main brings in are no update's
+        new = None if live is None or mine is None else live & mine
     c = text(ch["slug"], "pr-comment.md")
     return None if new is None else sorted(x for x in new if x[:7] not in c)
 
@@ -2844,7 +2850,7 @@ def one_comment(parts):
 def public_texts(ctx, ch):
     """R4: what the carry posts, in order, [what, finding, text]: a release its notes; a PR its title and body when the
     carry opens it, or each that differs from the open PR's live one; one comment per head (findings: those it answers),
-    the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds: unnamed() keeps the
+    the push summary when the push moves the PR (pr-comment.md, naming every commit the push adds that is not on the base: unnamed() keeps the
     card back until it does) followed by each finding's reply. No review request: the account cannot ask upstream."""
     slug, head = ch["slug"], ctx.head(ch) or ""
     if ch["kind"] == "release":

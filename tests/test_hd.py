@@ -1082,6 +1082,14 @@ class R2(Sandbox):
         s.assertEqual((st["state"], st["actor"], st["detail"]), ("FAIL 1 rows: dev", "dev", "j1: fail: no"))
         hd.tick(s.ctx(F)); s.assertEqual([x for x in F.spawned if x[1] in ("build", "gate")], [])
 
+    def test_a_fail_step_counts_only_the_fail_rows(s):  # sweep-44 P2-b: 'FAIL 94 rows' for a verdict of 4 fails and 90 not-judged rows
+        s.change("s1"); s.agreed("s1", extra="- j2 | another | judge\n- j3 | a third | judge\n")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j2": "not-judged", "j1": "fail: no", "j3": "not-judged"}, F)
+        st = s.state(F, "s1")
+        s.assertEqual((st["state"], st["detail"]), ("FAIL 1 rows: dev", "j1: fail: no\nnot judged: j2, j3"))
+
     def test_a_failed_verdict_stops_the_gate_of_its_head(s):  # sweep-33 P2-c: a gate ran 14 minutes on after its head's FAIL verdict
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

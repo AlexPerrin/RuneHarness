@@ -228,7 +228,8 @@ next(change):
     rebase it in the pass (its tools worktree), record it in the hand-over;
     a rebase that stops → recorded, dev, its files named
   head's last verdict (its contract) FAIL?
-    yes → dev, before the head is built, gated or judged again
+    yes → dev, before the head is built, gated or judged again;
+    the step counts and lists its fail rows, and names its not-judged rows apart
   T
     conflict → dev;
     an upstream head holding unmerged commits of another PR's change (stacked), or not holding the head of a same-PR dependency it joins → dev

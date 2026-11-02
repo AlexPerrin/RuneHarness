@@ -37,6 +37,8 @@ class Fake(hd.Facts):
             s.f["refs"].pop(args[5] if args[2] == str(hd.ROOT) or not args[5].startswith("harness/") else f"{args[2]}:{args[5]}", None)
         if len(args) > 2 and args[1] == "down" and s.f.get("down_works", True):
             s.f.get("containers", {}).pop(f"server-{args[2]}", None)
+        if args[:3] == ["docker", "rm", "-f"]:
+            for c in args[3:]: s.f.get("containers", {}).pop(c, None)
         return 0, "", ""
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def host(s): return s.f.get("host", (64 * 2**30, 64))  # the host's MemTotal and nproc
@@ -2167,11 +2169,26 @@ class R5(Sandbox):
         v1 = hd.tick(s.ctx(F)); v2 = hd.tick(s.ctx(F)); v3 = hd.tick(s.ctx(F))
         s.assertFalse(any('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")))
         s.assertEqual([any("down had no effect" in a for a in v["alert"]) for v in (v1, v2, v3)], [False, True, False])
-        s.assertEqual(hd.rec("s1", "repair-down")["attempts"], 3)
+        s.assertEqual(hd.rec("s1", "repair-down")["attempts"], 2)
+        s.assertEqual(sum(a[1:2] == ["down"] for a in F.ran), 2)               # sweep 55 P2-b: 1825 attempts; one that cannot act stops at its alert
         F.f["down_works"] = True
+        hd.put("s1", "up", {"started": "2", "containers": "server-s1", "script": "/fork/tools/track.sh"})   # a new up: its stack is tried again
         hd.tick(s.ctx(F))
+        s.assertIn(["/fork/tools/track.sh", "down", "s1"], F.ran)              # the script the record names, never re-derived
         s.assertIsNone(hd.rec("s1", "repair-down"))                             # the effect observed: the count is gone, one event
         s.assertEqual(sum('"action": "down"' in l for l in open(s.root / "state" / "events.jsonl")), 1)
+
+    def test_a_stopped_stack_is_removed_and_a_gone_one_drops_its_count(s):  # sweep 55 P3-a: a done change's Created http-* and exited server-* stayed
+        s.change("h1", track="harness"); s.change("h2", track="harness")
+        hd.put("h1", "up", {"started": "1", "containers": "server-h1 http-h1", "script": "/fork/tools/track.sh"})
+        F = Fake(**FACTS, containers={"server-h1": "exited", "http-h1": "created", "http-h2": "running", "osrs-openrune": "running"}, down_works=False)
+        hd.repairs(s.ctx(F), True)
+        s.assertIn(["docker", "rm", "-f", "server-h1", "http-h1"], F.ran)       # nothing to save: removed by name, no script
+        s.assertNotIn("server-h1", F.f["containers"]); s.assertIn("osrs-openrune", F.f["containers"])
+        hd.repairs(s.ctx(F), True); hd.repairs(s.ctx(F), True)                  # h2 predates its record: the harness script has no down
+        s.assertEqual(hd.rec("h2", "repair-down")["attempts"], 2)
+        F.f["containers"].pop("http-h2"); hd.repairs(s.ctx(F), True)
+        s.assertIsNone(hd.rec("h2", "repair-down"))                             # gone by another hand: the count dropped
 
     def test_dead_script_reruns_then_raised_after_its_third(s):  # sweep-18 N7: a host fault (exit 75, no build.json) is the runner's: re-run, never the head's FAIL
         s.change("s1"); s.agreed("s1")

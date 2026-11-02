@@ -355,6 +355,7 @@ end a started run once its change's `next` is the other role's run (dev or qa) o
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);
+bring down a stack no live run uses with the script its record names, a stopped stack's containers removed by name, a repair missing twice on the same stack raised once and tried no more;
 remove a tools copy nothing uses.
 
 **The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session the user starts once with `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` in the user's terminal), so it and every agent it spawns show in the user's console with their transcripts (an agent a run spawns, its `reader`, shows under it;
@@ -404,8 +405,10 @@ a cancelled keeper call starts its login again, never read as the endpoint gone;
 a keeper call once sent waits for its answer however long it queues (only its connect is bounded), so no step it gave up on runs later;
 `restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
 a desktop login ends on a page Enter does not submit: Escape, Enter again, else the refusal named;
-a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;
-its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>` the Nth desktop's an administrator, the rights read back after the logins;
+a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character or is gone;
+a server up's stack is one record, `state/<slug>/up.json`, written before its first container: its containers, the script that started it, its key's modulus, its accounts and administrators, its devtools token;
+`down` and the pass's repair act on the containers and the script the record names, and `down` removes the record once none of them is left;
+its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>[,<M>...]` those desktops' administrators, the rights read back after the logins;
 a login that made an account but its own, a lost key, logged out and in again;
 a login whose inventory widget does not show container 93 fails up, as does one whose widget has no slots 10 game ticks after the first event after LOGGED_IN), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
 A harness dev runs the unit tests in its worktree;
@@ -473,7 +476,9 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
 **ship**
 - Client: push the batch tree to `main`;
   release after the yes
-- Server: test server: deploy `or:<T_int>` with the issuer's secret in its game.yml, its sidecars serving `tools/server/jav_config.ws.template` (the APK's with params 11, 20, 22 and 28 naming `issuer.py`, its sign-in and tokens;
+- Server: test server: deploy `or:<T_int>` with the live stack's key pair (`state/live/key`, seeded once with the key the released APKs carry), its modulus named in the live record `state/live/tree.json`, an image of another key refused before its boot and the tag;
+  every APK's login modulus is that pair's (a cached APK of another rebuilt), and the client's `up` refuses an APK whose modulus is not the live record's, naming both;
+  the issuer's secret in its game.yml, its sidecars serving `tools/server/jav_config.ws.template` (the APK's with params 11, 20, 22 and 28 naming `issuer.py`, its sign-in and tokens;
   `javcheck.py` after `up` and `ship`: local hosts only);
   upstream after the yes
 - Central: live at its gate (dependent server builds include it);

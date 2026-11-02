@@ -2668,7 +2668,7 @@ class R8(Sandbox):
         (tmp / "x.kt").write_text("x\n")
         git("add", "."); git("commit", "-qm", "base"); base = git("rev-parse", "HEAD")
         L = (tmp / "docs/PRD.md").read_text().split("\n")
-        stop = next(i for i, l in enumerate(L) if "(`hd stop`)" in l)
+        stop = next(i for i, l in enumerate(L) if "ends and frees its slot" in l)
 
         def side(name, edit, kt=None):
             git("checkout", "-q", "-b", name, base)

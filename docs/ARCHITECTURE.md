@@ -29,7 +29,8 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   An agent whose <session>/subagents/agent-<id>.meta.json names a parentAgentId (a `reader` a run spawned) is part of its parent's run, not a run: none of the above binds, holds, refuses or ends it (the deny rules still apply);
                   once that run has ended it stops (`continue: false`) at its next tool call, since neither the run nor the orchestrator's TaskStop of the run stops it;
                   a `reader`'s Bash command that writes (a redirection to a file, rm/mv/cp, git that moves a ref (a `git branch` that creates, deletes, moves or retracks one;
-                  its listing forms read), track.sh up/build/gate/down, docker run, a gh or hd write (a `gh api` with a non-GET method, or with fields and no method named)) is denied
+                  its listing forms read;
+                  a whole subcommand, so merge-base reads, and tag, stash, worktree and config read in their list and get forms), track.sh up/build/gate/down, docker run, a gh or hd write (a `gh api` with a non-GET method, or with fields and no method named)) is denied
 tools/track.sh    the harness track's script;
                   tools/track.md its rules and seed rows;
                   tools/docfmt.py writes the source docs one fact per line (a break after each semicolon and sentence end, a table a block per row), and its --check fails the docs row on a doc it would change.

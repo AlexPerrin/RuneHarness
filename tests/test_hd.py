@@ -2123,12 +2123,17 @@ class R5(Sandbox):
                   "RESUME=1 tools/track.sh up s", "tools/track.sh build s", "~/r/tools/track.sh gate s", "tools/track.sh down s",
                   "docker run img", "cat f | tee out", "ls | xargs rm", "sed -i s/a/b/ f", "gh api -X POST repos/x",
                   "gh api repos/x -f a=b", "gh api -X PATCH repos/x -f a=b", "gh pr comment 1 -b x", "python3 ~/osrs-harness/hd.py new x", "bash -c 'echo a > b'",
-                  "git branch x", "git branch -D x", "git -C r branch -m a b", "git branch --set-upstream-to=o/x", "git branch -f x HEAD"):
+                  "git branch x", "git branch -D x", "git -C r branch -m a b", "git branch --set-upstream-to=o/x", "git branch -f x HEAD",
+                  "git stash", "git stash pop", "git worktree add w", "git -C r worktree remove w", "git tag v1", "git tag -d v1",
+                  "git config user.name x", "git config --global a.b c", "git merge x", "git config --unset a.b"):
             s.assertTrue(denied(c), c)
         for c in ("cat f", "grep -n 'a > b' f", "sed -n 1,20p f", "jq . f 2>/dev/null", "git log 2>&1 | head", "git show HEAD:x",
                   "gh api repos/x/pulls", "gh api -X GET repos/x", "gh api -X GET search/code -f q=x", "gh api --method=GET s -F q=1", "tools/track.sh log s", "docker logs c", "hd show x", "awk '$1 > 3' f",
                   "git branch", "git branch --show-current", "git branch --list 'h*'", "git branch -a", "git branch -r",  # sweep-54 P3-c
-                  "git -C r branch -vv", "git branch --contains abc", "git branch 2>/dev/null | head"):
+                  "git -C r branch -vv", "git branch --contains abc", "git branch 2>/dev/null | head",
+                  "git merge-base 049a26312 3aeff1610", "git merge-base --is-ancestor a b", "git merge-tree --write-tree a b",  # sweep-67 P3-a
+                  "git stash list", "git -C r stash show -p", "git worktree list", "git tag", "git tag --contains abc", "git tag -l 'v*'",
+                  "git tag | head", "git config --get user.name", "git config --list", "git config -l", "git config get a.b"):
             s.assertFalse(denied(c), c)
         s.assertFalse(denied("rm -rf d", kind="dev"))                                     # only a reader is held to reading
 

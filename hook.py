@@ -507,7 +507,11 @@ WRITES = re.compile("|".join((
     AT + r"(?:rm|rmdir|mv|cp|tee|touch|mkdir|ln|chmod|chown|dd|truncate|install|kill|pkill|curl|wget)\b",
     AT + r"sed\s+(?:-\S+\s+)*-\w*i", r"-delete\b", r"-exec(?:dir)?\s+(?:rm|mv|cp)\b",
     AT + r"git(?:\s+-C\s+\S+)*\s+(?:commit|push|pull|fetch|checkout|switch|restore|reset|add|rm|mv|merge|rebase|"
-         r"cherry-pick|revert|am|apply|stash|clean|tag|worktree|update-ref|config|gc|prune)\b",
+         r"cherry-pick|revert|am|apply|clean|update-ref|gc|prune)(?![\w-])",   # a whole subcommand: merge-base reads
+    # these write unless in their read forms: a bare tag lists, as do stash list/show, worktree list, config --get/--list
+    AT + r"git(?:\s+-C\s+\S+)*\s+(?:stash(?!\s+(?:list|show)\b)|worktree(?!\s+list\b)|"
+         r"tag(?!\s*(?:$|[;&|\n)<>]|\d*[<>]|\s-(?:l|n\d*|-list|-contains|-no-contains|-points-at|-merged|-no-merged|-sort|-format)\b))|"
+         r"config(?!\s+(?:get|list|--get(?:-all|-regexp|-urlmatch)?|--list|-l|--show-origin|--show-scope)\b))(?![\w-])",
     AT + r"git(?:\s+-C\s+\S+)*\s+branch(?:\s+(?!\d*[<>])[^-\s;&|\n)<>]|[^;&|\n)]*\s(?:-[a-zA-Z]*[dDmMcCfut]|"   # a name creates; these flags write
          r"--(?:delete|move|copy|force|track|no-track|set-upstream-to|unset-upstream|edit-description)\b))",
     r"\btrack\.sh\s+(?:up|build|gate|down|ship|measure|check-\S+)\b",

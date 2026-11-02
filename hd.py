@@ -283,6 +283,12 @@ class Facts:
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
 
     @_read
+    def show(s, clone, ref, path):
+        """The text of path at ref; "" without it, None unreadable."""
+        r = s.sh(["git", "-C", clone, "show", f"{ref}:{path}"])
+        return None if r is None else (r[1] if r[0] == 0 else "")
+
+    @_read
     def holds(s, clone, ref, path, text=""):
         """R3: whether ref has path, holding text when given (the code a filing touches)."""
         r = s.sh(["git", "-C", clone, "grep", "-q", "-F", "-e", text, ref, "--", path] if text else ["git", "-C", clone, "cat-file", "-e", f"{ref}:{path}"])
@@ -1127,14 +1133,26 @@ class Ctx:
     def base(s, ch):
         return s._m(("base", ch["track"]), lambda: s.F.rev(s.clone(ch), TRACK[ch["track"]]["base"]) if s.fetched(ch) else None)
 
+    def repos(s, ch):
+        """The repos a change lands with: a harness change's are hd.yaml's at its head over the live checkout's, so a repo it adds
+        carries (and gates) its tools commit; None while the head or its hd.yaml cannot be read."""
+        h = s.head(ch) if ch["track"] == "harness" else ""
+        y = h and ("" if s.F.contains(s.clone(ch), s.base(ch), h) else s.F.show(s.clone(ch), h, "hd.yaml"))  # a landed head's are the live ones
+        try:
+            return None if y is None else {**s.cfg["repos"], **{k: r for k, r in ((yaml.safe_load(y) or {}).get("repos") or {}).items() if isinstance(r, dict)}}
+        except (yaml.YAMLError, AttributeError):  # hd.yaml unparsable at the head, or an older layout without the repos map
+            return None
+
     def tools(s, ch):
         """A harness change's commits on the product repos' tools branches: {repo: tip of harness/<slug> in that repo}
-        for each repo with a tools branch where the ref exists; {} for other tracks; None when a ref cannot be read."""
+        for each repo with a tools branch at its head (repos) where the ref exists; {} for other tracks; None when a ref cannot be read."""
         if ch["track"] != "harness":
             return {}
         def f():
-            out = {}
-            for name, r in s.cfg["repos"].items():
+            out, rs = {}, s.repos(ch)
+            if rs is None:
+                return None
+            for name, r in rs.items():
                 if r.get("tools"):
                     h = s.F.rev(str(P(r["path"])), f"harness/{ch['slug']}")
                     if h is None:
@@ -1149,7 +1167,8 @@ class Ctx:
         t = s.tools(ch)
         if t is None:
             return None
-        got = [s.F.contains(str(P(s.cfg["repos"][n]["path"])), s.cfg["repos"][n]["tools"], h) for n, h in t.items()]
+        rs = s.repos(ch)
+        got = [s.F.contains(str(P(rs[n]["path"])), rs[n]["tools"], h) for n, h in t.items()]
         return None if None in got else all(got)
 
     def own(s, ch, head):
@@ -1343,7 +1362,7 @@ class Ctx:
         return {"SLUG": ch["slug"], "HEAD": head, "T": tree, "TCOMMIT": tc, "BASE": s.base(ch) or "", "EVIDENCE": str(EVID / ch["slug"]), "BUILD": build,
                 "CLONE": s.clone(ch), "TRACK": ch["track"], "PUBLIC_BRANCH": ch.get("branch") or f"content/{ch['slug']}", "PR": str(ch.get("pr") or ""),
                 "HD_ROOT": str(ROOT), "CENTRAL": s.central_env(s.central(ch)),
-                "TOOLS": " ".join(f"{P(s.cfg['repos'][n]['path'])}:{s.cfg['repos'][n]['tools']}:{h}:{s.cfg['repos'][n]['name']}" for n, h in (s.tools(ch) or {}).items())}
+                "TOOLS": " ".join(f"{P((r := s.repos(ch)[n])['path'])}:{r['tools']}:{h}:{r['name']}" for n, h in (s.tools(ch) or {}).items())}
 
     def central_env(s, commit):
         """CENTRAL for a server track script: `<Central clone>:<commit>`, '' without one."""
@@ -1729,7 +1748,7 @@ def nxt(ctx, ch):
                     input=[(ho or {}).get("head", ""), con["hash"], hoff.stat().st_mtime if hoff.exists() else 0])  # R6: what the run is given, never the head its own agent commits
     behind = {}  # R8: a carried tools head its branch moved past is the pass's to rebase; only a rebase that stops is the dev's step
     for n, h in tools.items():
-        r = ctx.cfg["repos"][n]
+        r = ctx.repos(ch)[n]
         path = str(P(r["path"]))
         c, tip = ctx.F.contains(path, h, r["tools"]), ctx.F.rev(path, r["tools"])  # tip: the branch commit a recorded conflict was against
         if c is None or tip is None:
@@ -1843,7 +1862,7 @@ def batch(ctx, track):
     finally:
         ctx.batching = False
     me = {"slug": f"ship-{track}", "track": track, "deps": [], "kind": "code"}
-    clone, base, failed, script, repos = ctx.clone(me), ctx.base(me), {}, ctx.script(me), ctx.cfg["repos"]
+    clone, base, failed, script, repos = ctx.clone(me), ctx.base(me), {}, ctx.script(me), dict(ctx.cfg["repos"])  # with every member's repos at its head (ctx.repos)
 
     def key(commit, ms, tools, build=False, each=False):  # a tree's gate (or build, or each row's) key: its tree (a harness one without harness/), its carried tools heads, the tools its rows run
         t = ctx.F.tree(clone, commit, "harness" if track == "harness" else "")
@@ -1854,6 +1873,7 @@ def batch(ctx, track):
         out, pre, cur, tools = dict(failed), [], base, {}  # pre: [(change, T commit, gate key, tools, build key)], one per prefix
         for c in members:
             slug, h, t = c["slug"], ctx.head(c), ctx.tools(c)
+            repos.update(ctx.repos(c) or {})
             alone = base and ctx.F.merge(clone, base, h, f"T: {slug} {h[:9]} onto {base[:9]}")
             if not alone:
                 out[slug] = step("tree unknown", "unknown")
@@ -2236,7 +2256,7 @@ def brief(ctx, ch, st, name, role):
              f"State: {st['state']}", ""]
     if ch["track"] == "harness":
         lines.insert(-1, "Tools: a fix to a product repo's tools branch is carried on branch harness/" + ch["slug"] + " of that repo, from its tools branch: "
-                        + ", ".join(f"{r['path']} {r['tools']}" for r in ctx.cfg["repos"].values() if r.get("tools")))
+                        + ", ".join(f"{r['path']} {r['tools']}" for r in (ctx.repos(ch) or ctx.cfg["repos"]).values() if r.get("tools")))
     if st.get("detail"):
         lines += ["## Why", st["detail"], ""]
     if hoff.exists():
@@ -2604,7 +2624,7 @@ def close_branches(ctx, ch, act):
         return
     left, dev = [], TRACK[ch["track"]]["dev"].format(slug=slug)
     local = {t["repo"]: (b.split("/", 1)[1] if t["fetch"] else b) for t in TRACK.values() for b in [t["dev"].format(slug=slug)]}
-    for name, r in sorted(ctx.cfg["repos"].items(), key=lambda kv: kv[0] == TRACK[ch["track"]]["repo"]):  # the change's repo last
+    for name, r in sorted((ctx.repos(ch) or ctx.cfg["repos"]).items(), key=lambda kv: kv[0] == TRACK[ch["track"]]["repo"]):  # the change's repo last
         if not r.get("path"):
             continue
         path = str(P(r["path"]))
@@ -3208,7 +3228,7 @@ def cmd_handover(a):
     if tools is None:
         refuse("a tools ref cannot be read")
     why = [f"harness/{ch['slug']} in {r['path']} does not descend from {r['tools']}: rebase it" for n, h in tools.items()
-           if not ctx.F.contains(str(P((r := ctx.cfg["repos"][n])["path"])), h, r["tools"])]  # it lands as a fast-forward
+           if not ctx.F.contains(str(P((r := ctx.repos(ch)[n])["path"])), h, r["tools"])]  # it lands as a fast-forward
     graph = defs("changes")
     at = next((i for i, w in enumerate(a) if w.lower() == "limits:"), None)  # the hand-over's one section: no prose beside it, where a limit could hide
     lim = a[at + 1:] if at else []

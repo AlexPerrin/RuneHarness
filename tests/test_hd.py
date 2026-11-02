@@ -1485,6 +1485,9 @@ class R4(Sandbox):
         c = hd.card(s.ctx(F), s.ctx(F).changes["s1"], A)
         s.assertIn(f"2. close and reopen upstream PR 42 so CI runs again at the head (it failed there: build {old}", c)
         s.assertIn("wait for every CI check to pass at the head", c)
+        with mock.patch.object(hd, "Facts", lambda: F):                          # the same rule as the pass: the hand-over at A is taken
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        s.assertEqual(hd.rec("s1", "handover")["head"], A)
         s.approve(F, "s1", A)
         F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True}}, ci=[b("failure", old), b("failure", old), b("pending"), b("success")])
         g = GH(); log = s.ship(F, g)
@@ -1494,6 +1497,9 @@ class R4(Sandbox):
         hd.drop("s1", "ship"); F.f["ci"] = [b("failure")]
         s.assertEqual(s.state(F, "s1")["state"], f"CI failed upstream at {A[:9]}: dev")   # spent: a second failure at A is the dev's
         s.assertNotIn("close and reopen", hd.card(s.ctx(F), s.ctx(F).changes["s1"], A))
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:   # spent: the hand-over at A is refused again
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        s.assertIn(f"upstream CI failed at {A[:9]}", str(e.exception))
         hd.put("s1", "reopened", {"head": A, "failed": [old]}); s.approve(F, "s1", A)   # a carry that died between close and reopen
         F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "state": "closed"}}, ci=[b("success")])
         g = GH(); s.ship(F, g)

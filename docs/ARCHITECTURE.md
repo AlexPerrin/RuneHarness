@@ -277,7 +277,7 @@ next(change):
       no → dev (input findings, head, the ones it misses): no card
     the draft PR at head has a failed CI check (read afresh; unread → unknown)?
       yes → dev (input ci, head): no card, and `hd handover` refuses that head: CI never runs again at a head, so a fix or a rebase onto main starts it;
-      unless the definition's `reopen: <full head sha>` (the orchestrator commits it on the user's word) names head and reopened.json is not at head: then the card, its acts led by closing and reopening the PR
+      unless the definition's `reopen: <full head sha>` (the orchestrator commits it on the user's word) names head and reopened.json is not at head: then the card, its acts led by closing and reopening the PR, and `hd handover` takes that head
     approval.json at head, texts?
       no → card in the console: the acts in order (push when the PR is not at head, open the draft when no PR is open, else update PR N (the one the carry opened too, on a rerun) replacing a differing title or body, CI when it pushes or the PR is draft, the one comment (pr-comment.md when it pushes, then each reply, pr-reply-<finding>.md), ready), each exact text with the finding it quotes, the verdict, the evidence path, the yes (`hd approve`), no (`hd hold`) and close (`hd close`) commands;
       hold.json at its head or `held: all` in the definition hides it (held by the user, a wait) until a new head or the lift;

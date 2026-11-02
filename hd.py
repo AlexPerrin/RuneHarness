@@ -1795,9 +1795,9 @@ def public(ctx, ch, head):
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head) \
             and not (again and sh["detail"].startswith("CI failure")):  # the carry found the head's defect (a CI one the user's reopen answers)
         return step(f"FAIL upstream at {head[:9]}: dev", "dev", mode="code", input=["carry", head, sh["ts"]], detail=sh["detail"])
-    if (bad := failed_ci(ctx, ch, head)) is None:
+    if (bad := ci_owed(ctx, ch, head)) is None:
         return step("upstream CI unknown", "unknown")
-    if bad and not again:  # before any yes: a carry at this head could not pass
+    if bad:  # before any yes: a carry at this head could not pass
         return step(f"CI failed upstream at {head[:9]}: dev", "dev", mode="code", input=["ci", head], detail=(
             f"CI failed at {head[:9]} on PR {ch['pr']}: {bad}. CI never runs again at a head: commit a fix, or rebase onto main "
             "when the failing step is outside the head; the fresh head's push starts CI."))
@@ -2822,6 +2822,13 @@ def failed_ci(ctx, ch, head):
     return None if cs is None else ", ".join(f"{c['name']} {c['url']}".strip() for c in cs if c["state"] == "failure")
 
 
+def ci_owed(ctx, ch, head):
+    """R4: the failed CI at head that is the dev's (failed_ci's value), '' when none or the user's unspent reopen answers it:
+    the one rule the pass and the hand-over both read."""
+    bad = failed_ci(ctx, ch, head)
+    return "" if bad and reopen(ch, head) else bad
+
+
 def reopen(ch, head):
     """R4: the user's one allowance at head (the definition's `reopen: <full head sha>`), not yet spent: the carry closes and
     reopens the PR, whose pull_request trigger starts CI again at the same head."""
@@ -2972,7 +2979,7 @@ def cmd_handover(a):
                 why.append(f"{w}: no such change; file it with `hd new --limit-of {ch['slug']}` or fix it here")
             elif mechanism(graph[k]) in scope(graph, ch["slug"]):
                 why.append(f"{w}: in this change's scope ({mechanism(graph[k])}): fix it here, rewriting the mechanism if the limit is in its design")
-    if (bad := failed_ci(ctx, ch, head)):
+    if (bad := ci_owed(ctx, ch, head)):
         why.append(f"upstream CI failed at {head[:9]} ({bad}) and never runs again at a head: commit a fix, or rebase onto main when the failing step is outside the head")
     tree = ctx.tree(ch, T[1])
     why += rows(ctx, ch, con, head, T[1], ctx.key(ch, tree, build=True) or tree, "", gate=False)  # T: the build key, as the pass's build, so a check row's build is the pass's

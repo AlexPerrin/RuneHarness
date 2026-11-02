@@ -300,7 +300,8 @@ def end_run(p):
         hd.event(change=r["change"], run=r["name"], action="idle-refused", tasks=ids)
         return print(json.dumps({"decision": "block", "reason":
             f"Your background command(s) {', '.join(ids)} are still running. Never end a turn on your own work: block on it in the "
-            "foreground with one until-loop on an observable fact (its output file, a log line, a port). A step that cannot "
+            "foreground with one until-loop on an observable fact (its output file, a log line, a port; never `pgrep -f` on text the "
+            "waiting command itself carries, which matches its own loop). A step that cannot "
             "finish (a hang, a refused login) is an error: stop it and hand back."}))
     rec = handed and bool(hd.produced(r) or r["role"] == "planner")  # the planner's hand-back is its record, filed or not
     if handed:   # an idle stop leaves the run live

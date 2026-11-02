@@ -1542,6 +1542,10 @@ class R4(Sandbox):
             for root in ("never starts at `/`", "~/osrs-harness", "~/src", "~/osrs-plugins-reverse", "~/.gradle"):
                 s.assertIn(root, text, role)
 
+    def test_a_run_waits_on_a_fact_never_its_own_pgrep(s):  # sweep-41 P1-a: pgrep -f matched the loop's own bash -c line
+        for role in ("dev", "qa"):
+            s.assertIn("never `pgrep -f` on text the waiting command itself carries", (Path(__file__).parent.parent / f".claude/agents/{role}.md").read_text(), role)
+
     def test_dry_run_check_fails_only_on_an_act_main_never_plans(s):
         repo, build = s.root / "live", s.root / "cand"
         (repo / "tools").mkdir(parents=True); build.mkdir()

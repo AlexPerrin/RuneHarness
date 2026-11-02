@@ -3397,11 +3397,13 @@ def add_answer(slug, ch, text, by="the user", waive=None, quiet=False):
     if waive and not any(r["id"] == waive and (r["check"] or r["gate"]) for r in contract(slug)["rows"]):
         refuse(f"no script row {waive} in the contract")
     n = last_answer(contract(slug)["rows"]) + 1
+    q = by == "the user" and asked(ch)  # the row quotes the question it closes: the dev reads the answer with what it answers
+    row = " ".join((f'{by}, to "{q["text"]}": ' if q else f"{by}: ").split() + text.split()).replace("|", "/")  # one line, no column break
     with open(f, "a") as o:
-        o.write(f"- answer-{n} | {now()} {by}: {text} | {'judge: qa-server' if ch['track'] == 'server' else 'judge' if fids(ch) else 'note'}{f' | waive: {waive}' if waive else ''}\n")
+        o.write(f"- answer-{n} | {now()} {row} | {'judge: qa-server' if ch['track'] == 'server' else 'judge' if fids(ch) else 'note'}{f' | waive: {waive}' if waive else ''}\n")
     if by == "the user":  # a joined filing answers no question, nor outdates a run's record (merge_limit logs it)
         drop(slug, "ask")
-        event(change=slug, record="answer", text=text[:300])
+        event(change=slug, record="answer", text=text[:300], **({"question": q["text"][:300]} if q else {}))
     if not quiet:
         print(f"answer-{n} added to the contract")
     return n

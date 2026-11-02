@@ -64,6 +64,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   records `ship.json` (R4)
 
 - `hd answer <slug> [--waive <row>] <text>`, by the orchestrator, with the user's words: an answer appends a contract row (refused on a closed change: file a change);
+  the row quotes the open question it closes (`the user, to "<question>": <text>`), on one line;
   `--waive` names a script row the hand-over and gate then skip
 
 - `hd hold <slug> [--all|--lift] [<why>]`, by the orchestrator, on the user's no or word (a word only on when it ships is a hold or its lift with the why, never an answer row: an answer row lists a dev run): `state/<slug>/hold.json` at the head: no card at that head, the pass removes it once the head moves;

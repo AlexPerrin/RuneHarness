@@ -237,7 +237,7 @@ next(change):
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;
     no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply after it in its thread, or any comment of ours quoting it;
-    no date counts) files a P1 change on the pr with deps [the pr's tip changes], its root's contract unagreed plus a judged `finding` row
+    no date counts) files a P1 change <track>-<pr>-c<id> on the pr with deps [the pr's tip changes], the track's seed rows unagreed plus a judged `finding` row
   done
 ```
 A head counts as live or done only as the change's own work: handed over, or off its base's first-parent line (merged in);

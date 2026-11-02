@@ -297,24 +297,78 @@ class R2(Sandbox):
         F.f["orchestrators"] = [(8, "2")]
         hd.tick(s.ctx(F))
         s.assertEqual(list((s.root / "state" / "orchestrator-read").glob("*")), [])          # a gone session's read is dropped
-        s.assertFalse(hasattr(hd, "cmd_restart"))                                             # no session ends for a definition
-        s.assertIn("exec claude --agent orchestrator", (Path(__file__).parent.parent / hd.SUPERVISOR).read_text())
+        F.f["orchestrators"] = [(7, "1")]; F.f["started_on"] = {"1": "old"}
+        s.assertFalse([a for a in hd.tick(s.ctx(F))["alert"] if ": restart: " in a])                                 # no session ends for a definition
         settings = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
-        s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "compact")
+        s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "startup|compact")
 
-    def test_a_shipped_mcp_json_asks_the_user_to_restart_the_session(s):
+    def test_a_stale_mcp_json_or_full_context_restarts_the_session_without_losing_a_run(s):
+        R = lambda v: [a for a in v["alert"] if ": restart: " in a]
         blobs = {("HEAD", ".mcp.json"): "new", ("HEAD", ".claude/settings.json"): "s"}
         F = Fake(**FACTS, blobs=blobs, started_on={("1", ".mcp.json"): "new", ("1", ".claude/settings.json"): "s"})
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # started on the live files: no alert
+        s.change("s1"); s.agreed("s1")
+        s.assertEqual(R(hd.tick(s.ctx(F))), [])                                      # started on the live files: no restart
         F.f["started_on"][("1", ".claude/settings.json")] = "old"
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # settings.json hooks reload live: no alert
+        s.assertEqual(R(hd.tick(s.ctx(F))), [])                                      # settings.json hooks reload live
+        run = [r for r in hd.runs() if r["change"] == "s1"][-1]
+        hook.bind(payload(run, "ag-1", "SubagentStart", s.root))                             # a run of session 7 is live
         F.f["started_on"][("1", ".mcp.json")] = "old"
-        a = [a for a in hd.tick(s.ctx(F))["alert"] if "restart it" in a]
-        s.assertEqual(len(a), 1); s.assertTrue(a[0].startswith("user: orchestrator 7 "))      # one user alert per session
-        s.assertIn("before .mcp.json changed", a[0]); s.assertNotIn("settings.json", a[0])    # naming only what is stale
-        s.assertIn(hd.SUPERVISOR, a[0])
-        F.f["started_on"] = {}
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # a start the reflog cannot reach: unknown, no alert
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len(R(v)), 1); s.assertIn("orchestrator 7: started before .mcp.json changed", R(v)[0])
+        s.assertIn("let its live runs hand back: s1-1", R(v)[0])
+        s.change("s2"); s.agreed("s2")
+        v = hd.tick(s.ctx(F)); s.assertEqual(v["spawn"], [])                                 # a restarting session spawns nothing
+        def restart():
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd.os, "kill") as kill:
+                try:
+                    hd.cmd_restart([])
+                except SystemExit as e:
+                    return str(e), kill.call_args_list
+                return "", kill.call_args_list
+        s.assertIn("let them hand back first: s1-1", restart()[0])                           # its run would die with it
+        hd.stop(s.ctx(F), "s1-1") if hasattr(hd, "stop") else hd.main(["stop", "s1-1"])
+        v = hd.tick(s.ctx(F)); s.assertIn("no run of it is live", R(v)[0]); s.assertIn("hd restart", R(v)[0])
+        s.assertIn("write ", restart()[0])                                                    # no hand-off file: refused
+        (s.root / "state" / hd.HANDOFF).write_text("asked the user: lift the hold on s2?\n")
+        s.assertEqual(restart(), ("", [mock.call(7, hd.signal.SIGTERM)]))                    # ends its own session
+        s.assertTrue((s.root / "state" / hd.RESTARTING).exists())                            # the supervisor's fact
+        F.f["orchestrators"] = [(9, "2")]                                                     # the supervisor started the next
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (9, "2"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.reread({"hook_event_name": "SessionStart", "source": "startup"})
+        s.assertEqual((s.root / "state" / hd.STARTED).read_text(), "9\n")                    # the supervisor's fact: it started
+        s.assertIn("lift the hold on s2?", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])
+        s.assertFalse((s.root / "state" / hd.HANDOFF).exists())                              # given once
+        F.f["started_on"][("2", ".mcp.json")] = "new"
+        s.assertEqual(R(hd.tick(s.ctx(F))), [])
+        tp = s.root / "state" / "orch.jsonl"
+        tp.write_text(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 10**6}}}) + "\n")
+        post = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "agent_type": "orchestrator", "transcript_path": str(tp)}
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (9, "2"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            s.assertTrue(hook.orchestrator_context(post))
+            s.assertFalse(hook.orchestrator_context(post))                                   # told once
+            s.assertFalse(hook.orchestrator_context({**post, "agent_id": "a1"}))             # a subagent's context is the run's limit
+        s.assertIn("its context passed 1000000 tokens", R(hd.tick(s.ctx(F)))[0])
+
+    def test_the_supervisor_starts_the_next_session_on_a_restart_or_a_crash_and_stops_on_the_users_exit(s):
+        """tools/orchestrator.sh against a fake claude: each start runs the next of its endings (exit codes as measured:
+        evidence/harness-orchestrator-self-restart/claude-exit-codes.txt)."""
+        bin_ = s.root / "bin"; bin_.mkdir(); (s.root / "state").mkdir(exist_ok=True)
+        (bin_ / "claude").write_text("#!/bin/bash\nn=$(($(cat n 2>/dev/null || echo 0)+1)); echo $n > n\nset -- $(sed -n ${n}p plan)\n"
+                                     "for f in \"$@\"; do [ \"$f\" = - ] || touch state/$f; done; exit $(sed -n ${n}p codes)\n")
+        (bin_ / "claude").chmod(0o755)
+        def run(plan):   # each step: (files the session writes, its exit code)
+            (s.root / "n").unlink(missing_ok=True)
+            (s.root / "plan").write_text("".join(" ".join(fs) + "\n" for fs, _ in plan))
+            (s.root / "codes").write_text("".join(f"{c}\n" for _, c in plan))
+            r = subprocess.run([str(Path(__file__).parent.parent / hd.SUPERVISOR)], env={**os.environ, "HD_ROOT": str(s.root),
+                               "PATH": f"{bin_}:{os.environ['PATH']}"}, capture_output=True, text=True)
+            return int((s.root / "n").read_text()), r.returncode
+        st, rs, ho = hd.STARTED, hd.RESTARTING, hd.HANDOFF
+        s.assertEqual(run([([st, rs], 143), ([st], 0)]), (2, 0))                 # `hd restart`, then the user's /exit
+        s.assertEqual(run([([st], 1), ([st, ho], 0)]), (2, 0))                   # a crash after its start; the user's exit with a hand-off left stops
+        s.assertEqual(run([(["-"], 1)]), (1, 1))                                 # a claude failing at its start is not relaunched
 
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))

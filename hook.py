@@ -36,8 +36,12 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 blocks on its own work, never idles on it (R2). Then start the pass without
                 waiting (`systemctl --user start --no-block hd-tick.service`, else a detached `hd tick`). A run that
                 never hands back ends by the orchestrator's TaskStop of its agent, `hd stop` or its console's death.                                      R2 R6
+                the orchestrator's own context past cfg.context_limit → state/orchestrator-restart/<pid>-<start>, which `hd`
+                lists as its restart (hd.restarts), told once.                                                            R2
 SessionStart    after a compaction of an orchestrator session acting on a reread definition, the live one is its context
-                again (hd.reread): the compaction keeps only the one it started on.                                      R2
+                again (hd.reread): the compaction keeps only the one it started on. A new orchestrator session is given
+                state/orchestrator-handoff.md, its restarted predecessor's, which is then deleted; its start writes
+                state/orchestrator-started, tools/orchestrator.sh's fact that it ran.                                      R2
 An agent a run spawned (its meta file names a parentAgentId: a reader, a fork) is part of that run: only the deny rules
 and the run's slice apply to it, and it stops (continue: false) at its next tool call once that run has ended (the
 slice's stop ends the command it waits on, so that call returns at once). A `reader`'s Bash command
@@ -625,16 +629,38 @@ def idle_desktops(p):
 
 
 def reread(p):
-    """R2: a compacted orchestrator session holds again the live definition it last read."""
-    if t := hd.reread(hd.Facts(), force=True):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext":
-              f"Your definition is the live {hd.ORCH}, which replaces the one you started on:\n{t}"}}))
+    """R2: a compacted orchestrator session holds again the live definition it last read; a new one is given the hand-off
+    its restarted predecessor left (hd.HANDOFF), which goes once given."""
+    F = hd.Facts()
+    out = [f"Your definition is the live {hd.ORCH}, which replaces the one you started on:\n{t}"] if (t := hd.reread(F, force=True)) else []
+    if F.console() in F.orchestrators() and p.get("source") == "startup":
+        hd.write(hd.STATE / hd.STARTED, f"{F.console()[0]}\n")   # the supervisor's fact: this session started, so a crash of it is relaunched
+    if F.console() in F.orchestrators() and (h := hd.STATE / hd.HANDOFF).exists():
+        out.append(f"Your predecessor restarted and left you this hand-off: act on it first.\n{h.read_text()}")
+        h.unlink()
+    if out:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n\n".join(out)}}))
+
+
+def orchestrator_context(p):
+    """R2: the orchestrator session's context past cfg.context_limit is a fact the pass lists as its restart (hd.restarts), told once."""
+    if p.get("agent_type") != "orchestrator" or p.get("agent_id"):
+        return
+    pid, st = (F := hd.Facts()).console()
+    f = hd.STATE / "orchestrator-restart" / f"{pid}-{st}"
+    if f.exists() or (pid, st) not in F.orchestrators() or (size := context_of(p.get("transcript_path"))) < hd.cfg().get("context_limit", 150000):
+        return
+    hd.write(f, f"its context passed {size} tokens\n")
+    hd.event(action="orchestrator-context-limit", pid=pid, tokens=size)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+          f"Context limit reached ({size} tokens): this session restarts. Run `hd`: its restart section names each step."}}))
+    return True
 
 
 def main():
     p = json.load(sys.stdin)
     try:
-        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
+        {"SessionStart": reread, "SubagentStart": lambda p: refuse_ended(p) or bind(p), "PreToolUse": lambda p: stop_ended(p) or refuse_ended(p) or (deny_ask(p) or deny_users_word(p) or deny_pass(p) or deny_foreign_kill(p) or deny_self_pgrep(p) or deny_time_bound(p) or deny_dep_cycle(p) or deny_reader_write(p) or hold_handback(p) or own_desktop(p) or in_run_slice(p), bind(p)), "PostToolUse": lambda p: told(p) or end_stopped(p) or stop_task_scope(p) or stop_ended(p) or context_limit(p) or orchestrator_context(p) or idle_desktops(p), "SubagentStop": end_run}.get(p.get("hook_event_name"), lambda p: None)(p)
     except Exception as e:  # never fail an agent for a harness fault
         hd.event(action="hook-error", event=p.get("hook_event_name"), error=repr(e)[:300])
 

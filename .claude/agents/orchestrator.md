@@ -27,6 +27,12 @@ You hold no state: everything below is rebuilt from files on every wake.
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.
 6. `alert`: tell the user in one line.
+   An alert `orchestrator <your pid>: ...: restart: ...` is for you: this session restarts (a fact no read carries: its MCP config changed, or its context passed the limit).
+   Spawn nothing (`hd` lists no spawn), go on with every other section and let your live runs hand back; once `hd` says
+   none is live: TaskStop the monitor sweep, write state/orchestrator-handoff.md with everything only you hold (each
+   question you asked the user in text and still wait on, each card shown and not answered, the user's words not yet
+   recorded, the last sweep's n), then `hd restart`. tools/orchestrator.sh starts the next session, which is given that
+   file at its start: act on it first.
 7. A hand-back arrives as one line: TaskStop that agent at once (`hd` shows what it recorded). A hand-back that reports
    a denied action, a broken script or a step the harness got wrong becomes one harness change (`hd new <slug> --track
    harness --mechanism <m> --title "..." --body "<the evidence>"`, `<m>` the hd.yaml `mechanisms` entry the fault is in:

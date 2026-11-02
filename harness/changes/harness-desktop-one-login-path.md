@@ -16,7 +16,6 @@ mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 limit-of:
 - harness-qa-login-idle
-- hunter-feat-pr
 ---
 Planner merge (planner-17) of harness-desktop-login-devtools and harness-restart-clears-disconnect-dialog. Root cause against PRD's workflow (QA proves a change on a logged-in client): the desktop login drives the screen blind, by keystrokes and fixed canvas points (tools/server/desktop_login.py offsets fixed-mode points; RuneLite's login screen has no widget ids), and ends only on LOGGED_IN, so a fast refusal hangs it (central-token-login-op-6) and the 'You were disconnected from the server' dialog, which keys do not close, stops every restart (central-login-whitelist-binds-2: the dev clicked Ok by hand). The handed-over head of harness-restart-clears-disconnect-dialog (fork c109bbaee, a fixed-point click at 382,301) must not ship: the user's word (option B) moves that work here, since a mis-aimed click on 'New User' opens a browser to Jagex.
 

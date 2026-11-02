@@ -2121,7 +2121,7 @@ def dispatch(ctx, ch, st, act):
     given = given_now(slug)  # before the brief reads the contract: a row written while it is written is late (late_answers)
     cause = again and (again.get("reason") or ("a hand-off at the context limit" if again.get("handoff_told") else "its hand-back"))
     why = f"{st['state']} (again after {again['name']}: {cause})" if again else st["state"]   # R6: a run beyond one per input names its cause
-    r = {"name": name, "role": role, "change": slug, "step": why, "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role),
+    r = {"name": name, "role": role, "change": slug, "step": why, "input": inp, "mode": st.get("mode"), "brief": brief(ctx, ch, st, name, role), "deps": list(ch["deps"]),
          "console_pid": None, "console_start": None, "listed": listed, "given": given, "started": None, "started_at": 0,
          "ended": None, "agent_id": None, "transcript": None, "record": False, "last": None, "usage": None}
     save_run(r)
@@ -2317,14 +2317,14 @@ def repairs(ctx, act):
 
 
 def runs_dep(ctx, ch, r, d):
-    """R6: a wait on d alone is still the started run's step. A dep the change held before the run started was met at its
-    start: it only re-gates (a tools ship, its new head) while its own step is no dev or qa run, and ends the run once
-    reopened to one (the base moves). A dep added since the start (its `dep` event) ends it unless it is a limit filed
+    """R6: a wait on d alone is still the started run's step. A dep its brief recorded was met at its start: it only
+    re-gates (a tools ship, its new head) while its own step is no dev or qa run, and ends the run once reopened to one
+    (the base moves). A dep its brief did not record (filed or hand-edited since) ends it unless it is a limit filed
     against the change (`hd new --limit-of`), which the run hands over after the filing."""
     dep = ctx.changes.get(d)
     if not dep:
         return False
-    if any(e.get("action") == "dep" and e.get("change") == ch["slug"] and e.get("dep") == d and e["ts"] >= r["started"] for e in evs(b'"action": "dep"')):
+    if d not in r.get("deps", ch["deps"]):  # shortcut: a run listed before briefs recorded deps counts each as met; drop once none is alive
         return ch["slug"] in (dep.get("limit-of") or [])
     return nxt(ctx, dep)["actor"] not in ("dev", "qa")
 
@@ -2511,7 +2511,7 @@ def _pass(ctx, act):
                     if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
                         # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
                         r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now(), given=given_now(ch["slug"]))
-                        r["brief"] = brief(ctx, ch, work, r["name"], r["role"])
+                        r["brief"], r["deps"] = brief(ctx, ch, work, r["name"], r["role"]), list(ch["deps"])
                         save_run(r)
                         event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
                         continue

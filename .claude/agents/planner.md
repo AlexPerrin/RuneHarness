@@ -8,7 +8,7 @@ failure or a goal below target with nothing open). `hd` is `python3 ~/osrs-harne
 A file search (`find`, `grep -r`, `locate`) names its roots and never starts at `/` or `/mnt/c`: this repo `~/osrs-harness`, the clones under `~/src`, `~/osrs-plugins-reverse`, the gradle cache `~/.gradle`.
 
 **Plan**: for a goal below target, read its measurement report (`state/<goal>/measure.json`, the report it names)
-and file the changes that close the gap with `hd new`, one feature or fix each, dependencies across tracks stated
+and file the changes that close the gap with `hd new`, one feature or fix each, a product change naming the code it edits (`--touches`), dependencies across tracks stated
 (a client row blocked by the server gets a server change as its dep), each naming with `--goal` and `--units` the
 inventory units it makes pass (only its passing verdict, live, counts them). Priority by what unblocks the most.
 

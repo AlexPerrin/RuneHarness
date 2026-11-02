@@ -16,3 +16,9 @@ Fact: hunter-feat-pr's gate on 2d85512ea-21ec60df2-9686679aa (head 89632544d) ra
 
 Also (filed): A head's own crash (rc 139) must not count as a host fault
 Monitor sweep 54 P2-b: ded32dca6 counts any row rc > 128 as held, so a head's own JVM segfault (139) shows as the three-ends alert instead of 'gate failed: dev'. Acceptance: only a signal the harness sent (the pass's or a slice stop's, read from its stop record) makes a row held; any other end is the row's result.
+
+Also (filed): The gate-sigterm head's held lambda shadows held() and crashes the pass
+Monitor sweep 55 P1-a: ded32dc adds a module-level `held = lambda rc: ...` at hd.py:2938 of its branch, shadowing `def held(F, pid, start)` (hd.py:2549) that swap() calls: TypeError '<lambda>() takes 1 positional argument but 3 were given'; test_a_shipped_orchestrator_definition_reaches_the_live_session, test_harness_change_defined_to_live and test_a_pass_on_the_live_state_stays_under_200_mb fail on gate trees f279, eec, d62 (state/harness-gate-sigterm-is-host-fault/row-gate-tests.json). Acceptance: the name collision is gone and the suite passes; a dev runs a module-wide check (the full suite or a name lint) before handing over a module-level name.
+
+Also (filed): check_dry_run passes when the candidate's pass crashes
+Monitor sweep 55 P2-a: tools/track.sh:58 runs `python3 "$BUILD/hd.py" tick --dry-run | grep ... || true`, so a traceback gives an empty plan and the row reports no extra act; row-gate-dry-run.json has rc 0 with the TypeError traceback at keys f279, eec, d62. Acceptance: the dry-run row fails when the candidate's pass exits non-zero or prints a traceback.

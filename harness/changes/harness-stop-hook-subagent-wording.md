@@ -28,3 +28,6 @@ Monitor sweep 53 P3-a: deny_self_pgrep (hook.py:400) denied a read-only one-shot
 
 Also (filed): The reader write rule denies a read-only git branch query
 Monitor sweep 54 P3-c: WRITES in hook.py matches a bare 'git branch' with no subcommand check; it denied reader a55c87641's 'git branch --show-current' at 07:27:08Z ('reader writes: & git branch'). Acceptance: read-only forms (--show-current, --list, -a, -r, -v, --contains) pass; creating, deleting or moving a branch stays denied.
+
+Also (filed): A temp root whose owner pid is dead is kept by the pass
+Monitor sweep 55 P3-b: /tmp/hd-run-3737442-7aceqr0l (28K, from 07:39:32Z, the check-tools suite stopped with gate c9f516dc0) stayed through the passes at 07:42:31, 07:43:17 and later, though proc_start(3737442) is None and the name matches (hd.py:2527-2529, true when run read-only); the pass's act block does not remove it, with no traceback in the journal. Acceptance: a temp root whose owner pid is dead is removed on the next pass, shown live.

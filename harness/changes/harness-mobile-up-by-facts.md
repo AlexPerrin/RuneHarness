@@ -8,7 +8,6 @@ priority: P1
 deps:
 - harness-device-network-block
 - harness-no-powershell
-- client-devtools-login
 - client-login-segv-osclient
 goal: client-launch
 units:
@@ -18,7 +17,6 @@ units:
 mechanism: mobile
 created: '2026-11-01T23:59:47Z'
 limit-of:
-- client-devtools-login
 ---
 Planner merge (planner-17) of client-launch-measure, client-launch-boot, client-launch-files-init, client-launch-install and harness-mobile-dns-off-loopback. Root cause against PRD's workflow (QA proves a client change on a mobile reached quickly): the mobile up is a fixed script of unconditional steps whose ends are not facts and are never measured: it cold-boots Agent_Phone (-read-only, -gpu swiftshader_indirect) polling sys.boot_completed every 2 s; uninstalls and reinstalls the APK on every up, even for the tree-cached build; starts the app with monkey, sleeps 5 s and force-stops it only so files/ exists; points -dns-server at a Windows loopback address whose udp 53 SharedAccess holds (it cannot be stopped: 'Service Internet Connection Sharing (ICS) (SharedAccess) stop failed.'), so up refuses every mobile; and tools/track.sh measure is the client-api probe only, with no timings (state/log-mark written after login, devtools port hardcoded 7780).
 

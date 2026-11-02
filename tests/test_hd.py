@@ -1392,6 +1392,31 @@ class R4(Sandbox):
         s.assertIn("Projects (classic)", str(e.exception)); s.assertEqual((hd.rec("s1", "ship")["fault"], hd.rec("s1", "approval")), ("carry", None))
         s.assertEqual(s.state(F, "s1")["actor"], "user"); hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
 
+    def test_the_users_one_reopen_at_a_failed_head_is_a_card_act_done_once(s):
+        old, new = "https://ci/run/1", "https://ci/run/2"
+        b = lambda st, u=new: [{"name": "build", "url": u, "state": st}]
+        F = Fake(**{**FACTS, "prs": {"u/f": [{"number": 42, "branch": "content/s1", "owner": "o", "head": A, "draft": True}]}})
+        s.ready(F, pr=42); F.f["ci"] = [b("failure", old)]
+        s.assertEqual(s.state(F, "s1")["state"], f"CI failed upstream at {A[:9]}: dev")   # no word of the user: only a fresh head starts CI
+        s.change("s1", pr=42, reopen=A)                                          # the user's word: one close and reopen at A
+        st = s.state(F, "s1"); s.assertEqual(st["actor"], "user")
+        c = hd.card(s.ctx(F), s.ctx(F).changes["s1"], A)
+        s.assertIn(f"2. close and reopen upstream PR 42 so CI runs again at the head (it failed there: build {old}", c)
+        s.assertIn("wait for every CI check to pass at the head", c)
+        s.approve(F, "s1", A)
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True}}, ci=[b("failure", old), b("failure", old), b("pending"), b("success")])
+        g = GH(); log = s.ship(F, g)
+        s.assertEqual([" ".join(c[1:3]) for c in g.calls if c[0] == "gh"], ["pr close", "pr reopen", "pr ready"])   # no push: the same head
+        s.assertIn(f"CI green at {A[:9]}: build {new}", log)                    # the replaced failure is waited past, not a FAIL
+        s.assertEqual(hd.rec("s1", "reopened"), {"head": A, "failed": [old], "ts": hd.rec("s1", "reopened")["ts"]})
+        hd.drop("s1", "ship"); F.f["ci"] = [b("failure")]
+        s.assertEqual(s.state(F, "s1")["state"], f"CI failed upstream at {A[:9]}: dev")   # spent: a second failure at A is the dev's
+        s.assertNotIn("close and reopen", hd.card(s.ctx(F), s.ctx(F).changes["s1"], A))
+        hd.put("s1", "reopened", {"head": A, "failed": [old]}); s.approve(F, "s1", A)   # a carry that died between close and reopen
+        F.f.update(pull={42: {"branch": "content/s1", "head": A, "draft": True, "state": "closed"}}, ci=[b("success")])
+        g = GH(); s.ship(F, g)
+        s.assertEqual([" ".join(c[1:3]) for c in g.calls if c[0] == "gh"], ["pr reopen", "pr ready"])   # its rerun reopens, never closes again
+
     def test_a_reply_with_no_commit_is_carried_into_its_thread_with_the_pr_tip(s):
         s.change("s0", pr=7); s.change("s1", deps=["s0"], pr=7, finding=99); s.agreed("s1")
         (s.root / "evidence" / "s1" / "pr-comment.md").write_text("> reset it\n\n@rev the official server keeps it.")

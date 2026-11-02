@@ -41,6 +41,8 @@ class Fake(hd.Facts):
     def containers(s): return s.f.get("containers", {})  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
     def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
+    def supervised(s, pid): return s.f.get("supervised", False)
+    def end_session(s, pid): s.ended = getattr(s, "ended", []) + [pid]
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
@@ -253,26 +255,54 @@ class R1(Sandbox):
         s.assertTrue(all(set(r) == {"unit", "source"} and r["source"].startswith("dbrow.") for r in rows))
 
 class R2(Sandbox):
-    def test_a_shipped_orchestrator_definition_swaps_the_session(s):
+    def test_a_shipped_orchestrator_definition_restarts_the_session(s):
         blobs = {("HEAD", hd.ORCH): "new"}
         v = hd.tick(s.ctx(Fake(**FACTS, blobs=blobs, started_on={"1": "new"})))
         s.assertFalse(any(a.startswith("orchestrator ") for a in v["alert"]))                # started on the live definition: no step
-        v = hd.tick(s.ctx(Fake(**FACTS, blobs=blobs, started_on={"1": "old"})))
-        s.assertEqual([a for a in v["alert"] if a.startswith("orchestrator 7:")], [a for a in v["alert"] if "orchestrator 7: your definition changed" in a])
-        s.assertEqual(len([a for a in v["alert"] if a.startswith("orchestrator ")]), 1)    # one step: hand off, drive on until the fresh one is up
-        s.assertIn("orchestrator-handoff.md", v["alert"][-1])
-        (s.root / "state" / "orchestrator-handoff.md").write_text("open: x")
-        F = Fake(**FACTS, blobs=blobs, started_on={"1": "old", "2": "new"}, orchestrators=[(7, "1"), (8, "2")])
-        v = hd.tick(s.ctx(F))
-        s.assertTrue(any(a.startswith("orchestrator 7: replaced by 8") for a in v["alert"]))
-        s.assertTrue(any(a.startswith("orchestrator 8: read ") for a in v["alert"]))       # the fresh one reads the hand-off
         s.change("s1"); s.agreed("s1")
-        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            hd.cmd_tick([])                                                               # the console is 7: the replaced one
-        s.assertTrue(out.getvalue().startswith("alert: orchestrator 7: replaced"))
-        s.assertNotIn("spawn:", out.getvalue())                                           # it spawns nothing; its bound runs go on
+        F = Fake(**FACTS, blobs=blobs, started_on={"1": "old"}, supervised=True)
+        v = hd.tick(s.ctx(F))
+        s.assertEqual([a for a in v["alert"] if a.startswith("orchestrator ")], [a for a in v["alert"] if a.startswith("orchestrator 7: your definition changed")])
+        s.assertEqual(len([a for a in v["alert"] if a.startswith("orchestrator ")]), 1)    # one step: wrap up, then `hd restart`
+        s.assertIn("hd restart", v["alert"][-1])
+        def hd_(cmd, *a):
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                try:
+                    cmd(list(a))
+                except SystemExit as e:
+                    return str(e)
+            return out.getvalue()
+        out = hd_(hd.cmd_tick)
+        s.assertTrue(out.startswith("alert: orchestrator 7: your definition changed"))
+        s.assertNotIn("spawn:", out)                                                          # wrapping up, it spawns nothing
+        r = hd.runs()[0]; r.update(started=hd.now(), console_pid=7, console_start="1"); hd.save_run(r)
+        s.assertIn("runs bound to you are alive", hd_(hd.cmd_restart))                      # a run in flight keeps the session
+        r["ended"] = hd.now(); hd.save_run(r)
+        s.assertIn("orchestrator-handoff.md first", hd_(hd.cmd_restart))
+        (s.root / "state" / "orchestrator-handoff.md").write_text("open: x")
+        F.f["supervised"] = False
+        s.assertIn("outside its supervisor", hd_(hd.cmd_restart))
+        F.f["supervised"] = True
+        hd_(hd.cmd_restart)
+        s.assertEqual(F.ended, [7])                                                           # it ends itself, marked for the supervisor
+        s.assertTrue((s.root / "state" / "orchestrator.restart").exists())
+        bin_ = s.root / "bin"; bin_.mkdir()                                                   # the supervisor starts the fresh session: no user step
+        (bin_ / "claude").write_text('#!/bin/sh\necho "$@" >> calls\n')
+        (bin_ / "claude").chmod(0o755)
+        sup = Path(__file__).parent.parent / hd.SUPERVISOR
+        subprocess.run([str(sup)], env={**os.environ, "HD_ROOT": str(s.root), "PATH": f"{bin_}:{os.environ['PATH']}"}, check=True, timeout=60)
+        s.assertEqual((s.root / "calls").read_text().splitlines(), ["--agent orchestrator drive"])   # the mark starts one fresh session; its own end ends the loop
+        s.assertFalse((s.root / "state" / "orchestrator.restart").exists())
+        F.f.update(orchestrators=[(8, "2")], started_on={"2": "new"})
+        with mock.patch.object(hd.Facts, "console", lambda f: (8, "2")):
+            out = hd_(hd.cmd_tick)
+            s.assertIn("alert: orchestrator 8: read ", out)                                   # the fresh one reads the hand-off
+            (s.root / "state" / "orchestrator-handoff.md").unlink()
+            s.assertFalse(any(l.startswith("alert: orchestrator ") for l in hd_(hd.cmd_tick).splitlines()))   # and the alert clears
         brief = (Path(__file__).parent.parent / ".claude" / "agents" / "orchestrator.md").read_text()
         s.assertIn("state/orchestrator-handoff.md", brief.split("2.")[0])                 # step 1 reads the hand-off
+        s.assertIn("hd restart", brief.split("2.")[0])
+        s.assertIn("memory", brief.split("2.")[0])                                       # what it learned outlives the session
 
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))

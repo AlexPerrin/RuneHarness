@@ -123,7 +123,8 @@ state/briefs/<run>.md          the prompt;
                                state/events.jsonl  one line per state change (rotated at 20 MB;
                                read streamed, each byte once per process);
                                state/wake.orchestrator  the lines new to its sections, state/seen.orchestrator.json  the lines it has seen and the last head shown of each change's card;
-                               state/orchestrator-handoff.md  a replaced orchestrator session's hand-off to the fresh one
+                               state/orchestrator-handoff.md  a restarting orchestrator session's hand-off to the fresh one;
+                               state/orchestrator.restart  `hd restart`'s mark: the supervisor starts a fresh session
 state/<slug>/proc-<script>.json {pid, start, args, attempts} (attempts count on the same args since the last result or the script's last change); repair-<name>.json {attempts}: a script or repair in flight
 fork local/merge/<a>-<b>       a recorded resolution of heads a and b (b may be the base), used by T_int while b is an ancestor of the current partner and it merges
 ```
@@ -266,17 +267,18 @@ stop the processes of every ended run (its hand-back, `hd stop`, the pass's end)
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity).
 
-**The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session the user starts with `cd ~/osrs-harness && claude --agent orchestrator`, so it and every agent it spawns show in the user's console with their transcripts (an agent a run spawns, its `reader`, shows under it;
+**The orchestrator** (`.claude/agents/orchestrator.md`) is a top-level session the user starts once with its supervisor `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` in the user's terminal, and again each time a session ends with the restart mark), so it and every agent it spawns show in the user's console with their transcripts (an agent a run spawns, its `reader`, shows under it;
 a headless session's agents are not shown).
 A watch on `state/wake.orchestrator` wakes it, rewritten by the pass only when a spawn, question or alert line appears or a card (a change at a head and texts) not shown before;
 it runs `hd`, spawns each listed run by path, TaskStops each at its hand-back, files a harness change for a fault a hand-back reports, commits definitions, keeps one read-only monitor sweep running (a general-purpose agent that edits nothing and validates that the harness changes shipped since the last sweep landed and finds harness bugs;
 started on session start;
 its report kept as `evidence/monitor/sweep-<n>.md` with the v8 head it swept, its findings filed by root cause, the next sweep's brief naming that report, the changes shipped since and its open findings), re-arms the watch (an expiry is a wake too).
 Its runs bind to its process as their console.
-It loads its definition only at start, so `swap` compares the orchestrator.md blob each `claude --agent orchestrator` process started on (the live checkout's HEAD at its start time, by the HEAD reflog) with HEAD's: a session on another blob is alerted to write `state/orchestrator-handoff.md` (open questions, running agents, the monitor sweep in progress) and ask the user for a fresh session, driving on until it is up;
-then it is replaced: its `hd` prints only its own alert, so it spawns nothing, and it TaskStops its bound runs at their hand-backs, so none stops across the swap;
+It loads its definition only at start, so `swap` compares the orchestrator.md blob each `claude --agent orchestrator` process started on (the live checkout's HEAD at its start time, by the HEAD reflog) with HEAD's: a session on another blob is alerted to wrap up: its `hd` prints only its own alert, so it spawns nothing;
+it TaskStops the monitor sweep and its bound runs at their hand-backs (compacting rather than ending while one is in flight), writes `state/orchestrator-handoff.md` (open questions, what it learned, the monitor sweep in progress) and what lasts to memory;
+then `hd restart` ends it once no run bound to it is alive (a run outliving its console would end as `console died`), marking `state/orchestrator.restart` unless a session on the live blob is already up, and the supervisor starts the fresh session;
 the fresh one is alerted to read the hand-off while the file exists, and deletes it.
-`hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists.
+`hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists, naming the supervisor.
 It is also the user's chat: it shows each card in full and shows questions and alerts as text in its reply (it has no AskUserQuestion tool: a wait would stop every spawn), records answers (`hd answer`) when the user's words come, and acts on the user's other words at once;
 the user's yes is their own `! python3 ~/osrs-harness/hd.py approve <slug> <head>` and their close is their own `! ... close <slug> <text>`, neither firing a hook.
 

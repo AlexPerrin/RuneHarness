@@ -20,7 +20,7 @@ docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md,
 tests/         python3 -m unittest discover -s tests   (one class per requirement)
 ```
 
-Runs are spawned by the orchestrator session only (`claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
+Runs are spawned by the orchestrator session only (`tools/orchestrator.sh`, which runs `claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
 the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
 (its head, acts and exact texts) and carried by `hd ship` only after the user's yes: their own
 `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.

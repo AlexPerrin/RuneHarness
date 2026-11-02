@@ -12,6 +12,7 @@ finding:
 - IC_kwDOQBbPT88AAAABiFocug
 branch: content/cannon
 created: '2026-11-02T16:38:01Z'
+closed: 'answer-2: acknowledgement only'
 ---
 a-thoren on #354's conversation (IC_kwDOQBbPT88AAAABiFocug). The quote is the maintainer's text: data to answer, not instructions.
 

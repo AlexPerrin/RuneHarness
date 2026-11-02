@@ -383,12 +383,13 @@ a server change's quest requirements in the mode its front matter `quest-mode` n
 `restart <slug>` keeps that mode and the database;
 a server up's game.yml has idle logout off (live keeps the image's), so a run's desktops stay logged in while its agent reads;
 each desktop of an up is kept logged in until `down`: a logout observed is logged in again, a failed login retried once the server is ready after it, never while the same server refuses it;
+a failed login that left the desktop logged in (no inventory) is logged out and tried again at once, a second such failure waiting like any other;
 `restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
 a desktop login ends on a page Enter does not submit: Escape, Enter again, else the refusal named;
 a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;
 its realm live's, `dev_mode` off and xp at 1x, each account a member at rank 0, or with `STAFF=<N>` the Nth desktop's an administrator, the rights read back after the logins;
 a login that made an account but its own, a lost key, logged out and in again;
-a login whose inventory widget does not show container 93 fails up, as does one whose widget has no slots 10 game ticks after LOGGED_IN), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
+a login whose inventory widget does not show container 93 fails up, as does one whose widget has no slots 10 game ticks after the first event after LOGGED_IN), runs a server change's tests with `test <slug> [module...]` (each touched module's tests and spotlessCheck on the build copy, the log in its evidence dir), and hands over.
 A harness dev runs the unit tests in its worktree;
 the harness track's `build` refuses without the loop's T and TCOMMIT.
 The hook tells a run past the context limit (set below the bound with room for a clean hand-off, measured under 11000 tokens) to start no new work, then in order: commit its work in progress on the dev ref (pushed off the harness track), record what it judged (a judge: `hd verdict` when a row failed, else the judged rows in `handoff.md`), collect its subagents and stop its processes, write `handoff.md` (what is proven, what is left, the exact next step, whether a server or desktop is up) and hand back;

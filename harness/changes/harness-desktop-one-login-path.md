@@ -12,6 +12,7 @@ deps:
 - harness-qa-login-idle
 - harness-up-owns-its-instance
 - harness-keeper-after-failed
+- harness-desktop-vsock-relaunch
 mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 limit-of:

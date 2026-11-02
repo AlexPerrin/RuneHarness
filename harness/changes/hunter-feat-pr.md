@@ -13,6 +13,7 @@ deps:
 - harness-desktop-first-login
 - harness-deploy-survives-tools-ship
 - harness-devtools-endpoint-owner
+- harness-gate-sigterm-is-host-fault
 ---
 ## Change
 Upstream #408 (draft) is the entire Hunter skill (the user, 2026-10-25: "Scope is entire Hunter Skill"): every Hunter

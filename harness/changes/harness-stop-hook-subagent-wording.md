@@ -22,3 +22,6 @@ Monitor sweep 51 P2-a: b875d38's pass (hd.py, live[sl] == 0 branch) stops every 
 
 Also (filed): The dev step's reason names the base tip as an un-handed-over head
 Monitor sweep 52 P3-a: the pass's dev-due reason read 'head f7f46478b not handed over' (roles-no-sleep, 07:02:58Z), 'head 600edeafc' (stop-hook-wording, 07:06:26Z), 'head beaeddaed' (devtools-endpoint-owner, 07:08:22Z), each the v8 tip at that moment: hd.py:1565 picks the 'not handed over' wording before the real input, hiding 'answer-2, answer-3 joined'. own() (hd.py:1059) already treats a base-line ref as not the change's work. Acceptance: a fresh dev ref on its base counts as no head, and the reason names the real input.
+
+Also (filed): The self-pgrep rule denies a one-shot listing, and text that only mentions pgrep
+Monitor sweep 53 P3-a: deny_self_pgrep (hook.py:400) denied a read-only one-shot `pgrep -af 'desktop_login' | grep -v pgrep` at 07:15:40Z (events.jsonl); its premise ('a wait on it never ends') holds only when pgrep is a while/until condition. It also denied the orchestrator's own hd new call at ~07:23Z whose --body text merely quoted that command inside a quoted argument. Acceptance: the rule denies only a self-matching pgrep used as a loop condition; a one-shot listing, or the word in quoted text, passes.

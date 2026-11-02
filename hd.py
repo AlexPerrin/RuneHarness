@@ -1506,6 +1506,11 @@ def nxt(ctx, ch):
             behind[n] = (path, r["tools"], tip)
     if behind:
         return step(f"rebasing carried tools heads ({', '.join(behind)})", "script", act=lambda: rebase_tools(ctx, ch, ho, behind))
+    vs = judged(slug, head, con) if any(r["judge"] for r in con["rows"]) else []
+    failed = [k for k, r in vs[-1]["rows"].items() if r != "pass"] if vs else []
+    if failed:  # R2: a head its last verdict failed is the dev's before any re-gate or re-judge of it
+        return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
+                    detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed))
     if not batched(ch) and not (shipped(ctx, ch, head) or reply_only(ctx, ch)):  # R8: only a commit is gated (a batched head in its batch): the upstream PR's live head is never rebuilt or re-gated because main moved, a reply never
         T = ctx.T(ch, head)
         if T is None:
@@ -1548,7 +1553,6 @@ def nxt(ctx, ch):
         if not g["ok"]:
             return step("gate failed: dev", "dev", mode="code", input=["gate", gk, con["hash"]], detail=g.get("detail", ""))
     if any(r["judge"] for r in con["rows"]):  # a reviewer judges only where the contract has judge rows (client: releases)
-        vs = judged(slug, head, con)
         blobs = {k: ctx.F.blob(ctx.clone(ch), TRACK[track]["base"], k) for k in con["rules"]}
         if None in blobs.values():
             return step("upstream rule files unknown", "unknown")
@@ -1557,10 +1561,6 @@ def nxt(ctx, ch):
             return step(f"upstream rules moved ({', '.join(moved)}): rule rows re-judged", "qa", mode="judge", input=[head, con["hash"], moved])
         if not vs:
             return step("review due", "qa", mode="judge", input=[head, con["hash"], []])
-        failed = [k for k, r in vs[-1]["rows"].items() if r != "pass"]
-        if failed:
-            return step(f"FAIL {len(failed)} rows: dev", "dev", mode="code", input=["verdict", head, con["hash"], vs[-1]["ts"]],
-                        detail="\n".join(f"{k}: {vs[-1]['rows'][k]}" for k in failed))
     if TRACK[track]["public"] == "upstream":
         live = ctx.live(ch, head)
         if ch["kind"] == "local":  # the test server is its target

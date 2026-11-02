@@ -221,6 +221,8 @@ next(change):
   carried tools head behind branch?
     rebase it in the pass (its tools worktree), record it in the hand-over;
     a rebase that stops → recorded, dev, its files named
+  head's last verdict (its contract) FAIL?
+    yes → dev, before the head is built, gated or judged again
   T
     conflict → dev;
     an upstream head holding unmerged commits of another PR's change (stacked), or not holding the head of a same-PR dependency it joins → dev

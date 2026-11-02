@@ -162,7 +162,8 @@ state/runs/<name>.json         {role, change, step, input, brief, given, console
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
 state/facts/<ns>-<pid>.json    the hooks' facts not yet folded {fact: bind|resumed|end|stopped|told|context-limit, run, ...}, one file each;
                                the fold deletes each it applied, a run record keeps the ids its last fold applied (`folded`), so a fact saved but not yet deleted is applied once;
-                               a skip is by membership, never by id order (the wall clock steps back)
+                               a skip is by membership, never by id order (the wall clock steps back);
+                               an end fact is written only while its run has no reason, so a hand-back's end folds over a pass that ended the run meanwhile (its reason cleared: the run's own hand-back, a try)
 state/fetch/<hash>             the last result of one clone's remote fetch, flocked while it runs: a pass that finds it held waits and takes that result
 state/gh/<hash>.json          {url, code, etag, body, next}: the one cache of GitHub REST reads, keyed by URL, shared by passes, gates, dry-runs and the carry (its PR, CI and comment reads, the CI wait polling them afresh);
                               each read sends If-None-Match (a 304 costs no quota);

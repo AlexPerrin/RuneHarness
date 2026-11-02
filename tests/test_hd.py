@@ -824,6 +824,21 @@ class R2(Sandbox):
         s.assertTrue(hd.runs()[0]["ended"])
         hd.fold(); s.assertTrue(hd.runs(pending=False)[0]["ended"])
 
+    def test_a_hand_back_keeps_its_end_fact_when_the_pass_ended_the_run_first(s):
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        hd.tick(s.ctx(F))
+        run = hd.runs()[0]
+        hook.bind(payload(run, "ag1", "SubagentStart", s.root))
+        hd.tick(s.ctx(F))                                                 # the bind is folded
+        with mock.patch.object(hook, "start_pass"):
+            hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=3, handback="run s1-1: handoff"))   # the fact, not yet folded
+        r = hd.runs(pending=False)[0]                                     # a pass that loaded before the fact ends the run on its moved step
+        r.update(ended=hd.now(), reason="waiting for the batch ahead")
+        hd.save_run(r)
+        r = hd.runs()[0]
+        s.assertEqual((r["reason"], r["last"], r["usage"]["turns"]), (None, "run s1-1: handoff", 3))   # its own hand-back stands: usage and last kept, a try
+
     def test_a_taskstop_ends_a_run_resumed_after_its_hand_back(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -1091,7 +1106,7 @@ class R2(Sandbox):
             return hd.runs()[0]
         r = race(lambda: hook.end_run(payload(run, "ag1", "SubagentStop", s.root, usage=2, handback="run s1-1: handoff")),
                  {"ended": hd.now(), "reason": "stopped"})
-        s.assertEqual((r["reason"], r.get("usage")), ("stopped", None))          # the stop wrote nothing over the pass's end
+        s.assertEqual((r["reason"], r["usage"]["turns"]), (None, 2))             # the hand-back folds over the pass's end: its own account stands
         r = race(lambda: hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=2, context=170000)), {"note": "pass"})
         s.assertEqual((r["note"], bool(r.get("handoff_told"))), ("pass", True))  # told, over the pass's write, not a stale copy
         r = race(lambda: hook.context_limit(payload(run, "ag1", "PostToolUse", s.root, usage=2, context=170000)), {"handoff_told": 1})

@@ -154,6 +154,8 @@ Builds are artefacts named by that key: a server image `or:<T>` (jar and game ca
 ship fast-forwards to the current batch tree).
 A server build holds its slug's `state/<slug>/build.lock` while it builds alone, never through the gate's rows (gate-ci's CI wait), so a rekeyed build or a dev's build waits on no gate.
 The game cache is keyed by the hash of its inputs (OpenRS2 cache id, pack configs, gamevals) in a named docker volume, which the build makes its own uid's before it runs (docker creates a volume root-owned).
+The game data of a revision (the download, keyed by game.example.yml's blob12, the gate's release asset key) is stored once in that volume: a build missing the cache restores it and repacks, never downloading openrs2 again for that revision.
+A hand-over's check rows get the build key as `T`, as the pass's build, so a dev's build is the pass's.
 The build copy is `<repo>/.worktrees/<slug>-build`, the dev's clone `<repo>/.worktrees/<slug>`, worktrees of the product repo;
 a track's `tools/` sit on its repo's `tools` branch (hd.yaml) in `<repo>/.worktrees/<the branch's last segment>`, made by the pass when missing.
 A product track script run from that checkout (or any other) first copies its `tools/` to `state/tools/<content hash>/tools` and execs itself there, exporting `TOOLS_ROOT` (the copy's parent, where `hd rows` runs a gate's rows) and `TOOLS_SRC` (the checkout): a ship fast-forwards the checkout, never a running build, gate, deploy or up;
@@ -282,6 +284,8 @@ each at the best priority of the open changes it blocks, by a dep or by the conf
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
+starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
+a deploy's key is its tree and the hash of every tools file, so a tools ship replaces a running deploy;
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
 stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes are still recorded;
@@ -358,7 +362,8 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
   `log` reads logcat by pattern since a marker
 - Server: script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`;
   the change's head unchanged), its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
-  its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent) on an actions/cache miss, never downloading openrs2's cache;
+  its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent, the first upload standing) on an actions/cache miss, never downloading openrs2's cache (no asset fails that step, the runner's, re-run once the asset is listed);
+  each step carries the job's timeout-minutes, so a timeout names the step that ran out;
   a run failed, cancelled or timed out at a step the head does not touch (the runner's setup, the cache's generation when the head changes no cache input) is re-run once its source answers, held after its third attempt
 - Central: `gradle test`, evidence files, commit subjects
 - Harness: tests;

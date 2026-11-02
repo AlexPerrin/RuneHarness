@@ -1327,7 +1327,7 @@ class Ctx:
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
         res, pf, rc = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json", STATE / slug / f"{name}.rc"
         newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
-        ok = st == "dead" and (newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none)
+        ok = st == "dead" and (not p.get("rc") or newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none); a record started with no exit status to read counts no strike
         c = cause(STATE / slug / f"{name}.log") if st == "dead" and not ok else ""
         if not p or st == "alive" or ok or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
             p = {}  # it ended with its result, the script was fixed after the last start, or new args whose death is not the last one's cause: the count starts over
@@ -1354,7 +1354,7 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), "cause": c or p.get("cause"), **({"room": need} if need else {})})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), "cause": c or p.get("cause"), "rc": True, **({"room": need} if need else {})})
 
 
 def cause(log):

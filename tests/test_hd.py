@@ -2472,6 +2472,9 @@ class R5(Sandbox):
             run(a)                                                                              # each killed: no exit status
         ctx.start("s1", "ship", ["sh", "C4"])
         s.assertEqual((len(F.spawned), sum("ship ended 3 times" in a for a in ctx.alerts)), (10, 1))   # a kill is a failure
+        hd.put("s1", "proc-ship", {**hd.rec("s1", "proc-ship"), "attempts": 3, "rc": None})       # sweep-70: a record started with no exit status to read
+        ctx.start("s1", "ship", ["sh", "C4"])
+        s.assertEqual((len(F.spawned), hd.rec("s1", "proc-ship")["attempts"]), (11, 1))         # counts no strike
 
     def test_spawn_writes_the_exit_status(s):
         log = s.root / "state" / "x" / "run.log"

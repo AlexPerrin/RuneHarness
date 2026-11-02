@@ -130,6 +130,7 @@ a live check reads the real state.
    a closed change lists no run and leaves T_int;
    a dependency in another repo's upstream PR holds its dependent until live, its card until merged upstream, and one of the same PR until gated;
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
+   a dependency a late answer or joined filing reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
    a fresh dev ref the base contains is neither live nor done until handed over;
    a done change's worktrees and local branches go in each repo, the dev ref last and still done, a branch no live branch holds stays unless the change is closed, remote refs are never touched, a failed removal is raised once;
    `hd` lists a spawn exactly while an agent step is unmet and no run is alive for its input, a step's input being what its run is given (a dev run due: the handed-over head, the contract, the hand-off), never a ref its own agent writes, so a change has at most one live run;

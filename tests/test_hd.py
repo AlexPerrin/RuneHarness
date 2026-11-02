@@ -370,6 +370,19 @@ class R2(Sandbox):
         with s.assertRaises(SystemExit):
             hd.cmd_close(["s1", "again"])
 
+    def test_a_reopened_dependency_holds_its_dependents(s):  # planner-24: a joined filing reopened h1 yet c1 ran with nothing to fix
+        s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness"); s.change("c1", "client", deps=["h1"])
+        D = Fake(refs={"HEAD": A, "harness/h1": A, "origin/HEAD": B, "origin/client/c1": ""}, trees={A: TA}, merges={(A, A): ("ok", A)})
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")             # h1 live and done: c1 goes on
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joins h1 after its done head
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")
+        s.assertEqual(s.state(D, "c1")["state"], "waiting on h1")                # its step reopened: met only once its dev acts on it
+        with mock.patch.object(hd, "Facts", lambda: D), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])
+        s.assertNotEqual(s.state(D, "c1")["state"], "waiting on h1")
+
     def test_fresh_dev_ref_in_the_base_is_not_done(s):
         s.change("h1", "harness"); s.change("c1", "client", deps=["h1"])
         F = Fake(refs={"HEAD": B, "harness/h1": A, "origin/HEAD": B, "origin/client/c1": ""}, anc={(B, A)}, line={A, B}, trees={A: TA})

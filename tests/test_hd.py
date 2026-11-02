@@ -983,6 +983,17 @@ class R2(Sandbox):
         alert("s1: ship ended 3 times without a result since 9999 (state/s1/ship.log)")   # it failed again: a new fact
         s.assertEqual(len(planners()), 2)
 
+    def test_a_failed_head_is_the_devs_before_a_regate(s):  # sweep-31 P2-c: a gate key moved under new tools spends no CI on a head its verdict failed
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        s.gated("s1", F)
+        s.verdict("s1", A, {"ok": "pass", "j1": "fail: no"}, F)
+        for name in ("build", "gate"):
+            hd.put("s1", name, {"T": "moved", "ok": True})                       # neither matches T's key now
+        st = s.state(F, "s1")
+        s.assertEqual((st["state"], st["actor"], st["detail"]), ("FAIL 1 rows: dev", "dev", "j1: fail: no"))
+        hd.tick(s.ctx(F)); s.assertEqual([x for x in F.spawned if x[1] in ("build", "gate")], [])
+
     def test_a_run_reads_its_change_once(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

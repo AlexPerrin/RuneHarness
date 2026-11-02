@@ -48,7 +48,10 @@ harness/          goals/, changes/ (definitions, committed); state/, evidence/ a
 tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and the process table
 ```
 
-- `hd`, by the orchestrator: prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards (each act the carry does and each exact text, the yes and no commands), questions, runs, goals, change facts (R7)
+- `hd`, by the orchestrator: prints spawns (`Agent(<role>, "Read and follow state/briefs/<run>.md")`), cards (each act the carry does and each exact text, the yes and no commands), questions, triage (each maintainer word not yet triaged), runs, goals, change facts (R7)
+
+- `hd triage <id> finding|ack`, by the orchestrator, its judgment of a maintainer's word: `state/triage/<id>.json` {verdict};
+  a finding joins or files the PR's round in the next pass, an acknowledgement never files or is answered, and closes a round filed from it alone with no hand-over (the orchestrator commits it) (R4)
 
 - `hd approve <slug> <head>`, by the user, as a `!` command in the orchestrator's window: at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts}
 
@@ -326,7 +329,7 @@ next(change):
     upstream merged;
     each maintainer word on the pr (an inline comment, a review's body, a conversation comment;
     no bot: GitHub's user.type Bot or performed_via_github_app, or hd.yaml's `bots`) that no definition's `finding` carries and no reply or comment of ours answers (a reply after it in its thread, or any comment of ours quoting it;
-    no date counts) joins the pr's one open round: its open change not yet carried (the tip, least slug), the id added to its `finding` and a judged answer row `finding <id> by <author>` to its contract, before the pass decides the changes' steps (a listed run takes it in a rewritten brief);
+    no date counts) and that the orchestrator triaged a finding (`hd triage`; one not yet triaged is a `triage` line of the view, an ack never files) joins the pr's one open round: its open change not yet carried (the tip, least slug), the id added to its `finding` and a judged answer row `finding <id> by <author>` to its contract, before the pass decides the changes' steps (a listed run takes it in a rewritten brief);
     with none open, a P1 change <track>-<pr>-c<id> on the pr with deps [the pr's tip changes] and the track's seed rows, derived.
     `hd new --pr <n>` on an upstream track joins that round the same way (an answer row `filed by`, its deps the round's)
   done

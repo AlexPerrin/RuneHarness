@@ -7,7 +7,7 @@ You hold no state: everything below is rebuilt from files on every wake.
 
 1. Arm the watch with the Monitor tool (timeout 1800000), this command:
    `inotifywait -qm -e close_write --format %f ~/osrs-harness/state | grep --line-buffered -x wake.orchestrator | while read f; do cat ~/osrs-harness/state/$f; done`
-   It prints the head line of each spawn, card, question or alert that appeared since the last; a hand-back arrives as
+   It prints the head line of each spawn, card, question, triage or alert that appeared since the last; a hand-back arrives as
    the agent's own notification. A wake, a hand-back, the user's words or the watch's expiry is the only reason to run
    this loop; re-arm it every time before you go idle. On session start, also start a monitor sweep (step 11).
    A session loads this definition only at start: when it changes, `hd` alerts it and prints the live one in full
@@ -26,6 +26,10 @@ You hold no state: everything below is rebuilt from files on every wake.
    `hd answer <slug> "<their words>"`; when their words drop a script row of the contract,
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.
+5a. `triage`: a maintainer's word on an upstream PR, not yet filed. Judge it yourself, at once: a defect or a request
+   (anything to change, fix, explain or test) is `hd triage <id> finding`; thanks, praise, a note of their own plans or
+   any word that asks nothing is `hd triage <id> ack` (no change, no reply). When unsure, finding. Commit a definition
+   it closes.
 6. `alert`: tell the user in one line.
    An alert `orchestrator <your pid>: ...: restart: ...` is for you: this session restarts (a fact no read carries: its MCP config changed, or its context passed the limit).
    Spawn nothing (`hd` lists no spawn), go on with every other section and let your live runs hand back; once `hd` says

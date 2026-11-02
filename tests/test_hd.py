@@ -4567,6 +4567,28 @@ class R3(Sandbox):
                     f"run {name}: handed over {A[:9]} Limits: limit:x1"):
             s.assertIn(f"run {name}: handed over {A[:9]} Limits: none", says(bad))
 
+    def test_a_verdict_hands_back_its_one_recorded_line(s):  # sweep-79 P2-a: qa16's caveat reached the orchestrator as prose beside PASS
+        s.change("s1"); s.agreed("s1")
+        F = Fake(**FACTS)
+        run = {"name": "s1-qa", "change": "s1", "role": "qa", "input": "", "listed": hd.now(), "started": hd.now(), "brief": str(s.root / "state" / "briefs" / "s1-qa.md")}
+        hd.save_run(run)
+        p = dict(payload(run, "aq1", "SubagentStop", s.root), hook_event_name="PreToolUse", tool_name="SubagentHandback")
+        def says(msg):
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+                hook.handover_line({**p, "tool_input": {"message": msg}})
+            return out.getvalue() and json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecisionReason"]
+        s.assertIn("`hd verdict` first", says("run s1-qa: PASS"))                 # no verdict recorded
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            s.verdict("s1", A, {"ok": "pass", "j1": "fail: wrong"}, F)
+        s.assertEqual(out.getvalue().splitlines()[-1], "run s1-qa: FAIL 1 rows")  # hd verdict prints the line to copy
+        s.assertEqual(says("run s1-qa: FAIL 1 rows"), "")
+        s.assertEqual(says("run s1-qa: handoff\nthe server is down"), "")       # no recorded result: free text
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
+        s.assertEqual(says("run s1-qa: PASS"), "")
+        for bad in ("run s1-qa: PASS\ncaveat: a4-rebuild not checked; the raft waits for MAP_BUILD_COMPLETE", "run s1-qa: FAIL 1 rows"):
+            s.assertIn("`run s1-qa: PASS`", says(bad))
+
     def test_a_filing_never_joins_a_change_held_on_a_question(s):  # sweep-38 P1-b: the pins fix joined the RSA change and waited on its question
         s.change("h1", track="harness", mechanism="carry"); hd.put("h1", "ask", {"text": "which key?"})
         hd.cmd_new(["x1", "--track", "harness", "--title", "assign reads the pins", "--mechanism", "carry"])

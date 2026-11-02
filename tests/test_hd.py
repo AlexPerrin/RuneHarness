@@ -1228,6 +1228,15 @@ class R4(Sandbox):
         sh = hd.rec("s1", "ship")
         s.assertEqual((sh["ok"], sh["fault"], g.did("run rerun")), (False, "head", [])); s.assertIn("Generate cache and gameval sources", sh["detail"])
         st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("dev", f"FAIL upstream at {A[:9]}: dev"))
+        ho = hd.rec("s1", "handover")
+        with mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):    # its dev hands the same head over: the cause is outside it, filed
+            hd.put("s1", "handover", {k: v for k, v in ho.items() if k != "ts"})
+        st = s.state(F, "s1"); s.assertEqual((st["actor"], st["state"]), ("script", "carrying upstream"))   # the upstream check runs again
+        F.f["ci"] = [b("failure"), b("success")]; g = GH()
+        with classify(1):                                                        # the step it vouched for is re-run, though the classifier reads it
+            s.ship(F, g)
+        s.assertEqual(len(g.did("run rerun")), 1); s.assertTrue(hd.rec("s1", "ship")["ok"])
+        hd.put("s1", "handover", ho); s.approve(F, "s1", A); F.f["ci"] = [b("failure")]
         hd.drop("s1", "ship")
         F.f["jobs"]["6"]["attempt"] = 3; g = GH()
         with classify(0), s.assertRaises(SystemExit):                            # outside the head at its 3rd attempt: the carry's result, no FAIL
@@ -1289,6 +1298,8 @@ class R4(Sandbox):
         s.assertNotIn(s.state(F, "s1")["actor"], ("qa", "dev"))                 # its run done: no dev, no review
         s.verdict("s1", A, {"ok": "fail: needs code", "j1": "pass"}, F)         # the QA run decides code is needed
         s.assertEqual(s.state(F, "s1")["actor"], "dev")
+        F.f["refs"]["fork/dev/s0"] = C; F.f["trees"][C] = TA; F.f["merges"][(B, C)] = ("ok", C); s.agreed("s0"); s.gated("s0", F)   # the PR tip moves while the dev fixes: still the dev's, no reply run
+        s.assertEqual(s.state(F, "s1")["state"], f"dev run due: head {C[:9]} not handed over")
 
     def test_an_update_with_a_finding_replaces_the_body_comments_every_commit_and_replies_only_the_answer(s):
         F = Fake(**{**FACTS, "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "G.kt", "line": 213, "body": "bank?"}]},

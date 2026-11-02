@@ -10,6 +10,8 @@ deps:
 - harness-mobile-login-by-facts
 - harness-server-stack-one-record
 - harness-live-http-mount
+- harness-desktop-relogin-js5
+- server-token-refusal-logged
 mechanism: server
 created: '2026-11-02T03:15:21Z'
 ---

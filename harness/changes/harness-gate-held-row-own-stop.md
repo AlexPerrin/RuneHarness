@@ -15,3 +15,6 @@ Sweep 58 P3-a: Ctx.start returns at once when Docker is down (hd.py:1267), for e
 
 Also (filed): A ship keeps a failed prefix's gate result at its key
 Sweep 59 P4-d: clearing kept gate records on ship drops a failing prefix's result, which is then gated again at the same key: a5d5cbc58 gated 15:01:52Z, cleared by the 15:04:45Z ship, re-gated 15:07:34Z (~1 min each). Evidence: evidence/monitor/sweep-59.md
+
+Also (filed): A batch member is blamed only on its own gate run, never a reused live-branch record
+Sweep 60 P3-b: a flaky R2 test failed in EndToEnd's nested suite at gate 6ed850fc6+53b837c778a7+54dc32cfb385 (15:21:49Z) and harness-server-stack-one-record was blamed and sent to a dev run (15:22:14Z) without a re-run: batch() took the live-branch record gate-8ec1867cf (ok) as the member's own key bk. The test passed at the top level of the same gate and in 42 reruns. Also sweep 60 P3-c: c291e74's kept() keeps every failed gate record forever and batch() treats a kept failure as final, so such a flake would stick to its tree across ships; bound the kept failures (e.g. only while their members are still at the gated heads, or for one ship). Evidence: evidence/monitor/sweep-60.md, state/ship-harness/tests.txt

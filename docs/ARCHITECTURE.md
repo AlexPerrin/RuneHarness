@@ -383,6 +383,8 @@ a server change's quest requirements in the mode its front matter `quest-mode` n
 a server up's game.yml has idle logout off (live keeps the image's), so a run's desktops stay logged in while its agent reads;
 each desktop of an up is kept logged in until `down`: a logout observed is logged in again, a failed login retried once the server is ready after it, never while the same server refuses it;
 a failed login that left the desktop logged in (no inventory) is logged out and tried again at once, a second such failure waiting like any other;
+a desktop's endpoint runs its up's tool calls one at a time in arrival order (the plugin interrupts the active call on each new one, and a run and its keeper both call), a cancel notification passing at once;
+a cancelled keeper call starts its login again, never read as the endpoint gone;
 `restart` logs the desktops out before the server restarts, and a failed step of `up` takes down what it started;
 a desktop login ends on a page Enter does not submit: Escape, Enter again, else the refusal named;
 a server up's database is fresh, or with `RESUME=1` the accounts as the change's last `down` saved them, down waiting until the server has saved every character;

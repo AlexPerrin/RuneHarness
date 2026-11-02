@@ -2510,7 +2510,7 @@ def _pass(ctx, act):
 
 ORCH = ".claude/agents/orchestrator.md"
 SUPERVISOR = "tools/orchestrator.sh"
-LOADED = (".claude/settings.json", ".mcp.json")  # a session reads these only at its start (mcp/serve.py carries every mcp/ change itself)
+LOADED = (".mcp.json",)  # a session reads it only at its start (.claude/settings.json hooks reload live; mcp/serve.py carries every mcp/ change itself)
 
 
 def held(F, pid, start):
@@ -2528,7 +2528,7 @@ def swap(ctx):
         f.name in {f"{p}-{st}" for p, st in sessions} or f.unlink(missing_ok=True)   # a session gone
     out = [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
            "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
-    for p, st in sessions:  # hooks and MCP servers no read carries: only a new session picks them up
+    for p, st in sessions:  # MCP servers no read carries: only a new session picks them up
         if old := [f for f in LOADED if (b := ctx.F.definition_at(st, f)) and b != ctx.F.blob(str(ROOT), "HEAD", f)]:
             out.append(f"user: orchestrator {p} started before {', '.join(old)} changed: restart it (end the session, then "
                        f"`{ROOT / SUPERVISOR}`) to pick up the live {', '.join(old)}")

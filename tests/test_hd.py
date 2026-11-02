@@ -303,15 +303,17 @@ class R2(Sandbox):
         settings = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
         s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "compact")
 
-    def test_a_shipped_settings_or_mcp_json_asks_the_user_to_restart_the_session(s):
+    def test_a_shipped_mcp_json_asks_the_user_to_restart_the_session(s):
         blobs = {("HEAD", ".mcp.json"): "new", ("HEAD", ".claude/settings.json"): "s"}
         F = Fake(**FACTS, blobs=blobs, started_on={("1", ".mcp.json"): "new", ("1", ".claude/settings.json"): "s"})
         s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # started on the live files: no alert
-        F.f["started_on"][("1", ".mcp.json")] = "old"
         F.f["started_on"][("1", ".claude/settings.json")] = "old"
+        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # settings.json hooks reload live: no alert
+        F.f["started_on"][("1", ".mcp.json")] = "old"
         a = [a for a in hd.tick(s.ctx(F))["alert"] if "restart it" in a]
         s.assertEqual(len(a), 1); s.assertTrue(a[0].startswith("user: orchestrator 7 "))      # one user alert per session
-        s.assertIn(".claude/settings.json, .mcp.json", a[0]); s.assertIn(hd.SUPERVISOR, a[0])  # naming what it would pick up
+        s.assertIn("before .mcp.json changed", a[0]); s.assertNotIn("settings.json", a[0])    # naming only what is stale
+        s.assertIn(hd.SUPERVISOR, a[0])
         F.f["started_on"] = {}
         s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # a start the reflog cannot reach: unknown, no alert
 

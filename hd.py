@@ -311,7 +311,7 @@ class Facts:
             f.unlink(missing_ok=True)
         if d.exists():
             d.rmdir()
-        shutil.rmtree(run_tmp(sl), ignore_errors=True)
+        rmtree(run_tmp(sl))
         return r
 
     def console(s):
@@ -857,6 +857,18 @@ def own_slice():
 def run_tmp(sl):
     """R5: the temp root of a slice's commands (hook.in_run_slice exports it as TMPDIR), removed with the slice."""
     return STATE / "tmp" / sl
+
+
+def rmtree(p):
+    """R5: a temp root goes whole: each dir in it (a read-only one a test left, its entries otherwise unremovable) made writable first, never through a link."""
+    for d, ds, _ in os.walk(p):
+        for q in (d, *(os.path.join(d, x) for x in ds)):
+            if not os.path.islink(q):
+                try:
+                    os.chmod(q, 0o700)
+                except OSError:
+                    pass
+    shutil.rmtree(p, ignore_errors=True)
 
 
 def cmd_ps(a):
@@ -2524,7 +2536,7 @@ def _pass(ctx, act):
                 event(**({"change": ended[sl]["change"], "run": ended[sl]["name"]} if sl in ended else {"slice": sl}), action="processes-ended")
         for d in Path(tempfile.gettempdir()).glob("hd-*"):   # R5: a suite's or test runner's temp root outside a run names its process (hd-<kind>-<pid>-*) and goes once it is dead, whatever ended it
             if (m := re.fullmatch(r"hd-[a-z]+-(\d+)-.+", d.name)) and ctx.F.proc_start(int(m[1])) is None:
-                shutil.rmtree(d, ignore_errors=True)
+                rmtree(d)
     view["alert"] += ctx.alerts
     plan(ctx, view, act)
     if q := quota():

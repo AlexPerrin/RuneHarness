@@ -2024,7 +2024,8 @@ class R5(Sandbox):
         unit = re.search(r"^unit='(.*?)'   #", (Path(__file__).parents[1] / "tools" / "track.sh").read_text(), re.M)[1]
         with tempfile.TemporaryDirectory() as t, tempfile.TemporaryDirectory() as src:
             Path(src, "test_wait.py").write_text("import pathlib, tempfile, time, unittest\nclass W(unittest.TestCase):\n    def test_w(s):\n"
-                                                 "        pathlib.Path(tempfile.mkdtemp(), 'f').write_text('x'); print(tempfile.gettempdir(), flush=True); time.sleep(600)\n")
+                                                 "        h = pathlib.Path(tempfile.mkdtemp(), 'held'); h.mkdir(); (h / 'f').write_text('x'); h.chmod(0o555)\n"   # sweep-55 P3-b: a read-only dir in it
+                                                 "        print(tempfile.gettempdir(), flush=True); time.sleep(600)\n")
             p = subprocess.Popen(["bash", "-c", 'exec python3 -c "$1" test_wait.py 3>/dev/null', "_", unit], cwd=src, env={**os.environ, "TMPDIR": t},
                                  stdout=subprocess.PIPE, text=True, start_new_session=True)
             s.assertTrue(p.stdout.readline().startswith(t))                    # the test runs, its temp dir under the runner's root
@@ -2049,6 +2050,7 @@ class R5(Sandbox):
         s.assertFalse(hd.run_tmp(hd.run_slice(a["name"])).exists()); s.assertTrue(hd.run_tmp(hd.run_slice(b["name"])).exists())   # sweep-48 P2-c: a run's temp dirs go with it
         F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 0}
         for n in ("hd-suite-1-x", "hd-run-2-y", "hd-run-z"): (Path(tempfile.gettempdir()) / n).mkdir()   # sweep-51 P3-a: a suite's or runner's temp root, its process dead or alive, and one naming none
+        (h := Path(tempfile.gettempdir()) / "hd-suite-1-x" / "run" / "held").mkdir(parents=True); (h / "f").touch(); h.chmod(0o555)   # sweep-55 P3-b: a read-only dir a test left in it
         hd.tick(s.ctx(F))
         s.assertEqual(sorted(p.name for p in Path(tempfile.gettempdir()).glob("hd-*-*")), ["hd-run-2-y", "hd-run-z"])
         for n in ("hd-run-2-y", "hd-run-z"): (Path(tempfile.gettempdir()) / n).rmdir()

@@ -26,7 +26,7 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
-unit='import atexit, os, shutil, signal, sys, tempfile, unittest; d = tempfile.tempdir = os.environ["TMPDIR"] = tempfile.mkdtemp(prefix=f"hd-run-{os.getpid()}-"); atexit.register(shutil.rmtree, d, True); signal.signal(signal.SIGTERM, lambda *a: (shutil.rmtree(d, True), os._exit(143))); unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3; every temp dir of its tests (and their processes) under one root it removes at its end and at its stop (SIGTERM: a stopped gate leaves none)
+unit='import atexit, os, signal, sys, tempfile, unittest; t = tempfile.TemporaryDirectory(prefix=f"hd-run-{os.getpid()}-", ignore_cleanup_errors=True); tempfile.tempdir = os.environ["TMPDIR"] = t.name; atexit.register(t.cleanup); signal.signal(signal.SIGTERM, lambda *a: (t.cleanup(), os._exit(143))); unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3; every temp dir of its tests (and their processes) under one root it removes at its end and at its stop (SIGTERM: a stopped gate leaves none), a read-only dir in it included
 summary() { python3 -c '
 import os, re, sys
 t = sys.stdin.read(); body, _, end = t.partition("\n" + "-" * 70 + "\nRan ")

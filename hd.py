@@ -2317,11 +2317,16 @@ def repairs(ctx, act):
 
 
 def runs_dep(ctx, ch, r, d):
-    """R6: a wait on d alone is still the started run's step: d was met when the run started (a run starts only on its
-    step, its deps held), so it only re-gates (a tools ship, its new head) while no dev or qa works on it, or it is a limit the run filed since it started
-    (`hd new --limit-of` its change), as it hands over after the filing. A dep filed since the start by another, or reopened (its step an agent's again: the base moves), ends it."""
+    """R6: a wait on d alone is still the started run's step. A dep the change held before the run started was met at its
+    start: it only re-gates (a tools ship, its new head) while its own step is no dev or qa run, and ends the run once
+    reopened to one (the base moves). A dep added since the start (its `dep` event) ends it unless it is a limit filed
+    against the change (`hd new --limit-of`), which the run hands over after the filing."""
     dep = ctx.changes.get(d)
-    return bool(dep) and (str(dep.get("created", "")) < r["started"] and nxt(ctx, dep)["actor"] not in ("dev", "qa") or ch["slug"] in (dep.get("limit-of") or []))
+    if not dep:
+        return False
+    if any(e.get("action") == "dep" and e.get("change") == ch["slug"] and e.get("dep") == d and e["ts"] >= r["started"] for e in evs(b'"action": "dep"')):
+        return ch["slug"] in (dep.get("limit-of") or [])
+    return nxt(ctx, dep)["actor"] not in ("dev", "qa")
 
 
 def produced(r):

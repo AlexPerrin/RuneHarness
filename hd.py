@@ -1174,6 +1174,7 @@ class Ctx:
         another key is outdated, stopped and replaced, as is the slug's other role alive under a key of another tree, unless
         it runs a row whose key still holds (env ROWKEYS): it finishes, its rows keep their results and the next one runs only the rest;
         one that ended three times on the same args and key without its result (a host fault, a held row, a crash) is raised once;
+        `since` is when its count last started over;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
@@ -1190,7 +1191,7 @@ class Ctx:
         if p.get("args") != args or p.get("key") != key or st == "alive" or newer(res) or newer(Path(args[0]).expanduser()):
             p = {}  # new args, the result landed, or the script was fixed after the last start: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 3:
-            a = f"{slug}: {name} ended 3 times without a result (state/{slug}/{name}.log)"
+            a = f"{slug}: {name} ended 3 times without a result since {p.get('since', 'an unrecorded start')} (state/{slug}/{name}.log)"  # each reset a new fact
             if a not in s.alerts:  # every gated server change reaches the one live ship: one alert
                 s.alerts.append(a)
             return
@@ -1208,7 +1209,7 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, **({"room": need} if need else {})})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), **({"room": need} if need else {})})
 
 
 def step(state, actor, **k):
@@ -2003,15 +2004,29 @@ def scope(graph, slug):
     return {mechanism(graph[k]) for k in seen}
 
 
+def trigger(a):
+    """A planner trigger's subject: the process log an alert names (state/<slug>/<name>.log), else its text (a gate
+    failure's names its change and T)."""
+    m = re.search(r"state/[^/\s()]+/[^/\s()]+\.log", a)
+    return m[0] if m else a
+
+
 def plan(ctx, view, act):
     """The planner run: cross-track planning and monitoring. Listed on significant facts only (never on time or an
     event count): an alert (a run ended without its record twice, a script died or cannot start, a ship that died), a gate
-    failure, a goal below target with nothing open. A trigger is left out while an open change's body carries it or once a
-    planner run handed back on it: it lists the planner again only when it changes (a gate failure at a new T, an alert
-    with a new count). A gate failure is its dev's to fix: it lists the planner only once a dev run handed back on that T
-    and no run of the change is alive."""
+    failure, a goal below target with nothing open. A trigger is its subject (trigger()), left out while an open change's
+    body names it or once a planner run handed back on it since its process's count last reset (start()'s `since`), so a
+    reworded or recounted alert of the same fault lists none. A gate failure is its dev's to fix: it lists the planner
+    only once a dev run handed back on that T and no run of the change is alive."""
     shut = shut_changes(ctx)
-    handled = {a for r in ctx.runs if r["role"] == "planner" and r.get("record") for a in json.loads(r.get("input") or "[]")}
+    ended = {}  # subject -> the last end of a planner run handed back on it
+    for r in ctx.runs:
+        if r["role"] == "planner" and r.get("record"):
+            for a in json.loads(r.get("input") or "[]"):
+                ended[trigger(a)] = max(ended.get(trigger(a), ""), r.get("ended") or "")
+    def handled(a):
+        m = re.fullmatch(r"state/([^/]+)/([^/]+)\.log", t := trigger(a))
+        return t in ended and ended[t] > ((m and rec(m[1], f"proc-{m[2]}") or {}).get("since") or "")
     carried = "\n".join(c.get("body", "") for c in ctx.changes.values() if c["slug"] not in shut)
     gates = []
     for c in view["change"]:
@@ -2021,7 +2036,7 @@ def plan(ctx, view, act):
                 r["change"] == slug and r["role"] == "dev" and r.get("record") and T in (r.get("input") or "") for r in ctx.runs):
             gates.append(f"{c} at {T[:9]}")
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
-                  if not a.startswith(("planner:", "user:")) and a not in handled and a not in carried})
+                  if not a.startswith(("planner:", "user:")) and not handled(a) and trigger(a) not in carried})
     if why:
         pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
         dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan", input=why), act)

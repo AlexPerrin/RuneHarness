@@ -147,6 +147,7 @@ a live check reads the real state.
    with no `claude --agent orchestrator` process the user is told to start it with `tools/orchestrator.sh`, and no planner is listed for it;
    an orchestrator process whose held orchestrator.md blob (the one its `hd` last printed it, else its start-time one: the live checkout's HEAD then, by its reflog) differs from HEAD's is alerted, its own `hd` prints the live file in full and records it held, and every other section (its spawns) prints as before;
    after a compaction the hook gives a session the live file again when it differs from its start-time one;
+   an orchestrator process whose start-time .claude/settings.json or .mcp.json (read only at a session's start) differs from HEAD's raises one user alert naming those files and asking for its restart through `tools/orchestrator.sh`;
    a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
 
 3. **R3** `tests.test_hd.R3`: a change without a contract lists the contract step and no dev;

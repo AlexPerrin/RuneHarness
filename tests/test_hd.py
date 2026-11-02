@@ -42,7 +42,7 @@ class Fake(hd.Facts):
     def host(s): return s.f.get("host", (64 * 2**30, 64))  # the host's MemTotal and nproc
     def tools_used(s): return s.f.get("tools_used", set())  # None in f = docker unreachable
     def orchestrators(s): return s.f.get("orchestrators", [(7, "1")])  # [] in f = no orchestrator session
-    def definition_at(s, start): return s.f.get("started_on", {}).get(start, "")  # the orchestrator.md blob a session started on
+    def definition_at(s, start, path=None): return s.f.get("started_on", {}).get(start if path is None else (start, path), "")  # the blob a session started on
     def release(s, repo, tag): return {"tag": tag} if tag in s.f.get("releases", ()) else {}
     def fetch(s, clone, remote, ref=""): ref and s.ran.append(["fetch", remote, ref]); return remote not in s.f.get("unknown", ())
     def rev(s, clone, ref):
@@ -302,6 +302,18 @@ class R2(Sandbox):
         s.assertIn("exec claude --agent orchestrator", (Path(__file__).parent.parent / hd.SUPERVISOR).read_text())
         settings = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
         s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "compact")
+
+    def test_a_shipped_settings_or_mcp_json_asks_the_user_to_restart_the_session(s):
+        blobs = {("HEAD", ".mcp.json"): "new", ("HEAD", ".claude/settings.json"): "s"}
+        F = Fake(**FACTS, blobs=blobs, started_on={("1", ".mcp.json"): "new", ("1", ".claude/settings.json"): "s"})
+        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # started on the live files: no alert
+        F.f["started_on"][("1", ".mcp.json")] = "old"
+        F.f["started_on"][("1", ".claude/settings.json")] = "old"
+        a = [a for a in hd.tick(s.ctx(F))["alert"] if "restart it" in a]
+        s.assertEqual(len(a), 1); s.assertTrue(a[0].startswith("user: orchestrator 7 "))      # one user alert per session
+        s.assertIn(".claude/settings.json, .mcp.json", a[0]); s.assertIn(hd.SUPERVISOR, a[0])  # naming what it would pick up
+        F.f["started_on"] = {}
+        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # a start the reflog cannot reach: unknown, no alert
 
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))

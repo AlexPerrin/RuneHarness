@@ -507,8 +507,8 @@ class Facts:
                 out.append((int(d.name), s.proc_start(int(d.name))))
         return out
 
-    def definition_at(s, start):
-        """R2: the orchestrator.md blob a session started at `start` (clock ticks since boot) loaded: the live checkout's
+    def definition_at(s, start, path=None):
+        """R2: the orchestrator.md (or `path`) blob a session started at `start` (clock ticks since boot) loaded: the live checkout's
         HEAD then, by its reflog; "" when the reflog does not reach back that far."""
         def f():
             try:
@@ -519,8 +519,8 @@ class Facts:
             r = s.sh(["git", "-C", str(ROOT), "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD"])
             at = next((h for h, d in (l.split(" ", 1) for l in (r[1] if r and r[0] == 0 else "").splitlines())
                        if int(d.rsplit("{", 1)[1].rstrip("}")) <= t), None)
-            return s.blob(str(ROOT), at, ORCH) if at else ""
-        return s._m(("definition_at", start), f)
+            return s.blob(str(ROOT), at, path or ORCH) if at else ""
+        return s._m(("definition_at", start, path), f)
 
 
 def _bot(c):
@@ -2486,6 +2486,7 @@ def _pass(ctx, act):
 
 ORCH = ".claude/agents/orchestrator.md"
 SUPERVISOR = "tools/orchestrator.sh"
+LOADED = (".claude/settings.json", ".mcp.json")  # a session reads these only at its start (mcp/serve.py carries every mcp/ change itself)
 
 
 def held(F, pid, start):
@@ -2501,8 +2502,13 @@ def swap(ctx):
     cur, sessions = ctx.F.blob(str(ROOT), "HEAD", ORCH), ctx.F.orchestrators()
     for f in (STATE / "orchestrator-read").glob("*") if (STATE / "orchestrator-read").exists() else ():
         f.name in {f"{p}-{st}" for p, st in sessions} or f.unlink(missing_ok=True)   # a session gone
-    return [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
-            "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
+    out = [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
+           "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
+    for p, st in sessions:  # hooks and MCP servers no read carries: only a new session picks them up
+        if old := [f for f in LOADED if (b := ctx.F.definition_at(st, f)) and b != ctx.F.blob(str(ROOT), "HEAD", f)]:
+            out.append(f"user: orchestrator {p} started before {', '.join(old)} changed: restart it (end the session, then "
+                       f"`{ROOT / SUPERVISOR}`) to pick up the live {', '.join(old)}")
+    return out
 
 
 def reread(F, force=False):

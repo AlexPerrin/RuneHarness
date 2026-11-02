@@ -1973,6 +1973,8 @@ class R5(Sandbox):
                 if "fetch" in args or "set-head" in args or args[:1] == ["gh"]:
                     net.append(args)
                 return super().sh(args, cwd, env, timeout)
+            def get(s_, url, etag=None):
+                net.append(url)
         F = Net(**FACTS)
         with mock.patch.dict(os.environ), mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
             hd.cmd_tick(["--dry-run"])
@@ -1980,6 +1982,26 @@ class R5(Sandbox):
         s.assertEqual(net, [])
         s.assertTrue(F.fetch("/c", "origin"))                                    # the env is the pass's alone: a real pass still fetches
         s.assertTrue(any("fetch" in a for a in net))
+
+    def test_a_pass_reads_refs_and_ancestry_once_per_clone_and_tip(s):
+        """A pass names every change's refs and asks a base of every change: one for-each-ref per clone and one rev-list per
+        tip answer them; git is asked only of a revision that is no plain name, or of a sha outside the tip's ancestors."""
+        repo = s.root / "real"; repo.mkdir()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q", "-b", "main")
+        for m in ("a", "b"): git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", m)
+        a, b = git("rev-parse", "HEAD~1"), git("rev-parse", "HEAD")
+        git("branch", "dev/x", a); git("-c", "user.name=t", "-c", "user.email=t@t", "tag", "-a", "-m", "t", "t/1", a); git("update-ref", "refs/remotes/o/HEAD", b)
+        spawns = []
+        class Count(hd.Facts):
+            def sh(s_, args, *k, **kw): spawns.append(args[3]); return super().sh(args, *k, **kw)
+        F, r = Count(), str(repo)
+        s.assertEqual([F.rev(r, n) for n in ("dev/x", "heads/main", "t/1", "o", "no/such")], [a, b, a, b, ""])   # git's own order; a tag peeled
+        s.assertEqual([F.rev(r, "HEAD"), F.rev(r, "dev/x~0"), F.rev(r, a[:7])], [b, a, a])               # anything else is git's
+        s.assertEqual(spawns, ["for-each-ref", "rev-parse", "rev-parse", "rev-parse"])
+        spawns.clear()
+        s.assertEqual([F.contains(r, b, a), F.contains(r, b, b), F.contains(r, a, b), F.contains(r, b, "f" * 40)], [True, True, False, None])
+        s.assertEqual(spawns, ["rev-list", "rev-list", "merge-base", "merge-base"])                   # outside the ancestors: git tells held from unknown
 
     def test_github_reads_are_conditional_shared_and_held_on_an_exhausted_quota(s):
         """Two passes and a gate over the same state: the first pass reads each GitHub resource once, the second only
@@ -1992,16 +2014,14 @@ class R5(Sandbox):
 
         class GitHub(Fake):  # the real GitHub reads of Facts, over a GitHub that answers 304 to a matching If-None-Match
             review_comments, pr_comments, open_prs = hd.Facts.review_comments, hd.Facts.pr_comments, hd.Facts.open_prs
-            def sh(s_, args, cwd=None, env=None, timeout=600):
-                if args[:2] != ["gh", "api"]:
-                    return super().sh(args, cwd, env, timeout)
-                url, tag = args[-1], f'"{hashlib.sha1(json.dumps(api[args[-1]]).encode()).hexdigest()}"'
-                calls.append((url, "If-None-Match: " + tag in args))
+            def get(s_, url, etag=None):
+                tag = f'"{hashlib.sha1(json.dumps(api[url]).encode()).hexdigest()}"'
+                calls.append((url, etag == tag))
                 if quota:
-                    return 1, f"HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: {quota['reset']}\n\n{{\"message\": \"API rate limit exceeded\"}}", ""
-                if "If-None-Match: " + tag in args:
-                    return 1, "HTTP/2.0 304 Not Modified\n\n", "gh: HTTP 304"
-                return 0, f"HTTP/2.0 200 OK\nEtag: {tag}\n\n{json.dumps(api[url])}", ""
+                    return 403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(quota["reset"])}, '{"message": "API rate limit exceeded"}'
+                if etag == tag:
+                    return 304, {}, ""
+                return 200, {"etag": tag}, json.dumps(api[url])
 
         F = Fake(**FACTS); s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)   # due upstream: the open PRs are read too
         hd.tick(s.ctx(GitHub(**FACTS)))                                         # pass 1: a dry pass and the pass under the lock

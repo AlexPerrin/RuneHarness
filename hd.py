@@ -4,7 +4,7 @@
 Commands: hd | new | show | tree | rows | handover | verdict | ask | answer | approve | close | stop | ship | tick [--dry-run].
 Every read of the world goes through Facts (tests replace it); every decision is nxt(ctx, change).
 """
-import fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, time, traceback
+import fcntl, hashlib, http.client, json, os, re, shutil, signal, subprocess, sys, tempfile, time, traceback
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
@@ -117,8 +117,17 @@ class Facts:
         return s._m(("fetch", clone, remote, ref), f)
 
     @_read
+    def refs(s, clone):
+        """R5: {refname: commit} of every ref of a clone (a tag peeled), one read per pass for every ref the pass names; None unknown."""
+        r = s.sh(["git", "-C", clone, "for-each-ref", "--format=%(refname) %(objectname) %(*objectname)"])
+        return None if r is None or r[0] else {l.split()[0]: l.split()[-1] for l in r[1].splitlines() if l.strip()}
+
+    @_read
     def rev(s, clone, ref):
-        """sha | '' (no such ref) | None (unknown)."""
+        """sha | '' (no such ref) | None (unknown). A ref name is looked up in the clone's refs, in git's own order;
+        anything else (a sha or its abbreviation, HEAD, a revision expression) is git's to resolve."""
+        if re.fullmatch(r"(?![0-9a-f]{4,40}$|[A-Z_]*HEAD$)[\w.-]+(/[\w.-]+)*", ref) and (m := s.refs(clone)) is not None:
+            return next((m[k] for k in (f"refs/{ref}", f"refs/tags/{ref}", f"refs/heads/{ref}", f"refs/remotes/{ref}", f"refs/remotes/{ref}/HEAD") if k in m), "")
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", ref + "^{commit}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
 
@@ -132,8 +141,12 @@ class Facts:
 
     @_read
     def contains(s, clone, tip, sha):
+        """R5: sha is tip or one of its ancestors; None unknown. The tip's ancestors are read once per pass (a base is asked
+        of every change); only a sha outside them is asked of git, which tells a commit not held from one not known."""
         if not tip or not sha:
             return None if tip is None else False
+        if sha in (s._m(("ancestors", clone, tip), lambda: (r := s.sh(["git", "-C", clone, "rev-list", tip, "--"])) and not r[0] and set(r[1].split())) or ()):
+            return True
         r = s.sh(["git", "-C", clone, "merge-base", "--is-ancestor", sha, tip])
         return None if r is None or r[0] > 1 else r[0] == 0
 
@@ -397,11 +410,7 @@ class Facts:
             return c and (c["code"], c["body"], c["next"])
         if quota():
             return None
-        r = s.sh(["gh", "api", "-i", *(["-H", f"If-None-Match: {c['etag']}"] if c and c.get("etag") else []), url], timeout=120)
-        head, _, body = (r[1] if r else "").replace("\r\n", "\n").partition("\n\n")
-        lines = head.splitlines()
-        code = int(lines[0].split()[1]) if lines and re.match(r"HTTP/\S+ \d{3}", lines[0]) else None
-        h = {k.strip().lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}
+        code, h, body = s.get(url, c and c.get("etag")) or (None, {}, "")
         if code == 304 and c:
             return c["code"], c["body"], c["next"]
         if code in (403, 429) and (h.get("x-ratelimit-remaining") == "0" or "rate limit" in body.lower()):
@@ -418,6 +427,25 @@ class Facts:
             return None
         _atomic(f, c)
         return c["code"], c["body"], c["next"]
+
+    def get(s, url, etag=None):
+        """R5: one GitHub GET over the process's one kept-alive connection, authorised by gh's token (read once):
+        (status, {header: value}, body) | None when GitHub cannot be reached. A process spawn per read was a pass's cost."""
+        tok = s._m(("token",), lambda: (r := s.sh(["gh", "auth", "token"])) and not r[0] and r[1].strip() or None)
+        if not tok:
+            return None
+        path = "/" + url.removeprefix("https://api.github.com").lstrip("/")
+        hd = {"Authorization": f"Bearer {tok}", "Accept": "application/vnd.github+json", "User-Agent": "hd", **({"If-None-Match": etag} if etag else {})}
+        while True:
+            reused, c = "conn" in s.__dict__, s.__dict__.setdefault("conn", http.client.HTTPSConnection("api.github.com", timeout=120))
+            try:
+                c.request("GET", path, headers=hd)
+                r = c.getresponse()
+                return r.status, {k.lower(): v for k, v in r.getheaders()}, r.read().decode()
+            except (OSError, http.client.HTTPException):
+                c.close(); del s.conn
+                if not reused:  # a kept-alive connection GitHub closed is opened again; a fresh one that fails is GitHub unreachable
+                    return None
 
     @_read
     def release(s, repo, tag):

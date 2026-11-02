@@ -132,6 +132,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd tick`, by the timer, the hook: one pass: a dry pass reads the world (git, GitHub, docker, each read once, memoised;
   a fetch another pass has in flight is waited on and its result taken;
   every GitHub read goes through state/gh, each page conditional on its ETag) outside the state lock;
+  a clone's refs are one for-each-ref and a tip's ancestors one rev-list per pass, so a ref named or a base asked of every change costs no process of its own;
+  GitHub is read over the process's one kept-alive HTTPS connection with gh's token, never a gh process per read;
   under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes;
   a pass whose hd.py a ship moved since its process loaded it acts nothing there and re-execs the live hd.py;
   builds, gates and ships start in their own systemd scopes;

@@ -24,7 +24,7 @@ planning across tracks belongs to a planner run listed by facts, and the orchest
 nothing depends on any session staying alive.
 
 ### R3 Contract (from P1 P2 P7 P11)
-What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added later joins it at its next head not carried upstream, one about the upstream PR only a change that opens one), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the hand-over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
+What ships is exactly what was checked and approved, against a contract written before the code: the track's seed rows (one added later joins it at its next head not carried upstream, one about the upstream PR only a change that opens one), the accuracy spec, the live upstream rules with their blob shas, the user's answers (one recorded after the brief of the run that handed over and the head's last verdict is the dev's before the head moves on, a done change reopened by it;
 a filing joined to the change is its scope, not the user's word: a head handed over before it is still gated and shipped, and the change reopens on top of it once done;
 a closed change takes none) and prior findings;
 a row is proved through the change's own tree, never through a change that depends on it.

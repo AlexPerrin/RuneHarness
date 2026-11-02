@@ -3307,6 +3307,22 @@ class R3(Sandbox):
             hd.cmd_handover(["h1", "Limits:", "none"])
         s.assertEqual(s.state(D, "h1")["state"], "done")
 
+    def test_a_filing_joined_during_the_run_is_late_for_its_handover(s):  # sweep-19 N10: lateness from the run's brief, not its hand-over
+        s.change("h1", track="harness", mechanism="hold"); s.agreed("h1", track="harness")
+        F = Fake(refs={"HEAD": B, "harness/h1": A}, trees={A: TA, B: TB}, merges={(B, A): ("ok", A)})
+        with mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):
+            hd.tick(s.ctx(F))
+        r = [r for r in hd.runs() if r["change"] == "h1"][0]
+        r.update(started="2000-01-01T00:00:00Z"); hd.save_run(r)               # the run reads its brief
+        hd.cmd_new(["p9", "--track", "harness", "--title", "hold drops a run", "--mechanism", "hold"])   # joined while it runs
+        s.assertNotIn("filed by p9", (s.root / "state" / "briefs" / f"{r['name']}.md").read_text())
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd, "now", lambda: "2999-01-01T00:00:00Z"):
+            hd.cmd_handover(["h1", "Limits:", "none"])                          # handed over after the join, without it
+        D = Fake(refs={"HEAD": A, "harness/h1": A}, trees={A: TA}, merges={(A, A): ("ok", A)})   # its head, done
+        s.assertEqual(hd.rec("h1", "handover")["given"], "2000-01-01T00:00:00Z")
+        s.assertEqual(s.state(D, "h1")["state"], "dev run due: a filing joined after the done head (answer-1)")
+        s.assertTrue(any(e.get("action") == "joined" and e.get("by") == "p9" for e in hd.evs(b'"action": "joined"')))   # a plain filing, not a limit
+
     def test_verdict_refused_when_row_missing(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

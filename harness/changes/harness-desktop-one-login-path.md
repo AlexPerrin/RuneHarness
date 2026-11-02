@@ -11,6 +11,7 @@ deps:
 - harness-desktop-devtools-jar
 - harness-qa-login-idle
 - harness-up-owns-its-instance
+- harness-keeper-after-failed
 mechanism: desktop
 created: '2026-11-01T23:59:46Z'
 limit-of:

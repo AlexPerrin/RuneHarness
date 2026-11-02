@@ -351,7 +351,7 @@ stop the processes of every ended run (its hand-back, `hd stop`, the pass's end)
 remove every temp root a suite or test runner made outside a run (`hd-<kind>-<pid>-*` in the temp dir, named by its process) once `<pid>` is dead, whatever ended it;
 a temp root is removed whole, each dir in it made writable first, so a read-only dir a test left in it never keeps it;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
-end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
+end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started whose own step is no dev or qa run (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;
 a listed, unspawned run whose change's `next` is a step of its role on a moved input (a joined row, a definition commit) takes that input, step and a rewritten brief under its name, so its spawn binds and no run is listed again;
 repair what is observed broken, once (a missing tools worktree, a repo without the noreply git identity);

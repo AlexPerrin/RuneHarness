@@ -2320,10 +2320,10 @@ def repairs(ctx, act):
 
 def runs_dep(ctx, ch, r, d):
     """R6: a wait on d alone is still the started run's step: d was met when the run started (a run starts only on its
-    step, its deps held), so it only re-gates (a tools ship, its new head), or it is a limit the run filed since it started
-    (`hd new --limit-of` its change), as it hands over after the filing. Only a dep filed since the start, by another, blocks it."""
+    step, its deps held), so it only re-gates (a tools ship, its new head) while no dev or qa works on it, or it is a limit the run filed since it started
+    (`hd new --limit-of` its change), as it hands over after the filing. A dep filed since the start by another, or reopened (its step an agent's again: the base moves), ends it."""
     dep = ctx.changes.get(d)
-    return bool(dep) and (str(dep.get("created", "")) < r["started"] or ch["slug"] in (dep.get("limit-of") or []))
+    return bool(dep) and (str(dep.get("created", "")) < r["started"] and nxt(ctx, dep)["actor"] not in ("dev", "qa") or ch["slug"] in (dep.get("limit-of") or []))
 
 
 def produced(r):

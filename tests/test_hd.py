@@ -606,11 +606,12 @@ class R2(Sandbox):
 
     def test_a_started_run_ends_when_its_change_starts_to_wait(s):  # sweep-37 P2-a: a run alive on 'waiting on <dep>'
         s.change("s1", priority="P1"); s.agreed("s1")
-        F = Fake(**FACTS)
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/d0": A}})
         hd.tick(s.ctx(F))
         hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})   # spawned and bound
-        s.change("d0", track="harness"); s.change("s1", priority="P1", deps=["d0"])   # a dep older than the run, met at its start, now re-gating
-        s.assertEqual(s.state(F, "s1")["state"], "waiting on d0")
+        s.change("d0", track="harness"); s.agreed("d0", "harness"); s.gated("d0", F)
+        s.change("s1", priority="P1", deps=["d0"])                                    # a dep older than the run, met at its start, now re-gating
+        s.assertEqual((s.state(F, "s1")["state"], s.state(F, "d0")["actor"] in ("dev", "qa")), ("waiting on d0", False))
         hd.tick(s.ctx(F))
         s.assertIsNone(hd.runs("s1-1")[0].get("reason"))                              # sweep answer-1: a re-gating met dep never ends dev work
         s.change("s1", priority="P1")
@@ -621,6 +622,20 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertTrue(hd.runs("s1-1")[0].get("reason", "").startswith("waiting on x"))   # any other wait ends it, whichever dep the step names
         s.assertTrue(hd.runs("s1-1")[0]["ended"])
+
+    def test_a_started_run_ends_when_its_met_dependency_reopens(s):  # sweep-56 P3-a: a run worked on while the dep it was built on went back to its dev
+        s.change("s1", priority="P1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/d0": A}})
+        hd.tick(s.ctx(F))
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        s.change("d0", track="harness"); s.agreed("d0", "harness"); s.gated("d0", F)
+        s.change("s1", priority="P1", deps=["d0"])                                    # met at its start, only re-gating: the run lives
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs("s1-1")[0].get("reason"))
+        hd.cmd_answer(["d0", "split it"])                                             # the user's late word reopens d0 to its dev
+        s.assertEqual(s.state(F, "d0")["actor"], "dev")
+        hd.tick(s.ctx(F))
+        s.assertEqual(hd.runs("s1-1")[0].get("reason"), "waiting on d0")             # the base moves: the run ends, its agent hands off
 
     def test_a_run_s_record_is_its_own_and_a_pass_end_settles_no_step(s):  # answer-2: the orchestrator's filing became three ended runs' record
         s.change("s1", priority="P1"); s.agreed("s1")

@@ -234,7 +234,7 @@ a live check reads the real state.
    a gate row whose files did not change keeps its result, and a gate running such a row finishes;
    a yes recorded then the orchestrator gone → the ship completes;
    a repair whose effect is not observed is not logged;
-   the same repair twice raises once;
+   the same repair twice raises once and is tried no more on what it acts on;
    a second `hd ask` on a change with an open question is refused, and an open question holds the change (no run, gate, ship or upstream step) until its answer;
    a fix a dev files with `hd new --blocks` holds the change with no question raised;
    a change waiting on a fix waits on the change that carries it: a dependency on a superseded change, or a `--blocks` filing joined into an open change, names that change;

@@ -2276,10 +2276,15 @@ def passing(ctx, goal):
     return sorted(out)
 
 
-def repair(ctx, slug, name, args, check, act):
-    """R5: a repair is recorded only when its effect is observed; one that recurs is raised once (on its second miss)."""
+def repair(ctx, slug, name, args, check, act, since=None):
+    """R5: a repair is recorded only when its effect is observed; one that recurs is raised once (on its second miss) and
+    tried no more on the same args and the same `since` (the stack it acts on), its count dropped once the effect is seen."""
     p = rec(slug, f"repair-{name}") or {"attempts": 0}
     if not act:
+        return
+    if p["attempts"] >= 2 and p.get("args") == args and p.get("since") == since:
+        if check():
+            drop(slug, f"repair-{name}")
         return
     ctx.F.sh(args, timeout=120)
     ctx.F.forget("containers")
@@ -2287,13 +2292,14 @@ def repair(ctx, slug, name, args, check, act):
         drop(slug, f"repair-{name}")
         event(change=slug, action=name)
     else:
-        put(slug, f"repair-{name}", {"attempts": p["attempts"] + 1, "args": args})
+        put(slug, f"repair-{name}", {"attempts": p["attempts"] + 1, "args": args, "since": since})
         if p["attempts"] + 1 == 2:
             ctx.alerts.append(f"{slug}: {name} had no effect twice ({' '.join(args)})")
 
 
 def repairs(ctx, act):
-    """R5: end the runs whose console is gone (their agents died with it); bring down a server no run uses; make a
+    """R5: end the runs whose console is gone (their agents died with it); bring down a stack no run uses (the script its
+    record names, a stopped one's containers removed by name); make a
     missing tools worktree; remove a copy under state/tools/ no process or container uses (a partial one once its writer's
     pid is gone); give a repo without the noreply identity that identity (its worktrees share it)."""
     for name, r in ctx.cfg["repos"].items():
@@ -2324,9 +2330,16 @@ def repairs(ctx, act):
         ctx.docker = False
         ctx.alerts.append("user: Docker Desktop is down (docker unreachable): no product track's script starts and no run that builds or tests is listed until it answers")
         return
-    for ch in ctx.changes.values():
-        if f"server-{ch['slug']}" in cs and not ctx.alive_run(ch):
-            repair(ctx, ch["slug"], "down", [ctx.script(ch), "down", ch["slug"]], lambda: f"server-{ch['slug']}" not in (ctx.F.containers() or {}), act)
+    for ch in ctx.changes.values():  # a stack no run uses: its record (state/<slug>/up.json, the up's) names its containers and the script that started it
+        slug, st = ch["slug"], rec(ch["slug"], "up") or {}
+        mine = [c for c in (st.get("containers") or f"server-{slug} http-{slug} token-{slug}").split() if c in cs]
+        if not mine and act:
+            drop(slug, "repair-down")   # the stack is gone, by whatever hand: a later one is tried afresh
+        if not mine or ctx.alive_run(ch):
+            continue
+        args = (["docker", "rm", "-f", *mine] if all(cs[c] in ("created", "exited", "dead") for c in mine)   # a stopped stack holds no character to save
+                else [st.get("script") or ctx.script(ch), "down", slug])
+        repair(ctx, slug, "down", args, lambda: not set(mine) & set(ctx.F.containers() or {}), act, st.get("started"))
 
 
 def runs_dep(ctx, ch, r, d):

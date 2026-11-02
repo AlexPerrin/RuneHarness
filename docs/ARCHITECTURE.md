@@ -99,6 +99,8 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd rows <slug> <T commit> <build copy>`, by a track script's gate: every `check:` row, then every `gate:` row (fork CI among them) only when every check passed, whatever the file's order, at the track root with `BUILD` set;
   exit 1 names the failures;
   a row exiting 75 is held (the step that failed reads nothing of the head: its source is down), and only held rows exit 75: the gate records no result and the pass starts it again;
+  a row ended by a signal is held the same way only when the harness sent it while the row ran: every stop of the pass (a script's, a slice's) first writes its time to state/stopped, which the row reads at its end;
+  any other end (the head's own crash) is its result;
   a build or a container check that fails for the host's cause, not the tree's (`hosted` in each server and Central tools/build/build.sh: 'cannot allocate memory', 'no space left' (a full disk), docker not answering, a container name a killed run left, exit 137 while the host's OOM killer logged a kill), exits 75 the same way, so it is never 'build failed: dev';
   a tree's own failure (a compile error, a failing test, its container's own --memory limit) records ok:false
 
@@ -198,7 +200,7 @@ a track's `tools/` sit on its repo's `tools` branch (hd.yaml) in `<repo>/.worktr
 A product track script run from that checkout (or any other) first copies its `tools/` to `state/tools/<content hash>/tools` and execs itself there, exporting `TOOLS_ROOT` (the copy's parent, where `hd rows` runs a gate's rows) and `TOOLS_SRC` (the checkout): a ship fast-forwards the checkout, never a running build, gate, deploy or up;
 the pass removes a copy no process names in its command line or cwd and no container mounts from.
 The harness gate runs its rows from the build copy at T (`TOOLS_ROOT`), so a change to a check is judged by that check;
-check-dry-run compares against the live checkout's plan (`LIVE`).
+check-dry-run compares against the live checkout's plan (`LIVE`), and fails when the candidate's pass exits non-zero or prints a traceback: a crash plans nothing, which is no pass.
 A harness change carries a fix to a tools branch on branch `harness/<slug>` of that repo: the hand-over records each such head (refused unless it descends from the tools branch or its tests fail, as check-tools runs them;
 once handed over, a head the branch moved past is rebased onto it by the pass in `<repo>/.worktrees/<slug>`, recorded in the hand-over and re-gated, a conflict being the dev's step), the head joins T's key (`<tree>+<head12>`), the gate runs the repo's `tools/**/test_*.py` at it in `<repo>/.worktrees/<slug>-build` with HOME and PATH alone (the gate's env is not theirs), ship fast-forwards the tools branch to it, and the change is live once the live branch and every such branch hold their heads.
 A done or closed change leaves nothing behind: the pass ends its runs (a started one with its record and an `ended` event, freeing its slot), then removes, in each repo, its clone, its build copy and any worktree on its local branches (`harness/<slug>`, `client/<slug>`, `dev/<slug>`;

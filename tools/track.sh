@@ -55,7 +55,8 @@ gate() {  # every check: and gate: row of the contracts of NAMES (the batch's ch
 }
 check_dry_run() {  # the candidate plans no public act main's pass does not (an upstream step changed by mistake acts within a minute); a dry-run reads GitHub from the passes' cache and git from the local refs alone (HD_OFFLINE), never the network
   live=${LIVE:-$repo}; mine=$(python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
-  theirs=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' | sort || true)
+  plan=$(HD_ROOT=$root python3 "$BUILD/hd.py" tick --dry-run 2>&1) && ! grep -q '^Traceback' <<< "$plan" || { echo "the candidate's pass fails:"; tail -c 2000 <<< "$plan"; exit 1; }   # a crash plans nothing: it must fail, never pass as no extra act
+  theirs=$(grep -E 'carrying upstream|publishing v' <<< "$plan" | sort || true)
   mine=$( (echo "$mine"; python3 "$live/hd.py" tick --dry-run | grep -E 'carrying upstream|publishing v' || true) | sort -u)  # main's plan before and after: a state change between the two runs (an approval) is no extra act
   extra=$(comm -13 <(echo "$mine") <(echo "$theirs")); [ -z "$extra" ] || { echo "plans a public act main does not: $extra"; exit 1; }
 }

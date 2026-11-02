@@ -26,7 +26,7 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
   [ -n "${T:-}" ] && [ -n "${TCOMMIT:-}" ] || { echo "refused: build is the loop's (T and TCOMMIT unset); a harness dev runs the unit tests in its worktree" >&2; exit 2; }
   wt=$(copy); record true build <<< "build copy $wt at $tc"
 }
-unit='import os, sys, unittest; unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3
+unit='import atexit, os, shutil, signal, sys, tempfile, unittest; d = tempfile.tempdir = os.environ["TMPDIR"] = tempfile.mkdtemp(prefix="hd-run-"); atexit.register(shutil.rmtree, d, True); signal.signal(signal.SIGTERM, lambda *a: (shutil.rmtree(d, True), os._exit(143))); unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3; every temp dir of its tests (and their processes) under one root it removes at its end and at its stop (SIGTERM: a stopped gate leaves none)
 summary() { grep -E '^(Ran |OK|FAILED|(FAIL|ERROR): [^ ]+ \()|refused: '; }   # unittest's verdict, each failing test and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
 check_tests() { (cd "$BUILD" && env -u ROWS python3 -c "$unit" discover -s tests 3>&1 >/dev/null 2>&1 | summary); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>

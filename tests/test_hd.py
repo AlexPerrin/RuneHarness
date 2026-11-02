@@ -4117,6 +4117,26 @@ class R3(Sandbox):
         s.assertEqual(F.ran, ["true"])
         s.assertEqual(hd.rec("s1", "handover")["head"], A)
 
+    def test_answer_ids_are_unique_after_a_rewrite_and_a_duplicate_fails(s):  # goblin-367: a rewrite dropped answer-1, the next answer was answer-2 again
+        s.change("s1"); s.agreed("s1", extra="- answer-2 | 2026-11-01T00:28:13Z the user: kept | note\n")
+        hd.cmd_answer(["s1", "a", "finding"])
+        s.assertEqual([r["id"] for r in hd.contract("s1")["rows"] if r["id"].startswith("answer-")], ["answer-2", "answer-3"])
+        s.assertEqual(hd.given_now("s1"), 3)
+        f = hd.EVID / "s1" / "contract.md"  # a contract already holding a duplicate answer: the later row is renumbered in the file
+        f.write_text(f.read_text() + "- answer-3 | 2026-11-02T03:55:58Z finding x by m on the PR: dup | note\n- answer-4 | 2026-11-02T07:52:05Z the user: next | note\n")
+        s.assertEqual([(r["id"], r["text"][-4:]) for r in hd.contract("s1")["rows"] if r["id"].startswith("answer-")],
+                      [("answer-2", "kept"), ("answer-3", "ding"), ("answer-5", " dup"), ("answer-4", "next")])
+        s.assertIn("- answer-5 | 2026-11-02T03:55:58Z finding x", f.read_text())
+        ho = {"head": A, "given": 4, "at": "2026-11-02T08:00:00Z", "ts": "2026-11-02T09:00:00Z"}  # a hand-over that held the duplicate: renumbered, it is not late
+        s.assertEqual(hd.late_answers("s1", ho, A), ([], []))
+        hd.cmd_answer(["s1", "b"])
+        s.assertEqual(hd.late_answers("s1", ho, A), (["answer-6"], []))
+        f.write_text(f.read_text() + "- dupx | one | check: true\n- dupx | two | check: true\n")  # any other duplicate id fails the hand-over
+        F = Fake(**FACTS, rows={"false # refused: row id dupx is not unique": (1, "nope")})
+        with mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
+            hd.cmd_handover(["s1", "Limits:", "none"])
+        s.assertIn("row dupx failed", str(e.exception))
+
     def test_handover_reads_pushed_ref_takes_no_sha(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)

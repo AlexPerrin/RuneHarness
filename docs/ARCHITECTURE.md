@@ -341,7 +341,7 @@ a deploy's key is its tree and the hash of the tools it runs (tools/track.sh, to
 a deploy alive is never stopped, a newer tree or tools ship included: the pass deploys the newest tree after its end (openrs2 serves no ranges, so a stopped download restarts from 0);
 write an event only when `next` differs from the last event;
 end the runs whose console is gone and remove what they own;
-stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every empty `hd-*.slice` no live run holds (a test's);
+stop the processes of every ended run (its hand-back, `hd stop`, the pass's end) whose slice is still active or whose Windows processes or temp root are still recorded, and every `hd-*.slice` no live run holds once its owner is gone: a test's `hd-t<pid>.slice` once `<pid>` is dead, any other once empty;
 drop a listed, unspawned run once its change's `next` is no longer that run's step;
 end a started run once its change's `next` is the other role's run (dev or qa) or a wait, but for a wait only on deps created before it started (met at its start, a re-gate) or limits it filed (`hd new --limit-of`): its agent's next calls are denied but reads, writes to evidence/<slug>/ and its hand-back;
 a run the pass ended neither settles its step nor counts toward the one retry (`unlistable`): only its own hand-back, the head's stop or its console's death does;

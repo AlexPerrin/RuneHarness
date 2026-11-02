@@ -205,7 +205,7 @@ a live check reads the real state.
    console gone → its runs end and their artefacts are removed in one pass;
    a tools ship never changes the tools a running track script reads (each runs from its copy, removed once nothing uses it);
    a run the orchestrator stops (TaskStop of its agent, one resumed after its hand-back too, or `hd stop`) ends and frees its slot, and a process the run started, reparented or not, is gone;
-   a run's Bash command, and one of an agent it spawned, runs in its slice with its temp files under the slice's temp root, and the pass stops an ended run's slice, the Windows processes a track script recorded under it and its temp root, and an empty slice no live run holds;
+   a run's Bash command, and one of an agent it spawned, runs in its slice with its temp files under the slice's temp root, and the pass stops an ended run's slice, the Windows processes a track script recorded under it and its temp root, and a slice no live run holds once its owner is gone (a test's once its process is dead, never while it lives);
    a run lists its own slice's processes (`hd ps`), so it finds and kills its own hung step;
    a run's TaskStop of its Bash command ends every process that command started;
    a failing test, a test suite and a gate, stopped or not, leave no temp dir behind;

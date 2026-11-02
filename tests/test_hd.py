@@ -637,6 +637,24 @@ class R2(Sandbox):
         hd.tick(s.ctx(F))
         s.assertEqual(hd.runs("s1-1")[0].get("reason"), "waiting on d0")             # the base moves: the run ends, its agent hands off
 
+    def test_a_limit_ends_a_started_run_only_when_met_at_its_start_and_reopened(s):  # answer-1: a limit filed during the run never ends it
+        s.change("s1", priority="P1"); s.agreed("s1")
+        F = Fake(**{**FACTS, "refs": {**FACTS["refs"], "HEAD": B, "harness/l0": A}})
+        hd.tick(s.ctx(F))
+        hd.save_run({**hd.runs("s1-1")[0], "started": hd.now(), "agent_id": "d1", "console_pid": 7, "console_start": "1"})
+        with mock.patch.object(hd, "now", lambda: "2000-01-01T00:00:00Z"):         # an earlier run of s1 filed limit l0, before this one started
+            hd.cmd_new(["l0", "--track", "harness", "--title", "an earlier limit", "--limit-of", "s1", "--mechanism", "runs"])
+        s.agreed("l0", "harness"); s.gated("l0", F)                                 # handed over and gated: it only re-gates
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs("s1-1")[0].get("reason"))
+        hd.cmd_new(["l1", "--track", "harness", "--title", "a limit this run found", "--limit-of", "s1", "--mechanism", "loop"])
+        hd.tick(s.ctx(F))
+        s.assertIsNone(hd.runs("s1-1")[0].get("reason"))                              # a limit filed since its start: it hands over after
+        hd.cmd_answer(["l0", "split it"])                                             # the user's late word reopens l0 to its dev
+        s.assertEqual(s.state(F, "l0")["actor"], "dev")
+        hd.tick(s.ctx(F))
+        s.assertEqual(hd.runs("s1-1")[0].get("reason"), "waiting on l0")             # met at its start, a limit or not: the base moves, the run ends
+
     def test_a_run_s_record_is_its_own_and_a_pass_end_settles_no_step(s):  # answer-2: the orchestrator's filing became three ended runs' record
         s.change("s1", priority="P1"); s.agreed("s1")
         F = Fake(**FACTS)

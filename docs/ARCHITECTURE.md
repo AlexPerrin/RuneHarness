@@ -95,6 +95,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   a fetch another pass has in flight is waited on and its result taken;
   every GitHub read goes through state/gh, each page conditional on its ETag) outside the state lock;
   under it the pass folds the hooks' facts into the run records, re-reads the state, decides and writes;
+  a pass whose hd.py a ship moved since its process loaded it acts nothing there and re-execs the live hd.py;
   builds, gates and ships start in their own systemd scopes
 
 ## Data
@@ -377,7 +378,7 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
   upstream after the yes
 - Central: live at its gate (dependent server builds include it);
   upstream to Central after the yes
-- Harness: under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree, push;
+- Harness: under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree under the state lock (never under an acting pass), push;
   any of them moved past its gated base: nothing moves, the next pass merges the batch again
 
 ```mermaid

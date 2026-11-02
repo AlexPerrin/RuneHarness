@@ -2487,7 +2487,13 @@ class R8(Sandbox):
         git("checkout", "-q", "--detach"); T1 = commit("T1"); git("checkout", "-q", "v8")
         (repo / "harness" / "changes").mkdir(parents=True); (repo / "harness" / "changes" / "new.md").write_text("an uncommitted definition")
         ship = lambda tc: subprocess.run([str(repo / "tools" / "track.sh"), "ship", "s1", tc], env={**os.environ, "HD_ROOT": str(s.root)}, capture_output=True, text=True)
-        r = ship(T1)
+        import fcntl, threading
+        (s.root / "state").mkdir(exist_ok=True); h = open(s.root / "state" / ".lock", "w"); fcntl.flock(h, fcntl.LOCK_EX)   # a pass acting
+        t = threading.Thread(target=lambda: setattr(t, "r", ship(T1))); t.start()
+        while t.is_alive() and len(subprocess.run(["fuser", str(s.root / "state" / ".lock")], capture_output=True, text=True).stdout.split()) < 2:
+            pass                                                                      # until the ship's flock holds the state lock open: it waits on it
+        s.assertNotEqual(git("rev-parse", "v8"), T1)                                  # the live branch never moves under an acting pass
+        h.close(); t.join(); r = t.r
         s.assertEqual((r.returncode, git("rev-parse", "v8"), git("ls-remote", "origin", "v8").split()[0]), (0, T1, T1), r.stdout + r.stderr)
         hd.put("s1", "gate-k", {"ok": True}); r = ship(T1)                            # a T that already landed: a no-op, its gates spent
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "gate-k")), (0, T1, None), r.stdout + r.stderr)
@@ -2497,6 +2503,16 @@ class R8(Sandbox):
         r = ship(T2)                                                                  # the live branch moved past T2's base
         s.assertEqual((r.returncode, git("rev-parse", "v8"), hd.rec("s1", "proc-ship")), (0, moved, None), r.stdout + r.stderr)   # untouched; ship starts afresh on the re-gated T
         shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_a_pass_whose_hd_py_a_ship_moved_acts_nothing(s):
+        s.change("s1"); s.agreed("s1")
+        code, hd.CODE = hd.CODE, b"the hd.py before the ship"
+        try:
+            s.assertIsNone(hd.tick(s.ctx(Fake(**FACTS))))                             # it loaded the old code: no run, build or ship from it
+        finally:
+            hd.CODE = code
+        s.assertEqual(hd.runs(), [])
+        hd.tick(s.ctx(Fake(**FACTS))); s.assertEqual([r["name"] for r in hd.runs()], ["s1-1"])   # the live code's pass acts
 
     def test_a_definition_commit_waits_for_the_ship_lock(s):
         import fcntl

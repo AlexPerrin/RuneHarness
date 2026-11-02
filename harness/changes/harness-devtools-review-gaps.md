@@ -17,3 +17,6 @@ quest-cooksassistant-6 hand-back: three review steps rested on code reading or a
 
 Also (filed): the permission classifier denies a qa run's own test-account game actions (continue_dialogue, ::invclear)
 genie-review-355-132 hand-back (qa, ~01:2xZ): the permission classifier blocked mcp__osrs-devtools-desktop__continue_dialogue and a '::invclear' chat command on its own run's desktop and server; it worked around by dropping spawned logs. A qa run playing its own instance needs these allowed in the committed .claude/settings.json (::empty stays forbidden on the tester account per CLAUDE.md; ::invclear on a run's own account is the cleanup). Evidence: evidence/genie-review-355/ingame-review-132/summary.txt
+
+Also (filed): R6 desktop-call bound test fails under parallel load
+harness-orchestrator-self-restart-1 saw R6.test_a_desktop_call_is_answered_within_its_bound_when_its_token_read_or_endpoint_hangs (0.3 s bound) fail once alongside other classes; passed on rerun and on v8. A bound that depends on host load is a time estimate: decide on an observable fact. Evidence: evidence/harness-orchestrator-self-restart/tests-R2-R5-R6.txt

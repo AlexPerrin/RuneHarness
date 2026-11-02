@@ -171,7 +171,10 @@ a live check reads the real state.
    `hd approve` records the yes locally only at the user step, bound to the head and the texts' digest, and new texts or a new head withdraw it;
    the carry runs only while the yes holds;
    a release card is published after the yes;
-   the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card), and on red CI stops with the PR as it is;
+   the carry pushes (no force), opens the draft or edits the open PR's differing title and body, waits for green CI only when it pushes, comments with the push summary naming every pushed commit, posts each finding's own reply (never the comment) in its thread (a conversation finding: a PR comment), quoting it and @ only its author, readies the PR and records its result, spending the yes (a record GitHub contradicts, the PR moved or back to draft, is not trusted: a new card);
+   a CI check failed in a step the head does not read (the gate's own classifier) is re-run once its source answers, never the head's;
+   every other stop records its result, the PR as it is: a failure the head causes (a CI step it reads) is the change's FAIL and its dev step, any other fault spends the yes and shows the card again with it;
+   only a read GitHub does not answer leaves no result: the pass reruns it;
    a PR the carry opened keeps the yes on a rerun;
    a PR already at the head, ready, with every reply posted, gets no card;
    a finding with no dev ref has its PR tip's head and no gate;

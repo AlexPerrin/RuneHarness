@@ -124,7 +124,7 @@ evidence/<slug>/               accuracy.md, pr-title.txt, pr-body.md, pr-comment
 state/<slug>/handover.json     {head, T, tools, given}         state/<slug>/gate.json      {T, ok, detail}
 state/<slug>/verdicts.jsonl    {head, contract, judged, rows{id: pass | fail: note | not-judged}, rules{file: blob}, run}   appended
 state/<slug>/ask.json          {text}   hold.json {head, held}: the user's no at a head
-state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
+state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names}
 state/runs/<name>.json         {role, change, step, input, brief, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
@@ -256,13 +256,16 @@ next(change):
       it wakes the orchestrator once per head and texts
   carry (`hd ship`, approved)
     release: gh release with the APK, notices and log.
-    Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones, CI green at head when it pushed or the PR is draft, the comment naming the head (once: its marker), each finding's reply in its thread (a conversation finding: a PR comment;
+    Upstream: push head to the PR's branch (no force), open the draft when none (opened.json at once, so a rerun updates it), else edit the title and body that differ from the live ones (REST PATCH: `gh pr edit` reads the retired Projects (classic)), CI green at head when it pushed or the PR is draft, the comment naming the head (once: its marker), each finding's reply in its thread (a conversation finding: a PR comment;
     quoting it, @ only its author;
     one of ours answering it: none), ready, the review requests read back (upstream's CODEOWNERS asks on ready);
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     Success: ship.json, approval.json removed (the yes is spent).
-    Failure: the reason in ship.log, the PR as it is;
-    the pass reruns it, a second death on the same args an alert
+    A failed check: its job's failing step asked of the track's `ci-step` (gate-ci's classifier); outside the head, `gh run rerun --failed` once its source answers (the classifier blocks until then), its old failure pending until GitHub lists the new attempt, up to the run's 3rd attempt.
+    Failure: ship.json ok false, the PR as it is;
+    fault head (a CI step the head reads, a reply naming others): the change's `FAIL upstream` dev step, the yes kept for the same head;
+    fault carry (any other: a GitHub write refused, a 3rd attempt outside the head): the yes spent, the card again naming what stopped it.
+    A GitHub read that fails: no result (carry held), the pass reruns it, a second death on the same args an alert
   batch (`hd.batch`: harness, and client code; a release is gated alone)
     every change of the track at this step, in hand-over order, merged onto the live branch (no per-change build or gate):
     a conflict with the branch → dev;
@@ -271,12 +274,12 @@ next(change):
     a member whose tools conflict with an earlier member's → wait for the next batch.
     Each prefix is a tree, its gate `state/ship-<track>/gate-<key>.json` (NAMES: its changes, each change's rows with its own env;
     a harness check of the tree alone runs once per gate);
-    the longest passing prefix ships (one ship moves every member of it) once the prefix one longer failed, or it is the whole batch;
+    the longest passing prefix ships (one ship moves every member of it), unless a failed prefix lies beyond the one longer (a member joining after its gate started waits for the next batch);
     a gate running on a prefix still current with no result holds, the state naming its key;
-    until then gate the whole batch, after a failure the prefix halfway between the longest passing and the shortest failing one, down to the first member alone, then the live branch with that member's rows:
+    with no passing prefix gate the whole batch, after a failure the prefix halfway between the longest passing and the shortest failing one, down to the first member alone, then the live branch with that member's rows:
     passing, the member's failure is its dev's and it leaves the batch;
     failing, an alert and the batch waits, no member blamed.
-    A ship runs under `state/ship.lock`, a T already on the live branch moves nothing;
+    A ship runs under `state/ship.lock`, a T already on the live branch moves only the carried tools branches not yet holding (and pushed at) their heads;
     it clears the kept gates but the one of the tree it shipped (`gate-<G>`)
   wait
     upstream merged;
@@ -409,7 +412,7 @@ a command that only quotes them (grep, echo, a heredoc body) runs.
   upstream after the yes
 - Central: live at its gate (dependent server builds include it);
   upstream to Central after the yes
-- Harness: under `state/ship.lock` (a T already on the live branch: nothing), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree under the state lock (never under an acting pass), push;
+- Harness: under `state/ship.lock` (a T already on the live branch: only the carried tools branches not yet at their heads), fast-forward each carried tools branch and push it to the remote of its repo's `name` (never upstream), then the live branch to the batch tree under the state lock (never under an acting pass), push;
   any of them moved past its gated base: nothing moves, the next pass merges the batch again
 
 ```mermaid

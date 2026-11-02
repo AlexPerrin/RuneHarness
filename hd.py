@@ -961,7 +961,7 @@ def evs(needle):
     return got
 
 
-WATCH = {"orchestrator": ("spawn", "card", "question", "alert", "restart")}
+WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
 
 
 def wake(view):
@@ -2438,7 +2438,7 @@ def tick(ctx=None, act=True):
 
 
 def _pass(ctx, act):
-    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": [], "restart": []}
+    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
     repairs(ctx, act)
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
     per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
@@ -2545,9 +2545,9 @@ def _pass(ctx, act):
     if not ctx.F.orchestrators():
         view["alert"].append(f"user: no orchestrator session: start it with `{ROOT / SUPERVISOR}`")
     view["alert"] += swap(ctx)
-    view["restart"] = restarts(ctx)
+    view["alert"] += (restart := restarts(ctx))
     for r in ctx.runs:
-        if not r.get("ended") and not (view["restart"] and not r.get("started")):   # a restarting session spawns nothing: its successor does
+        if not r.get("ended") and not (restart and not r.get("started")):   # a restarting session spawns nothing: its successor does
             (view["spawn"] if not r.get("started") else view["run"]).append(
                 f"{r['name']}: Agent(subagent_type=\"{r['role']}\", prompt=\"Read and follow {r['brief']}\")" if not r.get("started")
                 else f"{r['name']} ({r['role']}, {r['change']}) since {r['started']}")
@@ -2560,6 +2560,7 @@ ORCH = ".claude/agents/orchestrator.md"
 SUPERVISOR = "tools/orchestrator.sh"
 LOADED = (".mcp.json",)  # a session reads it only at its start (.claude/settings.json hooks reload live; mcp/serve.py carries every mcp/ change itself)
 HANDOFF = "orchestrator-handoff.md"   # in state/: what a restarting session leaves its successor; the SessionStart hook gives it and deletes it
+STARTED, RESTARTING = "orchestrator-started", "orchestrator-restarting"   # in state/: the facts SUPERVISOR starts the next session on
 
 
 def held(F, pid, start):
@@ -2608,6 +2609,7 @@ def cmd_restart(a):
         sys.exit(f"hd restart: these runs die with this session: let them hand back first: {', '.join(live)}")
     if not (STATE / HANDOFF).exists():
         sys.exit(f"hd restart: write {STATE / HANDOFF} first (the open questions, unanswered cards, unrecorded words): the next session is given it")
+    write(STATE / RESTARTING, f"{pid}\n")   # SUPERVISOR's fact: this end is a restart, never the user's exit
     event(action="orchestrator-restart", pid=pid)
     os.kill(pid, signal.SIGTERM)
 

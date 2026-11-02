@@ -27,7 +27,7 @@ You hold no state: everything below is rebuilt from files on every wake.
    `hd answer <slug> --waive <row> "<their words>"`. When their word closes the change as done, they type
    `! python3 ~/osrs-harness/hd.py close <slug> "<their words>"`; then commit the definition.
 6. `alert`: tell the user in one line.
-   `restart`: this session restarts (a fact no read carries: its MCP config changed, or its context passed the limit).
+   An alert `orchestrator <your pid>: ...: restart: ...` is for you: this session restarts (a fact no read carries: its MCP config changed, or its context passed the limit).
    Spawn nothing (`hd` lists no spawn), go on with every other section and let your live runs hand back; once `hd` says
    none is live: TaskStop the monitor sweep, write state/orchestrator-handoff.md with everything only you hold (each
    question you asked the user in text and still wait on, each card shown and not answered, the user's words not yet

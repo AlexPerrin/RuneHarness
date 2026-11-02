@@ -40,7 +40,8 @@ SubagentStop    record usage and last message; the stop after SubagentHandback a
                 lists as its restart (hd.restarts), told once.                                                            R2
 SessionStart    after a compaction of an orchestrator session acting on a reread definition, the live one is its context
                 again (hd.reread): the compaction keeps only the one it started on. A new orchestrator session is given
-                state/orchestrator-handoff.md, its restarted predecessor's, which is then deleted.                        R2
+                state/orchestrator-handoff.md, its restarted predecessor's, which is then deleted; its start writes
+                state/orchestrator-started, tools/orchestrator.sh's fact that it ran.                                      R2
 An agent a run spawned (its meta file names a parentAgentId: a reader, a fork) is part of that run: only the deny rules
 and the run's slice apply to it, and it stops (continue: false) at its next tool call once that run has ended (the
 slice's stop ends the command it waits on, so that call returns at once). A `reader`'s Bash command
@@ -630,6 +631,8 @@ def reread(p):
     its restarted predecessor left (hd.HANDOFF), which goes once given."""
     F = hd.Facts()
     out = [f"Your definition is the live {hd.ORCH}, which replaces the one you started on:\n{t}"] if (t := hd.reread(F, force=True)) else []
+    if F.console() in F.orchestrators() and p.get("source") == "startup":
+        hd.write(hd.STATE / hd.STARTED, f"{F.console()[0]}\n")   # the supervisor's fact: this session started, so a crash of it is relaunched
     if F.console() in F.orchestrators() and (h := hd.STATE / hd.HANDOFF).exists():
         out.append(f"Your predecessor restarted and left you this hand-off: act on it first.\n{h.read_text()}")
         h.unlink()

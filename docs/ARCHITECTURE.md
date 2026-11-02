@@ -368,10 +368,11 @@ It loads its definition only at start, so a shipped one reaches it by being read
 its own `hd` (`reread`) prints it the live file in full after its sections and records that blob held, so it acts on it from then on while its runs and spawns go on: no session ends for a definition;
 a compaction keeps only the start-time definition, so the SessionStart hook (compact) gives the session the live file again when the two differ;
 MCP servers load only at a session's start (.claude/settings.json hooks reload live), so `restarts` compares each session's start-time `LOADED` blob (.mcp.json) with HEAD's, and reads the hook's `state/orchestrator-restart/<pid>-<start>` (written once when the session's own context passes `context_limit`);
-either lists a `restart` section line for that session (a wake line too), and no spawn line while one is listed: its live runs (those bound to its process) die with it, so it lets them hand back;
-once none is live it stops the monitor sweep, writes `state/orchestrator-handoff.md` (what only it holds: questions asked in text, cards shown, unrecorded words) and runs `hd restart`, which refuses while a run of it is live or the file is missing and then SIGTERMs its own `claude` process;
-`tools/orchestrator.sh` loops: it starts the next session whenever one ends, unless the user ended it (a clean exit with no hand-off file);
-the SessionStart hook (startup) gives a new orchestrator session the hand-off file as its context and deletes it;
+either lists an alert line naming that session's restart, and no spawn line while one is listed: its live runs (those bound to its process) die with it, so it lets them hand back;
+once none is live it stops the monitor sweep, writes `state/orchestrator-handoff.md` (what only it holds: questions asked in text, cards shown, unrecorded words) and runs `hd restart`, which refuses while a run of it is live or the file is missing and then writes `state/orchestrator-restarting` and SIGTERMs its own `claude` process (which exits 143);
+`tools/orchestrator.sh` loops on two facts it clears before each start: it starts the next session after `state/orchestrator-restarting`, or after a non-zero exit of a session whose start wrote `state/orchestrator-started` (the SessionStart hook);
+it stops on the user's exit (/exit and a double Ctrl-C exit 0) and on a claude that fails before its start;
+the SessionStart hook (startup) gives a new orchestrator session the hand-off file as its context and deletes it, so a user's exit leaves it to the next session they start;
 an mcp/ file needs none, serve.py carries it;
 a gone session's read record is dropped by the pass.
 `hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists, naming `tools/orchestrator.sh`.

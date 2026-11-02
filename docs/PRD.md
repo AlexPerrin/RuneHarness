@@ -150,9 +150,9 @@ a live check reads the real state.
    an orchestrator process whose held orchestrator.md blob (the one its `hd` last printed it, else its start-time one: the live checkout's HEAD then, by its reflog) differs from HEAD's is alerted, its own `hd` prints the live file in full and records it held, and every other section (its spawns) prints as before;
    after a compaction the hook gives a session the live file again when it differs from its start-time one;
    an orchestrator process whose start-time .mcp.json (read only at a session's start;
-   .claude/settings.json hooks reload live) differs from HEAD's, or whose context passed the context limit, is listed its restart: no spawn is listed while it lasts, and its runs hand back;
+   .claude/settings.json hooks reload live) differs from HEAD's, or whose context passed the context limit, is alerted its restart: no spawn is listed while it lasts, and its runs hand back;
    `hd restart` ends the orchestrator session it runs in only once no run of it is live and state/orchestrator-handoff.md is written;
-   `tools/orchestrator.sh` starts the next session whenever one ends, until the user ends one (a clean exit with no hand-off left);
+   `tools/orchestrator.sh` starts the next session when one ends by `hd restart` or crashes after its start, and stops on the user's exit and on a claude that fails at its start;
    a new orchestrator session is given that hand-off at its start, and the file goes;
    a pass rewrites `state/wake.orchestrator` only when a spawn, card, question or alert line appears, a repeated line not waking it.
 

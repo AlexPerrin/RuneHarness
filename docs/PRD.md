@@ -232,10 +232,13 @@ a live check reads the real state.
    a change `hd new` makes wait keeps no listed, unspawned run;
    a `reader`'s Bash command that writes is denied;
    a dead ship process → rerun;
-   a deploy alive runs to its end, whatever tree or tools ship arrives;
+   a deploy alive under an outdated key builds to its end, whatever tree or tools ship arrives, and is stopped and replaced once its build landed;
+   a deploy never waits on a game server it did not start;
    the test server is deployed anew when its deploy key (the integration tree and the deploy tools) differs from the one its live record names, a tools fix of what the image carries with no tree change included;
+   the test server is deployed anew while a container its live record names is not running (a host restart);
    a script ended 3 times on the same args without a result → raised once, a new args or a landed result restarts the count;
    that alert quotes the last failure lines of the script's log, so its cause reads without opening the log;
+   a script ended 3 times on the same cause (the last line it logged, hashes dropped) without a result → raised once, whatever args or key each ran under;
    a build or container check failing for the host's cause (memory, disk, docker, a killed run's container) exits 75, records no result and is run again, never the head's FAIL;
    the builds and container steps alive at once hold at most the host's MemTotal and nproc, a dev's own build counted: a tools ship moving 12 build keys starts 3 builds of 5g/4 CPUs on 19.5 GB/16 CPUs, the next on one's end;
    a build or gate alive under a key no longer current is stopped and the current one started, the proc record naming the key of the process holding it, a carry never stopped, and a batch gate on a prefix still current holds while members arrive;

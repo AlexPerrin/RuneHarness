@@ -2450,6 +2450,18 @@ class R5(Sandbox):
         s.assertTrue(a.endswith("(state/s1/ship.log): Error response from daemon: not a directory / ship of T1 failed: up (exit 1)"), a)
         s.assertEqual(hd.trigger(a), "state/s1/ship.log")                       # the quote leaves the planner's subject as it was
 
+    def test_a_fault_of_no_key_is_counted_across_keys(s):  # sweep-66 P1-b: every newly gated server change moved the live ship's key, so its count of 30 http mount failures never reached 3
+        F = Fake(**FACTS)
+        ctx, log = s.ctx(F), hd.STATE / "s1" / "ship.log"
+        for k in ("K1", "K2", "K3"):
+            ctx.start("s1", "ship", ["sh", k], key=k)
+            with open(log, "a") as f: f.write(f"ship of {k.lower()}aaaaaaa failed: compose up (exit 1)\n")   # the same step fails under each key
+        ctx.start("s1", "ship", ["sh", "K4"], key="K4")
+        s.assertEqual(len(F.spawned), 3); s.assertTrue(any("ship ended 3 times" in a for a in ctx.alerts))   # raised once, not rerun
+        with open(log, "a") as f: f.write("ship of k4aaaaaaa failed: boot (exit 5)\n")
+        ctx.start("s1", "ship", ["sh", "K5"], key="K5")                        # another cause under a new key: counted afresh
+        s.assertEqual((len(F.spawned), hd.rec("s1", "proc-ship")["attempts"]), (4, 1))
+
     def test_yes_then_console_gone_still_ships(s):
         s.change("s1"); s.agreed("s1")
         F = Fake(**FACTS)
@@ -3762,6 +3774,9 @@ class R8(Sandbox):
         F.f["trees"][R] = "tz" * 20                                                  # sweep-26 P0-a: a newer tree mid-deploy (its 213 MB download at 47%)
         v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"])), ([], 1))   # it runs to its end
         s.assertIn("test server: a deploy runs, then tztztztzt", v["change"][0])
+        hd.put("integration", "build", {"T": F.envs[-1]["KEY"][:40], "ok": True})   # sweep-67 P0-a: its build landed and it hung in ready: stopped, the new tree deployed
+        v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"]), F.envs[-1]["T"]), ([4242], 2, "tz" * 20))
+        hd.drop("integration", "build")
         F.f["trees"][R] = "tr" * 20
         s.live(F, {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
@@ -3788,6 +3803,17 @@ class R8(Sandbox):
         del F.f["unknown"]
         hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 3)                          # the ship's tools moved at the same tree: live is deployed anew
         s.assertNotEqual(ships()[-1]["KEY"], k); s.assertEqual(ships()[-1]["T"], "tr" * 20)
+
+    def test_a_live_container_a_host_restart_stopped_deploys_live_again(s):  # harness-live-http-mount: osrs-openrune-http exited with its file mount after a WSL restart, live's key unchanged
+        F, R = s.integration_fixture(with_ref=True)
+        ships = lambda: [a for a in F.spawned if a[1] == "ship"]
+        live = {"tree": "tr" * 20, "commit": R, "heads": [], "names": ["local/x"], "containers": ["osrs-openrune", "osrs-openrune-http"]}
+        F.f["containers"] = {"osrs-openrune": "running", "osrs-openrune-http": "running"}
+        s.live(F, live); hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 0)       # every container running under its key: nothing to deploy
+        F.f["containers"]["osrs-openrune-http"] = "exited"
+        F.f["containers"] = None; hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 0)  # docker unreadable: no deploy on a guess
+        F.f["containers"] = {"osrs-openrune": "running", "osrs-openrune-http": "exited"}
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 1)                          # one exited: deployed again, which recreates it
 
     def test_a_resolution_follows_the_head_while_it_merges(s):  # server-token-auth: a comment-only head move dropped local/merge/113f93a-a8cae09
         F, R = s.integration_fixture(with_ref=True)

@@ -3182,6 +3182,18 @@ class R6(Sandbox):
         s.assertIn("done: half; next: the rest", open(hd.runs()[1]["brief"]).read())
         s.assertIn(f"its work in progress: {A}", open(hd.runs()[1]["brief"]).read())   # the brief names the commit
 
+    def test_a_judge_at_the_context_limit_stops_its_stack_before_its_verdict(s):   # sweep-68 P4-a: a verdict ends the run, cutting its down
+        s.change("s1")
+        import io, contextlib
+        out = io.StringIO()
+        with mock.patch.object(hook, "is_run", return_value=True), \
+             mock.patch.object(hook, "find_run", return_value={"name": "s1-qa-1", "change": "s1", "role": "qa"}), \
+             mock.patch.object(hook, "context_of", return_value=170000), mock.patch.object(hook, "agent_transcript"), \
+             contextlib.redirect_stdout(out):
+            hook.context_limit({})
+        told = out.getvalue()
+        s.assertTrue(told.index("`down s1`") < told.index("`hd verdict`") < told.index("write evidence/s1/handoff.md"))
+
     def test_idle_desktops_are_told_once_until_played_again(s):
         s.change("s1"); s.agreed("s1")
         hd.tick(s.ctx(Fake(**FACTS)))

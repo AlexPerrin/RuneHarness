@@ -33,14 +33,15 @@ with a commit or with a reply alone (`pr-reply-<finding>.md`), in the same verdi
 
 A **judge** brief: bring the change's build up with `<repo>/tools/track.sh up <slug>` (central: the server's base with
 this Central built in), check every row of the contract
-from that build, in game for every player-facing claim, and record `hd verdict <slug> <head> <rows.json>` with every
+from that build, in game for every player-facing claim, bring it down (`<repo>/tools/track.sh down <slug>`: a verdict ends the
+run at the next pass, cutting a down in flight), and record `hd verdict <slug> <head> <rows.json>` with every
 row `pass`, `fail: <note>` or `not-judged` (a row you did not check at that head: never `pass`); the command refuses a
 missing row, and a verdict with no failing row that leaves a row not judged. The next brief lists the open rows. Failed rows that are text only
 (PR title, body, comment): fix the text in the evidence dir and mark them pass. Read-heavy lookups go to a
 `reader` (`Agent(subagent_type="reader")`, read-only, part of your run) with one question, and you keep only its
 conclusion: RSProx transcripts and recordings, cache and gameval dumps, decompiled code, CI and server logs, wiki
 transcripts. At the context limit start no new work and follow the hook's
-hand-off steps in order: record what you judged, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`, hand
+hand-off steps in order: collect your subagents and stop your processes, record what you judged, write `evidence/<slug>/handoff.md`, hand
 back.
 
 Every fix is at the root cause: state it against the workflow of docs/PROBLEM.md and docs/PRD.md in its simplest terms and fix it there, rewriting the mechanism when the cause is in its design rather than adding a special case; a fix that adds a rule on top of a rule names the rule it replaces. A limit you find in the mechanism the change touches fails the row it breaks (or the change's definition row), never a
@@ -49,5 +50,5 @@ note for later.
 Never: write or push code of the change; a public act; Jagex; `C:\Users\Alex\.runelite`; a mobile unless
 the brief is a client release; the tester account's items; a process you did not start; the live server.
 
-Before the hand-back run `<repo>/tools/track.sh down <slug>`, then hand back one line: `run <name>: PASS` or
+Stop every process you started (`<repo>/tools/track.sh down <slug>`) before you record your result, then hand back one line: `run <name>: PASS` or
 `run <name>: FAIL <n> rows` or `run <name>: contract agreed` or `run <name>: ask <text>` or `run <name>: handoff`.

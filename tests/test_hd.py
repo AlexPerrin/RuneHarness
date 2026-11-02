@@ -1197,6 +1197,22 @@ class R2(Sandbox):
         alert("s1: ship ended 3 times without a result since 9999 (state/s1/ship.log)")   # it failed again: a new fact
         s.assertEqual(len(planners()), 2)
 
+    def test_an_unspawned_planner_run_follows_its_triggers(s):  # planner-32: listed on an alert an open change then named, spawned with nothing to file
+        F = Fake(**FACTS)
+        planners = lambda: [r for r in hd.runs() if r["role"] == "planner"]
+        def alert(*a):
+            hd.plan(s.ctx(F), {"change": [], "alert": list(a), "goal": []}, True)
+        a, b = "s1: ship ended 3 times without a result (state/s1/ship.log)", "s2: dependency lost has no definition"
+        alert(a, b)
+        p = planners()[0]
+        s.change("h1", track="harness", body="fix state/s1/ship.log")         # one trigger carried: relisted on the other
+        alert(a, b)
+        p = planners()[0]
+        s.assertEqual((len(planners()), p["ended"], json.loads(p["input"])), (1, None, [b]))
+        s.change("h2", track="harness", body=f"fix: {b}")                      # every trigger carried: ended unspawned
+        alert(a, b)
+        s.assertEqual([(r["name"], r["reason"], r["started"]) for r in planners()], [(p["name"], "no longer due", None)])
+
     def test_planner_trigger_is_the_run_an_alert_names(s):  # planner-28: a later alert of a run an open change already names
         F = Fake(**FACTS)
         planners = lambda: [r for r in hd.runs() if r["role"] == "planner"]

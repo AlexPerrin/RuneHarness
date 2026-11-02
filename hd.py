@@ -2207,6 +2207,30 @@ def dispatch(ctx, ch, st, act):
     event(change=slug, run=name, action="listed", role=role)
 
 
+def settle(ctx, ch, st, work, dues, banded=False, held=False):
+    """R6: a done, closed or superseded change holds no run, spawned or not; an unspawned run goes once its step is no longer
+    this one, or takes the same role's step on a moved input (relisted); the planner's pseudo-change follows the same rule."""
+    gone = "change closed" if ch.get("closed") else f"change superseded by {ch['superseded']}" if ch.get("superseded") else "change done" if st["actor"] == "done" else ""
+    for r in ctx.runs:
+        if r["change"] != ch["slug"] or r.get("ended"):
+            continue
+        moved = r.get("started") and (work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role or to a wait: a run never outlives its step
+                                      or work["actor"] == "wait" and (not work.get("dep") or deps_held(ctx, {**ch, "deps": [d for d in ch["deps"] if not runs_dep(ctx, ch, r, d)]})))
+        if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
+            if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
+                # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
+                r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now(), given=given_now(ch["slug"]))
+                r["brief"], r["deps"] = brief(ctx, ch, work, r["name"], r["role"]), list(ch["deps"])
+                save_run(r)
+                event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
+                continue
+            r["ended"], r["reason"] = now(), gone or ((f"step moved to {work['actor']}" if work["actor"] != "wait" else work["state"]) if moved else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
+            if r.get("started"):
+                r["record"] = produced(r)
+                event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
+            save_run(r)
+
+
 def shut(k, c):
     """A closed or superseded change, or one whose last pass found it done."""
     return bool(c.get("closed") or c.get("superseded") or (rec(k, "state") or {}).get("state", "").startswith(("done", "closed")))
@@ -2284,9 +2308,12 @@ def plan(ctx, view, act):
             gates.append(f"{c} at {T[:9]}")
     why = sorted({a for a in view["alert"] + [g for g in view["goal"] if "planning due" in g] + gates
                   if not a.startswith(("planner:", "user:")) and not handled(a) and not re.search(rf"(?<![\w-]){re.escape(trigger(a))}(?![\w-])", carried)})
+    pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
+    st = step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan", input=why) if why else step("no planner trigger", "idle")
+    if act:  # R6: a listed planner run follows its triggers as any change's run follows its step
+        settle(ctx, pseudo, st, st, {(st["actor"], json.dumps(st.get("input"), sort_keys=True))})
     if why:
-        pseudo = {"slug": "planner", "track": "harness", "deps": [], "kind": "planner", "priority": "P0", "body": "\n".join(why), "title": "plan"}
-        dispatch(ctx, pseudo, step("planner run due: " + "; ".join(why)[:200], "planner", mode="plan", input=why), act)
+        dispatch(ctx, pseudo, st, act)
 
 
 def measure(ctx, g, act):
@@ -2595,26 +2622,8 @@ def _pass(ctx, act):
         if (a := rec(ch["slug"], "ask")):
             view["question"].append(f"{ch['slug']}: {a['text']}")
         last = rec(ch["slug"], "state")
-        if act:  # a done, closed or superseded change holds no run, spawned or not; an unspawned run goes once its step is no longer this one
-            gone = "change closed" if ch.get("closed") else f"change superseded by {ch['superseded']}" if ch.get("superseded") else "change done" if st["actor"] == "done" else ""
-            for r in ctx.runs:
-                if r["change"] != ch["slug"] or r.get("ended"):
-                    continue
-                moved = r.get("started") and (work["actor"] in ("dev", "qa") and work["actor"] != r["role"]  # its step went to the other role or to a wait: a run never outlives its step
-                                              or work["actor"] == "wait" and (not work.get("dep") or deps_held(ctx, {**ch, "deps": [d for d in ch["deps"] if not runs_dep(ctx, ch, r, d)]})))
-                if gone or moved or (not r.get("started") and (banded or ctx.dockerless(ch, r.get("mode")) or st["actor"] != "unknown" and (r["role"], r["input"]) not in dues)):
-                    if not (gone or banded or held) and work["actor"] == r["role"] and not ctx.dockerless(ch, work.get("mode")) and not unlistable(ctx, ch, work):
-                        # R6: the same role's step on a moved input (a joined row, a definition commit) is the listed run's: it takes the input and a rewritten brief, so its spawn binds, never refused and listed again
-                        r.update(step=work["state"], input=json.dumps(work.get("input"), sort_keys=True), mode=work.get("mode"), listed=now(), given=given_now(ch["slug"]))
-                        r["brief"], r["deps"] = brief(ctx, ch, work, r["name"], r["role"]), list(ch["deps"])
-                        save_run(r)
-                        event(change=r["change"], run=r["name"], action="relisted", role=r["role"])
-                        continue
-                    r["ended"], r["reason"] = now(), gone or ((f"step moved to {work['actor']}" if work["actor"] != "wait" else work["state"]) if moved else f"held below {ctx.cfg.get('hold')}" if banded else "docker down" if ctx.dockerless(ch, r.get("mode")) else "no longer due")
-                    if r.get("started"):
-                        r["record"] = produced(r)
-                        event(change=r["change"], run=r["name"], action="ended", reason=r["reason"], record=r["record"])
-                    save_run(r)
+        if act:
+            settle(ctx, ch, st, work, dues, banded, held)
         if st["actor"] == "done":
             close_branches(ctx, ch, act)
         if st["state"].startswith("gate failed"):

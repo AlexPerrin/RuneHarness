@@ -8,6 +8,8 @@ priority: P1
 mechanism: build-gate
 deps: []
 created: '2026-11-02T01:54:07Z'
+limit-of:
+- harness-carry-gh-pr-edit-classic-projects
 ---
 sweep-18 N7, lost by sweep-19 N10: quest-runemysteries build e302c87c5-0f917e5975f1 01:38:52Z: gradle BUILD SUCCESSFUL, docker build 'cannot allocate memory' -> 'build failed: dev' (hd.py:1422-1423). build.sh:47/61/65 records every docker failure with 'record false build'. The c5f8946e0 ship moved every build key; start() launched 12 builds at 01:36:32Z, each --cpus=4 --memory=5g on 16 CPU / 19 GB (load 35, free 0); build.lock is per slug. A host fault is the runner's (re-run), and concurrent builds are bounded by the host. evidence/monitor/sweep-18.md, sweep-19.md
 
@@ -22,3 +24,6 @@ state/live/ship.log: the integration deploy of 58031243875c failed twice ('ship 
 
 Also (filed): a stopped build's container keeps running: R5's stop does not reach the docker container
 Root cause of the 'ship died twice without a result' alert (planner-22): events.jsonl 02:12:03Z 'stopped ship' key 6bf30c2ac635-5fb469b68a22 pid 3346773; hd.py:338 stop() ends the script's systemd scope, but the container 'build-integration' (created 02:04:33Z by tools/build/build.sh:47 docker run --name build-$slug) lives in dockerd's cgroup and keeps running (docker ps 02:15Z: Up 11 minutes, still downloading the cache; no process holds state/integration/build.lock per fuser). The ship of 58031243875c then failed twice on the name conflict (state/integration/build-58031243875c...-1.log, -2.log). R5 'a stop ends everything the script started' fails for containers: the build's container ends with its script (build.sh removes its own container on exit and, under build.lock which makes the name its own, removes any leftover of that name before docker run), so a stop frees the host and a later build never meets it.
+
+Also (harness-carry-gh-pr-edit-classic-projects): the fork gate's CI never runs :or-cache:freshCache, even for a head that changes its inputs
+tools/gate/gate.sh gate-ci restores the game data (actions/cache, else the fork release asset game-data-<k>) and so skips 'Generate cache and gameval sources' (:or-cache:freshCache). A head that changes a cache input (or-cache/, /pack/, gamevals, raw-cache, game.example.yml: infra()'s own list) is never exercised by that step before upstream CI: server-cache-clientscript-name-hash 8c6d9679e (or-cache/CacheTools.kt, pack/*) passed the fork gate and failed upstream at that step ('FileNotFoundException: Main file not found at .../.data/cache/LIVE/main_file_cache.dat2', OpenRune/OpenRune-Server run 41375908983). Acceptance (with a test): when the head changes a cache input, gate-ci's workflow runs freshCache (no cache restore, no game-data asset), so the step the carry's classifier (ci-step) calls the head's is the step the gate ran.

@@ -398,6 +398,7 @@ a gate failure, a goal below target with nothing open;
 never time or an event count;
 a trigger is its subject (the `state/<slug>/<name>.log` an alert names, else a gate failure's change and T, else the run `<change>-<n>` it names, else its text), left out while an open change's body names it or once a planner run handed back on it after its process's `since` (when start() last started its count over, named in the alert);
 a gate failure is its dev's until a dev run handed back on that T with no run of the change alive;
+its triggers are its step's input, so its listed, unspawned run follows them as any change's follows its step: relisted on the triggers still due, dropped once none is;
 an alert for the user lists none), outside the agent count (one at most);
 a planning request from the user with a measurable target reaches it as a goal, any other as a change.
 It files the changes that close a goal's gap with dependencies across tracks, and turns an issue it observes in operation (a run ended without its record twice, a harness-made gate failure, a needless question) into a harness change on that issue's mechanism that a harness dev run remediates, and on every run merges the open and today's merged harness changes that patch one mechanism into one root-cause change (`--supersedes`).

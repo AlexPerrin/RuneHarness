@@ -100,7 +100,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 - `hd rows <slug> <T commit> <build copy>`, by a track script's gate: every `check:` row, then every `gate:` row (fork CI among them) only when every check passed, whatever the file's order, at the track root with `BUILD` set;
   exit 1 names the failures;
   a row exiting 75 is held (the step that failed reads nothing of the head: its source is down), and only held rows exit 75: the gate records no result and the pass starts it again;
-  a row ended by a signal is held the same way only when the harness sent it while the row ran: every stop of the pass (a script's, a slice's) first writes its time to state/stopped, which the row reads at its end;
+  a row run while the harness stopped its own gate is held the same way: the stop of the gate's scope or slice signals `hd rows` too, whose SIGTERM handler holds the row it ran and runs no other;
   any other end (the head's own crash) is its result;
   a build or a container check that fails for the host's cause, not the tree's (`hosted` in each server and Central tools/build/build.sh: 'cannot allocate memory', 'no space left' (a full disk), docker not answering, a container name a killed run left, exit 137 while the host's OOM killer logged a kill), exits 75 the same way, so it is never 'build failed: dev';
   a tree's own failure (a compile error, a failing test, its container's own --memory limit) records ok:false

@@ -304,7 +304,6 @@ class Facts:
         """R5: every process a slice holds is stopped and all it left removed: the slice (systemctl returns once they are gone), then each Windows
         process a track script started in it through WSL interop (its Windows pid and image, recorded in state/winpids/<slice>/),
         which no Linux signal reaches, then its temp root (state/tmp/<slice>/, every Bash command's TMPDIR)."""
-        stopped()
         r = s.sh(["systemctl", "--user", "stop", sl], timeout=120)
         for f in sorted((d := STATE / "winpids" / sl).glob("*")):
             s.sh([os.environ.get("WINDOWS_SYSTEM32", "/mnt/c/Windows/System32") + "/taskkill.exe", "/F", "/PID", f.name, "/FI", f"IMAGENAME eq {f.read_text().strip()}"], timeout=60)
@@ -347,7 +346,6 @@ class Facts:
             cg, mine = Path(f"/proc/{pid}/cgroup").read_text(), Path("/proc/self/cgroup").read_text()
         except OSError:
             return
-        stopped()
         unit = cg.strip().rsplit("/", 1)[-1]  # spawn's own transient scope, never one the pass shares (a login session's)
         if cg != mine and unit.startswith("run-") and unit.endswith(".scope") and not (s.sh(["systemctl", "--user", "stop", "--no-block", unit]) or [1])[0]:
             return
@@ -2929,27 +2927,13 @@ def cmd_handover(a):
 
 
 HELD = 75  # a row's exit when the step that failed reads nothing of the head (its source down): no result, never the head's FAIL
-STOPPED = "stopped"  # R5: state/stopped, the time of the harness's last stop (a slice's or a script's), written before its signal
 
 
-def stopped():
-    """R5: record a stop the harness is about to signal, so a gate row it ends reads as held, never the head's result."""
-    write(STATE / STOPPED, str(time.time()))
-
-
-def stopped_since(t):
-    """R5: whether the harness signalled a stop since t: a row it ended by a signal then says nothing of the head."""
-    try:
-        return float((STATE / STOPPED).read_text()) >= t
-    except (OSError, ValueError):
-        return False
-
-
-def rows(ctx, ch, con, head, tc, tree, build, gate):
+def rows(ctx, ch, con, head, tc, tree, build, gate, term=()):
     """Run the contract's `check:` rows (and `gate:` rows at the gate, with the build copy in BUILD) at the track root (TOOLS_ROOT in a gate), each
     with the change's own env (a track script keeps a check of the tree alone once per gate). In a gate, a row whose key
     (ROWKEYS, from the pass) has a result in state/<slug>/row-<kind>-<id>.json (its last four keys') keeps it, unrun; a held row
-    (HELD, or ended by a signal the harness sent while it ran: stopped_since) records none.
+    (HELD, or run while the harness stopped this gate: term, the SIGTERMs its stop sent this process) records none.
     Cheap and local first, whatever the file's order: every `check:` row, then the `gate:` rows (fork CI among them) only
     when every check passed."""
     env, why = ctx.env(ch, head, tc, tree, build), []
@@ -2972,27 +2956,35 @@ def rows(ctx, ch, con, head, tc, tree, build, gate):
                 if kept:
                     rc, out = ks[rk]["rc"], ks[rk]["out"]
                 else:
-                    t, (rc, out) = time.time(), ctx.F.run(row[kind], root, env)
-                    rc = HELD if (rc < 0 or rc > 128) and stopped_since(t) else rc   # a signal the harness sent while it ran: held; any other end (its own crash) is the head's
+                    rc, out = ctx.F.run(row[kind], root, env)
+                    rc = HELD if term else rc   # this gate's own stop (its scope's or slice's): held; any other end (its own crash) is the head's
                     if rk and rc != HELD:
                         ks = {k: v for k, v in ks.items() if k != rk}
                         put(ch["slug"], f"row-{kind}-{row['id']}", {"keys": dict(list(ks.items())[-3:] + [(rk, {"rc": rc, "out": out[-2000:]})])})
                 print(f"{'held' if rc == HELD else 'FAIL' if rc else 'ok'}: {row['id']}: {row[kind]}" + (" (kept)" if kept else "") + (f"\n{out.strip()[-800:]}" if rc else ""))
                 if rc:
                     why.append(f"row {row['id']} {'held' if rc == HELD else 'failed'}: {out.strip()[-400:]}")
+                if term:
+                    return why
     return why
 
 
 def cmd_rows(a):
     """`hd rows <slug>[,<slug>...] <tcommit> <build copy>`: the gate's row run at T (a batch: every change's rows, with the
     batch's TOOLS); exit 1 names every failing row."""
-    ctx, why = Ctx(), []
-    for slug in a[0].split(","):
-        ch = ctx.changes.get(slug) or refuse(f"no change {slug}")
-        print(f"## {slug}") if "," in a[0] else None
-        con = contract(ch["slug"]) or refuse("no contract")
-        why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], os.environ.get("T") or ctx.key(ch, ctx.tree(ch, a[1]), build=True) or "", a[2], gate=True)  # T: the build key the gate built
-    sys.exit(HELD if why and all(re.match(r"row \S+ held: ", w) for w in why) else 1 if why else 0)  # only held rows: no result, the gate is run again
+    ctx, why, term = Ctx(), [], []
+    old = signal.signal(signal.SIGTERM, lambda *_: term.append(1))  # R5: a stop of this gate (Facts.stop's scope, end_procs' slice) signals this process too, never another run's
+    try:
+        for slug in a[0].split(","):
+            if term:
+                break
+            ch = ctx.changes.get(slug) or refuse(f"no change {slug}")
+            print(f"## {slug}") if "," in a[0] else None
+            con = contract(ch["slug"]) or refuse("no contract")
+            why += rows(ctx, ch, con, ctx.head(ch) or "", a[1], os.environ.get("T") or ctx.key(ch, ctx.tree(ch, a[1]), build=True) or "", a[2], gate=True, term=term)  # T: the build key the gate built
+    finally:
+        signal.signal(signal.SIGTERM, old)
+    sys.exit(HELD if term or why and all(re.match(r"row \S+ held: ", w) for w in why) else 1 if why else 0)  # stopped, or only held rows: no result, the gate is run again
 
 
 def cmd_verdict(a):

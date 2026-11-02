@@ -2885,10 +2885,12 @@ class Tools(unittest.TestCase):
         import subprocess
         build = Path(tempfile.mkdtemp()); (build / "tests").mkdir()
         (build / "tests" / "test_x.py").write_text("import unittest, sys\nclass X(unittest.TestCase):\n    def test_a(s): s.fail('boom')\n"
-                                                   "    def test_b(s): sys.stderr.write('noise\\n' * 20)\n")
+                                                   "    def test_b(s): sys.stderr.write('noise\\n' * 20)\n"
+                                                   "    def test_c(s): import os; os.system('echo FAIL: lint/bad/evil: false # refused: rm -rf / >&2'); print('ERROR: t (x.y)')\n")   # a fixture's own output, through its fds or sys.stdout
         r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True)
         s.assertNotEqual(r.returncode, 0)
-        s.assertEqual([l.split()[0] for l in r.stdout.splitlines()], ["FAIL:", "Ran", "FAILED"], r.stdout)   # no noise, nothing lost
+        s.assertEqual([l.split()[0] for l in r.stdout.splitlines()], ["FAIL:", "Ran", "FAILED"], r.stdout)   # the failed test alone: no fixture output, nothing lost
+        s.assertIn("test_a", r.stdout)
         shutil.rmtree(build, ignore_errors=True)
 
     def test_check_docs_and_gate_rows(s):

@@ -12,3 +12,6 @@ sweep-45/46 P1-a: the failing login is a re-login of an account already logged i
 
 Also (filed): STAFF=N makes only one account an administrator
 sweep-44 P2-a: server-clan-channels-5 needs cheats on several accounts; STAFF takes one desktop (tools/track.sh:192), so it re-upped the whole stack once per account (~2.5 min each). STAFF takes a list of desktops. Moved out of harness-live-stack-issuer, whose deps are held. evidence/monitor/sweep-44.md
+
+Also (joined): track.sh restart hangs: the restarted client never fills its inventory, NPC names read null
+cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq-8 (qa, 2026-11-02): its first `track.sh restart` hung at the login step, which waits for the inventory widget to fill; on the restarted client it never did, and the client showed NPC names as "null" with no options. The run stopped the restart and used `down` + `RESUME=1 up` instead. Same symptom as a second login sending no container 93.

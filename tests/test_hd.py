@@ -3888,12 +3888,12 @@ class R3(Sandbox):
     def test_a_row_the_harness_signals_is_held_and_a_crash_is_the_heads(s):  # gate-ci's 'Terminated', rc 143, as a run's slice stop ended it, was kept at its key: a dev run per gate with nothing to fix
         s.change("s1"); s.agreed("s1", extra="- ci | fork CI | gate: tools/track.sh gate-ci\n")
         F = Fake(**FACTS)
-        F.run = lambda cmd, cwd, env: (hd.stopped(), (143, "Terminated"))[1] if "gate-ci" in cmd else (0, "")   # the harness stops a slice while the row runs
+        F.run = lambda cmd, cwd, env: (os.kill(os.getpid(), signal.SIGTERM), (143, "Terminated"))[1] if "gate-ci" in cmd else (0, "")   # the harness stops this gate (its scope or slice) while the row runs
         env = {"ROWKEYS": json.dumps({"s1/ci": "k"})}
         with mock.patch.dict(os.environ, env), mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
             hd.cmd_rows(["s1", A, ""])
         s.assertEqual((e.exception.code, hd.rec("s1", "row-gate-ci")), (hd.HELD, None))   # held: no result, hd starts the gate again
-        F.run = lambda cmd, cwd, env: (139, "Segmentation fault") if "gate-ci" in cmd else (0, "")   # the head's own crash, no stop of the harness's since the row began
+        F.run = lambda cmd, cwd, env: (139, "Segmentation fault") if "gate-ci" in cmd else (0, "")   # the head's own crash: no stop of this gate signalled it, whatever other run ended meanwhile
         with mock.patch.dict(os.environ, env), mock.patch.object(hd, "Facts", lambda: F), s.assertRaises(SystemExit) as e:
             hd.cmd_rows(["s1", A, ""])
         s.assertEqual((e.exception.code, hd.rec("s1", "row-gate-ci")["keys"]["k"]["rc"]), (1, 139))   # the head's result, kept at its key

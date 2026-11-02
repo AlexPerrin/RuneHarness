@@ -3297,13 +3297,29 @@ class Tools(unittest.TestCase):
         (build / "tests" / "test_x.py").write_text("import unittest, sys\nclass X(unittest.TestCase):\n    def test_a(s): s.fail('boom')\n"
                                                    "    def test_b(s): sys.stderr.write('noise\\n' * 20)\n"
                                                    "    def test_c(s): import os; os.system('echo FAIL: lint/bad/evil: false # refused: rm -rf / >&2'); print('ERROR: t (x.y)')\n")   # a fixture's own output, through its fds or sys.stdout
-        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build)}, capture_output=True, text=True)
+        root = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, root, True)
+        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "check-tests"], env={**os.environ, "BUILD": str(build), "HD_ROOT": str(root), "SLUG": "g1"}, capture_output=True, text=True)
         s.assertNotEqual(r.returncode, 0)
         l = r.stdout.splitlines()
         s.assertEqual((l[0].split()[:2], [x.split()[0] for x in l[-2:]]), (["FAIL:", "test_a"], ["Ran", "FAILED"]), r.stdout)   # the failed test alone: no fixture output, nothing lost
+        s.assertEqual(l[-3], f"failed: test_a (test_x.X.test_a); whole report: {root}/state/g1/tests.txt")   # every failing test named last but the verdict: a record's tail (rows keep 800, a record 2000) keeps it
         s.assertIn("AssertionError: boom", r.stdout)                            # sweep-21: its reason too, the traceback's tail, not its name alone
         s.assertFalse(any(x in r.stdout for x in ("noise", "evil", "ERROR: t")), r.stdout)
         shutil.rmtree(build, ignore_errors=True)
+
+    def test_a_failed_test_s_whole_report_outlives_the_run(s):
+        """sweep-29: a failing test's whole message (longer than any record's tail), its output discarded, read after the runner's temp root is gone."""
+        wt, root, tmp = (Path(tempfile.mkdtemp()) for _ in range(3))
+        for d in (wt, root, tmp):
+            s.addCleanup(shutil.rmtree, d, True)
+        (wt / "tests").mkdir()
+        msg = "first line of the inner record\n" + "".join(f"inner gate record line {i}\n" for i in range(200))   # > 2000 chars, > 6 lines
+        (wt / "tests" / "test_y.py").write_text(f"import unittest\nclass Y(unittest.TestCase):\n    def test_long(s): s.fail({msg!r})\n")
+        r = subprocess.run([str(Path(__file__).parent.parent / "tools" / "track.sh"), "test", "d1"], cwd=wt, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           env={**os.environ, "HD_ROOT": str(root), "TMPDIR": str(tmp)})
+        s.assertNotEqual(r.returncode, 0); s.assertEqual(os.listdir(tmp), [])   # the runner's root is gone
+        report = (root / "state" / "d1" / "tests.txt").read_text()
+        s.assertIn("FAIL: test_long (test_y.Y.test_long)", report); s.assertIn(msg, report)
 
     def test_check_docs_and_gate_rows(s):
         import subprocess

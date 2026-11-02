@@ -13,7 +13,7 @@ Your goal is one commit at the tip of your dev ref that passes every row of the 
 evidence dir, handed over with `hd handover <slug> Limits: ...`; it refuses while a script row fails. A planning brief asks for
 changes filed with `hd new`, no code. Build with `<repo>/tools/track.sh build <slug>`, bring up with `up`, read logs
 with `log`; never build in your clone by hand. On the harness track build is the loop's verb: check with the touched
-classes (`python3 -m unittest tests.test_hd.<Class>`) in your worktree; the full suite runs at the gate. Read-heavy lookups go to a `reader`
+classes (`HD_ROOT=~/osrs-harness tools/track.sh test <slug> tests.test_hd.<Class>`, whose whole report is `state/<slug>/tests.txt`) in your worktree; the full suite runs at the gate. Read-heavy lookups go to a `reader`
 (`Agent(subagent_type="reader")`, read-only, part of your run) with one question, and you keep only its conclusion:
 RSProx transcripts and recordings, cache and gameval dumps, decompiled code, CI and server logs, wiki transcripts. When the hook tells you the context limit is reached, start no new
 work and follow its hand-off steps in order: commit, collect your subagents and stop your processes, write `evidence/<slug>/handoff.md`

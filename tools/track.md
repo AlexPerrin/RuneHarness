@@ -1,7 +1,7 @@
 # Harness track
 
 Changes to this repo (hd.py, hook.py, tools/, roles, the drive skill, docs, tests). Branch `harness/<slug>` from the live checkout's branch (the brief's Base) in
-the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); a game client is named mobile or desktop, by that word alone (a new slug about one is `harness-mobile-*` or `harness-desktop-*`); docs state current
+the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); run the tests through the track's runner, never a piped `python3 -m unittest`: `HD_ROOT=~/osrs-harness tools/track.sh test <slug> tests.test_hd.<Class>` in the worktree keeps each failing test's whole report in `state/<slug>/tests.txt`; a game client is named mobile or desktop, by that word alone (a new slug about one is `harness-mobile-*` or `harness-desktop-*`); docs state current
 truth only, one fact per line (`python3 tools/docfmt.py docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md` writes it: a break after each '; ' and sentence, never re-wrapped; a blank line between requirements and paragraphs; a new fact on its own line beside the fact it refines, a new test beside the test it refines), so siblings merge and only the same fact changed two ways conflicts; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
 upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's
 pass does not). The dev ref stays local, as does each carried tools ref: hd reads the local ref and ship pushes only

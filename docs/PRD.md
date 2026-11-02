@@ -288,6 +288,7 @@ a live check reads the real state.
 
 8. **R8** `tests.test_hd.R8`: T is `git merge-tree` of base, deps and head;
    a head holding another PR's unmerged commits is a dev step before its build (stacked);
+   a head another PR's head descends from is not stacked on it, the descendant is;
    a change whose same-track upstream dependency has a PR (open or not yet opened) joins it, its head on top of the dependency's, and waits on no upstream merge, while one in another repo holds its card until merged there;
    a dependent with a branch of its own is its own PR: built, gated and deployed on T with its dependency, its head holding the dependency's head and its card held until the dependency merges upstream, then holding none of the dependency's pre-merge commits (rebased onto main, a squash merge too) or a dev step;
    a PR has its card only when every open change of that PR is in its tip's head (one card, one carry);
@@ -297,7 +298,7 @@ a live check reads the real state.
    a client code change ships in the client batch;
    a gated change has its card, and its carry planned, while T_int conflicts, the conflict's dev listed beside it;
    a server change's key and `CENTRAL` carry the merge of its central dependencies, and T_int the one of its heads';
-   a change's dependencies, for T, its Central and the order, are the closure of its deps, each open same-track change whose head its head holds counted as one, so a head built on a dependent of a central change builds with that Central;
+   a change's dependencies have one definition, the closure of its declared deps, so a dependent of a dependent of a central change builds with that Central;
    a conflict lists the dev;
    two changes adding facts to every other requirement and paragraph of PRD.md and ARCHITECTURE.md merge onto the live branch in either order, the same fact changed two ways conflicts, and a source doc out of the one-fact-per-line format fails the docs row;
    one change editing a fact line and another inserting a fact on the line before it merge in either order, while a code conflict beside them stays the dev's;

@@ -205,8 +205,8 @@ a build fix re-builds and re-gates, a gate fix re-gates alone, a tools commit ou
 T_int admits a change whose gate passed at its current key, the test `nxt` applies, or for its same head at an earlier key).
 A server change with central dependencies carries `-c<central12>` in its T: the Central tree, Central's base and those changes' heads merged, which its build includes (`CENTRAL=<Central clone>:<commit>`;
 `hd tree` prints it third);
-A change's dependencies (`Ctx.deps`) are the closure of its deps, each open same-track change whose head its head holds counted as one, each after its own;
-T, the Central part and the order read them.
+A change's dependencies (`Ctx.deps`, their one definition) are the closure of its declared deps, each after its own;
+T, the Central part, the order, the wait on an upstream merge, the stacked check and a PR's card read them (a build waits on its direct deps alone: each waits on its own) (a head built on another's head declares it: stacked asks).
 T_int carries the one of its heads' central dependencies.
 Builds are artefacts named by that key: a server image `or:<T>` (jar and game cache), a client APK `evidence/<slug>/<T>.apk` with its repack log, a harness test run (keyed by its batch tree without `harness/`, so a definition commit on the live branch re-builds, re-gates and blocks the ship of nothing;
 ship fast-forwards to the current batch tree).
@@ -265,7 +265,7 @@ next(change):
     the step counts and lists its fail rows, and names its not-judged rows apart
   T
     conflict → dev;
-    an upstream head holding unmerged commits of another PR's change it neither builds on nor is built on (stacked), or not holding the head of a same-PR dependency it joins → dev
+    an upstream head holding unmerged commits of another PR's change it neither builds on nor is built on (stacked; a head another's descends from is not stacked on it), or not holding the head of a same-PR dependency it joins → dev
     an upstream head not holding the head of an unmerged dependency of another PR it builds on → dev
     an upstream head holding unmerged commits of a dependency of another PR once that one merged upstream (not rebased onto main; a squash merge leaves them off main) → dev
   build(T)
@@ -508,7 +508,8 @@ A run's own agent stops (`continue: false`) at its next tool call, its hand-back
 - Client: repack log lines (checked again at install), probe report at T, network QA when `network`;
   `log` reads logcat by pattern since a marker
 - Server: script rows (gameval ids unique across T_int, a dupe test (src/test or src/integration) per item-moving module, evidence files, commit subjects and trailers after an existing PR's live head), fork CI on `gate/<slug>` at a child of T whose workflows first move the runner's ephemeral ports above the game port 43594 (with `CENTRAL`, also holding the Central tree and a workflow step that builds it in by `central.init.gradle`;
-  the change's head unchanged), its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
+  the change's head unchanged), that child dated as T's commit, so the same T pushes the same sha and its green runs answer the row again without a new run;
+  its status one read of the sha's runs, conditional on the last ETag (a 304 costs no GitHub quota), a quota refusal holding the row until GitHub's reset;
   its CI restores the game data from the fork release asset `game-data-<game.example.yml blob12>` (seeded by the gate from `or:<T>` when absent, the first upload standing) on an actions/cache miss, never downloading openrs2's cache (no asset fails that step, the runner's, re-run once the asset is listed);
   a head that changes the revision (game.example.yml) restores neither, so its CI runs `:or-cache:freshCache`, the step the classifier calls the head's;
   a head that changes another cache input (or-cache/, /pack/, gamevals, raw-cache) packs on the restored revision, that step the head's, so openrs2 is never its step;

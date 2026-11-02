@@ -128,6 +128,10 @@ class Sandbox(unittest.TestCase):
         ctx = s.ctx(F)
         return hd.nxt(ctx, ctx.changes[slug])
 
+    def live(s, F, r):
+        """The live record as ship writes it: under the deploy key of its tree and the current tools, unless r names one."""
+        hd.put("live", "tree", {"key": s.ctx(F).deploy_key({"track": "server"}, r["tree"]), **r})
+
     def gated(s, slug, F):
         """Hand over, build and gate at the current head and tree."""
         with mock.patch.object(hd, "Facts", lambda: F):
@@ -194,7 +198,7 @@ class R1(Sandbox):
         v = hd.tick(s.ctx(F))
         s.assertEqual(v["goal"], ["client-api: waiting on s1"])
         s.assertEqual([x for x in F.spawned if x[1] == "measure"], [])
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # the dep is live: the goal is measured
+        s.live(F, {"tree": "ti" * 20, "commit": C, "heads": [A]})     # the dep is live: the goal is measured
         hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned if x[1] == "measure"], [["measure", "client-api", B]])
 
@@ -217,7 +221,7 @@ class R1(Sandbox):
         F = Fake(**FACTS)
         hd.put("client-api", "measure", {"tree": TB + "+none", "value": 93.2, "report": "r"})
         hd.tick(s.ctx(F)); s.assertEqual(F.spawned, [])
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})    # a server change went live on the test server
+        s.live(F, {"tree": "ti" * 20, "commit": C, "heads": [A]})    # a server change went live on the test server
         v = hd.tick(s.ctx(F))
         s.assertEqual([x[1:] for x in F.spawned], [["measure", "client-api", B]])
         s.assertEqual(v["goal"], ["client-api: measuring on tbtbtbtbtbtb"])
@@ -226,7 +230,7 @@ class R1(Sandbox):
         s.change("s1"); s.agreed("s1"); s.change("c1", "client", deps=["s1"])
         F = Fake(**FACTS)
         s.assertEqual(s.state(F, "c1")["state"], "waiting on s1")
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live on the test server, not merged upstream
+        s.live(F, {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live on the test server, not merged upstream
         s.assertNotEqual(s.state(F, "c1")["actor"], "wait")
 
     def test_below_target_with_nothing_open_lists_the_planner(s):
@@ -251,7 +255,7 @@ class R1(Sandbox):
         F = Fake(**FACTS)
         measured = lambda: [e["PASSES"] for x, e in zip(F.spawned, F.envs) if x[1] == "measure"]
         s.gated("s1", F)
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live, no verdict yet: nothing passes
+        s.live(F, {"tree": "ti" * 20, "commit": C, "heads": [A]})     # live, no verdict yet: nothing passes
         hd.tick(s.ctx(F)); s.assertEqual(measured(), [""])
         hd.put("server-content", "measure", {"tree": TB, "value": 0, "report": "r"})
         s.verdict("s1", A, {"ok": "fail: no", "j1": "pass"}, F)
@@ -420,9 +424,9 @@ class R2(Sandbox):
         s.assertFalse(any(x.startswith("planner-") for x in v["spawn"]))                       # the user's to fix, no planner
 
     def test_defined_to_live_with_no_person(s):
-        s.change("s1"); hd.put("live", "tree", {"tree": TB, "commit": B, "heads": [A]})  # the dependency is live on the test server
-        s.change("c1", "client", deps=["s1"])
+        s.change("s1"); s.change("c1", "client", deps=["s1"])
         F = Fake(**{**FACTS, "refs": {"origin/HEAD": B, "fork/dev/s1": A, "origin/client/c1": ""}})
+        s.live(F, {"tree": TB, "commit": B, "heads": [A]})                  # the dependency is live on the test server
         views = [hd.tick(s.ctx(F))]                                   # contract derived (no qa run)
         views.append(hd.tick(s.ctx(F)))                               # dev listed
         spawn = [x for x in views[-1]["spawn"] if x.startswith("c1-")]
@@ -1309,7 +1313,7 @@ class R4(Sandbox):
     def ready(s, F, slug="s1", head=A, **meta):
         s.change(slug, **meta); s.agreed(slug)
         s.gated(slug, F); s.verdict(slug, head, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [head]})
+        s.live(F, {"tree": "x", "commit": C, "heads": [head]})
 
     def ship(s, F, g, slug="s1", head=A):
         """hd ship under a scripted gh; its ship.log lines."""
@@ -1421,7 +1425,7 @@ class R4(Sandbox):
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
         for k in ("s0", "s1"):
             s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        s.live(F, {"tree": "x", "commit": C, "heads": [A]})
         c = hd.tick(s.ctx(F), act=False)["card"]                                  # the reply is left to post: a card
         s.assertEqual(len(c), 1); s.assertIn("### comment\n(finding by rev on N.kt:3: reset it?)\n> reset it\n\n@rev the official", c[0])
         s.assertNotIn("push", c[0]); s.assertTrue(c[0].split("\n### ")[0].endswith("3. mark it ready for review"))   # at the head already, a reply-only change: no push, the reply its one comment
@@ -1538,7 +1542,7 @@ class R4(Sandbox):
                     "comments": {7: [{"id": 99, "author": "rev", "bot": False, "reply": None, "path": "N.kt", "line": 3, "body": "reset it?"}]}})
         s.assertEqual(s.ctx(F).head(s.ctx(F).changes["s1"]), A)                 # no commit of its own: its PR tip's head
         s.gated("s1", F); s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        s.live(F, {"tree": "x", "commit": C, "heads": [A]})
         ctx = s.ctx(F)
         s.assertEqual((hd.outside(ctx, ctx.changes["s0"], A), hd.outside(ctx, ctx.changes["s1"], A)), (["s1"], []))   # one card, at the PR's tip
         s.assertEqual(hd.public_texts(ctx, ctx.changes["s1"]), [["comment", [99], "> reset it\n\n@rev the official server keeps it."]])
@@ -2357,7 +2361,7 @@ class R5(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.verdict("s1", A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        s.live(F, {"tree": "x", "commit": C, "heads": [A]})
         s.approve(F, "s1", A)                                                   # the user's yes in the console
         F.f["procs"] = set()                                                    # the orchestrator is gone after the yes
         hd.tick(s.ctx(F))
@@ -3197,7 +3201,7 @@ class R8(Sandbox):
                     "prs": {"u/f": [{"number": 7, "branch": "content/s0", "owner": "o", "head": A, "draft": False}]}})
         for k in ("s0", "s1"):
             s.gated(k, F); s.verdict(k, A, {"ok": "pass", "j1": "pass"}, F)
-        hd.put("live", "tree", {"tree": "x", "commit": C, "heads": [A]})
+        s.live(F, {"tree": "x", "commit": C, "heads": [A]})
         F.f["refs"]["origin/HEAD"] = D; F.f["trees"].update({D: TC, C: "te" * 20}); F.f["merges"][(D, A)] = ("ok", C)   # upstream main moved: a new T
         s.assertEqual(s.state(F, "s0")["state"], "gated; the PR waits for s1")   # no rebuild, no re-gate of the PR's live head
         s.assertEqual(s.state(F, "s1")["actor"], "user")
@@ -3512,9 +3516,9 @@ class R8(Sandbox):
 
     def test_tree_is_merge_of_base_deps_head(s):
         s.change("s1"); s.agreed("s1"); s.change("s2", deps=["s1"]); s.agreed("s2")
-        hd.put("live", "tree", {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream
         E = "e" * 40
         F = Fake(refs={"origin/HEAD": B, "fork/dev/s1": A, "fork/dev/s2": C}, trees={E: "te" * 20}, merges={(B, A): ("ok", D), (D, C): ("ok", E)})
+        s.live(F, {"tree": "x", "commit": D, "heads": [A]})            # s1 live on the test server, not upstream
         with mock.patch.object(hd, "Facts", lambda: F):
             hd.cmd_handover(["s2", "Limits:", "none"])
         s.assertEqual((hd.rec("s2", "handover")["commit"], hd.rec("s2", "handover")["T"]), (E, "te" * 20))   # base, then s1, then s2
@@ -3664,8 +3668,31 @@ class R8(Sandbox):
         v = hd.tick(s.ctx(F)); s.assertEqual((F.stopped, len([x for x in F.spawned if x[1] == "ship"])), ([], 1))   # it runs to its end
         s.assertIn("test server: a deploy runs, then tztztztzt", v["change"][0])
         F.f["trees"][R] = "tr" * 20
-        hd.put("live", "tree", {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
+        s.live(F, {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]})
         s.assertEqual(s.state(F, "s1")["state"], "gated; waiting for the user's yes")
+
+    def test_a_tools_fix_of_what_the_image_carries_deploys_live_at_the_same_tree(s):  # the image kept client.key aa54f50c after the ship COPYing state/live/key
+        F, R = s.integration_fixture(with_ref=True)
+        (s.root / "state" / "s1" / "verdicts.jsonl").write_text(json.dumps({"ts": "z", "head": A, "contract": hd.contract("s1")["hash"], "rows": {"ok": "pass", "j1": "pass"}, "rules": {}}) + "\n")
+        F.f["refs"]["local/harness"] = B; F.f["tools_files"] = {B: {"tools/track.sh": "ship() { :; }"}}   # gated under these tools
+        ships = lambda: [e for a, e in zip(F.spawned, F.envs) if a[1] == "ship"]
+        ctx = s.ctx(F); ch, t = ctx.changes["s1"], hd.rec("s1", "handover")["T"]
+        hd.put("s1", "build", {"T": ctx.key(ch, t, build=True), "ok": True}); hd.put("s1", "gate", {"T": ctx.key(ch, t), "ok": True})
+        hd.tick(s.ctx(F)); k = ships()[-1]["KEY"]
+        live = {"tree": "tr" * 20, "commit": R, "heads": [A], "names": ["local/x", "s1"]}
+        s.live(F, {**live, "key": k}); F.f["procs"] = set(); hd.drop("live", "proc-ship")
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 1)                          # live under its key: nothing to deploy
+        hd.put("live", "tree", live)                                                # a record from before the key: deployed anew
+        hd.tick(s.ctx(F)); s.assertEqual((len(ships()), ships()[-1]["KEY"]), (2, k))
+        s.live(F, {**live, "key": k}); hd.drop("live", "proc-ship")
+        F.f["tools_files"][C] = {"tools/track.sh": "ship() { :; }", "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = C
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 2)                          # a gate-only tools ship: no deploy
+        F.f["tools_files"][D] = {"tools/track.sh": "ship() { COPY key; }", "tools/gate/gate.sh": "2"}; F.f["refs"]["local/harness"] = D
+        F.f["unknown"] = ["local"]
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 2)                          # the tools unknown: no deploy on a guess
+        del F.f["unknown"]
+        hd.tick(s.ctx(F)); s.assertEqual(len(ships()), 3)                          # the ship's tools moved at the same tree: live is deployed anew
+        s.assertNotEqual(ships()[-1]["KEY"], k); s.assertEqual(ships()[-1]["T"], "tr" * 20)
 
     def test_a_resolution_follows_the_head_while_it_merges(s):  # server-token-auth: a comment-only head move dropped local/merge/113f93a-a8cae09
         F, R = s.integration_fixture(with_ref=True)
@@ -3783,7 +3810,7 @@ class R8(Sandbox):
         F = Fake(**FACTS)
         s.gated("s1", F)
         s.assertEqual(hd.integration(s.ctx(F))["names"], ["s1"])                    # gated, not judged yet: it deploys
-        hd.put("live", "tree", {"tree": "ti" * 20, "commit": A, "heads": [A]})     # another change's deploy carried it
+        s.live(F, {"tree": "ti" * 20, "commit": A, "heads": [A]})     # another change's deploy carried it
         s.verdict("s1", A, {"ok": "pass", "j1": "fail: no"}, F)
         s.assertEqual(hd.integration(s.ctx(F))["names"], [])                       # a failed head leaves the tree
         s.assertTrue(s.state(F, "s1")["state"].startswith("FAIL 1 rows"))          # live, yet its dev's

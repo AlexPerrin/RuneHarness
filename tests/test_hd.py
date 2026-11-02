@@ -297,24 +297,59 @@ class R2(Sandbox):
         F.f["orchestrators"] = [(8, "2")]
         hd.tick(s.ctx(F))
         s.assertEqual(list((s.root / "state" / "orchestrator-read").glob("*")), [])          # a gone session's read is dropped
-        s.assertFalse(hasattr(hd, "cmd_restart"))                                             # no session ends for a definition
-        s.assertIn("exec claude --agent orchestrator", (Path(__file__).parent.parent / hd.SUPERVISOR).read_text())
+        F.f["orchestrators"] = [(7, "1")]; F.f["started_on"] = {"1": "old"}
+        s.assertEqual(hd.tick(s.ctx(F))["restart"], [])                                      # no session ends for a definition
         settings = json.loads((Path(__file__).parent.parent / ".claude" / "settings.json").read_text())
-        s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "compact")
+        s.assertEqual(settings["hooks"]["SessionStart"][0]["matcher"], "startup|compact")
 
-    def test_a_shipped_mcp_json_asks_the_user_to_restart_the_session(s):
+    def test_a_stale_mcp_json_or_full_context_restarts_the_session_without_losing_a_run(s):
         blobs = {("HEAD", ".mcp.json"): "new", ("HEAD", ".claude/settings.json"): "s"}
         F = Fake(**FACTS, blobs=blobs, started_on={("1", ".mcp.json"): "new", ("1", ".claude/settings.json"): "s"})
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # started on the live files: no alert
+        s.change("s1"); s.agreed("s1")
+        s.assertEqual(hd.tick(s.ctx(F))["restart"], [])                                      # started on the live files: no restart
         F.f["started_on"][("1", ".claude/settings.json")] = "old"
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # settings.json hooks reload live: no alert
+        s.assertEqual(hd.tick(s.ctx(F))["restart"], [])                                      # settings.json hooks reload live
+        run = [r for r in hd.runs() if r["change"] == "s1"][-1]
+        hook.bind(payload(run, "ag-1", "SubagentStart", s.root))                             # a run of session 7 is live
         F.f["started_on"][("1", ".mcp.json")] = "old"
-        a = [a for a in hd.tick(s.ctx(F))["alert"] if "restart it" in a]
-        s.assertEqual(len(a), 1); s.assertTrue(a[0].startswith("user: orchestrator 7 "))      # one user alert per session
-        s.assertIn("before .mcp.json changed", a[0]); s.assertNotIn("settings.json", a[0])    # naming only what is stale
-        s.assertIn(hd.SUPERVISOR, a[0])
-        F.f["started_on"] = {}
-        s.assertFalse(any("restart it" in a for a in hd.tick(s.ctx(F))["alert"]))            # a start the reflog cannot reach: unknown, no alert
+        v = hd.tick(s.ctx(F))
+        s.assertEqual(len(v["restart"]), 1); s.assertIn("orchestrator 7: started before .mcp.json changed", v["restart"][0])
+        s.assertIn("let its live runs hand back: s1-1", v["restart"][0])
+        s.change("s2"); s.agreed("s2")
+        v = hd.tick(s.ctx(F)); s.assertEqual(v["spawn"], [])                                 # a restarting session spawns nothing
+        s.assertIn("restart", hd.WATCH["orchestrator"])                                       # and is woken for it
+        def restart():
+            with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(hd.os, "kill") as kill:
+                try:
+                    hd.cmd_restart([])
+                except SystemExit as e:
+                    return str(e), kill.call_args_list
+                return "", kill.call_args_list
+        s.assertIn("let them hand back first: s1-1", restart()[0])                           # its run would die with it
+        hd.stop(s.ctx(F), "s1-1") if hasattr(hd, "stop") else hd.main(["stop", "s1-1"])
+        v = hd.tick(s.ctx(F)); s.assertIn("no run of it is live", v["restart"][0]); s.assertIn("hd restart", v["restart"][0])
+        s.assertIn("write ", restart()[0])                                                    # no hand-off file: refused
+        (s.root / "state" / hd.HANDOFF).write_text("asked the user: lift the hold on s2?\n")
+        s.assertEqual(restart(), ("", [mock.call(7, hd.signal.SIGTERM)]))                    # ends its own session
+        F.f["orchestrators"] = [(9, "2")]                                                     # the supervisor started the next
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (9, "2"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            hook.reread({"hook_event_name": "SessionStart", "source": "startup"})
+        s.assertIn("lift the hold on s2?", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])
+        s.assertFalse((s.root / "state" / hd.HANDOFF).exists())                              # given once
+        F.f["started_on"][("2", ".mcp.json")] = "new"
+        s.assertEqual(hd.tick(s.ctx(F))["restart"], [])
+        tp = s.root / "state" / "orch.jsonl"
+        tp.write_text(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 10**6}}}) + "\n")
+        post = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "agent_type": "orchestrator", "transcript_path": str(tp)}
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch.object(Fake, "console", lambda f: (9, "2"), create=True), \
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            s.assertTrue(hook.orchestrator_context(post))
+            s.assertFalse(hook.orchestrator_context(post))                                   # told once
+            s.assertFalse(hook.orchestrator_context({**post, "agent_id": "a1"}))             # a subagent's context is the run's limit
+        s.assertIn("its context passed 1000000 tokens", hd.tick(s.ctx(F))["restart"][0])
+        sup = (Path(__file__).parent.parent / hd.SUPERVISOR).read_text()
+        s.assertIn("while :; do", sup); s.assertIn("state/orchestrator-handoff.md", sup)    # the supervisor starts the next session
 
     def test_the_user_chats_with_the_orchestrator_no_relay(s):
         v = hd.tick(s.ctx(Fake(**FACTS)))
@@ -799,7 +834,7 @@ class R2(Sandbox):
         f = s.root / "state" / "seen.orchestrator.json"
         f.write_text(json.dumps({**json.loads(f.read_text()), "message": ["old"], "card": ["old"]}))
         hd.wake({"spawn": []})
-        s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "spawn"])   # a key no longer watched is dropped
+        s.assertEqual(sorted(json.loads(f.read_text())), ["alert", "heads", "question", "restart", "spawn"])   # a key no longer watched is dropped
 
     def test_hooks_during_a_long_pass_never_wait_and_their_facts_are_folded(s):
         """The three cancelled-hook cases: a bind (a57c2d6..., cancelled 5 times), a run dropped 'no longer due' while its

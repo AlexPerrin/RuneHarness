@@ -20,7 +20,7 @@ hook.py           SubagentStart/Stop: run start (the run named by the brief path
                   a git commit naming harness/ is denied while the definitions hold a dependency cycle;
                   a run's Bash command, or one of an agent it spawned (its meta file's parentAgentId, at any depth), denied by none of these starts with a line `hd scope <run>`;
                   a run's SubagentHandback is denied while a background command, monitor or subagent it started has no task notification, TaskStop result or 'No task found' yet (a run cannot TaskStop its subagent: it asks it with SendMessage to return), and each subagent's hand-back is kept as evidence/<slug>/subagent-<id>.md;
-                  SessionStart (compact): an orchestrator session whose start-time definition is not the live one is given the live one (hd.reread);
+                  SessionStart (startup, compact): an orchestrator session whose start-time definition is not the live one is given the live one (hd.reread), and a new one its predecessor's state/orchestrator-handoff.md;
                   PostToolUse: the orchestrator's TaskStop of a run's agent (one a SendMessage resumed after its hand-back too) ends the run as `hd stop` does, a fact the pass folds;
                   a run hands off at the context limit;
                   else a run whose change's up.json lists desktops, after IDLE_CALLS tool calls with no desktop devtools call since that up or its last devtools call, is told once to `down` until it next plays.
@@ -367,7 +367,11 @@ Its runs bind to its process as their console.
 It loads its definition only at start, so a shipped one reaches it by being read: `swap` compares the orchestrator.md blob each `claude --agent orchestrator` process holds (the one in its `state/orchestrator-read/<pid>-<start>`, else the one it started on: the live checkout's HEAD at its start time, by the HEAD reflog) with HEAD's, and alerts a session on another blob;
 its own `hd` (`reread`) prints it the live file in full after its sections and records that blob held, so it acts on it from then on while its runs and spawns go on: no session ends for a definition;
 a compaction keeps only the start-time definition, so the SessionStart hook (compact) gives the session the live file again when the two differ;
-MCP servers load only at a session's start (.claude/settings.json hooks reload live), so `swap` also compares each session's start-time `LOADED` blob (.mcp.json) with HEAD's and raises one `user:` alert per session naming it and `tools/orchestrator.sh` for its restart;
+MCP servers load only at a session's start (.claude/settings.json hooks reload live), so `restarts` compares each session's start-time `LOADED` blob (.mcp.json) with HEAD's, and reads the hook's `state/orchestrator-restart/<pid>-<start>` (written once when the session's own context passes `context_limit`);
+either lists a `restart` section line for that session (a wake line too), and no spawn line while one is listed: its live runs (those bound to its process) die with it, so it lets them hand back;
+once none is live it stops the monitor sweep, writes `state/orchestrator-handoff.md` (what only it holds: questions asked in text, cards shown, unrecorded words) and runs `hd restart`, which refuses while a run of it is live or the file is missing and then SIGTERMs its own `claude` process;
+`tools/orchestrator.sh` loops: it starts the next session whenever one ends, unless the user ended it (a clean exit with no hand-off file);
+the SessionStart hook (startup) gives a new orchestrator session the hand-off file as its context and deletes it;
 an mcp/ file needs none, serve.py carries it;
 a gone session's read record is dropped by the pass.
 `hd` alerts `user: no orchestrator session` while no `claude --agent orchestrator` process exists, naming `tools/orchestrator.sh`.

@@ -961,7 +961,7 @@ def evs(needle):
     return got
 
 
-WATCH = {"orchestrator": ("spawn", "card", "question", "alert")}
+WATCH = {"orchestrator": ("spawn", "card", "question", "alert", "restart")}
 
 
 def wake(view):
@@ -2438,7 +2438,7 @@ def tick(ctx=None, act=True):
 
 
 def _pass(ctx, act):
-    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": []}
+    view = {"spawn": [], "card": [], "question": [], "run": [], "goal": [], "change": [], "alert": [], "restart": []}
     repairs(ctx, act)
     view["alert"] += [f"definition skipped: {b}" for b in defs.bad]
     per = {}  # R3: the open harness changes on one mechanism form one dependency chain, each naming one; the planner merges the rest
@@ -2545,8 +2545,9 @@ def _pass(ctx, act):
     if not ctx.F.orchestrators():
         view["alert"].append(f"user: no orchestrator session: start it with `{ROOT / SUPERVISOR}`")
     view["alert"] += swap(ctx)
+    view["restart"] = restarts(ctx)
     for r in ctx.runs:
-        if not r.get("ended"):
+        if not r.get("ended") and not (view["restart"] and not r.get("started")):   # a restarting session spawns nothing: its successor does
             (view["spawn"] if not r.get("started") else view["run"]).append(
                 f"{r['name']}: Agent(subagent_type=\"{r['role']}\", prompt=\"Read and follow {r['brief']}\")" if not r.get("started")
                 else f"{r['name']} ({r['role']}, {r['change']}) since {r['started']}")
@@ -2558,6 +2559,7 @@ def _pass(ctx, act):
 ORCH = ".claude/agents/orchestrator.md"
 SUPERVISOR = "tools/orchestrator.sh"
 LOADED = (".mcp.json",)  # a session reads it only at its start (.claude/settings.json hooks reload live; mcp/serve.py carries every mcp/ change itself)
+HANDOFF = "orchestrator-handoff.md"   # in state/: what a restarting session leaves its successor; the SessionStart hook gives it and deletes it
 
 
 def held(F, pid, start):
@@ -2571,15 +2573,43 @@ def swap(ctx):
     read: one acting on another blob is alerted, and its own `hd` prints it the live file (reread); no session ends, so
     every run and spawn goes on."""
     cur, sessions = ctx.F.blob(str(ROOT), "HEAD", ORCH), ctx.F.orchestrators()
-    for f in (STATE / "orchestrator-read").glob("*") if (STATE / "orchestrator-read").exists() else ():
+    for f in [f for d in ("orchestrator-read", "orchestrator-restart") if (STATE / d).exists() for f in (STATE / d).glob("*")]:
         f.name in {f"{p}-{st}" for p, st in sessions} or f.unlink(missing_ok=True)   # a session gone
-    out = [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
-           "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
-    for p, st in sessions:  # MCP servers no read carries: only a new session picks them up
-        if old := [f for f in LOADED if (b := ctx.F.definition_at(st, f)) and b != ctx.F.blob(str(ROOT), "HEAD", f)]:
-            out.append(f"user: orchestrator {p} started before {', '.join(old)} changed: restart it (end the session, then "
-                       f"`{ROOT / SUPERVISOR}`) to pick up the live {', '.join(old)}")
+    return [f"orchestrator {p}: your definition changed since you read it: your `hd` prints the live one in full; it replaces "
+            "the one you hold, act on it from then on" for p, st in sessions if cur and (b := held(ctx.F, p, st)) and b != cur]
+
+
+def restarts(ctx):
+    """R2: what no read carries restarts a session: MCP servers load only at its start (a LOADED file changed since), and its
+    context past cfg.context_limit (the hook's state/orchestrator-restart/<pid>-<start>). It spawns nothing more, lets its
+    runs hand back (each dies with it), leaves its successor HANDOFF and ends by `hd restart`; tools/orchestrator.sh starts the next."""
+    out = []
+    for p, st in ctx.F.orchestrators():
+        why = [f"started before {f} changed" for f in LOADED if (b := ctx.F.definition_at(st, f)) and b != ctx.F.blob(str(ROOT), "HEAD", f)]
+        why += [f.read_text().strip()] if (f := STATE / "orchestrator-restart" / f"{p}-{st}").exists() else []
+        if why:
+            live = [r["name"] for r in ctx.runs if r.get("started") and not r.get("ended") and str(r.get("console_pid")) == str(p)]
+            out.append(f"orchestrator {p}: {'; '.join(why)}: restart: " + (
+                f"spawn nothing (none is listed) and let its live runs hand back: {', '.join(live)}" if live else
+                f"no run of it is live: TaskStop the monitor sweep, write state/{HANDOFF} (every question you asked the user in text "
+                "and still wait on, every card shown and not answered, the user's words not yet recorded, the last sweep's n), "
+                f"then `hd restart`: {SUPERVISOR} starts the next session, given that file"))
     return out
+
+
+def cmd_restart(a):
+    """R2: `hd restart`: the orchestrator session this runs in ends, for tools/orchestrator.sh to start its successor, once no
+    run of it is live (each dies with it) and its HANDOFF is written."""
+    F = Facts()
+    pid, st = F.console()
+    if (pid, st) not in F.orchestrators():
+        sys.exit("hd restart: only an orchestrator session restarts, itself")
+    if live := [r["name"] for r in runs() if r.get("started") and not r.get("ended") and str(r.get("console_pid")) == str(pid)]:
+        sys.exit(f"hd restart: these runs die with this session: let them hand back first: {', '.join(live)}")
+    if not (STATE / HANDOFF).exists():
+        sys.exit(f"hd restart: write {STATE / HANDOFF} first (the open questions, unanswered cards, unrecorded words): the next session is given it")
+    event(action="orchestrator-restart", pid=pid)
+    os.kill(pid, signal.SIGTERM)
 
 
 def reread(F, force=False):
@@ -3329,7 +3359,7 @@ def cmd_tick(a):
 
 def main(argv):
     cmds = {"show": cmd_show, "handover": cmd_handover, "verdict": cmd_verdict, "ask": cmd_ask, "answer": cmd_answer,
-            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "ps": cmd_ps, "tick": cmd_tick, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
+            "approve": cmd_approve, "close": cmd_close, "hold": cmd_hold, "new": cmd_new, "tree": cmd_tree, "rows": cmd_rows, "stop": cmd_stop, "scope": cmd_scope, "ps": cmd_ps, "tick": cmd_tick, "restart": cmd_restart, "ship": cmd_ship, "commit": cmd_commit, "room": cmd_room}
     if not argv:
         return cmd_tick([])
     if argv[0] not in cmds:

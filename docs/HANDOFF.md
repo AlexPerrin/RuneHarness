@@ -6,7 +6,7 @@ are the cutover the user approves.
 
 ## Start (one session, in ~/osrs-harness on branch `v8`)
 Its `.claude/settings.json` wires v8's hooks and its `.claude/agents/` holds the roles; a session started elsewhere
-binds no run. The driver and the user's chat: `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` and restarts it on a new definition): it
+binds no run. The driver and the user's chat: `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` and starts the next session whenever one ends, until the user ends one): it
 arms the watch on `state/wake.orchestrator`, runs `python3 hd.py`, spawns each listed run, handles hand-backs, shows cards,
 questions and alerts and acts on the user's words; the user types the yes and the close themselves
 (`! python3 ~/osrs-harness/hd.py approve <slug> <head>` / `close <slug> <text>`). The planner run the pass lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same

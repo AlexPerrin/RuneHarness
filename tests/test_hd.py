@@ -2028,7 +2028,8 @@ class R5(Sandbox):
         F = Fake(**FACTS)
         a, b = s.started(F, "s1"), s.started(F, "s2")
         hd.write(hd.STATE / "runs" / f"{a['name']}.json", json.dumps({**hd.runs(a["name"])[0], "ended": hd.now(), "reason": "stopped by the head"}))
-        F.f["slices"] = {hd.run_slice(a["name"]): 3, hd.run_slice(b["name"]): 0, "hd-t1.slice": 0, "hd-t2.slice": 2}   # a test's slice, empty or still busy
+        F.f["slices"] = {hd.run_slice(a["name"]): 3, hd.run_slice(b["name"]): 0, "hd-t1.slice": 2, "hd-t2.slice": 0}   # a test's slice: its owner dead (busy or not), its owner alive (empty or not)
+        F.proc_start = lambda pid: None if pid == 1 else "1"
         w = hd.STATE / "winpids"
         for r, pid in ((a, "4812"), (b, "5120")):                              # a Windows process a track script started in each slice, and a temp file of each
             (w / hd.run_slice(r["name"])).mkdir(parents=True); (w / hd.run_slice(r["name"]) / pid).write_text("java.exe\n")
@@ -2038,7 +2039,7 @@ class R5(Sandbox):
         s.assertEqual([x[1:] for x in F.ran if x[0].endswith("taskkill.exe")], [["/F", "/PID", "4812", "/FI", "IMAGENAME eq java.exe"]])
         s.assertFalse((w / hd.run_slice(a["name"])).exists()); s.assertTrue((w / hd.run_slice(b["name"]) / "5120").exists())
         s.assertFalse(hd.run_tmp(hd.run_slice(a["name"])).exists()); s.assertTrue(hd.run_tmp(hd.run_slice(b["name"])).exists())   # sweep-48 P2-c: a run's temp dirs go with it
-        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 2}; hd.tick(s.ctx(F))
+        F.ran.clear(); F.f["slices"] = {hd.run_slice(b["name"]): 0, "hd-t2.slice": 0}; hd.tick(s.ctx(F))
         s.assertEqual([x for x in F.ran if "stop" in x or x[0].endswith("taskkill.exe")], [])   # ended once, stopped once
 
     @unittest.skipUnless(shutil.which("busctl") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")

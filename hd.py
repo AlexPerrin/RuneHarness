@@ -2515,12 +2515,12 @@ def _pass(ctx, act):
         if act and (not last or last["state"] != st["state"]):
             put(ch["slug"], "state", {"state": st["state"]})
             event(change=ch["slug"], state=st["state"], detail=(st.get("detail") or "")[:300])
-    if act:   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes and removes what they left; an empty slice no live run holds (a test's) goes too
+    if act:   # R5: a run's end, whatever ended it (hand-back, hd stop, the pass), ends its processes and removes what they left; a slice no live run holds goes once its owner is gone: a test's (hd-t<pid>) once <pid> is dead, never while it may still start a scope, any other once empty
         live, ended = ctx.F.slices() or {}, {run_slice(r["name"]): r for r in ctx.runs if r.get("ended")}
         mine = {run_slice(r["name"]) for r in ctx.runs if not r.get("ended")}
         left = {d.name for k in ("winpids", "tmp") if (STATE / k).is_dir() for d in (STATE / k).iterdir()}
         for sl in sorted((set(live) | left) - mine):
-            if sl in ended or sl in left or live[sl] == 0:
+            if sl in ended or sl in left or ((t := re.fullmatch(r"hd-t(\d+)\.slice", sl)) and ctx.F.proc_start(int(t[1])) is None) or (not t and live[sl] == 0):
                 ctx.F.end_procs(sl)
                 event(**({"change": ended[sl]["change"], "run": ended[sl]["name"]} if sl in ended else {"slice": sl}), action="processes-ended")
     view["alert"] += ctx.alerts

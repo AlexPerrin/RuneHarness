@@ -35,3 +35,6 @@ harness-qa-login-idle-1 (live, token up, 2026-11-02 ~02:58Z): after a refused to
 
 Also (filed): A desktop keeps NPC names after track.sh restart
 goblin-367-rsprox-dump-15 (qa): desktop 7782 lost its NPC names after 'track.sh restart' (the server restart mid-scene), so NPC data tools could not name NPCs for the rest of the review. Evidence: evidence/goblin-367-rsprox-dump/qa15/, evidence/goblin-367-rsprox-dump/handoff.md
+
+Also (filed): track.sh restart logs every desktop back in, with NPC names
+server-clan-channels-9 (qa, head 8bd6b6ff3): 'tools/track.sh restart' failed to log 4 of 5 desktops back in ('inventory widget has no slots', the relogin symptom server-js5-idle-relogin-3 traced to a login that fetches cache groups over JS5); the qa logged them in by hand with desktop_login.py, and desktop 7785 then listed every nearby NPC name as null (second case after goblin-367-rsprox-dump-15's desktop 7782). Evidence: evidence/server-clan-channels/qa-9.md

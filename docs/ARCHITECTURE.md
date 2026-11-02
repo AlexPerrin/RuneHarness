@@ -460,6 +460,7 @@ python3 hd.py tick --dry-run             # the view, nothing started or recorded
 python3 -m unittest discover -s tests    # one class per requirement over fakes; Tools runs the harness track script for real
 the suite sets HD_SUITE=1 for every process it starts and refuses to load under it: a test's gate never runs the suite (a test's deliberate inner suite runs under HD_SUITE=nested, where EndToEnd skips)
 a gate's test row records unittest's runner alone (its own fd), never what the tests print: its detail names the failed tests, each with its traceback's last lines (the assertion)
+every run of the harness suite through the track script (the gate's test row, a dev's `tools/track.sh test <slug>`) keeps the runner's whole report in state/<slug>/tests.txt, which its record names last beside every failed test
 a gate's test runner (the harness suite's and each carried tools head's) puts every temp dir of its tests under one root it removes at its end and at its stop (SIGTERM)
 fork .worktrees/harness: python3 -m unittest tools/server/test_tools.py   client .worktrees/harness-v8: python3 -m unittest tools/test_track.py
 each tools branch ignores __pycache__/; no compiled cache is committed

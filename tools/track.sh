@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # tools/track.sh <verb> <slug> [TCOMMIT]: the harness track (docs/ARCHITECTURE.md). Env from hd: SLUG HEAD T TCOMMIT
 # EVIDENCE BUILD HD_ROOT G (the gate key) TOOLS (<repo path>:<tools branch>:<sha>:<owner/repo> per product tools branch the change carries). Verbs: build
-# (the build copy at T) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
+# (the build copy at T) | test <slug> [unittest args] (a dev's run of the suite in its worktree, as check-tests runs it) | gate (every check and gate row of the contract, BUILD = the copy) | check-tests | check-dry-run |
 # check-docs (each on $BUILD) | check-tools (each carried head's tests, in its repo's build copy) | ship (unless a branch moved
 # past its gated base: fast-forward and push each carried tools branch, then the live checkout's branch to T under the state lock, push; one ship at
 # a time, under state/ship.lock; a T already on the live branch moves only the carried tools branches not yet holding their heads). hd runs
 # gate and ship for the harness batch, slug ship-harness, NAMES its changes.
 set -euo pipefail
-verb=$1; slug=${2:-}; tc=${3:-${TCOMMIT:-}}
+verb=$1; slug=${2:-${SLUG:-}}; tc=${3:-${TCOMMIT:-}}
 repo=$(cd "$(dirname "$0")/.." && pwd)   # the harness code; root: where state and evidence live
 root=${HD_ROOT:-$repo}
 state=$root/state/$slug
@@ -28,16 +28,24 @@ build() {  # the loop's verb alone: a dev's run would overwrite the loop's recor
 }
 unit='import atexit, os, shutil, signal, sys, tempfile, unittest; d = tempfile.tempdir = os.environ["TMPDIR"] = tempfile.mkdtemp(prefix="hd-run-"); atexit.register(shutil.rmtree, d, True); signal.signal(signal.SIGTERM, lambda *a: (shutil.rmtree(d, True), os._exit(143))); unittest.main(module=None, argv=["unittest"] + sys.argv[1:], testRunner=unittest.TextTestRunner(stream=os.fdopen(3, "w")))'   # python3 -m unittest whose runner alone writes fd 3; every temp dir of its tests (and their processes) under one root it removes at its end and at its stop (SIGTERM: a stopped gate leaves none)
 summary() { python3 -c '
-import re, sys
+import os, re, sys
 t = sys.stdin.read(); body, _, end = t.partition("\n" + "-" * 70 + "\nRan ")
+if len(sys.argv) > 1:   # the whole report, outliving the temp root of the runner and any filter on this output
+    f = sys.argv[1]; os.makedirs(os.path.dirname(f), exist_ok=True); open(f + ".tmp", "w").write(t); os.replace(f + ".tmp", f)
+failed = []
 for b in re.split(r"^=+\n", body, flags=re.M)[1:]:   # each failing test: its name and its traceback tail (the assertion), so the gate record says why
     head, _, tb = b.partition("-" * 70 + "\n")
     if re.match(r"(FAIL|ERROR): ", head):
-        print(head.strip()); print("\n".join(tb.strip().splitlines()[-6:]))
+        print(head.strip()); print("\n".join(tb.strip().splitlines()[-6:])); failed.append(head.strip().split(": ", 1)[1])
+if failed and len(sys.argv) > 1: print("failed: " + ", ".join(failed) + "; whole report: " + sys.argv[1])   # last but the verdict: the tail of a record keeps it
 for l in ("Ran " + end if end else t).splitlines():
     if re.match(r"(Ran |OK|FAILED)", l) or "refused: " in l: print(l)
-'; }   # unittest's verdict, each failing test with its traceback tail, and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
-check_tests() { (cd "$BUILD" && env -u ROWS python3 -c "$unit" discover -s tests 3>&1 >/dev/null 2>&1 | summary); }
+' "$@"; }   # unittest's verdict, each failing test with its traceback tail, and a refusal; read from the runner's fd 3 alone, never what the tests print (to /dev/null)
+suite() {  # suite [unittest args]: the suite of the tree in the cwd (all of tests/ by default) through the runner, its whole report kept in state/<slug>/tests.txt
+  [ $# -gt 0 ] || set -- discover -s tests
+  env -u ROWS python3 -c "$unit" "$@" 3>&1 >/dev/null 2>&1 | summary "$state/tests.txt"
+}
+check_tests() { (cd "$BUILD" && suite); }
 gate() {  # every check: and gate: row of the contracts of NAMES (the batch's changes, comma-separated) at T, from the build copy; recorded under the gate key G, kept as gate-<G>
   wt=$(copy); export ROWS=$state/.rows; rm -rf "$ROWS"; mkdir -p "$ROWS"   # each member runs its rows; a check of the tree alone runs once (rowmemo); the change's one memo dir, emptied by each gate: a killed gate leaves no temp dir
   out=$(HD_ROOT=$root TOOLS_ROOT=$wt LIVE=$repo python3 "$repo/hd.py" rows "${NAMES:-$slug}" "$tc" "$wt" 2>&1) && rc=0 || rc=$?   # the rows are T's own scripts (the files its key names); main's plan is LIVE's
@@ -99,4 +107,4 @@ rowmemo() {  # within one gate (ROWS), a check whose input is the tree and the b
   cat "$ROWS/$1.out"; return "$(cat "$ROWS/$1.rc")"
 }
 
-case $verb in build|gate|ship) "$verb" ;; check-tests|check-dry-run|check-docs|check-tools) rowmemo "${verb//-/_}" ;; *) echo "verbs: build gate check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac
+case $verb in build|gate|ship) "$verb" ;; test) [ -n "$slug" ] || { echo "track.sh test <slug> [unittest args]" >&2; exit 2; }; shift 2; suite "$@" ;; check-tests|check-dry-run|check-docs|check-tools) rowmemo "${verb//-/_}" ;; *) echo "verbs: build gate test check-tests check-dry-run check-docs check-tools ship" >&2; exit 2 ;; esac

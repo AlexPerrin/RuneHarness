@@ -7,6 +7,7 @@ kind: change
 priority: P2
 deps: []
 created: '2026-11-02T04:22:33Z'
+closed: 'answer-2: answer-1: brown''s completion goes on the hand-in tick inside #367; no shared quest-manager PR'
 ---
 Found by goblin-367-rsprox-dump-10 (PR #367, eaglepurerocketgrape's P2 IC_kwDOQBbPT88AAAABeeLlXg on the hand-in commit).
 

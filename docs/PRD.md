@@ -143,7 +143,8 @@ a live check reads the real state.
    merged upstream means upstream main holds the head or its PR is merged at a tip holding it (a squash or rebase merge leaves main without the head);
    a carried change with no PR record finds its merged PR by its head branch, so a merged PR is never opened again;
    a done or closed change ends its runs, a started one with its record and an ended event, and a closed dependency holds nothing;
-   a dependency a late answer or joined filing reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
+   a dependency the user's late answer reopens holds its dependents until its dev acts on it, on every track and in the same upstream PR alike;
+   a joined filing holds only its own change: a dependent's need is met once the head it waited on is live;
    a fresh dev ref the base contains is neither live nor done until handed over;
    a fresh dev ref the base contains is no head in flight: the dev's step names the answer or filing that reopened it;
    a head whose last verdict fails is the dev's step before it is built, gated or judged again;
@@ -247,6 +248,7 @@ a live check reads the real state.
    the test server is deployed anew when its deploy key (the integration tree and the deploy tools) differs from the one its live record names, a tools fix of what the image carries with no tree change included;
    the test server is deployed anew while a container its live record names is not running (a host restart);
    a script ended 3 times on the same args without a result → raised once, a new args or a landed result restarts the count;
+   a fixed script or a landed result is a change of that file's text since the start was recorded, never a file time beside another's;
    a script's result is its record, or its exit 0 when it records none (a ship): one killed, or exiting non-zero without its record, ended without a result;
    that alert quotes the last failure lines of the script's log, so its cause reads without opening the log;
    a script ended 3 times on the same cause (the last line it logged, hashes dropped) without a result → raised once, whatever args or key each ran under;

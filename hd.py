@@ -1395,13 +1395,16 @@ class Ctx:
         cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
         a carry (no key) alive on a script fixed after its start is outdated too;
+        a fixed script and a landed result are each a change of that file's text since the record of the start (its digest), never a file time beside another's;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
         st, p = s.proc(slug, name), rec(slug, f"proc-{name}") or {}
         rows = sorted(json.loads((env or {}).get("ROWKEYS") or "{}").values())
-        res, pf = STATE / slug / f"{name}.json", STATE / slug / f"proc-{name}.json"
-        newer = lambda f: f.exists() and f.stat().st_mtime_ns > pf.stat().st_mtime_ns
-        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (not newer(Path(args[0]).expanduser()) if key is None else p.get("key") == key or set(p.get("rows") or []) & set(rows)):
+        res, script = STATE / slug / f"{name}.json", Path(args[0]).expanduser()
+        ver = lambda f: digest(f.read_text(errors="replace")) if f.is_file() else None
+        sv, rv = ver(script), ver(res)
+        fixed = p.get("script", sv) != sv  # shortcut: a record written before digests were kept reads as unfixed; drop once none is live
+        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (not fixed if key is None else p.get("key") == key or set(p.get("rows") or []) & set(rows)):
             return  # a carry (no key) alive on a script fixed after its start is outdated: its rerun resumes on the fixed one
         if st == "alive":
             if not act:
@@ -1409,9 +1412,9 @@ class Ctx:
             s.F.stop(p["pid"], p["start"])
             event(change=slug, action=f"stopped {name}", key=p.get("key"), pid=p["pid"])
         rc = STATE / slug / f"{name}.rc"
-        ok = st == "dead" and (not p.get("rc") or newer(res) or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none); a record started with no exit status to read counts no strike
+        ok = st == "dead" and (not p.get("rc") or rv is not None and rv != p.get("result") or rc.exists() and rc.read_text().strip() == "0")  # it ended with its result: its record written (a failed build's), or exit 0 (a ship's, which writes none); a record started with no exit status to read counts no strike
         c = cause(STATE / slug / f"{name}.log") if st == "dead" and not ok else ""
-        if not p or st == "alive" or ok or newer(Path(args[0]).expanduser()) or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
+        if not p or st == "alive" or ok or fixed or (p.get("args") != args or p.get("key") != key) and not (c and p.get("cause") in (None, c)):
             p = {}  # it ended with its result, the script was fixed after the last start, or new args whose death is not the last one's cause: the count starts over
         if st == "dead" and p.get("attempts", 1) >= 3:
             log = STATE / slug / f"{name}.log"
@@ -1436,7 +1439,7 @@ class Ctx:
             except OSError as e:  # a missing or unrunnable script is the user's to fix, not a crash of the pass
                 s.alerts.append(f"{slug}: {name} cannot start: {e}")
                 return
-            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), "cause": c or p.get("cause"), "rc": True, **({"room": need} if need else {})})
+            put(slug, f"proc-{name}", {"pid": pid, "start": start, "args": args, "key": key, "rows": rows, "attempts": p.get("attempts", 0) + 1, "since": p.get("since") or now(), "cause": c or p.get("cause"), "rc": True, "script": sv, "result": rv, **({"room": need} if need else {})})
 
 
 def cause(log):
@@ -1620,7 +1623,8 @@ def cycles(changes):
 
 
 def deps_held(ctx, ch):
-    """The step a change or goal waits on while a dependency is neither live nor closed, or is reopened by a late answer or joined filing; None when none holds it. R8: a
+    """The step a change or goal waits on while a dependency is neither live nor closed, or is reopened by the user's late answer; None when none holds it.
+    A joined filing holds only its own change: a dependent's need is met once the head it waited on is live. R8: a
     same-track dependency that goes upstream holds until gated (the dependent joins its PR, or with a branch of its own its card waits on the dependency's merge)."""
     if (cy := next((c for c in ctx.cycles if ch["slug"] in c), None)):
         return step(f"in dependency cycle {' -> '.join(cy)}", "wait")
@@ -1639,8 +1643,7 @@ def deps_held(ctx, ch):
                 return step(f"waiting on {d}", "unknown" if ok is None else "wait", dep=d)
         elif not ctx.live(dep, dh):
             return step(f"waiting on {d}", "wait", dep=d)
-        late, joined = late_answers(d, rec(d, "handover"), dh)
-        if late or (joined and ctx.done(dep, dh)):  # R3: a dependency its own step reopened (as nxt does) is met only once its dev acts on it
+        if late_answers(d, rec(d, "handover"), dh)[0]:  # R3: the user's word on a dependency is met only once its dev acts on it
             return step(f"waiting on {d}", "wait", dep=d)
     return None
 
@@ -1657,8 +1660,8 @@ def late_answers(slug, ho, head):
         return [], []
     since = max([seen(con, ho.get("given", ho["ts"]))] + [nth(k) for v in verdicts(slug) if v["head"] == head for k in v["rows"] if k.startswith("answer-")])
     late = [r for r in con["rows"] if r["id"].startswith("answer-") and nth(r["id"]) > since and r["text"][:20] >= ho.get("at", ho["ts"])]  # a renumbered row keeps its stamp
-    return ([r["id"] for r in late if r["text"][21:].startswith("the user:")],
-            [r["id"] for r in late if not r["text"][21:].startswith("the user:")])
+    return ([r["id"] for r in late if r["text"][21:].startswith("the user")],  # the user's word, quoting the question it closes or not
+            [r["id"] for r in late if not r["text"][21:].startswith("the user")])
 
 
 def nth(answer):

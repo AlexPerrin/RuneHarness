@@ -78,9 +78,10 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
 
 - `hd ps`, by a run: lists the processes of its shell's run slice, pid and command line, the asking command's own excepted, so a run finds its own hung step and kills it
 
-- `hd new <slug> ... [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
+- `hd new <slug> ... [--touches <path[:text]>... | none] [--blocks <change>] [--mechanism <m>] [--limit-of <change>] [--supersedes <a,b>]`, by a planner, the orchestrator, a dev, the user: writes a definition;
   each change it makes wait has its listed, unspawned runs ended by a `waits` fact at once, so their spawn is refused;
   `--blocks` adds it to that change's deps (a dev's fix outside its track);
+  `--touches` (required on a product track) names the code the change edits: each piece missing on the base and the deps' branches makes the one open change whose dev ref holds it (the holder the other holders wait on) a dep, refused when none or several unordered hold it;
   refused when its deps close a dependency cycle.
   A change's mechanism is its `mechanism`, required on the harness track and one of hd.yaml's `mechanisms` (a product change's is its slug);
   a filing on a mechanism with an open change it neither waits on nor blocks (transitively, through its `--deps` and `--blocks`) and no open `hd ask` holds joins that change instead (a held one joins nothing and counts in no merge alert until answered): its text appended to the body and as an answer row `filed by <filer>` (no `answer` record: it outdates no run's record), scope the next hand-over takes, or a dev run on top of a head that is done without it;

@@ -65,6 +65,7 @@ class Fake(hd.Facts):
     def tools_files(s, clone, commit): return s.f.get("tools_files", {}).get(commit, {})
     def merge(s, clone, base, head, msg): return s.f.get("merges", {}).get((base, head), ("ok", head))
     def blob(s, clone, ref, path): return s.f.get("blobs", {}).get((ref, path), "")
+    def holds(s, clone, ref, path, text=""): return (ref, f"{path}:{text}" if text else path) in s.f.get("code", ())  # code {(ref, path or path:text)}
     def rebase(s, repo, branch, onto, wt): s.ran.append(["rebase", repo, branch, onto]); return s.f.get("rebases", {}).get(branch, ("conflict", "x"))
     def proc_start(s, pid): return "1"
     def slices(s): return s.f.get("slices", {})                          # the active slices and the tasks each holds
@@ -1707,7 +1708,7 @@ class R4(Sandbox):
     def test_a_fix_filed_on_a_pr_joins_its_open_round(s):
         s.change("s1", pr=7, branch="content/s1"); s.agreed("s1"); s.change("h9", "harness")
         with mock.patch("sys.stdout", new_callable=io.StringIO):
-            hd.cmd_new(["s1-fix", "--track", "server", "--title", "the dump's accuracy fix", "--pr", "7", "--deps", "h9", "--body", "check it against the dump"])
+            hd.cmd_new(["s1-fix", "--track", "server", "--title", "the dump's accuracy fix", "--pr", "7", "--deps", "h9", "--touches", "none", "--body", "check it against the dump"])
         g = hd.defs("changes")
         s.assertNotIn("s1-fix", g); s.assertIn("h9", g["s1"]["deps"])                 # no change of its own: the round takes it and its wait
         s.assertIn("filed by s1-fix: the dump's accuracy fix", hd.contract("s1")["rows"][-1]["text"])
@@ -2405,7 +2406,7 @@ class R5(Sandbox):
         hd.cmd_new(["r1", "--track", "harness", "--title", "one rewrite", "--mechanism", "hold", "--supersedes", "h1", "--deps", "h1"])
         s.assertEqual((hd.defs("changes")["c1"]["deps"], hd.defs("goals")["g1"]["deps"], hd.defs("changes")["r1"]["deps"]), (["r1"], ["r1"], []))
         s.assertEqual(s.state(Fake(**FACTS), "c1")["state"], "waiting on r1")      # the open fix still holds it
-        hd.cmd_new(["c9", "--track", "client", "--title", "later", "--deps", "h1"])   # a later dependency on h1 names r1
+        hd.cmd_new(["c9", "--track", "client", "--title", "later", "--deps", "h1", "--touches", "none"])   # a later dependency on h1 names r1
         s.assertEqual(hd.defs("changes")["c9"]["deps"], ["r1"])
 
     def test_a_blocks_filing_joined_into_an_open_change_holds_on_it(s):
@@ -4558,6 +4559,20 @@ class R3(Sandbox):
         s.assertTrue(next(x for x in hd.runs() if x["name"] == r["name"])["ended"])
         s.assertEqual([a for a in v["alert"] if "s1" in a], [f"user: s1 is superseded by h1 and holds until closed: ! python3 {hd.ROOT}/hd.py close s1 superseded by h1"])
 
+    def test_a_filing_waits_on_the_branch_its_code_is_on(s):
+        s.change("s1"); s.change("s2", deps=["s1"]); s.change("s3")
+        F = Fake(code={("fork/dev/s1", "A.kt:tokenLogin"), ("fork/dev/s2", "A.kt:tokenLogin"), ("fork/dev/s3", "C.kt"), ("fork/dev/s2", "C.kt"), ("origin/HEAD", "B.kt")})
+        with mock.patch.object(hd, "Facts", lambda: F), mock.patch("sys.stdout", new_callable=io.StringIO):
+            for bad in ([], ["--touches", "D.kt"], ["--touches", "C.kt"]):           # no code named, code on no branch, code on two unordered branches
+                with s.assertRaises(SystemExit):
+                    hd.cmd_new(["x0", "--track", "server", "--title", "t", *bad])
+            hd.cmd_new(["x1", "--track", "server", "--title", "t", "--touches", "A.kt:tokenLogin", "B.kt"])   # s2 holds it from s1: s1 carries it
+            hd.cmd_new(["x2", "--track", "server", "--title", "t", "--deps", "s2", "--touches", "A.kt:tokenLogin"])
+            hd.cmd_new(["x3", "--track", "server", "--title", "t", "--touches", "B.kt"])
+        g = hd.defs("changes")
+        s.assertEqual([g[k]["deps"] for k in ("x1", "x2", "x3")], [["s1"], ["s2"], []])
+        s.assertNotIn("x0", g)
+
     def test_planner_merges_changes_on_one_mechanism(s):
         s.change("h1", track="harness"); s.change("h2", track="harness"); s.change("s1")
         with s.assertRaises(SystemExit):
@@ -4588,7 +4603,7 @@ class R3(Sandbox):
         alerts = hd.tick(s.ctx(Fake(refs={"HEAD": B}, trees={B: TB})), act=False)["alert"]   # one no dependency orders on the mechanism, one naming none
         s.assertIn("mechanism hold: 4 open changes h3, p6, p7, r1: merge them into one root-cause change", alerts)
         s.assertIn("no mechanism: h4: name each one's", alerts)
-        hd.cmd_new(["s9", "--track", "server", "--title", "a quest"])           # a product change needs none
+        hd.cmd_new(["s9", "--track", "server", "--title", "a quest", "--touches", "none"])           # a product change needs none
         s.assertEqual(hd.mechanism(hd.defs("changes")["s9"]), "s9")
         repo = Path(__file__).parent.parent
         for role in ("orchestrator", "planner", "dev"):

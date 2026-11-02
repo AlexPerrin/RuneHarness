@@ -282,6 +282,12 @@ class Facts:
         r = s.sh(["git", "-C", clone, "rev-parse", "-q", "--verify", f"{ref}:{path}"])
         return None if r is None else (r[1].strip() if r[0] == 0 else "")
 
+    @_read
+    def holds(s, clone, ref, path, text=""):
+        """R3: whether ref has path, holding text when given (the code a filing touches)."""
+        r = s.sh(["git", "-C", clone, "grep", "-q", "-F", "-e", text, ref, "--", path] if text else ["git", "-C", clone, "cat-file", "-e", f"{ref}:{path}"])
+        return bool(r) and r[0] == 0
+
     def proc_start(s, pid):
         try:
             return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
@@ -2301,16 +2307,19 @@ def mechanism(c):
     return c.get("mechanism") or c["slug"]
 
 
+def after(graph, *ks):
+    """The changes ks wait on, transitively, ks among them."""
+    seen, todo = set(), list(ks)
+    while todo:
+        if (d := todo.pop()) not in seen:
+            seen.add(d)
+            todo += graph.get(d, {}).get("deps") or []
+    return seen
+
+
 def ordered(graph, a, b):
     """Whether a dependency orders two changes: one waits on the other, transitively (a change orders itself)."""
-    def after(k):
-        seen, todo = set(), [k]
-        while todo:
-            if (d := todo.pop()) not in seen:
-                seen.add(d)
-                todo += graph.get(d, {}).get("deps") or []
-        return seen
-    return b in after(a) or a in after(b)
+    return b in after(graph, a) or a in after(graph, b)
 
 
 def scope(graph, slug):
@@ -3427,6 +3436,7 @@ def cmd_new(a):
     p.add_argument("--blocks", help="a change that gains this one as a dependency (a dev's fix outside its track)")
     p.add_argument("--mechanism", help="the mechanism the change fixes: one of hd.yaml's `mechanisms`, required on the harness track (else its slug)")
     p.add_argument("--limit-of", help="the change whose run found this limit, outside that change's scope")
+    p.add_argument("--touches", nargs="+", default=[], help="the existing code the change edits, each a path or path:text the file holds, or none; required on a product track")
     p.add_argument("--supersedes", default="", help="open changes whose whole scope this filing carries (a planner merge, a change the user's answer drops), comma-separated: each is marked superseded by the carrier (held, no runs) until the user closes it")
     o = p.parse_args(a)
     if o.track == "harness" and PRIO.get(o.priority, 9) > 1:
@@ -3448,6 +3458,7 @@ def cmd_new(a):
             refuse(f"no change {o.limit_of}")
         if m in (own := scope(graph, o.limit_of)):
             refuse(f"{m} is in {o.limit_of}'s scope ({', '.join(sorted(own))}): fix it there, rewriting the mechanism if the limit is in its design")
+    o.deps = ",".join(reach(graph, o))
     held = list(dict.fromkeys(k for k in (o.blocks, o.limit_of) if k))  # the changes that wait on the fix: --blocks and the limit's finder
     tie = {**graph, o.slug: {"deps": [d for d in o.deps.split(",") if d]}}  # the filing's place in the order: a change it waits on or blocks is no join
     for k in held:
@@ -3457,11 +3468,11 @@ def cmd_new(a):
         on = {k: c for k, c in graph.items() if c.get("pr") == o.pr and c["track"] == o.track and k not in sup and not shut(k, c)
               and not (rec(k, "state") or {}).get("state", "").startswith("carried")}
         into = next(iter(sorted(k for k in on if not any(k in c["deps"] for c in on.values()))), None)
-        o.join_deps = [d for d in o.deps.split(",") if d and d != into]  # what the fix waits on, the round waits on
     if into:
+        o.join_deps = [d for d in o.deps.split(",") if d and d != into]  # what the fix waits on (its code's branch too), its carrier waits on
         o.deps = ""  # a joined filing adds no change of its own: only the held changes' edges follow it into `into`
     carrier = into or o.slug  # the change that carries the fix: every wait on the filing or a superseded change names it
-    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False) and k not in ("body", "blocks", "supersedes", "limit_of", "join_deps")}
+    meta = {k: v for k, v in vars(o).items() if v not in (None, "", False, []) and k not in ("body", "blocks", "supersedes", "limit_of", "join_deps", "touches")}
     if o.limit_of:
         meta["limit-of"] = [o.limit_of]
     meta["deps"] = list(dict.fromkeys(graph.get(d, {}).get("superseded") or d for d in o.deps.split(",") if d and d not in sup))
@@ -3490,6 +3501,28 @@ def cmd_new(a):
         for r in runs():
             if r["change"] == k and not r.get("started") and not r.get("ended"):
                 fact(fact="waits", run=r["name"], dep=carrier)
+
+
+def reach(graph, o):
+    """R3: the filing's deps, each piece of code it touches reachable from its track's base or a dep's branch: code only an open
+    change's branch holds makes that change a dep (the one its other holders wait on), code no branch holds is refused."""
+    deps = [d for d in o.deps.split(",") if d]
+    if o.kind == "change" and TRACK[o.track]["fetch"] and not o.touches:
+        refuse("--touches names the existing code the change edits (a path, or path:text the file holds), or none: hd new makes it reachable from the base and the deps")
+    F, repo = Facts(), TRACK[o.track]["repo"]
+    clone = str(P(cfg()["repos"][repo]["path"]))
+    has = lambda ref, t: F.holds(clone, ref, *t.split(":", 1))
+    dev = lambda k: TRACK[graph[k]["track"]]["dev"].format(slug=k)
+    for t in (x for x in o.touches if x != "none"):
+        if has(TRACK[o.track]["base"], t) or any(has(dev(k), t) for k in after(graph, *deps) if k in graph):
+            continue
+        on = [k for k, c in graph.items() if TRACK[c["track"]]["repo"] == repo and not shut(k, c) and has(dev(k), t)]
+        on = [k for k in on if not any(j != k and j in after(graph, k) for j in on)]  # a holder that waits on another holder carries it from there
+        if len(on) != 1:
+            refuse(f"{t}: on neither {TRACK[o.track]['base']} nor a dep's branch, " + (f"but on {', '.join(on)}: name the one it waits on with --deps" if on else "nor any open change's: name code that exists"))
+        deps.append(on[0])
+        print(f"deps + {on[0]}: {t} is on its branch only")
+    return deps
 
 
 def retarget(graph, old, new):

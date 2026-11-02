@@ -43,7 +43,7 @@ Never: a public act (PR, release, upstream comment); a push to any ref but your 
 `C:\Users\Alex\.runelite`; the tester account's items; a process you did not start; the live server. A denied
 action is never worked around: the hook records it, and one your change cannot do without is reported in a `handoff` hand-back. A harness dev ref stays local (hd reads it there): rebase
 it at will, never push it. A fix that belongs to another track or repo is filed, never asked about: `hd new <new-slug>
---track <t> --title "..." --body "..." --blocks <slug>` writes its definition and makes your change wait on it; hand back
+--track <t> --title "..." --body "..." --blocks <slug> --touches <path[:text]>...` (the code it edits, which makes the branch holding it a dep) writes its definition and makes your change wait on it; hand back
 `run <name>: filed <new-slug>`. A change the user's answer drops, its scope moved to another change, is superseded by the
 filing that carries that scope: `hd new <new-slug> ... --supersedes <slug>` (it joins the open change on its mechanism and marks
 yours superseded by it), then hand back `run <name>: filed <new-slug>`. A decision only the user can make (an OpenRune write, a client release, what the change

@@ -467,6 +467,7 @@ a script quoted after a shell's or python's -c, or eval, is read as a command of
 A bare `hd` or `hd tick` without `--dry-run` (the acting pass) is denied in a subagent: a run views with `hd show` or `hd tick --dry-run`.
 A bare `hd` is one with no argument at all, as main() runs the pass (`hd --help` prints usage).
 A run's `kill` is denied unless every target is a pid in its own slice or the shell's job (%n, `$!`, or a variable the same command set to `$!`), and its pkill and killall are denied.
+A `kill -0` sends no signal, so a liveness probe of any pid goes.
 Every denial is one event naming its rule and agent, and, for an agent of a run (its own or one it spawned), that run and its change.
 A `while`/`until` loop's `pgrep -f <pattern>` (in its condition or body, outside a heredoc body or a quoted argument) is denied when the pattern matches the command's own text, since it then matches its own `bash -c` shell and the wait never ends;
 a one-shot `pgrep` listing ends, so it runs;

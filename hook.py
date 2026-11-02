@@ -428,7 +428,7 @@ def deny_pass(p):
 
 def deny_foreign_kill(p):
     """R5: a run signals only its own processes, those in its slice: a `kill` whose every target is a pid in the run's
-    slice (or the shell's own job: %n, $!, or a variable the same command set to $!) goes; a pkill or killall (a pattern matches other runs' processes) or a kill of
+    slice (or the shell's own job: %n, $!, or a variable the same command set to $!) goes, as does `kill -0` (it sends no signal); a pkill or killall (a pattern matches other runs' processes) or a kill of
     any other pid is denied. A run's processes end with `track.sh down <slug>` or the run's own end."""
     if p.get("tool_name") != "Bash" or not (r := owner_run(p)):
         return
@@ -436,6 +436,8 @@ def deny_foreign_kill(p):
     bg = {"$!"} | {f"${v}" for v in re.findall(r"\b(\w+)=\$!", cmd)} | {f"${{{v}}}" for v in re.findall(r"\b(\w+)=\$!", cmd)}   # the job this command put in the background
     for m in re.finditer(AT + r"(pkill|killall|kill)\b([^;&|\n)]*)", cmd):
         args = [x for x in re.split(r"\s\d*[<>]", " " + m[2])[0].split() if not x.startswith("-")]   # shortcut: `kill -s SIG pid` reads SIG as a target and is denied; write `kill -SIG pid`
+        if m[1] == "kill" and re.match(r"\s*-0\s", m[2] + " "):   # kill -0 sends no signal: a liveness probe of any pid goes
+            continue
         if m[1] != "kill" or not args:
             bad.append(verb(m))
         for x in args if m[1] == "kill" else []:

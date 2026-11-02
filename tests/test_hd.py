@@ -2142,10 +2142,11 @@ class R5(Sandbox):
             return '"deny"' in out.getvalue()
         for c in ("kill 100", "kill -9 100 2>/dev/null || true", "kill %1", "ps -ef | grep kill", "cat kill.log", "pgrep -af mobile_login",
                   "tail -f L | grep x & kill $!", "tail -f L | grep x & p=$!; until test -e f; do sleep 1; done; kill $p",   # sweep-77 P4-a: its own bg job
-                  "x & p=$!; kill ${p}"):
+                  "x & p=$!; kill ${p}",
+                  "p=$(pgrep -f x); while [ -n \"$p\" ] && kill -0 $p; do sleep 5; done", "kill -0 200 2>/dev/null"):   # sweep-82 P4: kill -0 sends no signal
             s.assertFalse(denied(c), c)
         for c in ("kill 200", "kill 100 200", "kill 300", "kill $(pgrep -f mobile_login)", "pkill -f mobile_login", "killall python3", "cd x && kill 0",
-                  "kill $p", "p=$(cat pid); kill $p"):
+                  "kill $p", "p=$(cat pid); kill $p", "kill -0 100; kill 200"):
             s.assertTrue(denied(c), c)
         s.assertFalse(denied("kill 200", owner=None))                              # not a run's agent: the permission rules judge it
 

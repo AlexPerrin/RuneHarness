@@ -975,7 +975,7 @@ def cmd_ps(a):
             break
     for d in sorted(Path("/proc").glob("[0-9]*"), key=lambda d: int(d.name)):
         try:
-            if int(d.name) not in me and f"/{sl}/" in (d / "cgroup").read_text():
+            if int(d.name) not in me and sl in re.split(r"[/\s]", (d / "cgroup").read_text()):   # the slice or scope as a path component
                 print(d.name, " ".join((d / "cmdline").read_bytes().decode(errors="replace").replace("\0", " ").split()))   # one line each, a multi-line script too
         except OSError:
             pass

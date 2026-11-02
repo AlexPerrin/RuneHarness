@@ -2205,7 +2205,7 @@ class R5(Sandbox):
             s.assertIn(f"run {run} as it is", out.getvalue())
 
     def test_hd_ps_lists_the_slice_s_processes_but_its_own(s):  # sweep-49 P2-a: a run finds its own hung step
-        sl = Path("/proc/self/cgroup").read_text().strip().split("/")[-2]      # a slice holding this process and the child
+        sl = Path("/proc/self/cgroup").read_text().strip().split("/")[-1]      # the leaf cgroup holding this process and the child, an unscoped shell's /init.scope too
         child = subprocess.Popen(["sleep", "600"]); s.addCleanup(child.wait); s.addCleanup(child.kill)
         with mock.patch.object(hd, "own_slice", lambda: sl), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             hd.cmd_ps([])

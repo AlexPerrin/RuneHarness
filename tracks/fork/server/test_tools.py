@@ -121,6 +121,19 @@ class Central(unittest.TestCase):
         for m, p in (("openrune-central", "central-app"), ("central-common", "central-common"), ("central-worldlink", "central-worldlink")):
             s.assertIn(f"substitute module('dev.or2:{m}') using project(':{p}')", init)
 
+    def test_a_composite_image_tag_is_a_docker_tag_and_the_pass_key(s):  # run 41: or:<T>+c<tree12> refused by docker build (invalid reference format)
+        sys.path.insert(0, str(HERE.parents[2] / "harness")); import decide
+        central = tempfile.mkdtemp(); git(central, "init", "-q"); (Path(central) / "a").write_text("a")
+        git(central, "add", "."); git(central, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"); c = git(central, "rev-parse", "HEAD")
+        root = tempfile.mkdtemp(); change(root, "s1")
+        r = subprocess.run(["bash", "-c", '. "$1" tree s1 && composite_suffix', "_", str(HERE.parent / "build/build.sh")], capture_output=True, text=True,
+                           env={**os.environ, "HD_ROOT": root, "CLONE": central, "CENTRAL": f"{central}:{c}"})
+        s.assertEqual(r.returncode, 0, r.stderr)
+        T = "a" * 40 + r.stdout.strip()
+        s.assertEqual(T, decide.built({"tree": "a" * 40, "composite_json": json.dumps({"central": {"head": c, "tree": git(central, "rev-parse", f"{c}^{{tree}}")}})}))
+        s.assertRegex(T, r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")   # docker's tag grammar
+        for d in (central, root): shutil.rmtree(d)
+
 
 class SidecarData(unittest.TestCase):
     def test_compose_gets_the_sidecar_dir_the_script_resolves(s):  # ship's compose mounted ":/data:ro": SIDECAR_DATA was a shell variable only

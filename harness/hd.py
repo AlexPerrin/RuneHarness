@@ -395,7 +395,7 @@ def cmd_gate(a):
     """Run every scripted criterion of the change in the candidate dir; check_result per criterion at the key's tree;
     then the gate job's result."""
     db = store.connect()
-    tree = a.key.split(":")[0]
+    tree = a.key.split(":")[0].split("_")[0]   # T less its composite suffix: the submission's tree
     ch = change(a.slug)
     T = track(ch)
     s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY id DESC LIMIT 1", (a.slug, tree)).fetchone() \

@@ -2,6 +2,9 @@
 slug: server-android-token-login
 track: fork
 priority: P1
+deps:
+- central-token-login-op
+- harness-composite-image-tag
 ---
 # token login: the official Android app's token is refused (Incorrect password or username)
 

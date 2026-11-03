@@ -60,6 +60,17 @@ class Tempo(Base):  # T1, T3, T4
         self.run_row(s.input, ended_at="t", end_kind="handback", record="run 3: submitted x")
         self.assertIn("ended (handback) with this input", self.step().why)
 
+    def test_a_dep_landing_is_a_new_input_for_the_dev(self):   # a dev that filed its blocker runs again once the blocker lands
+        dep = Change("h-dep", "harness")
+        ch = Change("h-one", "harness", deps=("h-dep",))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-dep', 'd1', 'td', 'cd', 't')")
+        s1 = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"]
+        self.run_row(s1.input, ended_at="t", end_kind="handback", record="run 1: filed h-dep")
+        self.assertIn("ended (handback)", {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"].why)
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd1', 't')")
+        s2 = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"]
+        self.assertEqual(s2.kind, "run"); self.assertNotEqual(s1.input, s2.input)
+
     def test_agent_count_and_held_band(self):
         other = [Change(f"h-{i}", "harness") for i in range(3)]
         actions = decide.plan(self.L, other, CFG)

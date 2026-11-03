@@ -269,7 +269,8 @@ GUARDS = [
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate, or a merge conflict / CI failure / missing text
-                       # → run dev/code; the input digests the tip, the reasons and the answers since the submission
+                       # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
+                       # deps that have landed (a blocker filed by the dev lands → the dev runs again)
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge

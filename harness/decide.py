@@ -198,7 +198,8 @@ def dev_due(C, ch):
     if not why:
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
-    return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers))
+    landed = [d for d in ch.deps if d in C.defs and C.L.landed(d, C.cfg.tracks[C.defs[d].track].done_ref(C.defs[d]))]
+    return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers, landed))   # a dep landing is a new fact: the dev runs again
 
 
 def build_due(C, ch):

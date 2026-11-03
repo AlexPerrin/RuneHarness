@@ -256,11 +256,17 @@ def cmd_verdict(a):
     print(line)
 
 
+EFFECTS = ("dep", "waive", "accept-difference", "close", "reply", "move-repo")   # what hd answer applies (ARCHITECTURE §8)
+
+
 def cmd_ask(a):
     db = store.connect()
     if Ledger(db).open_ask(a.slug):
         sys.exit("hd ask: a question of this change is already open")
-    opts = [dict(zip(("id", "text", "effect"), o.split(":", 2))) for o in a.option]
+    opts = [dict(zip(("id", "text", "effect"), (p.strip() for p in o.split(":", 2)))) for o in a.option]
+    bad = [o for o in opts if len(o) < 3 or not all(o.values()) or o["effect"].split()[0] not in EFFECTS]
+    if bad:   # refused before any row: a malformed question would never show and never answer
+        sys.exit(f"hd ask: each --option is id:text:effect with the effect one of {', '.join(EFFECTS)}; no ':' in the text. Bad: {bad}")
     r = live_run(db, a.slug)
     aid = db.execute("INSERT INTO ask(change, text, options_json, run, at) VALUES (?,?,?,?,?)",
                      (a.slug, a.text, json.dumps(opts), r["id"] if r else None, now())).lastrowid

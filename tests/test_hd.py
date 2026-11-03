@@ -41,6 +41,13 @@ class Hd(unittest.TestCase):
         rows = store.connect().execute("SELECT rid, kind, cmd, source FROM criterion ORDER BY id").fetchall()
         self.assertEqual([tuple(r) for r in rows], [("acc-1", "judge", "accuracy", "accuracy"), ("lint", "script", "make lint", "seed")])
 
+    def test_a_malformed_ask_is_refused_before_any_row(self):   # alert 20: options split on a ':' inside the text left an unanswerable question
+        import argparse, sqlite3
+        hd.store.connect().execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('x', 'dev', 'code', 'i', 'b', 't')")
+        with self.assertRaises(SystemExit):
+            hd.cmd_ask(argparse.Namespace(slug="x", text="q?", option=["a:mark it upstream: false", "b:close it"]))
+        self.assertEqual(hd.store.connect().execute("SELECT count(*) FROM ask").fetchone()[0], 0)
+
     def test_ask_then_answer_waives_a_criterion(self):
         hd.main(["criterion", "add", "x", "dupes-3", "--kind", "judge", "--text", "t", "--source", "seed"])
         hd.main(["ask", "x", "shop sell path?", "--option", "a:dep server-shop:dep server-shop", "--option", "b:waive dupes-3:waive dupes-3"])

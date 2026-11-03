@@ -34,6 +34,13 @@ class Store(unittest.TestCase):
             self.assertTrue(db.execute("SELECT count(*) FROM run").fetchone()[0] > 0, f)
             db.close()
 
+    def test_the_same_head_with_a_new_candidate_replaces_its_submission(self):   # a dep's head moved: the candidate follows
+        self.assertTrue(store.submit(self.db, "c", "h1", "t1", "c1", None, None))
+        self.assertFalse(store.submit(self.db, "c", "h1", "t1", "c1", None, None))
+        self.assertTrue(store.submit(self.db, "c", "h1", "t2", "c2", None, None))
+        rows = self.db.execute("SELECT tree, tcommit FROM submission WHERE change='c'").fetchall()
+        self.assertEqual([(r["tree"], r["tcommit"]) for r in rows], [("t2", "c2")])
+
     def test_one_live_run_per_change(self):
         ins = "INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c', 'dev', 'code', 'i', 'b', 't')"
         self.db.execute(ins)

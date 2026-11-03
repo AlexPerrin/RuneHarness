@@ -154,6 +154,19 @@ SCHEMA_5 = "ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestra
 MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5]
 
 
+def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
+    """Record a head's candidate; the same head submitted again with another candidate (a dep's head moved, the base
+    moved under it) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
+    old = db.execute("SELECT tree FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
+    if old and old["tree"] == tree:
+        return False
+    db.execute("""INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at) VALUES (?,?,?,?,?,?,?)
+                  ON CONFLICT(change, head) DO UPDATE SET tree=excluded.tree, tcommit=excluded.tcommit,
+                  composite_json=excluded.composite_json, run=excluded.run, at=excluded.at""",
+               (slug, head, tree, tcommit, composite, run, now()))
+    return True
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

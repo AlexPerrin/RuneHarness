@@ -648,6 +648,14 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
         with mock.patch.dict(os.environ, {"DESKTOP_DIR": str(t), "HD_ROOT": str(t)}):
             s.assertEqual((d.devtoken(7781), d.devtoken(7782)), ("tk", ""))
 
+    def test_a_checkout_serves_its_own_state_root(s):  # state-root: a v9 up's desktop answered 401, its session ran the live checkout's bridge and login
+        import desktop_login as d
+        root = HERE.parents[2]
+        s.assertEqual(d.ROOT, str(root))
+        mcp = json.loads((root / ".mcp.json").read_text())["mcpServers"]
+        s.assertEqual({v["command"] for v in mcp.values()}, {"${CLAUDE_PROJECT_DIR:-.}/mcp/serve.py"})
+        s.assertTrue(all((root / "mcp" / c[0]).is_file() for c in json.loads((root / "mcp/servers.json").read_text()).values()))
+
 
 class DesktopLogin(unittest.TestCase):
     def fake(s, states, widgets=([{"childIndex": 0, "itemId": 6512, "itemQuantity": 1, "selfHidden": True}],), inv=None):  # a devtools endpoint whose game state walks through states, one per read, staying on the last; get_widget of the inventory walks through widgets likewise; inv: container 93's items (None: not loaded)

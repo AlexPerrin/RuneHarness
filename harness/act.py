@@ -169,10 +169,11 @@ def seed(db, ch, T):
                    (ch.slug, rid, kind, text, cmd.strip() if cmd else None, int("upstream" in flags), now()))
 
 
-def clone(T, ch) -> str:
-    """The change's worktree <repo>/.worktrees/<slug> on its dev branch, created from base when missing."""
+def clone(T, ch, create=True) -> str:
+    """The change's worktree <repo>/.worktrees/<slug> on its dev branch, created from base when missing (a listed run
+    or a job needs it; `hd show` only names it)."""
     path = os.path.join(T.path, ".worktrees", ch.slug)
-    if not os.path.isdir(path):
+    if create and not os.path.isdir(path):
         branch = f"{T.prefix}/{ch.slug}"
         if subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", T.dev_ref(ch)]).returncode == 0:
             git(T.path, "worktree", "add", "-B", branch, path, T.dev_ref(ch))
@@ -193,7 +194,7 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
     head = f"run {run_id}" if run_id else "no run"
     out = [f"# {head}: {step.role or 'show'} {ch.slug} ({T.name}, {ch.priority})   step: {step.why}",
            (f"goal {ch.slug}: file the changes that close its gap with hd new --track {T.name} --goal {ch.slug}; write no code"
-            if step.mode == "plan" else f"clone {clone(T, ch)}") + f"   evidence {evidence}   logs {STATE}/{ch.slug}/",
+            if step.mode == "plan" else f"clone {clone(T, ch, create=False)}") + f"   evidence {evidence}   logs {STATE}/{ch.slug}/",
            f"rules tracks/{T.name}/track.md   hd = {HD}", "",
            "## definition", ch.body.strip(), ""]
     crit = L.criteria(ch.slug)
@@ -229,6 +230,8 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
 
 def brief(db, ch, T, step: Step) -> int:
     """INSERT the run and write state/briefs/<id>.md; returns the run id."""
+    if step.mode != "plan":
+        clone(T, ch)   # the run's worktree exists before its brief names it
     rid = db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES (?,?,?,?,?,?)",
                      (ch.slug, step.role, step.mode, step.input, "", now())).lastrowid
     path = os.path.join(STATE, "briefs", f"{rid}.md")

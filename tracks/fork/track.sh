@@ -15,6 +15,8 @@
 #                     names (https: the client takes no other)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
 #                     ones (--exp -5), another account's, and forged ones (another key DIR)
+#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), logged in as this slug's own account; prints LIVE_DESKTOP <devtools port> <instance dir>
+#   live-desktop-down stops that desktop and removes its instance
 #   restart           logs up's desktops out, restarts server-<slug>, its game.yml and database kept, and logs them in again
 #   down              stops the desktops, waits until the server has saved and dropped their characters or is gone, removes the stack record's containers
 #                     and then the record (state/<slug>/up.json: up writes it before its first container; hd's repair reads its script and containers)
@@ -108,9 +110,10 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     "$sys32/robocopy.exe" "$(wslpath -w "$desk/home")" "$w\\home" /E /MT:16 /NFL /NDL /NJH /NJS /NP /XD screenshots logs /XF 'main_file_cache.*' > /dev/null || [ $? -lt 8 ] || { echo "robocopy of the desktop home into $d failed" >&2; return 1; }   # robocopy: below 8 is success
   done
   # the disk cache is the one the server serves: a login then fetches no group over JS5, which its interfaces' onLoad scripts would run before
-  mkdir -p "$d/home/.rlcustom/jagexcache/oldschool/LIVE" && docker exec "server-$slug" tar -c -C /app/.data/cache/LIVE . | tar -x -C "$d/home/.rlcustom/jagexcache/oldschool/LIVE"   # docker cp fails writing the dat2 to a Windows drive in one piece
+  mkdir -p "$d/home/.rlcustom/jagexcache/oldschool/LIVE" && docker exec "${srv:-server-$slug}" tar -c -C /app/.data/cache/LIVE . | tar -x -C "$d/home/.rlcustom/jagexcache/oldschool/LIVE"   # docker cp fails writing the dat2 to a Windows drive in one piece
   sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties "$d"/home/.rlcustom/profiles2/*.properties
   mkdir -p "$d/home/.rlcustom/sideloaded-plugins" && cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"
+  for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start
   ep=http://127.0.0.1:$http   # OPENRUNE_ENDPOINT: the launcher takes jav_config from it alone, and jav_config names every other endpoint
   printf '%s\n' "- name: OpenRune Test - $slug" "  jav_config_url: $ep/jav_config.ws" "  modulus: $modulus" "  revision: 241.1" \
     "  game_server_port: $game" "  runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "  binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
@@ -314,9 +317,19 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
   [ $fail = 1 ] || rm -rf "$h"; return $fail
 }
 
+live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
+  srv=osrs-openrune; http=${OPENRUNE_DESKTOP_HTTP_PORT:-8082}; game=${OPENRUNE_GAME_PORT:-43594}; tok=
+  modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
+  devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
+  desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
+  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)"); echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
+  [[ $login_live == *LOGGED_IN* ]] || return 1
+  trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
+}
+live_desktop_down() { unkeep; desktops_remove; rm -f "$state/up.json"; $hd stack "$slug" --clear; echo "down"; }
 case $verb in up|restart|down) [ "${DESKTOPS_LOCK:-}" = "$slug" ] || {   # one up, restart or down of a slug at a time: none acts on desktops another is starting or removing
     flock -n "$state/desktops.lock" true || echo "$verb $slug waits for the running up, restart or down of $slug" >&2
     DESKTOPS_LOCK=$slug exec flock -o "$state/desktops.lock" bash "$0" "$@"; } ;; esac   # -o: no desktop or keeper it starts holds the lock
-case $verb in up|restart|down|deploy|log|recordings) "$verb" ;; token) token "$arg" ;;
+case $verb in up|restart|down|deploy|log|recordings) "$verb" ;; live-desktop) live_desktop ;; live-desktop-down) live_desktop_down ;; token) token "$arg" ;;
   transcribe) transcribe "${@:3}" ;;
-  *) echo "verbs: recipe build up restart down test spotless gate gate-ci ci-step tree deploy log recordings transcribe token" >&2; exit 2 ;; esac
+  *) echo "verbs: recipe build up restart down live-desktop live-desktop-down test spotless gate gate-ci ci-step tree deploy log recordings transcribe token" >&2; exit 2 ;; esac

@@ -14,7 +14,8 @@
 #                     to no public address (the Windows Firewall group osrs-harness); up runs it
 #   ship <key>        the candidate on the live tip (hd candidate), gated there if its tree differs from the gated one, pushed fast-forward to origin main
 #   recipe            one version per verb the pass keys a job by (build, gate, ship): bump a verb's when its output changes
-#   measure GOAL [TCOMMIT]  build and up at the target (origin/HEAD by default), the API probe; state/<goal>/measure.json
+#   measure GOAL [TCOMMIT]  build and up at the target (origin/HEAD by default), the API probe; state/<goal>/measure.json. When the mobile does not come up, the probe runs on one
+#                     RuneLite desktop on the live stack (fork track live-desktop); the report's first line names the platform
 #   log <slug> PATTERN  logcat since the run's marker, filtered
 #   netqa start|stop  samples the app's sockets and DNS between the two calls
 # Windows locations, run through WSL interop (override in the environment):
@@ -38,7 +39,7 @@ pkg=com.jagex.oldscape.android; files=/sdcard/Android/data/$pkg/files; defaults=
 addrs="8.8.8.8 1.1.1.1 142.250.80.46 104.26.8.233"   # public addresses (Google DNS, Cloudflare DNS, google.com, runelite.net): none connects
 allowed="api.runelite.net static.runelite.net"   # tools/allow.py: these resolve to its relay, which reaches them on 443
 hosts="legal.jagex.com auth.jagex.com oldschool.runescape.com www.runescape.com sdk.iad-01.braze.com cdn.cookielaw.org app-measurement.com firebaseinstallations.googleapis.com sdk-api-v1.singular.net google.com connectivitycheck.gstatic.com"
-docker=${DOCKER:-docker}
+docker=${DOCKER:-docker}; fork=${FORK_TRACK:-$self/../fork/track.sh}
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 serial() { cat "$state/serial" 2>/dev/null || { echo "no mobile for $slug: run up"; return 1; }; }
 win() { wslpath -w "$1"; }
@@ -169,12 +170,25 @@ ship() {  # the candidate on the live tip: the gated one, or a new merge gated h
   fi
   git -C "$repo" push -q origin "$tcommit:refs/heads/main" && $hd job ship "$HD_KEY" ok "main at ${tcommit:0:9}"
 }
+measure_desktop() {  # the mobile did not come up: the probe on one RuneLite desktop on the live stack (the fork track's live-desktop), its report where the plugin writes it
+  trap '[ $? = 0 ] || down >&2 || true; "$fork" live-desktop-down "$slug" >&2 || true' EXIT
+  "$copy/host/plugins/api-probe/build.sh" >/dev/null   # the plugin classes jar, undexed: the desktop loads it beside its devtools plugin
+  local out d dir
+  out=$(EXTRA_PLUGINS="$copy/host/plugins/api-probe/build/api-probe-classes.jar" "$fork" live-desktop "$slug") || return 1
+  d=$(tail -1 <<< "$out"); dir=${d##* }
+  until r=$(find "$dir/home" -name api-probe.tsv 2>/dev/null | head -1); [ -n "$r" ] || [ ! -f "$dir/owner" ]; do sleep 3; done   # the plugin renames its .part whole
+  [ -n "$r" ] && ! grep -q '^# error' "$r" || { echo "api-probe: no report on the desktop"; return 1; }
+  cp "$r" "$ev/api-probe.tsv"
+}
 measure() {
-  tc=$(git -C "$repo" rev-parse "${TCOMMIT:-${arg:-origin/HEAD}}^{commit}"); arg=$tc; T=$(git -C "$repo" rev-parse "$tc^{tree}"); T=$T TCOMMIT=$tc HD_KEY= "$self/build/build.sh" build "$slug" "$tc"; up   # the pass passes its commit in TCOMMIT (the argument is the job key)
-  (cd "$copy" && ANDROID_SERIAL=$(serial) tools/api-probe.sh "$ev")
+  tc=$(git -C "$repo" rev-parse "${TCOMMIT:-${arg:-origin/HEAD}}^{commit}"); arg=$tc; T=$(git -C "$repo" rev-parse "$tc^{tree}"); T=$T TCOMMIT=$tc HD_KEY= "$self/build/build.sh" build "$slug" "$tc"   # the pass passes its commit in TCOMMIT (the argument is the job key)
+  export T; platform=mobile
+  if "$self/track.sh" up "$slug"; then (cd "$copy" && ANDROID_SERIAL=$(serial) tools/api-probe.sh "$ev")   # the mobile first; its own process: a failed up runs its down
+  else platform=desktop; echo "measure: the mobile did not come up; the probe runs on a RuneLite desktop" >&2; measure_desktop; fi
+  sed -i "1i # platform: $platform" "$ev/api-probe.tsv"
   v=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" | grep -oE '[0-9.]+%$' | tr -d %)
-  python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"value":float(sys.argv[2]),"report":sys.argv[3]}))' "${TREE:-$T}" "$v" "$ev/api-probe.tsv" | atomic "$state/measure.json"
-  down; echo "client-api: $v"; $hd measure "$slug" "${TREE:-$T}" "$v" "$ev/api-probe.tsv"; [ -z "${HD_KEY:-}" ] || $hd job measure "$HD_KEY" ok "$v"
+  python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"value":float(sys.argv[2]),"report":sys.argv[3],"platform":sys.argv[4]}))' "${TREE:-$T}" "$v" "$ev/api-probe.tsv" "$platform" | atomic "$state/measure.json"
+  if [ $platform = mobile ]; then down; else "$fork" live-desktop-down "$slug" >&2; fi; echo "client-api ($platform): $v"; $hd measure "$slug" "${TREE:-$T}" "$v" "$ev/api-probe.tsv"; [ -z "${HD_KEY:-}" ] || $hd job measure "$HD_KEY" ok "$v"
 }
 log() { "$adb" -s "$(serial)" logcat -d -v threadtime -T "$(cat "$state/log-mark" 2>/dev/null || echo 1)" 2>/dev/null | tr -d '\r' | grep -E "${arg:-.}" || true; }
 netqa() {  # start: a sampler on the mobile; stop: the distinct remote addresses (app uid 10071) and the DNS lookups
@@ -194,6 +208,6 @@ print("\n".join(sorted(seen)))'
   fi
 }
 
-case $verb in up|measure) trap '[ $? = 0 ] || down >&2 || true' EXIT ;; esac   # a failed boot leaves no mobile behind
-case $verb in up|down|check-blocked|ship|measure|log|netqa) "${verb//-/_}" ;;
+case $verb in up|measure|measure-desktop) trap '[ $? = 0 ] || down >&2 || true' EXIT ;; esac   # a failed boot leaves no mobile behind
+case $verb in up|down|check-blocked|ship|measure|measure-desktop|log|netqa) "${verb//-/_}" ;;
   *) echo "verbs: build up down gate check-blocked check-log check-evidence check-probe check-netqa check-state-doc tree ship measure log netqa" >&2; exit 2 ;; esac

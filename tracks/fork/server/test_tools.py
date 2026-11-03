@@ -248,6 +248,9 @@ class DesktopDevtools(unittest.TestCase):
         s.assertIn("  devtools_jar", t.split("\nup() {")[1].split("\n}")[0])
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
         s.assertLess(start.index('cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"'), start.index("exec setsid"))
+        s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
+        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
+        for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
 
 
 class AccountName(unittest.TestCase):

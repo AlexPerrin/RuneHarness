@@ -57,6 +57,18 @@ class Rows(unittest.TestCase):
         (s.ev / "api-probe.tsv").write_text("# result: pass 1 / 2 = 50.0%\n")
         rc, out = s.row("check-probe"); s.assertEqual((rc, "no '# build:' line" in out), (1, True))
 
+    def test_measure_falls_back_to_a_live_desktop(s):  # the mobile did not come up: the probe's classes jar loads in one desktop on the live stack, its report comes back, the desktop goes
+        repo = Path(tempfile.mkdtemp()); b = repo / ".worktrees/x-build/host/plugins/api-probe"; b.mkdir(parents=True)
+        (b / "build.sh").write_text("#!/bin/sh\nmkdir -p $(dirname $0)/build\n"); (b / "build.sh").chmod(0o755)
+        fork = s.ev / "fork.sh"; log = s.ev / "fork.log"; inst = s.ev / "run1"
+        fork.write_text(f'''#!/bin/sh
+echo "$1 $2 $EXTRA_PLUGINS" >> {log}
+case "$1" in live-desktop) mkdir -p {inst}/home/.runelite; touch {inst}/owner; echo "# result: pass 1 / 2 = 50.0%" > {inst}/home/.runelite/api-probe.tsv; echo "LIVE_DESKTOP 7780 {inst}" ;; esac''')
+        fork.chmod(0o755); s.env.update(HD_REPO=str(repo), FORK_TRACK=str(fork))
+        rc, out = s.row("measure-desktop"); s.assertEqual(rc, 0, out)
+        s.assertEqual((s.ev / "api-probe.tsv").read_text(), "# result: pass 1 / 2 = 50.0%\n")
+        s.assertEqual(log.read_text().splitlines(), ["live-desktop x " + str(b / "build/api-probe-classes.jar"), "live-desktop-down x "])   # started with the probe jar, stopped after
+
     def test_down_checks_the_restore(s):  # down judges the harness's baseline, not the app's writes after a first login
         st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True)
         (st / "serial").write_text("emulator-5560\n")

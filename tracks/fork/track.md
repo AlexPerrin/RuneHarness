@@ -105,7 +105,7 @@ Scripted criteria run with SLUG, HEAD, T, TCOMMIT, BASE, CLONE, BUILD, EVIDENCE,
 - style | no added comments or KDoc, no test but a dupe test, a multi-case rule or a reviewer's request, nothing public for a test, no quirk entries | judge: qa-server
 - dupes | each item-moving flow's four paths tested with totals, or a reason that holds | judge: dupes
 - accuracy | each rule of accuracy.md matches in game; a difference no answer of the user accepts fails it | judge: accuracy
-- evidence | accuracy.md, pr-title.txt, pr-body.md, pr-comment.md present and non-empty | script: python3 $HD_ROOT/tracks/fork/server/text.py evidence
+- evidence | accuracy.md, pr-title.txt, pr-body.md, pr-comment.md present and non-empty | script: python3 $HD_ROOT/tracks/fork/server/text.py evidence | upstream
 - subject | commit subjects (on an existing PR, those after its live head) start with feat: or fix:; no Claude-Session trailer; the co-author line only | script: python3 $HD_ROOT/tracks/fork/server/text.py commits | upstream
 - texts | template sections present; no fork PR link; pr-comment.md names HEAD | script: python3 $HD_ROOT/tracks/fork/server/text.py texts | upstream
 - gamevals | custom gameval ids unique across upstream main, the pins and open dev heads | script: python3 $HD_ROOT/tracks/fork/server/gamevals.py check

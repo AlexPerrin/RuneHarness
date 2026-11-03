@@ -141,7 +141,36 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         s = self.step()
         self.assertEqual((s.kind, s.key), ("merge", f"staging:{TIP}"))
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't')")
+        self.assertEqual(self.step().why, "texts: pr-title.txt, pr-body.md, pr-comment.md")
+        for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
+            self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', ?, 'x', 'text')", (n,))
+        self.assertEqual(self.step().kind, "card")
+        self.db.execute("INSERT INTO card(change, head, steps_json, texts_json, digest) VALUES ('genie', ?, '[{\"name\":\"push\"}]', '{}', 'd')", (TIP,))
+        self.assertIn("the user: card 1", self.step().why)
+        self.db.execute("INSERT INTO hold(change, head, at) VALUES ('genie', ?, 't')", (TIP,))
+        self.assertIn("held", self.step().why)
+        self.db.execute("UPDATE hold SET lifted_at='t'")
+        self.db.execute("INSERT INTO approval(card, at) VALUES (1, 't')")
+        self.db.execute("INSERT INTO publish_step(card, n, name) VALUES (1, 1, 'push')")
+        self.assertEqual((self.step().kind, self.step().key), ("publish", "1"))
+        self.db.execute("UPDATE publish_step SET done_at='t'")
+        self.db.execute("UPDATE approval SET spent_at='t', spent_why='published'")
         self.assertEqual(self.step().why, "maintainers")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/remotes/origin/main', 'm', 't')")
+        self.assertEqual(self.step().kind, "done")
+
+    def test_a_finding_needs_a_reply_before_a_new_card(self):
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.submit()
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{TREE}:fork-1"))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't')")
+        for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
+            self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', ?, 'x', 'text')", (n,))
+        self.db.execute("INSERT INTO finding(comment_id, pr, author, body, triage, change) VALUES (77, 5, 'm', 'why?', 'finding', 'genie')")
+        self.assertEqual(self.step().why, "texts: pr-reply-77.md")
+        self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', 'pr-reply-77.md', 'x', '> why?\n\n@m because')")
+        self.assertEqual(self.step().kind, "card")
 
     def test_merge_conflict_lists_the_dev(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

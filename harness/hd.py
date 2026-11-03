@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import act  # noqa: E402
 import decide  # noqa: E402
 import observe  # noqa: E402
+import publish  # noqa: E402
 import store  # noqa: E402
 from store import ROOT, STATE, Ledger, event, now  # noqa: E402
 
@@ -257,6 +258,12 @@ def cmd_answer(a):
         write_change(a.slug, fm, body)
     elif effect == "waive":
         db.execute("UPDATE criterion SET waived=1 WHERE change=? AND rid=?", (a.slug, arg))
+    elif effect == "reply":
+        d = os.path.join(ROOT, "evidence", a.slug)
+        os.makedirs(d, exist_ok=True)
+        f = db.execute("SELECT * FROM finding WHERE comment_id=?", (int(arg),)).fetchone()
+        quoted = "\n".join("> " + l for l in f["body"].strip().splitlines())
+        open(os.path.join(d, f"pr-reply-{arg}.md"), "w").write(f"{quoted}\n\n@{f['author']} {a.words or ''}\n")
     elif effect == "accept-difference":
         db.execute("INSERT INTO criterion(change, rid, kind, text, source, source_id, created_at) VALUES (?,?,?,?,?,?,?)",
                    (a.slug, f"accepted-{q['id']}", "judge", f"accepted difference: {arg}", "answer", q["id"], now()))
@@ -277,7 +284,55 @@ def cmd_hold(a):
 
 
 def cmd_approve(a):
-    sys.exit(f"hd approve: no card for {a.slug} at {a.head}")  # shortcut: phase 2 (publish.approve)
+    db = store.connect()
+    cid = publish.approve(db, a.slug, a.head)
+    print(f"approved card {cid}")
+    act.tick_later()
+
+
+def cmd_publish(a):
+    """The publish job: the card's undone steps with its texts (started by the pass; HD_SLUG names the change)."""
+    db = store.connect()
+    c = db.execute("SELECT * FROM card WHERE id=?", (a.card,)).fetchone()
+    ch = change(c["change"])
+    T = track(ch)
+    publish.publish(db, a.card, T, T.path)
+    left = Ledger(db).undone_steps(a.card)
+    db.execute("""INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES ('publish', ?, ?, ?, ?, ?)
+                  ON CONFLICT(kind, key) DO UPDATE SET ok=excluded.ok, detail=excluded.detail, ended_at=excluded.ended_at""",
+               (str(a.card), c["change"], int(not left), f"{len(left)} steps left" if left else "published", now()))
+    act.tick_later()
+
+
+def cmd_triage(a):
+    """A maintainer's word: finding → a judged criterion on the PR's open change (or a new change for a done one);
+    ask → an ask of the user whose answer's words become the reply; ack → nothing more."""
+    db = store.connect()
+    f = db.execute("SELECT * FROM finding WHERE comment_id=?", (a.comment_id,)).fetchone()
+    if not f:
+        sys.exit(f"hd triage: no comment {a.comment_id}")
+    slug = f["change"]
+    if a.verdict == "finding" and (not slug or Ledger(db).landed(slug, track(change(slug)).done_ref(change(slug)))):
+        ch = next((c for c in act.changes() if c.pr == f["pr"] and not Ledger(db).closed(c.slug) and not Ledger(db).landed(c.slug, track(c).done_ref(c))), None)
+        if not ch:
+            d = change(slug) if slug else None
+            slug = f"{d.track if d else 'fork'}-{f['pr']}-c{f['comment_id']}"
+            write_change(slug, {"slug": slug, "track": d.track if d else "fork", "priority": "P1", "pr": f["pr"], "public": d.public if d else ""},
+                         f"# PR #{f['pr']}: {f['author']}'s finding {f['comment_id']}\n\n{f['body']}\n")
+            event(db, "new", slug, None, f"from finding {f['comment_id']} on PR #{f['pr']}")
+        else:
+            slug = ch.slug
+    cid = None
+    if a.verdict == "finding":
+        cid = db.execute("INSERT INTO criterion(change, rid, kind, text, cmd, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                         (slug, f"finding-{f['comment_id']}", "judge", f"{f['author']}: {f['body'][:500]}", "pr-text", "finding", f["comment_id"], now())).lastrowid
+    elif a.verdict == "ask":
+        db.execute("INSERT INTO ask(change, text, options_json, at) VALUES (?,?,?,?)",
+                   (slug, f"{f['author']} on PR #{f['pr']}: {f['body'][:500]}", json.dumps([{"id": "r", "text": "reply with your words", "effect": f"reply {f['comment_id']}"}]), now()))
+        event(db, "question", slug, None, f"{f['author']} on PR #{f['pr']}: {f['body'][:300]!r}   → hd answer {slug} r \"<the reply>\"")
+    db.execute("UPDATE finding SET triage=?, triaged_at=?, change=?, criterion_id=? WHERE comment_id=?", (a.verdict, now(), slug, cid, f["comment_id"]))
+    event(db, "triaged", slug, None, f"comment {f['comment_id']}: {a.verdict}")
+    act.tick_later()
 
 
 def cmd_close(a):
@@ -467,6 +522,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("answer"); s.add_argument("slug"); s.add_argument("option"); s.add_argument("words", nargs="?")
     s = sub.add_parser("hold"); s.add_argument("slug"); s.add_argument("why", nargs="?"); s.add_argument("--all", action="store_true"); s.add_argument("--lift", action="store_true")
     s = sub.add_parser("approve"); s.add_argument("slug"); s.add_argument("head")
+    s = sub.add_parser("publish"); s.add_argument("card", type=int)
+    s = sub.add_parser("triage"); s.add_argument("comment_id", type=int); s.add_argument("verdict", choices=("finding", "ask", "ack"))
     s = sub.add_parser("close"); s.add_argument("slug"); s.add_argument("words")
     s = sub.add_parser("job"); s.add_argument("kind"); s.add_argument("key"); s.add_argument("result", choices=("ok", "fail")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")

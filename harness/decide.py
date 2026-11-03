@@ -122,13 +122,15 @@ def closed(C, ch):
 
 
 def deps_live(C, ch):
+    """A dep with nothing to build on (no submission, not landed, not closed) → wait. A submitted dep joins the
+    candidate; its landing is waited for before the card or the ship (upstream_dep_wait)."""
     for dep in ch.deps:
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if C.L.closed(dep):
+        if C.L.closed(dep) or C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
             continue
-        if not C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
+        if not C.L.one("SELECT 1 FROM submission WHERE change=?", dep):
             return Step("wait", f"dep {dep}")
     return None
 
@@ -170,6 +172,9 @@ def dev_due(C, ch):
         e = C.L.last_event(ch.slug, "merge-conflict")
         if e and e["detail"].startswith(t[:7]):
             why.append(f"merge conflict on staging: {e['detail']}")
+        e = C.L.last_event(ch.slug, "ci-failed")
+        if e and e["detail"].startswith(t[:7]):
+            why.append(f"CI failed at {t[:7]}: {e['detail'][8:]}")
     if not why:
         return None
     last = C.L.last_run(ch.slug)
@@ -215,23 +220,69 @@ def stage_due(C, ch):
 
 
 def upstream_dep_wait(C, ch):
-    return None  # shortcut: phase 2 (a dep in another PR not landed upstream)
+    """A public act or a ship waits until every dep is landed where it is done (G4: a PR holds no other PR's commits)."""
+    for dep in ch.deps:
+        d = C.defs.get(dep)
+        if d and not C.L.closed(dep) and not C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
+            return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
+    return None
+
+
+def is_public(C, ch):
+    T = C.cfg.tracks[ch.track]
+    return bool(T.upstream and ch.upstream)
 
 
 def texts_due(C, ch):
-    return None  # shortcut: phase 2 (pr-comment.md and reply files against the live PR)
+    """An upstream change needs its texts before a card: title and body for a new PR, the comment for every head, a
+    reply file per finding → run dev (text work only)."""
+    if not is_public(C, ch):
+        return None
+    t, texts = tip(C, ch), C.L.texts(ch.slug)
+    missing = [n for n in (("pr-comment.md",) if ch.pr else ("pr-title.txt", "pr-body.md", "pr-comment.md")) if not texts.get(n, "").strip()]
+    missing += [f"pr-reply-{f['comment_id']}.md" for f in C.L.findings(ch.slug) if f"pr-reply-{f['comment_id']}.md" not in texts]
+    if not missing:
+        return None
+    return Step("run", "texts: " + ", ".join(missing), role="dev", mode="code", input=digest(t, missing))
 
 
 def card_due(C, ch):
-    return None  # shortcut: phase 2 (publish.card)
+    """No card at this head, or its approval spent by a refusal, or texts observed since it was shown → card
+    (publish.card computes the acts and texts; the same digest is the same card)."""
+    if not is_public(C, ch):
+        return None
+    t = tip(C, ch)
+    c = C.L.latest_card(ch.slug)
+    if c and c["head"] == t:
+        a = C.L.one("SELECT spent_why FROM approval WHERE card=?", c["id"])
+        texts_moved = C.L.one("SELECT 1 FROM text WHERE change=? AND at>?", ch.slug, c["shown_at"])
+        refused = a and a["spent_why"] and a["spent_why"] != "published"
+        if not refused and not texts_moved:
+            return None
+    return Step("card", f"card at {t[:7]}", key=t)
 
 
 def approval_wait(C, ch):
-    return None  # shortcut: phase 2
+    if not is_public(C, ch):
+        return None
+    c = C.L.latest_card(ch.slug)
+    if not c or C.L.one("SELECT 1 FROM approval WHERE card=?", c["id"]):
+        return None
+    if C.L.hold(ch.slug, c["head"]):
+        return Step("wait", f"held: card {c['id']} hidden")
+    return Step("wait", f"the user: card {c['id']} at {c['head'][:7]}")
 
 
 def publish_due(C, ch):
-    return None  # shortcut: phase 2
+    if not is_public(C, ch):
+        return None
+    c = C.L.latest_card(ch.slug)
+    if not c or not C.L.approval(c["id"]) or not C.L.undone_steps(c["id"]):
+        return None
+    e = C.L.last_event(ch.slug, "ci-failed")
+    if e and e["detail"].startswith(c["head"][:7]):
+        return None   # dev_due lists the dev; the approval stays
+    return job_due(C, "publish", str(c["id"]))
 
 
 def published_wait(C, ch):
@@ -326,7 +377,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
                 s = Step("wait", f"{cfg.agents} runs live: {s.why}")
             else:
                 live += 1
-        elif s.kind in ("build", "gate", "ship") and L.jobs_in_flight(s.kind, s.key.split(":")[0] + ":" if s.kind == "ship" else s.key):
+        elif s.kind in ("build", "gate", "ship", "publish") and L.jobs_in_flight(s.kind, s.key.split(":")[0] + ":" if s.kind == "ship" else s.key):
             s = Step("wait", f"a {s.kind} of this {'branch' if s.kind == 'ship' else 'key'} is running")
         actions.append(Action(c.slug, s))
     return actions

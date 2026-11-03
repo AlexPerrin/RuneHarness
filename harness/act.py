@@ -10,6 +10,7 @@ import yaml
 
 import decide
 import observe
+import publish
 import store
 from decide import Cfg, Change, Step, Track
 from store import ROOT, STATE, event, now
@@ -229,6 +230,8 @@ def start(db, step: Step, ch, T) -> None:
     if ch.slug == "staging":
         sha = L.ref(T.name, decide.STAGING)
         s = {"tree": L.ref_tree(T.name, decide.STAGING), "tcommit": sha, "head": sha}
+    elif step.kind == "publish":
+        s = L.submission(ch.slug, L.latest_card(ch.slug)["head"])
     else:
         s = L.submission(ch.slug, L.ref(T.name, T.dev_ref(ch)))
     k12 = step.key.replace(":", "-")[:12] if step.kind != "ship" else step.key.split(":")[-1][:12]
@@ -241,6 +244,8 @@ def start(db, step: Step, ch, T) -> None:
     script = os.path.join(ROOT, "tracks", T.name, "track.sh")
     cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit, "--", "bash", "-c",
            '"$@"; r=$?; echo $r > "$HD_RC"; exit $r', "bash", script, step.kind, ch.slug, step.key]
+    if step.kind == "publish":
+        cmd[-4:] = [sys.executable, os.path.join(ROOT, "harness", "hd.py"), "publish", step.key]
     if os.path.exists(rc):
         os.remove(rc)
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=open(log, "ab"), stderr=subprocess.STDOUT,
@@ -295,6 +300,12 @@ def tick(path=None, dry_run=False, offline=False) -> list:
             for ch in open_:
                 if ch.track == T.name and T.done_ref(ch) in moved:
                     observe.landed(db, T, T.done_ref(ch), [x for x in open_ if x.track == T.name])
+        for ch in open_:
+            T = c.tracks[ch.track]
+            if T.upstream and ch.upstream:
+                observe.texts(db, ch.slug)
+                if ch.pr:
+                    observe.pr(db, T, ch, ours=(publish.OWNER,))
         observe.procs(db)
         observe.sessions(db, definition_blob())
         observe.alerts(db)
@@ -318,6 +329,8 @@ def tick(path=None, dry_run=False, offline=False) -> list:
             start(db, s, ch, T)
         elif s.kind == "merge":
             stage(db, ch, T, s.key.split(":")[1])
+        elif s.kind == "card":
+            publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug))
         last = L.last_event(ch.slug, "state")
         if not last or last["detail"] != f"{s.kind}: {s.why}":
             event(db, "state", ch.slug, None, f"{s.kind}: {s.why}")

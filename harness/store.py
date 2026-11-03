@@ -139,9 +139,10 @@ CREATE TABLE alert (
 """
 
 SCHEMA_2 = "ALTER TABLE ref ADD COLUMN tree TEXT;"   # a ref's tree: the key of a deploy of staging, read without git
+SCHEMA_3 = "CREATE TABLE text (change TEXT, name TEXT, sha TEXT NOT NULL, body TEXT NOT NULL, at TEXT, PRIMARY KEY (change, name));"  # evidence/<slug>/pr-*.md observed
 
 # One function per schema version; migrate() applies those above PRAGMA user_version in order, each in a transaction.
-MIGRATIONS = [SCHEMA_1, SCHEMA_2]
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3]
 
 
 def now() -> str:
@@ -272,6 +273,24 @@ class Ledger:
 
     def hold(self, slug, head):
         return self.one("SELECT * FROM hold WHERE change=? AND lifted_at IS NULL AND (head IS NULL OR head=?)", slug, head)
+
+    def pr(self, upstream, number):
+        """The PR as last observed: number, state, draft, head, title, body, merged_at; None before the first read."""
+        row = self.one("SELECT body FROM gh WHERE url=?", f"repos/{upstream}/pulls/{number}")
+        if not row:
+            return None
+        p = json.loads(row["body"])
+        return {"number": p["number"], "state": p["state"], "draft": p["draft"], "head": p["head"]["sha"], "title": p["title"],
+                "body": p["body"] or "", "merged_at": p["merged_at"], "merge_commit": p.get("merge_commit_sha")}
+
+    def texts(self, slug):
+        return {r["name"]: r["body"] for r in self.all("SELECT name, body FROM text WHERE change=?", slug)}
+
+    def findings(self, slug):
+        return self.all("SELECT * FROM finding WHERE change=? AND triage='finding' ORDER BY comment_id", slug)
+
+    def latest_card(self, slug):
+        return self.one("SELECT * FROM card WHERE change=? ORDER BY id DESC LIMIT 1", slug)
 
     def last_event(self, slug, kind=None):
         sql = "SELECT * FROM event WHERE change=?" + (" AND kind=?" if kind else "") + " ORDER BY id DESC LIMIT 1"

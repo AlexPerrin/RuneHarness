@@ -1,11 +1,14 @@
 """world → ledger (docs/ARCHITECTURE.md §5). Each function writes observation rows bound to what it observed
 (sha, pid, comment id) and nothing else."""
+import hashlib
+import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
-from store import alert, event, now
+from store import ROOT, alert, event, now
 
 
 def pid_start(pid) -> int:
@@ -102,11 +105,94 @@ def alerts(db) -> None:
         event(db, "alert", a["change"], None, f"alert {a['id']} {a['kind']} {a['subject']}: {a['detail']}   → hd new --track harness --from-alert {a['id']} --title \"…\" | hd dismiss {a['id']} \"<why>\"")
 
 
-# --- GitHub and docker: phase 2 ----------------------------------------------------------------------------------
+# --- the evidence texts ------------------------------------------------------------------------------------------
+
+TEXTS = ("pr-title.txt", "pr-body.md", "pr-comment.md")
+
+
+def texts(db, slug: str) -> None:
+    """evidence/<slug>/pr-title.txt, pr-body.md, pr-comment.md, pr-reply-<id>.md → text rows by content sha; a file gone, its row gone."""
+    d = os.path.join(ROOT, "evidence", slug)
+    names = [n for n in (os.listdir(d) if os.path.isdir(d) else []) if n in TEXTS or (n.startswith("pr-reply-") and n.endswith(".md"))]
+    have = {r["name"]: r["sha"] for r in db.execute("SELECT name, sha FROM text WHERE change=?", (slug,))}
+    for n in names:
+        body = Path(d, n).read_text(errors="replace")
+        sha = hashlib.sha1(body.encode()).hexdigest()
+        if have.get(n) != sha:
+            db.execute("INSERT INTO text(change, name, sha, body, at) VALUES (?,?,?,?,?) ON CONFLICT(change, name) DO UPDATE SET sha=excluded.sha, body=excluded.body, at=excluded.at",
+                       (slug, n, sha, body, now()))
+    for n in set(have) - set(names):
+        db.execute("DELETE FROM text WHERE change=? AND name=?", (slug, n))
+
+
+# --- GitHub ------------------------------------------------------------------------------------------------------
+
+def transport(method: str, url: str, data=None, headers=()) -> tuple:
+    """One GitHub call through gh (its token): (status, headers, body). Tests replace this function."""
+    cmd = ["gh", "api", "-i", "-X", method, url] + [a for h in headers for a in ("-H", h)]
+    if data is not None:
+        cmd += ["--input", "-"]
+    r = subprocess.run(cmd, input=json.dumps(data) if data is not None else None, capture_output=True, text=True)
+    head, _, body = r.stdout.replace("\r\n", "\n").partition("\n\n")
+    lines = head.splitlines()
+    m = re.match(r"HTTP/\S+ (\d{3})", lines[0] if lines else "")
+    return int(m.group(1)) if m else 0, {k.strip().lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}, body
+
+
+def wait(seconds):
+    time.sleep(seconds)
+
 
 def gh(db, url: str):
-    """GET with If-None-Match from gh.etag; 304 → the stored body; 200 → UPSERT; quota → alert('quota'), None."""
-    raise NotImplementedError  # shortcut: phase 2 (publish)
+    """GET with If-None-Match from the stored ETag: 304 → the stored body (no quota spent); 200 → UPSERT; a quota
+    refusal → alert('quota') and None; any other answer → None (unknown: the step holds)."""
+    row = db.execute("SELECT etag, body FROM gh WHERE url=?", (url,)).fetchone()
+    status, h, body = transport("GET", url, headers=(f"If-None-Match: {row['etag']}",) if row and row["etag"] else ())
+    if status == 304 and row:
+        return json.loads(row["body"])
+    if status == 200:
+        db.execute("INSERT INTO gh(url, etag, status, body, at) VALUES (?,?,?,?,?) ON CONFLICT(url) DO UPDATE SET etag=excluded.etag, status=excluded.status, body=excluded.body, at=excluded.at",
+                   (url, h.get("etag"), status, body, now()))
+        return json.loads(body)
+    if status in (403, 429) and (h.get("x-ratelimit-remaining") == "0" or "rate limit" in body.lower()):
+        alert(db, "quota", "github", f"refused {url}; reset {h.get('x-ratelimit-reset', '?')}")
+    return None
+
+
+def pr(db, T, ch, ours=()) -> None:
+    """The PR's state and comments: the gh row (the Ledger reads it), finding rows for comments by others, and a landed
+    row on the upstream base once merged (a squash or rebase merge is seen only here)."""
+    p = gh(db, f"repos/{T.upstream}/pulls/{ch.pr}")
+    if p is None:
+        return
+    if p.get("merged_at") and not db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (ch.slug, T.base)).fetchone():
+        db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (ch.slug, T.base, p.get("merge_commit_sha") or p["head"]["sha"], now()))
+        event(db, "landed", ch.slug, None, f"PR {T.upstream}#{ch.pr} merged")
+    for url in (f"repos/{T.upstream}/issues/{ch.pr}/comments", f"repos/{T.upstream}/pulls/{ch.pr}/comments"):
+        for c in gh(db, url) or []:
+            if c["user"]["type"] == "Bot" or c["user"]["login"] in ours:
+                continue
+            if db.execute("INSERT OR IGNORE INTO finding(comment_id, repo, pr, author, body, url, seen_at, change) VALUES (?,?,?,?,?,?,?,?)",
+                          (c["id"], T.upstream, ch.pr, c["user"]["login"], c["body"], c["html_url"], now(), ch.slug)).rowcount:
+                event(db, "triage", ch.slug, None, f"#{ch.pr} comment {c['id']} by {c['user']['login']}: {c['body'][:200]!r}   → hd triage {c['id']} finding|ask|ack")
+
+
+def checks(db, upstream, sha) -> list | None:
+    """The latest check run per name at sha plus the commit statuses, as {name, status, conclusion}; None when unknown."""
+    runs = gh(db, f"repos/{upstream}/commits/{sha}/check-runs?per_page=100")
+    st = gh(db, f"repos/{upstream}/commits/{sha}/status")
+    if runs is None or st is None:
+        return None
+    seen, out = set(), []
+    for r in runs["check_runs"]:   # newest first
+        if r["name"] not in seen:
+            seen.add(r["name"])
+            out.append({"name": r["name"], "status": r["status"], "conclusion": r["conclusion"]})
+    for s in st["statuses"]:
+        if s["context"] not in seen:
+            seen.add(s["context"])
+            out.append({"name": s["context"], "status": "completed" if s["state"] != "pending" else "in_progress", "conclusion": s["state"]})
+    return out
 
 
 def docker(db) -> set:

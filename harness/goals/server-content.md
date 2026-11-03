@@ -9,7 +9,8 @@ measure: query
 row per content unit from the cache ({unit, source}). A unit passes only by a passing verdict on a change that names
 it (`units:` of harness/changes/<slug>.md, `goal: server-content`) and is landed on staging, the tree the test server
 runs; the pass computes the share whenever staging's tree moves (a `measure` row per tree). An empty inventory
-measures 0: the first change the planning run files is the inventory itself.
+measures 0: the first change the planning run files is the inventory itself. A change this plan files is P3: content
+upstream for its own sake is the stretch goal (docs/PROBLEM.md §6); a server change the client needs is P1–P2.
 
 ## Unit kinds
 A content unit is one row of a cache dbtable below; its unit is `<kind>:<row name minus the prefix>` and its source

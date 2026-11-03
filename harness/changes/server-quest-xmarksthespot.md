@@ -1,7 +1,7 @@
 ---
 slug: server-quest-xmarksthespot
 track: fork
-priority: P2
+priority: P3
 goal: server-content
 units:
 - quest:xmarksthespot

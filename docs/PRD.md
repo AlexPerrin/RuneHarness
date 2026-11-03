@@ -80,7 +80,8 @@ publish → maintainers' findings become criteria.
 - **T3** A run ends only by its own hand-back (one line, checked against its record), the orchestrator's stop, its
   change's close or its console's death; the pass never ends a live run. At the context limit a run hands off to a
   successor listed at once.
-- **T4** Runs are bounded by one count; priority is the user's tiers P0–P4 with a held band; harness changes first,
+- **T4** Runs are bounded by one count; priority is the user's tiers P0–P4 with a held band (their order: the client
+  and the server work it needs, then overlapping upstream work, then content for its own sake); harness changes first,
   then PR rounds, then new content; a change takes the best tier of the changes it blocks; one dev and one qa run
   per head move.
 - **T5** The orchestrator is a visible session with the lifecycle of a run: bound when it starts, shown only what is

@@ -132,3 +132,6 @@ a criterion on the PR's open change, and the loop runs again from the dev.
 | client | 100% of the RuneLite API interface methods working in the app | the probe against the live test server, per method |
 | server | 100% of the content inventory 1:1 with the official game; the client never blocked on the server | units of the cache inventory covered by a landed change with a passing verdict |
 | harness | the same outcomes with less: per upstream change ≤5 runs; the harness <15% of runs and tokens; <20 harness changes a day and falling; one build and one gate per tree; no approved publish lost; a pass that costs under a second when nothing moved; an agent's first edit within 10 tool calls; peak context ≤200k | `hd kpi`, queries over the ledger |
+
+The user's order: the client first, with the server work the client needs (P1–P2); upstream contribution of work that
+overlaps it next; content upstream for its own sake is the stretch goal, P3, the held band.

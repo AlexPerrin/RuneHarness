@@ -173,6 +173,8 @@ def cmd_submit(a):
     if not head:
         sys.exit(f"hd submit: no commit on {ref}")
     base = act.git(T.path, "rev-parse", T.base)
+    if act.is_ancestor(T.path, head, base):
+        sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
     heads = []
     for dep in ch.deps:
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()

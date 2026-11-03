@@ -50,44 +50,46 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the 45 `pins` |
 | `tests/mermaid_parse.mjs` | checks every mermaid block of a markdown file; setup in its header |
 
-## Build order (docs/V9-PROPOSAL.md §3; each phase ends on an observed fact)
+## Where the loop stands (hand-off of 2026-11-03 04:20Z)
 
-**Phase 1, the loop on the harness track: built.** Three harness changes shipped through the loop from this
-worktree (`git log v9`: 5f05598, 7f7f7e3, 3952ed1), two of them by dev agents spawned with the printed `Agent(dev, …)`
-call. Still to observe in a fresh session started by `harness/orchestrator.sh` (hooks are snapshotted at session
-start, so the dev session that built this could not exercise them): the Read binding, the `hd scope` prefix on each
-Bash command, SessionStart/End, drain and `hd restart`. The agents' hand-backs were bound through the record-line
-path, which the same hook also serves.
-1. `observe.fetch` and `landed` over the real repos; `procs`; `alerts` as SQL.
-2. The guards of `decide.py`, in order, each a few lines over `Ledger`; `plan()`. Write `tests/test_decide.py`
-   against a fixture ledger you build by hand first, then against a `.backup` of your own `state/hd.db` once it has
-   content.
-3. `act.candidate`, `key`, `start` (systemd scope, the `builds` flock semaphore), `brief`, `wake`, `tick`.
-4. `hd.py`: `tick`, `new`, `show`, `submit`, `job`, `step`, `stop`, `scope`, `kpi`, `commit`, `restart`,
-   `session-ended`. The view is a delta per session (`session.seen_event`).
-5. `hook.py`: bind on SubagentStart, end on SubagentStop (the one-line hand-back), the two denials and the scope
-   line, the context limit.
-6. `tracks/harness/track.sh`: `test`, `gate` (tests + replay), `ship` (fast-forward `v9`).
-7. Run `harness/orchestrator.sh` from this worktree with a fresh `state/hd.db`, file one harness change with
-   `hd new`, and let the loop take it to `landed`.
+Every mechanism of ARCHITECTURE is built, unit-tested (`tests/`, 42 tests; the track suites under `tracks/*/test_*.py`,
+103 and 28) and documented. The loop runs live from this worktree: `harness/orchestrator.sh` in the user's terminal
+(session 3, the orchestrator on Sonnet 5.5; dev and qa on Opus 5.5, reader on Sonnet 5.5, set in the agent files),
+`hd-loop.timer`, `state/hd.db` (154 events). Proven live so far:
 
-**Phase 2, the server track: built, proof pending.** The scripts, skills, staging merge, deploy of staging, PR
-observation, findings, triage, card, approval and publish exist and are unit-tested (the publish over a fake
-transport: killed after a step, it resumes with the card's texts). Observed live so far: a fork-only probe (f-probe)
-whose dev built the candidate through `tracks/fork/track.sh build`. Still to observe: the gate job (spotless, gamevals,
-gate-ci on the fork), a judge run with desktops, the first staging merge (which creates `staging` from upstream main
-plus the pins: a pin that no longer merges is alert `pin-conflict`), and the upstream proof (a P2 change to a ready
-PR after the user's yes; a maintainer finding answered; a killed publish resuming), which needs the cutover: the
-deploy script refuses without `state/live/key`, and the open PRs are v8's until then. Comment 6586756996 on PR #448
-is a real triage case waiting.
+- harness track: three changes shipped by fast-forward through dev agents, gate (tests, replay, the track suites)
+  and ship; the T6 path twice (a run's `hd fault` → alert → `hd new --from-alert` by the orchestrator → a dev run →
+  a root fix submitted); the T5 lifecycle three times (bind, drain on a moved definition, `hd restart`, the
+  supervisor's next iteration).
+- fork track: `f-probe` (fork-only) built through `tracks/fork/track.sh` and gated (gamevals, dupe-tests, spotless;
+  fork CI green on `gate/f-probe`); `server-training-bow` (OpenRune #444, upstream) through the criteria run (run 7,
+  `criteria agreed`), the dev run (run 8, one line of item data plus the PR texts in `evidence/server-training-bow/`),
+  the cached build and into its gate with fork CI.
+- client track: the client-api goal's measure job built the APK with the live modulus and booted the emulator on
+  the allowlist; the mobile login failed (unknown screens, then the server refusing), so `h-measure-desktop` (run 11,
+  submitted) adds the RuneLite desktop fallback the user asked for.
 
-**Phase 3, the client track: scripts built, proof pending.** `tracks/client/` and its skills are in; a client
-build needs `state/live/key/client.key` (the live modulus), so the proof (one client change live on `main`) waits for
-the cutover's copy of the live key pair.
+In flight at hand-off (`hd tick --dry-run` lists them): the gates of `server-training-bow` (fork CI), `h-measure-scope`
+(unique scope names per start), `h-measure-desktop`, `h-desktop-login-401` (two fork scripts defaulted their root to
+`~/osrs-harness`, v8's tree: the login read the wrong stack record) and `h-criterion-cmd-dest` (a duplicate of a fix
+already live, 949f000: it fails its replay; the user may close it). The client-api measure is parked (three starts
+without a result) and resumes after the next harness ship. No run is live.
 
-**Phase 4, alerts and KPIs**: `kpi.py` queries; the alert kinds; a goal gap listing a plan-mode dev run.
+## Next, toward the goal (a harness tested end to end; the PRD validated)
 
-Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the fork's shape once the fork works.
+1. **Server, to the card.** When the training-bow gate passes, the pass lists the qa judge run (needs the desktops:
+   the 401 fix must have shipped first; if the judge fails on bring-up, read `state/server-training-bow/` and the
+   alert). A PASS verdict → the first staging merge (`act.stage` creates `staging` from upstream main plus the 45
+   pins; a `pin-conflict` alert names a pin to rebase) → the deploy job, which refuses without `state/live/key/game.key`
+   (correct until the cutover) → `texts_due` (the texts exist) → the card. The user approves or not; the publish is the
+   remaining unproven step of A2 (a killed publish resuming) and is testable only with the user's yes.
+2. **Client, to a ship.** After `h-measure-desktop` ships, the measure runs on a desktop; a value below 100 lists a
+   plan-mode dev run (`goal:client-api`) that files client changes with `hd new --goal client-api`; each then runs dev,
+   build, gate (the seeds in `tracks/client/track.md`) and ships to the client's `main` (autonomous by the rules).
+3. **Validate the PRD.** `docs/ACCEPTANCE.json` maps every requirement to its tests and live checks; replace each
+   `pending:` with the observed fact as the steps above land (A2 publish, A3 finding on PR #448 after the cutover, H4
+   first staging merge). Keep `python3 -m unittest discover -s tests` green at every commit.
+4. **Cutover** (below), the user's decision; then the upstream proofs and the devtools track.
 
 ## Rules that bind you
 
@@ -95,6 +97,16 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
 - Never touch the live checkout, its timer, its orchestrator, its `state/`. Read them.
 - A script of the checkout the loop runs from changes only by a ship (git replaces a file by rename, so a running bash
   keeps the old one): an in-place write to a running track script moves it under bash and ends it with a syntax error.
+- The orchestrator session runs this worktree's working copy: every saved edit is live at its next `hd`. Keep the tree
+  importable between commits; commit small; the replay compares a candidate with its merge base, so your own commits
+  do not fail others' gates.
+- The shell of a session resets its cwd to `~/osrs-harness` (the live checkout) after a command that ends elsewhere:
+  use absolute paths into this worktree; never write under `~/osrs-harness`.
+- Claude Code snapshots hook matchers at session start: a hook change is tested by a fresh session (the orchestrator
+  restarts itself on a moved definition; a hook change needs `hd restart` by hand).
+- The orchestrator files an alert as a harness change within a minute: fix a defect through the loop (let the dev run
+  do it) or `hd dismiss` the alert before fixing by hand, never both.
+- Commit a definition the orchestrator filed (`harness/changes/*.md`) if it did not (`hd commit`).
 - No new concept, file, knob or special case without a requirement in PRD naming it. A limit you meet in a mechanism
   is fixed in that mechanism; if the design itself is wrong, say so in the hand-back rather than patching around it.
 - Docs state current truth: a mechanism you change is updated in ARCHITECTURE in the same commit; nothing about v8

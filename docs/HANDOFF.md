@@ -149,7 +149,7 @@ Left, in order:
    `client-probe-no-stop` and the Android check on live follow.
 2. **The runtime move, at the user's desk** (it restarts the orchestrator in their pane): stop `harness/orchestrator.sh`
    (the session's `/exit`) and `hd-loop.timer`; `sqlite3 .backup` this `state/hd.db` into `~/osrs-harness/state/hd.db`;
-   `git -C ~/osrs-harness merge --ff-only v9` (main is v9's ancestor), hd.yaml `harness.base: refs/heads/main`, commit,
+   `git -C ~/osrs-harness merge v9` (main has one commit v9 lacks, cbe98a9, the merge of PR #2 from v8, with no file change against v9's base: a plain merge), hd.yaml `harness.base: refs/heads/main`, commit,
    push; copy `state/<slug>/`, `state/briefs/`, `state/live/` across; start `harness/orchestrator.sh` from
    `~/osrs-harness`; then `git worktree remove` this worktree.
 

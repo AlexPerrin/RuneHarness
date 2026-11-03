@@ -60,6 +60,16 @@ class Tempo(Base):  # T1, T3, T4
         self.run_row(s.input, ended_at="t", end_kind="handback", record="run 3: submitted x")
         self.assertIn("ended (handback) with this input", self.step().why)
 
+    def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
+        dep = Change("h-fix", "harness")
+        ch = Change("c-one", "client", deps=("h-fix",))
+        cfg = Cfg(agents=2, tracks={"harness": T, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-fix', 'd1', 'td', 'cd', 't')")
+        s = {a.change: a.step for a in decide.plan(self.L, [ch, dep], cfg)}["c-one"]
+        self.assertEqual((s.kind, s.why), ("wait", "dep h-fix (harness) not landed"))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-fix', 'refs/heads/v9', 'd1', 't')")
+        self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, dep], cfg)}["c-one"].kind, "run")
+
     def test_a_dep_landing_is_a_new_input_for_the_dev(self):   # a dev that filed its blocker runs again once the blocker lands
         dep = Change("h-dep", "harness")
         ch = Change("h-one", "harness", deps=("h-dep",))

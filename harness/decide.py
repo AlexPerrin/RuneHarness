@@ -142,14 +142,17 @@ def closed(C, ch):
 
 
 def deps_live(C, ch):
-    """A dep with nothing to build on (no submission, not landed, not closed) → wait. A submitted dep joins the
-    candidate; its landing is waited for before the card or the ship (upstream_dep_wait)."""
+    """A dep with nothing to build on → wait. A submitted dep of the same track joins the candidate (its landing is
+    waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a
+    library the server needs) is nothing to build on until it lands or closes."""
     for dep in ch.deps:
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
         if C.L.closed(dep) or C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
             continue
+        if d.track != ch.track and d.track not in ("central", "filestore"):
+            return Step("wait", f"dep {dep} ({d.track}) not landed")
         if not C.L.one("SELECT 1 FROM submission WHERE change=?", dep):
             return Step("wait", f"dep {dep}")
     return None

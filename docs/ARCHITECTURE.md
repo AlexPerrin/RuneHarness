@@ -264,7 +264,8 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted dep joins the candidate
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate;
+                       # a dep on another track (a harness fix, a library) must land or close
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,

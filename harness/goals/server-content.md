@@ -13,8 +13,8 @@ measures 0: the first change the planning run files is the inventory itself.
 
 ## Unit kinds
 A content unit is one row of a cache dbtable below; its unit is `<kind>:<row name minus the prefix>` and its source
-`dbrow.<name>=<id> dbtable.<table>=<id>`. `harness/goals/server-content.py` regenerates the inventory from the files
-osrs-mcp serves (the LIVE cache's dbrows, gamevals.dat's names).
+`dbrow.<name>=<id> dbtable.<table>=<id>`, from the dbrows and gameval names osrs-mcp serves. A new cache revision
+regenerates it as a change on this goal.
 
 | kind | dbtable | row prefix |
 |---|---|---|

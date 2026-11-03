@@ -567,8 +567,8 @@ flowchart LR
 - The fork track's seed criteria (tracks/fork/track.md): eleven judged (each naming its skill), seven scripted; those
   marked `upstream` seed only a change that opens a PR. A dev pushes `dev/<slug>` to the fork before `hd submit`, which
   refuses a local branch ahead of the pushed ref.
-- The server-content inventory is a FileStore task under `tracks/fork/`, run by `track.sh measure` in the build
-  container; osrs-mcp reads its dumps. The harness itself stays standard-library Python.
+- The server-content inventory is `harness/goals/server-content.json`, a committed definition (one row per content unit
+  of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
   template source; the official client's sign-in and game-session endpoints that mint the token the game
   verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer.
@@ -691,7 +691,7 @@ done
 | goal | track | target | measured by |
 |---|---|---|---|
 | `client-api` | client | 100 | `track.sh measure`: the probe's share of `net.runelite.api` methods confirmed in the running app against the live test server |
-| `server-content` | fork | 100 | a ledger query: inventory units (`harness/goals/server-content.json`, from the FileStore task) named in `units:` of a change landed with a passing verdict, over all units |
+| `server-content` | fork | 100 | a ledger query: inventory units (`harness/goals/server-content.json`) named in `units:` of a change landed with a passing verdict, over all units |
 
 A goal file is `slug`, `track`, `target`, `measure` (`script`: a job `track.sh measure <goal>` whose last act is `hd
 measure <goal> <tree> <value> <report>`; `query`: the pass computes it) and a body. A goal is measured on its track's

@@ -45,7 +45,7 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | `.claude/skills/` | accuracy, dupes, pr-text, probe, qa-server, network-qa, qa-client, reverse, in v9 vocabulary |
 | `state/hd.db` | the ledger of the three phase-1 changes (h-kpi-track by hand, h-test-warnings and h-agent-hd by dev agents): the first fixture source for `tests/fixtures/` |
 | `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore`, `tracks/devtools`, `.claude/skills/` | **empty**: copy from the tools branches (below) |
-| `harness/goals/` | client-api.md, server-content.md (its body still describes the old PASSES mechanism), server-content.json |
+| `harness/goals/` | client-api.md, server-content.md, server-content.json |
 | `harness/changes/` | empty until the cutover |
 | `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the 45 `pins` |
 | `tests/mermaid_parse.mjs` | checks every mermaid block of a markdown file; setup in its header |
@@ -152,7 +152,6 @@ without a result) and resumes after the next harness ship. No run is live.
   the client track's `build live` is wired (marked `shortcut:`).
 - `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with
   `NODE_PATH=~/.cache/mm/node_modules`.
-- `harness/goals/server-content.md` describes the old measurement; rewrite its body when the ledger query exists.
 - The `devtools` repo (OpenRune-Developer-Tools) is in ARCHITECTURE §11 but not yet in `hd.yaml`; the fork of it does
   not exist yet.
 - Only the harness track has run against its real repo. Every number in the KPI table is a target, not a measurement.

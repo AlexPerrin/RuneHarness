@@ -22,7 +22,6 @@
 #                     modulus every APK carries) and the issuer's secret, its key checked, boot check, deploy, or roll back; state/live/tree.json
 #                     records the live stack; the job's result by `hd job deploy`
 #   recipe            one version per verb the pass keys a job by (build, gate, deploy): bump a verb's when its output changes
-#   measure GOAL      the content inventory's share of rows whose unit is in PASSES
 #   log <slug> PATTERN  the lines of the change's server container matching PATTERN (slug `live`: the live server)
 #   recordings <slug> REGEX  the RSProx transcripts holding a packet type or text (any case: CLANSETTINGS finds clansettings_delta)
 #   transcribe <slug> [ID...]  rewrites those recordings' transcripts (none: every one) with every RSProx filter on (its defaults
@@ -292,15 +291,6 @@ EOF
     echo "deploy of $T failed: rolled back to ${prev:0:12}"; return 1
   fi
 }
-measure() {  # the goal's inventory: share of rows whose unit is in PASSES (hd: named by a live change with a passing verdict)
-  python3 - "$root/harness/goals/server-content.json" "$state/measure.json" "${TREE:-}" "${PASSES:-}" <<'EOF'
-import json, os, sys
-rows, passes = json.load(open(sys.argv[1])), set(sys.argv[4].split())
-value = 100.0 * sum(1 for r in rows if r["unit"] in passes) / len(rows) if rows else 0.0
-with open(sys.argv[2] + ".tmp", "w") as f: json.dump({"tree": sys.argv[3], "value": value, "report": sys.argv[1]}, f)
-os.replace(sys.argv[2] + ".tmp", sys.argv[2]); print(f"server-content: {value:g}")
-EOF
-}
 token() {  # [TOKEN]: the token the desktop's next login sends, or a valid one for the first desktop's account
   printf '%s\n' "${1:-$(python3 "$self/server/issuer.py" mint "$state/token" "$(account 1)")}" > "$state/token/token"; echo "token: $state/token/token"
 }
@@ -327,6 +317,6 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 case $verb in up|restart|down) [ "${DESKTOPS_LOCK:-}" = "$slug" ] || {   # one up, restart or down of a slug at a time: none acts on desktops another is starting or removing
     flock -n "$state/desktops.lock" true || echo "$verb $slug waits for the running up, restart or down of $slug" >&2
     DESKTOPS_LOCK=$slug exec flock -o "$state/desktops.lock" bash "$0" "$@"; } ;; esac   # -o: no desktop or keeper it starts holds the lock
-case $verb in up|restart|down|deploy|measure|log|recordings) "$verb" ;; token) token "$arg" ;;
+case $verb in up|restart|down|deploy|log|recordings) "$verb" ;; token) token "$arg" ;;
   transcribe) transcribe "${@:3}" ;;
-  *) echo "verbs: recipe build up restart down test spotless gate gate-ci ci-step tree deploy measure log recordings transcribe token" >&2; exit 2 ;; esac
+  *) echo "verbs: recipe build up restart down test spotless gate gate-ci ci-step tree deploy log recordings transcribe token" >&2; exit 2 ;; esac

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """desktop_login.py <devtools port> [keep <server container>] <user> <password> | <devtools port> [keep <server container>] token | <devtools port> logout | <devtools port> guard <token>: logs a desktop
 client in, by its login form or (token) by the token login its Jagex session variables start (prints LOGGED_IN or
-FAILED: <reason>; LOGGED_IN only once the inventory widget shows container 93, FAILED when TICKS game ticks pass with no slot in it), or out through the logout tab's button (prints LOGIN_SCREEN) through its devtools endpoint; keep: logs it in again after each logout, until the desktop is gone. Keys only:
-the login screen's place on the canvas changes with the window, so no point on it is clicked. It acts only on the instance
+FAILED: <reason>; LOGGED_IN only once the inventory widget shows container 93, FAILED when TICKS game ticks pass with no slot in it), or out through the logout tab's button (prints LOGIN_SCREEN) through its devtools endpoint; keep: logs it in again after each logout, until the desktop is gone. Keys, but
+for the refused login's dialog that takes none: its Try again is clicked where the canvas width puts it. It acts only on the instance
 that owns the port when it starts (DESKTOP_DIR/run/<port - 7779>/owner, its up's slug and claim): no call is sent once that
 instance changes hands, and keep ends then. Each call carries that up's devtools token (its up.json), which the endpoint requires.
 guard: writes the instance's guard file (DevtoolsOwner reads it on each request): the token, or empty (any caller) while a
@@ -15,6 +15,7 @@ LOGOUT_BUTTON = 11927560  # component.logout:logout
 INVENTORY_ITEMS = 9764864  # component.inventory:items, one dynamic child per slot of container 93
 FRAMES = 10  # state reads after Enter: the client takes a key on its next frame, the rest a margin on a loaded host
 CONNECT = 30  # seconds a connect may take: a starting client may not accept yet, and an unsent call is sent again
+TRY_AGAIN_Y = 277  # canvas y of the refused login dialog's Try again button (read on a desktop in that state)
 TICKS = 10  # game ticks a logged-in client waits for the inventory widget's slots: the server sends the interface and container 93 on the login tick
 
 
@@ -154,19 +155,25 @@ def clear(port):  # press_key takes one key per call
         call(port, "press_key", key="BACKSPACE")
 
 
-def attempt(port, again=True):
+def try_again(port):  # the refused login's dialog ('Incorrect username or password': Try again / Forgotten password?) takes no key, only a click
+    # on Try again, the login box's top button; the login screen is drawn 765 wide, centred on the canvas, from its top
+    call(port, "click", x=state(port)["canvasWidth"] // 2, y=TRY_AGAIN_Y)
+
+
+def attempt(port, leave=(lambda port: call(port, "press_key", key="ESCAPE"), try_again)):
     """Presses Enter and returns the attempt's end state: LOGGED_IN or LOGIN_SCREEN, or None when the key started no attempt.
     The client takes a key on its next frame and a submit leaves LOGIN_SCREEN on that frame, and each state read runs on a
-    frame, so FRAMES reads still on LOGIN_SCREEN are a page Enter does not submit (a refusal's response page): Escape
-    leaves it, once (again), and Enter is pressed on the page under it."""
+    frame, so FRAMES reads still on LOGIN_SCREEN are a page Enter does not submit (a refusal's response page): each of leave
+    in turn (Escape, then Try again) is tried on it, and Enter is pressed on the page under it."""
     call(port, "press_key", key="ENTER")
     for _ in range(FRAMES):
         if state(port).get("gameState") != "LOGIN_SCREEN":
             return wait(port, ("LOGGED_IN", "LOGIN_SCREEN"))["gameState"]
-    if not again:
+    if not leave:
         return None
-    call(port, "press_key", key="ESCAPE")
-    return attempt(port, again=False)
+    leave[0](port)
+    state(port), state(port)  # each read runs on a client frame: the page has changed before Enter
+    return attempt(port, leave[1:])
 
 
 def login(port, user, password):
@@ -181,7 +188,7 @@ def login(port, user, password):
     call(port, "press_key", key="TAB")
     clear(port)
     call(port, "type_chat", text=password, send=False)
-    return result(port, attempt(port, again=False), "the server refused the login")
+    return result(port, attempt(port, leave=()), "the server refused the login")
 
 
 def token(port):
@@ -193,7 +200,7 @@ def token(port):
 
 def result(port, g, refused):
     if g is None:
-        return "FAILED: Enter started no login: the login screen is on a page Enter does not submit and Escape does not leave (the disconnected dialog, a refusal's page)"
+        return "FAILED: Enter started no login: the login screen is on a page Enter does not submit and neither Escape nor Try again leaves (the disconnected dialog)"
     return inventory(port) if g == "LOGGED_IN" else f"FAILED: back at the login screen: {refused}"
 
 

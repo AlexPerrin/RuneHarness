@@ -5,7 +5,7 @@
 repos:
   client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/remotes/origin/main,   prefix: client, remote: origin}
   fork:      {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Server,         remote: fork,
-              pins: [content/goblin-diplomacy, content/cannon, feat/hunter, local/quest-test-fixture, local/android, local/local-auth, local/test-commands, local/world-settings, local/skip-cs2-packs, local/op-overrides, local/spotless-241]}   # fork branches every staging tree carries besides the changes, in merge order: the user's list
+              pins: [local/quest-test-fixture, local/android, local/local-auth, local/test-commands, local/world-settings, local/skip-cs2-packs, local/op-overrides, local/spotless-241]}   # fork branches every staging tree carries besides the changes, in merge order: the user's list
   central:   {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Central-Server, remote: fork}
   filestore: {name: AlexPerrin/OpenRune-FileStore,      path: ~/src/OpenRune-FileStore,      base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-FileStore,      remote: fork}
   harness:   {name: AlexPerrin/osrs-harness,            path: .,                             base: refs/heads/v9,              prefix: harness}

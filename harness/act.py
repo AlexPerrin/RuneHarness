@@ -359,6 +359,7 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
                     observe.pr(db, T, ch, ours=(publish.OWNER,))
         observe.procs(db)
         observe.sessions(db, definition_blob())
+        observe.runs(db)
         observe.stacks(db)
         observe.alerts(db)
     for ch in open_:

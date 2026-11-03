@@ -70,10 +70,20 @@ def session_end(e):
     return {}
 
 
-def bind(db, agent, run_id):
-    """An agent that names its brief (or its record line) is the run's agent; the run starts then."""
-    if db.execute("UPDATE run SET agent_id=?, started_at=? WHERE id=? AND agent_id IS NULL AND ended_at IS NULL",
-                  (agent, now(), run_id)).rowcount:
+def agent_transcript(e) -> str:
+    """The subagent's transcript file: beside the session's, under <session id>/subagents/."""
+    if e.get("agent_transcript_path"):
+        return e["agent_transcript_path"]
+    if e.get("transcript_path") and e.get("session_id") and e.get("agent_id"):
+        return os.path.join(os.path.dirname(e["transcript_path"]), e["session_id"], "subagents", f"agent-{e['agent_id']}.jsonl")
+    return ""
+
+
+def bind(db, agent, run_id, transcript=""):
+    """An agent that names its brief (or its record line) is the run's agent; the run starts then. Its transcript path is
+    recorded so the pass can see the agent die in its console (observe.runs)."""
+    if db.execute("UPDATE run SET agent_id=?, started_at=?, transcript=? WHERE id=? AND agent_id IS NULL AND ended_at IS NULL",
+                  (agent, now(), transcript, run_id)).rowcount:
         r = run_of(db, agent)
         event(db, "started", r["change"], r["id"], f"{r['role']} agent {agent}")
         return r
@@ -118,7 +128,7 @@ def pre_tool_use(e):
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                            "permissionDecisionReason": f"run {gone['id']} ended: {why}. Stop now, with no hand-back and nothing else."}}
         m = BRIEF.search(text)
-        r = bind(db, agent, int(m.group(1))) if m else None
+        r = bind(db, agent, int(m.group(1)), agent_transcript(e)) if m else None
         if not r:
             return {}
     if name == "SubagentHandback":   # the hand-back as a tool call: its message is the line
@@ -174,7 +184,7 @@ def subagent_stop(e):
     msg = (e.get("last_assistant_message") or "").strip()
     line = msg.splitlines()[-1].strip() if msg else ""
     m = store.RECORD.match(line)
-    r = run_of(db, e.get("agent_id")) or (m and bind(db, e.get("agent_id"), int(m.group(1))))
+    r = run_of(db, e.get("agent_id")) or (m and bind(db, e.get("agent_id"), int(m.group(1)), agent_transcript(e)))
     if not r:
         return {}
     if m and int(m.group(1)) == r["id"]:

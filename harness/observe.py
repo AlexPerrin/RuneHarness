@@ -73,6 +73,30 @@ def procs(db) -> None:
             event(db, "attempt", j["change"], None, f"{j['kind']} {j['key'][:12]} exit {code}: {cause}")
 
 
+def runs(db) -> None:
+    """A live run whose agent was interrupted in its console (its transcript's last line is the interruption) ended as a
+    console death: nothing else ever fires for it; the pass lists its successor."""
+    for r in db.execute("SELECT * FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL AND transcript != ''").fetchall():
+        if not os.path.exists(r["transcript"]):
+            continue
+        with open(r["transcript"], "rb") as f:
+            try:
+                f.seek(-4096, os.SEEK_END)
+            except OSError:
+                f.seek(0)
+            lines = [l for l in f.read().decode(errors="replace").splitlines() if l.strip()]
+        try:
+            last = json.loads(lines[-1]) if lines else {}
+            text = "".join(c.get("text", "") for c in (last.get("message") or {}).get("content") or [] if isinstance(c, dict))
+        except ValueError:
+            continue
+        if last.get("type") == "user" and text.startswith("[Request interrupted"):
+            db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
+            event(db, "ended", r["change"], r["id"], f"run {r['id']}: its agent was interrupted in the orchestrator's console")
+            import act
+            act.stop_scope(r["id"])
+
+
 def sessions(db, definition: str) -> None:
     """A live session whose pid is gone ended by a crash, with its started runs (they die with their console);
     a live session whose definition differs from HEAD's is drained."""

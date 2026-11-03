@@ -85,6 +85,22 @@ class Observe(unittest.TestCase):
         observe.landed(self.db, self.T, "refs/heads/live", [self.ch])
         self.assertEqual(self.db.execute("SELECT sha FROM landed WHERE change='h-one'").fetchone()[0], head)
 
+    def test_a_run_whose_agent_was_interrupted_ends_as_a_console_death(self):
+        import json
+        db = store.connect(str(Path(self.dir.name) / "hd.db"))
+        t = Path(self.dir.name) / "agent-a1.jsonl"
+        t.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}}) + "\n")
+        db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, started_at, agent_id, transcript) VALUES ('c', 'dev', 'code', 'i', 'b', 't', 't', 'a1', ?)", (str(t),))
+        observe.runs(db)
+        self.assertIsNone(db.execute("SELECT ended_at FROM run WHERE id=1").fetchone()[0])   # a working agent is left alone
+        with t.open("a") as f:
+            f.write(json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}}) + "\n")
+        self.addCleanup(setattr, act, "stop_scope", act.stop_scope); act.stop_scope = lambda r: None
+        observe.runs(db)
+        r = db.execute("SELECT ended_at, end_kind FROM run WHERE id=1").fetchone()
+        self.assertEqual(r["end_kind"], "console"); self.assertIsNotNone(r["ended_at"])
+        self.assertIn("interrupted", db.execute("SELECT detail FROM event WHERE kind='ended'").fetchone()[0])
+
     def test_dead_job_without_result_is_an_attempt(self):
         log = os.path.join(self.dir.name, "gate-x.log")
         Path(log).write_text("Traceback\nMemoryError at 0xdeadbeef1234\n")

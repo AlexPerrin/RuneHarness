@@ -328,6 +328,7 @@ def landed(db, T, target, changes):     # only when target moved: merge-base --i
 def procs(db):                          # a job whose (pid, pid_start) is gone: a result recorded → ended_at; else ended_at,
                                         # pid NULL and an attempt row (the log's last line, hex runs dropped) so the pass
                                         # starts it again, up to three attempts (alert 'attempts')
+def runs(db)                            # a live run whose transcript ends with its agent's interruption → ended console (nothing else fires)
 def sessions(db, definition):           # a live session whose pid is gone → crash, its started runs → console; a live
                                         # session whose definition digest differs from HEAD's → drain_at
 def texts(db, slug)                     # evidence/<slug>/pr-title.txt, pr-body.md, pr-comment.md, pr-reply-<id>.md → text rows by sha
@@ -595,7 +596,9 @@ flowchart LR
 | the user's console: cards, questions, triage, alerts; the user's words; one-off changes the user directs | **driver** | manual: acts only on the user's word; `claude --agent driver` in the checkout, beside the orchestrator's pane |
 
 A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
-of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. An agent whose run
+of its hand-back line), its transcript path recorded; from then on every Bash command of the run is prefixed with `hd scope
+<id>`. An agent interrupted in its console (the transcript's last line) ends its run as a console death and its successor
+is listed. An agent whose run
 ended by close or stop is denied every tool (the run's `ended` line tells the orchestrator to TaskStop it). The run ends
 on its record: a `SubagentHandback` call whose message is the line (a wrong line is denied with the reason), or a
 last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is

@@ -3,6 +3,7 @@
 Pure: takes a Ledger, the parsed definitions and the config; no subprocess, no network, no clock. Tested over
 recorded ledger snapshots (tests/fixtures/), never over fakes of git or GitHub.
 """
+import json
 from dataclasses import dataclass, field
 
 from store import Ledger, digest
@@ -105,7 +106,10 @@ def sub(C, ch):
 
 
 def key(C, ch, kind, s):
-    return f"{s['tree']}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
+    """<tree>[+c<central tree12>][+f<filestore tree12>]:<recipe>: a composite build is keyed by every tree built in."""
+    comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
+    tree = s["tree"] + "".join(f"+{k[0]}{v['tree'][:12]}" for k, v in sorted(comp.items()))
+    return f"{tree}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
 
 
 def short(key) -> str:

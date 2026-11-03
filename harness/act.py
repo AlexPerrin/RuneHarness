@@ -248,6 +248,9 @@ def job_env(db, ch, T, s, **more) -> dict:
                SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=T.path if ch.slug == "staging" else clone(T, ch),
                BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
                PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
+    comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
+    if "central" in comp:
+        env["CENTRAL"] = f"{cfg().tracks['central'].path}:{comp['central']['head']}"
     env.update(more)
     return env
 

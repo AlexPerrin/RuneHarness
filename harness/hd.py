@@ -188,19 +188,24 @@ def cmd_submit(a):
     base = act.git(T.path, "rev-parse", T.base)
     if act.is_ancestor(T.path, head, base):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
-    heads = []
+    heads, composite = [], {}
     for dep in ch.deps:
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
-        if s and d.track == ch.track and not db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, T.done_ref(d))).fetchone():
+        if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, T.done_ref(d))).fetchone():
+            continue
+        if d.track == ch.track:
             heads.append(s["head"])
+        elif d.track in ("central", "filestore"):   # a library head built into the candidate as a Gradle composite
+            dT = track(d, cfg)
+            composite[d.track] = {"head": s["head"], "tree": act.git(dT.path, "rev-parse", s["head"] + "^{tree}")}
     try:
         tree, tcommit = act.candidate(T.path, base, heads + [head])
     except act.Conflict as c:
         sys.exit(f"hd submit: the candidate conflicts in {' '.join(c.args[0])}: merge {T.base} into your branch")
     r = live_run(db, a.slug)
-    new = db.execute("INSERT INTO submission(change, head, tree, tcommit, run, at) VALUES (?,?,?,?,?,?) ON CONFLICT(change, head) DO NOTHING",
-                     (a.slug, head, tree, tcommit, r["id"] if r else None, now())).rowcount
+    new = db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(change, head) DO NOTHING",
+                     (a.slug, head, tree, tcommit, json.dumps(composite) if composite else None, r["id"] if r else None, now())).rowcount
     db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
                (T.name, ref, head, now()))
     if new:

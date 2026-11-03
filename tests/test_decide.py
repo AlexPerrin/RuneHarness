@@ -1,4 +1,5 @@
 """decide.plan over a hand-built ledger: one class per PRD group it touches."""
+import json
 import sys
 import tempfile
 import unittest
@@ -173,6 +174,13 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual(self.step().why, "texts: pr-reply-77.md")
         self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', 'pr-reply-77.md', 'x', '> why?\n\n@m because')")
         self.assertEqual(self.step().kind, "card")
+
+    def test_a_composite_candidate_is_keyed_by_the_library_tree_too(self):
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES ('genie', ?, ?, ?, ?, 't1')",
+                        (TIP, TREE, TC, json.dumps({"central": {"head": "h", "tree": "c" * 40}})))
+        self.assertEqual(self.step().key, f"{TREE}+c{'c' * 12}:fork-1")
 
     def test_merge_conflict_lists_the_dev(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

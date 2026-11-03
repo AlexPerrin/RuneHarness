@@ -37,11 +37,14 @@ box() { local log=$1; shift; hosted "$log" slot docker run --init "${size[@]}" "
 
 tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the working copy and asks hd
   tc=${TCOMMIT:-${arg:-}}   # the pass's TCOMMIT (its argument is the job key), or a dev's argument
-  if [ -n "$tc" ]; then git -C "$repo" rev-parse -q --verify "$tc^{commit}" >/dev/null || { echo "$tc is not a commit: TCOMMIT is the commit of T" >&2; exit 2; }; T=${T:-$(git -C "$repo" rev-parse "$tc^{tree}")}; return; fi
+  if [ -n "$tc" ]; then git -C "$repo" rev-parse -q --verify "$tc^{commit}" >/dev/null || { echo "$tc is not a commit: TCOMMIT is the commit of T" >&2; exit 2; }; T=${T:-$(git -C "$repo" rev-parse "$tc^{tree}")$(composite_suffix)}; return; fi
   [ -d "$dev" ] || git -C "$repo" worktree add -q "$dev" -B "dev/$slug" "$(git -C "$repo" rev-parse -q --verify "fork/dev/$slug" || echo origin/main)"
   idx=$(git -C "$dev" rev-parse --git-path snapshot-index); rm -f "$idx"   # from HEAD: add -A alone drops tracked files under ignored paths
   GIT_INDEX_FILE=$idx git -C "$dev" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dev" add -A . && snap=$(git -C "$dev" commit-tree "$(GIT_INDEX_FILE=$idx git -C "$dev" write-tree)" -p HEAD -m snapshot)
-  read -r T tc < <($hd candidate "$slug" --head "$snap")
+  read -r T tc < <($hd candidate "$slug" --head "$snap"); T=$T$(composite_suffix)
+}
+composite_suffix() {  # the image of a composite build is its own: +c<central tree12>
+  [ -n "${CENTRAL:-}" ] || return 0; local cp cc; IFS=: read -r cp cc <<< "$CENTRAL"; echo "+c$(git -C "$cp" rev-parse "$cc^{tree}" | cut -c1-12)"
 }
 central() {  # the change's Central dependencies, merged by hd, built in (gate/central.init.gradle): cdir and cvols for build and tests
   cdir= cvols=(); [ -n "${CENTRAL:-}" ] || return 0

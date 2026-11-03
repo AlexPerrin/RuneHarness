@@ -46,6 +46,13 @@ class Hook(unittest.TestCase):
         self.assertEqual((r["end_kind"], r["record"][:18]), ("handback", "run 1: submitted a"))
         self.assertEqual(hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "run 1: PASS"}), {})  # already ended
 
+    def test_a_run_waiting_on_a_background_task_is_left_alone(self):
+        self.db.execute("UPDATE run SET agent_id='ag1', started_at='t' WHERE id=1")
+        out = hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "waiting for the build", "stop_hook_active": False,
+                                  "background_tasks": [{"id": "b1", "type": "bash", "status": "running"}]})
+        self.assertEqual(out, {})
+        self.assertIsNone(self.db.execute("SELECT ended_at FROM run WHERE id=1").fetchone()[0])
+
     def test_unbound_agent_binds_by_its_record_line(self):
         out = hook.subagent_stop({"agent_id": "ag9", "last_assistant_message": "run 1: submitted " + "b" * 40, "agent_transcript_path": "/none"})
         self.assertEqual(out, {})

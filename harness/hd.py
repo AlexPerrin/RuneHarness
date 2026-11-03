@@ -193,11 +193,12 @@ def cmd_submit(a):
     except act.Conflict as c:
         sys.exit(f"hd submit: the candidate conflicts in {' '.join(c.args[0])}: merge {T.base} into your branch")
     r = live_run(db, a.slug)
-    db.execute("INSERT INTO submission(change, head, tree, tcommit, run, at) VALUES (?,?,?,?,?,?) ON CONFLICT(change, head) DO NOTHING",
-               (a.slug, head, tree, tcommit, r["id"] if r else None, now()))
+    new = db.execute("INSERT INTO submission(change, head, tree, tcommit, run, at) VALUES (?,?,?,?,?,?) ON CONFLICT(change, head) DO NOTHING",
+                     (a.slug, head, tree, tcommit, r["id"] if r else None, now())).rowcount
     db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
                (T.name, ref, head, now()))
-    event(db, "submitted", a.slug, r["id"] if r else None, f"{head[:7]} candidate {tcommit[:7]} tree {tree[:12]}")
+    if new:
+        event(db, "submitted", a.slug, r["id"] if r else None, f"{head[:7]} candidate {tcommit[:7]} tree {tree[:12]}")
     act.tick_later()
     print(f"run {r['id']}: submitted {head}" if r else f"submitted {head}")
 

@@ -140,8 +140,9 @@ def post_tool_use(e):
 
 
 def subagent_stop(e):
-    """The last line is the run's record → end the run (its scope stopped, a pass started); else ask once for the
-    line; a second refusal ends the run without a record."""
+    """The last line is the run's record → end the run (its scope stopped, a pass started). No record: a run with a
+    background task pending is waiting for it (its notification resumes the agent), left alone; an idle one is asked
+    once for the line, and a second idle stop ends the run without a record."""
     db = store.connect()
     msg = (e.get("last_assistant_message") or "").strip()
     line = msg.splitlines()[-1].strip() if msg else ""
@@ -155,6 +156,8 @@ def subagent_stop(e):
                    (now(), "handoff" if m.group(2) == "handoff" else "handback", line,
                     json.dumps({"context_tokens": context_tokens(tpath)}), tpath, r["id"]))
         event(db, "ended", r["change"], r["id"], line)
+    elif e.get("background_tasks"):
+        return {}
     elif not e.get("stop_hook_active"):
         return {"decision": "block", "reason": f"Hand back exactly one line and nothing beside it: run {r['id']}: <record>, as the brief's last section says."}
     else:

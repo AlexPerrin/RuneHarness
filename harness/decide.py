@@ -334,7 +334,7 @@ def measure_due(C, g):
     tree = goal_tree(C, g)
     if not tree or C.L.measure(g.slug, tree):
         return None
-    return Step("measure", f"measure {g.slug} at {tree[:12]}", key=f"{tree}:{C.cfg.tracks[g.track].recipes.get('measure', g.measure)}")
+    return job_due(C, "measure", f"{tree}:{C.cfg.tracks[g.track].recipes.get('measure', g.measure)}")   # running, failed or parked → wait
 
 
 def plan_due(C, g):
@@ -402,8 +402,6 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             if s:
                 break
         if s and s.kind == "run" and (live >= cfg.agents or L.run_for(g.slug, s.input) or L.live_run(g.slug)):
-            continue
-        if s and s.kind == "measure" and L.jobs_in_flight("measure", s.key):
             continue
         if s:
             actions.append(Action(f"goal:{g.slug}", s))

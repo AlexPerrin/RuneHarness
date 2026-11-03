@@ -210,6 +210,11 @@ class Goals(Base):  # T8
         self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
         a = [x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"]
         self.assertEqual((a[0].step.kind, a[0].step.key), ("measure", "tr1:query"))
+        for _ in range(3):
+            self.db.execute("INSERT INTO attempt(kind, key, cause, at) VALUES ('measure', 'tr1:query', 'boom', 't')")
+        a = [x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"]
+        self.assertIn("3 starts", a[0].step.why)   # parked like any job
+        self.db.execute("DELETE FROM attempt")
         self.db.execute("INSERT INTO measure(goal, tree, value, at) VALUES ('server-content', 'tr1', 38, 't')")
         a = [x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"]
         self.assertEqual((a[0].step.kind, a[0].step.mode), ("run", "plan"))

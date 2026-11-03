@@ -11,7 +11,7 @@ repos:
 
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
 builds: 3                 # builds and container steps at once (an N-slot flock semaphore)
-agents: 7                 # runs alive at once (raised from 3, then 6->7 for the P0 qa login fix: the user's word)
+agents: 5                 # runs alive at once: the user's word (2026-11-03)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list
   - content/goblin-diplomacy

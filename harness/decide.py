@@ -93,16 +93,21 @@ def key(C, ch, kind, s):
     return f"{s['tree']}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
 
 
+def short(key) -> str:
+    """A key's short form: the tree's first 12, or a ship's commit."""
+    return key.split(":")[-1][:12] if key.startswith("refs/") else key[:12]
+
+
 def job_due(C, kind, k):
     """A job Step for (kind, key) unless it holds a result or is running; None when ok=1."""
     j = C.L.job(kind, k)
     if j and j["ok"] == 1:
         return None
     if j and j["pid"] and not j["ended_at"]:
-        return Step("wait", f"{kind} running ({k[:12]})")
+        return Step("wait", f"{kind} running ({short(k)})")
     if C.L.attempts(kind, k) >= ATTEMPTS:
-        return Step("wait", f"{kind} {k[:12]}: {ATTEMPTS} starts without a result")
-    return Step(kind, f"{kind} {k[:12]}", key=k)
+        return Step("wait", f"{kind} {short(k)}: {ATTEMPTS} starts without a result")
+    return Step(kind, f"{kind} {short(k)}", key=k)
 
 
 # --- guards: each returns a Step or None; first non-None wins ---------------------------------------------------
@@ -287,7 +292,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
             continue
         r = L.live_run(c.slug)
         if r:
-            actions.append(Action(c.slug, Step("wait", f"run {r['id']} {r['role']} live")))
+            actions.append(Action(c.slug, Step("wait", f"run {r['id']} {r['role']} {'live' if r['started_at'] else 'listed'}")))
             continue
         s = next(C, c)
         if s.kind == "run":

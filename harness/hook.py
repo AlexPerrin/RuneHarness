@@ -74,11 +74,25 @@ def session_end(e):
     return {}
 
 
+def bind(db, agent, run_id):
+    """An agent that names its brief (or its record line) is the run's agent; the run starts then."""
+    if db.execute("UPDATE run SET agent_id=?, started_at=? WHERE id=? AND agent_id IS NULL AND ended_at IS NULL",
+                  (agent, now(), run_id)).rowcount:
+        r = run_of(db, agent)
+        event(db, "started", r["change"], r["id"], f"{r['role']} agent {agent}")
+        return r
+    return None
+
+
+def tool_text(e) -> str:
+    ti = e.get("tool_input", {})
+    return ti.get("command", "") if e.get("tool_name") == "Bash" else ti.get("file_path", "")
+
+
 def pre_tool_use(e):
     """`hd approve` / `hd close` are the user's own → deny. In a run: bind on the first read of its brief; every
     Bash command runs after `hd scope <run>` so its processes sit in the run's scope."""
-    ti, name = e.get("tool_input", {}), e.get("tool_name")
-    text = ti.get("command", "") if name == "Bash" else ti.get("file_path", "")
+    ti, name, text = e.get("tool_input", {}), e.get("tool_name"), tool_text(e)
     if name == "Bash" and DENY.search(text):
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                        "permissionDecisionReason": "hd approve and hd close are the user's own commands (typed with !)"}}
@@ -89,13 +103,9 @@ def pre_tool_use(e):
     r = run_of(db, agent)
     if not r:
         m = BRIEF.search(text)
-        if not m:
+        r = bind(db, agent, int(m.group(1))) if m else None
+        if not r:
             return {}
-        if not db.execute("UPDATE run SET agent_id=?, started_at=? WHERE id=? AND agent_id IS NULL AND ended_at IS NULL",
-                          (agent, now(), int(m.group(1)))).rowcount:
-            return {}
-        r = run_of(db, agent)
-        event(db, "started", r["change"], r["id"], f"{r['role']} agent {agent}")
     if name == "Bash":
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                        "updatedInput": {**ti, "command": f"{HD} scope {r['id']}; {ti['command']}"}}}
@@ -110,6 +120,10 @@ def post_tool_use(e):
     path = e["transcript_path"]
     if agent:
         path = os.path.join(os.path.dirname(path), e["session_id"], "subagents", f"agent-{agent}.jsonl")
+        db = store.connect()
+        m = BRIEF.search(tool_text(e))
+        if m and not run_of(db, agent):
+            bind(db, agent, int(m.group(1)))
     tokens = context_tokens(path)
     if tokens < limit:
         return {}
@@ -133,12 +147,12 @@ def subagent_stop(e):
     """The last line is the run's record → end the run (its scope stopped, a pass started); else ask once for the
     line; a second refusal ends the run without a record."""
     db = store.connect()
-    r = run_of(db, e.get("agent_id"))
-    if not r:
-        return {}
     msg = (e.get("last_assistant_message") or "").strip()
     line = msg.splitlines()[-1].strip() if msg else ""
     m = store.RECORD.match(line)
+    r = run_of(db, e.get("agent_id")) or (m and bind(db, e.get("agent_id"), int(m.group(1))))
+    if not r:
+        return {}
     if m and int(m.group(1)) == r["id"]:
         tpath = e.get("agent_transcript_path", "")
         db.execute("UPDATE run SET ended_at=?, end_kind=?, record=?, usage_json=?, transcript=? WHERE id=?",

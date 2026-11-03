@@ -46,7 +46,7 @@ class Tempo(Base):  # T1, T3, T4
 
     def test_a_live_run_blocks_the_change(self):
         self.run_row("x")
-        self.assertIn("live", self.step().why)
+        self.assertIn("run 1 dev", self.step().why)
 
     def test_successor_after_console_death_or_handoff(self):
         s = self.step()

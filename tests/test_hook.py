@@ -46,6 +46,12 @@ class Hook(unittest.TestCase):
         self.assertEqual((r["end_kind"], r["record"][:18]), ("handback", "run 1: submitted a"))
         self.assertEqual(hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "run 1: PASS"}), {})  # already ended
 
+    def test_unbound_agent_binds_by_its_record_line(self):
+        out = hook.subagent_stop({"agent_id": "ag9", "last_assistant_message": "run 1: submitted " + "b" * 40, "agent_transcript_path": "/none"})
+        self.assertEqual(out, {})
+        r = self.db.execute("SELECT agent_id, end_kind FROM run WHERE id=1").fetchone()
+        self.assertEqual((r["agent_id"], r["end_kind"]), ("ag9", "handback"))
+
     def test_wrong_run_id_is_not_a_record(self):
         self.db.execute("UPDATE run SET agent_id='ag1', started_at='t' WHERE id=1")
         out = hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "run 2: PASS", "stop_hook_active": True})

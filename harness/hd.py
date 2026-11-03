@@ -289,7 +289,7 @@ def cmd_job(a):
     db.execute("""INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES (?,?,?,?,?,?)
                   ON CONFLICT(kind, key) DO UPDATE SET ok=excluded.ok, detail=excluded.detail, ended_at=excluded.ended_at""",
                (a.kind, a.key, os.environ.get("HD_SLUG"), int(a.result == "ok"), a.detail, now()))
-    event(db, "job", os.environ.get("HD_SLUG"), None, f"{a.kind} {a.key[:12]} {a.result} {a.detail or ''}")
+    event(db, "job", os.environ.get("HD_SLUG"), None, f"{a.kind} {decide.short(a.key)} {a.result} {a.detail or ''}")
     act.tick_later()
 
 
@@ -311,7 +311,7 @@ def cmd_gate(a):
     db.execute("""INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES ('gate',?,?,?,?,?)
                   ON CONFLICT(kind, key) DO UPDATE SET ok=excluded.ok, detail=excluded.detail, ended_at=excluded.ended_at""",
                (a.key, a.slug, int(not fails), "; ".join(fails) or None, now()))
-    event(db, "job", a.slug, None, f"gate {a.key[:12]} {'ok' if not fails else 'fail ' + '; '.join(fails)}")
+    event(db, "job", a.slug, None, f"gate {decide.short(a.key)} {'ok' if not fails else 'fail ' + '; '.join(fails)}")
     act.tick_later()
     sys.exit(1 if fails else 0)
 

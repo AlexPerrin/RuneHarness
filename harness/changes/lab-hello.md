@@ -4,6 +4,8 @@ track: lab
 priority: P1
 deps:
 - harness-stage-deploy-tracks-only
+pr: 1
+public: content/lab-hello
 ---
 # lab: hello from the harness (a PR opened, CI read, one comment, ready, then merged by the user)
 

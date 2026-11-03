@@ -244,7 +244,7 @@ class DesktopDevtools(unittest.TestCase):
         t = SRC
         f = t.split("\ndevtools_jar() {")[1].split("\n}")[0]
         s.assertIn('"$c" build live "$tc"', f); s.assertIn("-u T -u EVIDENCE", f)
-        s.assertIn('jar=$root/evidence/live/$(git -C "$(dirname "$c")" rev-parse "$tc^{tree}").devtools-desktop.jar', f)
+        s.assertIn('jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar', f); s.assertIn("c=$root/tracks/client/track.sh", f)
         s.assertIn("  devtools_jar", t.split("\nup() {")[1].split("\n}")[0])
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
         s.assertLess(start.index('cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"'), start.index("exec setsid"))

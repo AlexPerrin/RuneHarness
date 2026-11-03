@@ -31,7 +31,7 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | file | state |
 |---|---|
 | `harness/store.py` | real: schema (migration 1), `connect()`, `migrate()`, `event()`, `alert()`, the `Ledger` read view |
-| `harness/decide.py` | real: every guard but `measure_due` and `plan_due` (phase 4, marked `shortcut:`); one deploy per staging tree in `plan()` |
+| `harness/decide.py` | real: every guard; one deploy per staging tree in `plan()` |
 | `harness/observe.py` | real: `fetch` (with trees), `landed`, `procs`, `sessions`, `alerts`, `texts`, `transport`/`gh` (ETag), `pr` (findings, merged), `checks`; `docker` raises |
 | `harness/act.py` | real: `cfg()`, `changes()`, `candidate()`, `seed()`, `clone()`, `brief_text()`/`brief()`, `start()`, `wake()`, `tick()`, `tick_later()` |
 | `harness/hd.py` | real: every command of ARCHITECTURE §8; `gate`, `candidate` and `stack` added for the track scripts |
@@ -149,8 +149,6 @@ without a result) and resumes after the next harness ship. No run is live.
   their artefacts) but have not run against a real change; `tracks/devtools` waits for the fork of
   OpenRune-Developer-Tools, which does not exist yet.
 - The `kpi` alert (a metric past its target) is not computed; `hd kpi` prints the metrics.
-- `tracks/fork/track.sh` `up` loads the desktops' devtools jar from v8's client script (`CLIENT_TRACK` default) until
-  the client track's `build live` is wired (marked `shortcut:`).
 - `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with
   `NODE_PATH=~/.cache/mm/node_modules`.
 - The `devtools` repo (OpenRune-Developer-Tools) is in ARCHITECTURE §11 but not yet in `hd.yaml`; the fork of it does

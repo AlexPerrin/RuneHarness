@@ -173,10 +173,11 @@ desktops_remove() {  # stops every JVM carrying the marker of an instance this s
 }
 
 devtools_jar() {  # sets jar: the devtools classes jar of the client track's build of slug live (origin/HEAD of the client), cached by its T
-  local c=${CLIENT_TRACK:-$HOME/osrs-plugins-reverse/.worktrees/harness-v8/tools/track.sh} tc   # shortcut: v8's client script until tracks/client/ exists (phase 3), then $root/tracks/client/track.sh
-  tc=$(git -C "$(dirname "$c")" rev-parse "origin/HEAD^{commit}")
-  flock "$root/state/client-live.lock" env -u T -u EVIDENCE HD_ROOT="$root" "$c" build live "$tc" >&2   # one build copy for every up
-  jar=$root/evidence/live/$(git -C "$(dirname "$c")" rev-parse "$tc^{tree}").devtools-desktop.jar
+  local c=$root/tracks/client/track.sh crepo tc
+  crepo=$(python3 -c 'import os, sys, yaml; p = os.path.expanduser(yaml.safe_load(open(sys.argv[1]))["repos"]["client"]["path"]); print(p if os.path.isabs(p) else os.path.normpath(os.path.join(sys.argv[2], p)))' "$root/hd.yaml" "$root")
+  tc=$(git -C "$crepo" rev-parse "origin/HEAD^{commit}")
+  flock "$root/state/client-live.lock" env -u T -u EVIDENCE HD_ROOT="$root" HD_REPO="$crepo" "$c" build live "$tc" >&2   # one build copy for every up
+  jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar
   [ -f "$jar" ] || { echo "no desktop devtools jar $jar" >&2; return 1; }
 }
 

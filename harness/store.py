@@ -141,8 +141,15 @@ CREATE TABLE alert (
 SCHEMA_2 = "ALTER TABLE ref ADD COLUMN tree TEXT;"   # a ref's tree: the key of a deploy of staging, read without git
 SCHEMA_3 = "CREATE TABLE text (change TEXT, name TEXT, sha TEXT NOT NULL, body TEXT NOT NULL, at TEXT, PRIMARY KEY (change, name));"  # evidence/<slug>/pr-*.md observed
 
+SCHEMA_4 = """  -- job kinds gain measure (a goal's script); SQLite rebuilds the table for a new CHECK
+CREATE TABLE job_4 (
+  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','ship','publish','test','measure')),
+  key  TEXT NOT NULL, change TEXT, ok INTEGER, detail TEXT, pid INTEGER, pid_start INTEGER, scope TEXT, log TEXT,
+  started_at TEXT, ended_at TEXT, exit INTEGER, PRIMARY KEY (kind, key));
+INSERT INTO job_4 SELECT * FROM job; DROP TABLE job; ALTER TABLE job_4 RENAME TO job;"""
+
 # One function per schema version; migrate() applies those above PRAGMA user_version in order, each in a transaction.
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3]
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4]
 
 
 def now() -> str:
@@ -288,6 +295,11 @@ class Ledger:
 
     def findings(self, slug):
         return self.all("SELECT * FROM finding WHERE change=? AND triage='finding' ORDER BY comment_id", slug)
+
+    def measure(self, goal, tree=None):
+        if tree:
+            return self.one("SELECT * FROM measure WHERE goal=? AND tree=?", goal, tree)
+        return self.one("SELECT * FROM measure WHERE goal=? ORDER BY at DESC LIMIT 1", goal)
 
     def latest_card(self, slug):
         return self.one("SELECT * FROM card WHERE change=? ORDER BY id DESC LIMIT 1", slug)

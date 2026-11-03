@@ -30,6 +30,16 @@ class Change:
 
 
 @dataclass(frozen=True)
+class Goal:
+    """A parsed harness/goals/<slug>.md: measured by a script (`track.sh measure`) or by a ledger query."""
+    slug: str
+    track: str
+    target: float
+    measure: str = "script"   # script | query
+    body: str = ""
+
+
+@dataclass(frozen=True)
 class Track:
     """One hd.yaml repo: where a track's changes live and what its script can do."""
     name: str               # the hd.yaml key == Change.track
@@ -306,17 +316,36 @@ def ship_due(C, ch):
     return job_due(C, "ship", k)
 
 
-def measure_due(C, ch):
-    return None  # shortcut: phase 4 (goals)
+def goal_tree(C, g):
+    """The tree a goal is measured on: the live branch, or staging for a server track."""
+    T = C.cfg.tracks[g.track]
+    return C.L.ref_tree(T.name, STAGING if T.upstream else T.base)
 
 
-def plan_due(C, ch):
-    return None  # shortcut: phase 4 (goals)
+def measure_due(C, g):
+    tree = goal_tree(C, g)
+    if not tree or C.L.measure(g.slug, tree):
+        return None
+    return Step("measure", f"measure {g.slug} at {tree[:12]}", key=f"{tree}:{C.cfg.tracks[g.track].recipes.get('measure', g.measure)}")
+
+
+def plan_due(C, g):
+    """Below target and no open change naming the goal → one dev run in plan mode, which files changes and no code."""
+    m = C.L.measure(g.slug)
+    if not m or m["value"] >= g.target:
+        return None
+    for ch in C.defs.values():
+        if ch.goal == g.slug and not C.L.closed(ch.slug) and not C.L.landed(ch.slug, C.cfg.tracks[ch.track].done_ref(ch)):
+            return None
+    return Step("run", f"{g.slug} at {m['value']:g}% of {g.target:g}, nothing open", role="dev", mode="plan", input=digest(g.slug, m["tree"]))
+
+
+GOAL_GUARDS = [measure_due, plan_due]
 
 
 GUARDS = [
     closed, deps_live, ask_open, criteria_due, dev_due, build_due, gate_due, judge_due, stage_due,
-    upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due, measure_due, plan_due,
+    upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due,
 ]
 
 
@@ -342,7 +371,7 @@ def priority(ch, blocked: dict) -> str:
     return min(best, "P1", key=TIERS.index) if ch.track == "harness" else best
 
 
-def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
+def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
     """The pass's action list: next() per open change in priority order (harness, then PR rounds, then new content;
     below cfg.hold skipped); a run Step listed only while live runs < cfg.agents and no run exists for (change,
     input); a job Step only while no job of its key (a ship: of its branch) is in flight."""
@@ -356,6 +385,21 @@ def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
     open_.sort(key=lambda c: (0 if c.track == "harness" else 1 if c.pr else 2, TIERS.index(tier[c.slug]), c.slug))
     live = len(L.live_runs())
     actions = []
+    for g in goals:
+        if g.track not in cfg.tracks:
+            continue
+        s = None
+        for guard in GOAL_GUARDS:
+            s = guard(C, g)
+            if s:
+                break
+        if s and s.kind == "run" and (live >= cfg.agents or L.run_for(g.slug, s.input) or L.live_run(g.slug)):
+            continue
+        if s and s.kind == "measure" and (L.jobs_in_flight("measure", s.key) or L.attempts("measure", s.key) >= ATTEMPTS):
+            continue
+        if s:
+            actions.append(Action(f"goal:{g.slug}", s))
+            live += s.kind == "run"
     for T in cfg.tracks.values():   # the test server runs staging: one deploy per staging tree
         tree = L.ref_tree(T.name, STAGING) if T.upstream and "deploy" in T.recipes else None
         if tree:

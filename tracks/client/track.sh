@@ -174,7 +174,7 @@ measure() {
   (cd "$copy" && ANDROID_SERIAL=$(serial) tools/api-probe.sh "$ev")
   v=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" | grep -oE '[0-9.]+%$' | tr -d %)
   python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"value":float(sys.argv[2]),"report":sys.argv[3]}))' "${TREE:-$T}" "$v" "$ev/api-probe.tsv" | atomic "$state/measure.json"
-  down; echo "client-api: $v"
+  down; echo "client-api: $v"; $hd measure "$slug" "${TREE:-$T}" "$v" "$ev/api-probe.tsv"; [ -z "${HD_KEY:-}" ] || $hd job measure "$HD_KEY" ok "$v"
 }
 log() { "$adb" -s "$(serial)" logcat -d -v threadtime -T "$(cat "$state/log-mark" 2>/dev/null || echo 1)" 2>/dev/null | tr -d '\r' | grep -E "${arg:-.}" || true; }
 netqa() {  # start: a sampler on the mobile; stop: the distinct remote addresses (app uid 10071) and the DNS lookups

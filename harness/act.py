@@ -2,6 +2,7 @@
 the wake file, and the pass itself (tick)."""
 import fcntl
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import decide
 import observe
 import publish
 import store
-from decide import Cfg, Change, Step, Track
+from decide import Cfg, Change, Goal, Step, Track
 from store import ROOT, STATE, event, now
 
 AUTHOR = "Alex Perrin <44126061+AlexPerrin@users.noreply.github.com>"
@@ -64,6 +65,32 @@ def parse_change(path) -> Change:
 
 def changes() -> list:
     return [parse_change(p) for p in sorted(glob.glob(os.path.join(ROOT, "harness", "changes", "*.md")))]
+
+
+def goals() -> list:
+    out = []
+    for p in sorted(glob.glob(os.path.join(ROOT, "harness", "goals", "*.md"))):
+        _, fm, body = open(p).read().split("---\n", 2)
+        y = yaml.safe_load(fm)
+        out.append(Goal(y["slug"], y["track"], float(y["target"]), y.get("measure", "script"), body))
+    return out
+
+
+def measure_query(db, g, T, tree) -> None:
+    """The server-content goal: inventory units (harness/goals/<goal>.json) named in `units:` of a change landed on the
+    goal's tree with a passing verdict, over all units → a measure row."""
+    units = {u["unit"] for u in json.load(open(os.path.join(ROOT, "harness", "goals", f"{g.slug}.json")))}
+    L = store.Ledger(db)
+    passed = set()
+    for ch in changes():
+        if ch.goal == g.slug and L.landed(ch.slug, decide.STAGING if T.upstream else T.base):
+            v = L.one("SELECT ok FROM verdict WHERE change=? ORDER BY id DESC LIMIT 1", ch.slug)
+            if v and v["ok"]:
+                passed |= set(ch.units) & units
+    value = 100.0 * len(passed) / len(units) if units else 0.0
+    db.execute("INSERT OR REPLACE INTO measure(goal, tree, value, report, at) VALUES (?,?,?,?,?)",
+               (g.slug, tree, value, json.dumps(sorted(passed)), now()))
+    event(db, "measure", g.slug, None, f"{value:g}% at {tree[:12]}")
 
 
 # --- candidates and keys ---------------------------------------------------------------------------------------
@@ -157,7 +184,8 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
     evidence = os.path.join(ROOT, "evidence", ch.slug)
     head = f"run {run_id}" if run_id else "no run"
     out = [f"# {head}: {step.role or 'show'} {ch.slug} ({T.name}, {ch.priority})   step: {step.why}",
-           f"clone {clone(T, ch)}   evidence {evidence}   logs {STATE}/{ch.slug}/",
+           (f"goal {ch.slug}: file the changes that close its gap with hd new --track {T.name} --goal {ch.slug}; write no code"
+            if step.mode == "plan" else f"clone {clone(T, ch)}") + f"   evidence {evidence}   logs {STATE}/{ch.slug}/",
            f"rules tracks/{T.name}/track.md   hd = {HD}", "",
            "## definition", ch.body.strip(), ""]
     crit = L.criteria(ch.slug)
@@ -227,9 +255,10 @@ def start(db, step: Step, ch, T) -> None:
     the job row holds pid, pid_start, scope and log. The script's last act is `hd job <kind> <key> ok|fail <detail>`
     (a gate: `hd gate`); the wrapper writes its exit to state/<slug>/<kind>-<key12>.rc."""
     L = store.Ledger(db)
-    if ch.slug == "staging":
-        sha = L.ref(T.name, decide.STAGING)
-        s = {"tree": L.ref_tree(T.name, decide.STAGING), "tcommit": sha, "head": sha}
+    if ch.slug == "staging" or step.kind == "measure":
+        ref = decide.STAGING if T.upstream else T.base
+        sha = L.ref(T.name, ref)
+        s = {"tree": L.ref_tree(T.name, ref), "tcommit": sha, "head": sha}
     elif step.kind == "publish":
         s = L.submission(ch.slug, L.latest_card(ch.slug)["head"])
     else:
@@ -312,7 +341,8 @@ def tick(path=None, dry_run=False, offline=False) -> list:
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
             seed(db, ch, c.tracks[ch.track])
-    actions = decide.plan(L, defs, c)
+    gs = goals()
+    actions = decide.plan(L, defs, c, gs)
     if dry_run:
         return actions
     draining = (L.live_session() or {"drain_at": None})["drain_at"]
@@ -321,12 +351,19 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         if a.change.endswith(":staging"):
             T = c.tracks[a.change.split(":")[0]]
             ch = Change("staging", T.name, upstream=False)
+        elif a.change.startswith("goal:"):
+            g = next(x for x in gs if x.slug == a.change[5:])
+            T = c.tracks[g.track]
+            ch = Change(g.slug, g.track, upstream=False, body=g.body)
+            if s.kind == "measure" and g.measure == "query":
+                measure_query(db, g, T, s.key.split(":")[0])
+                continue
         else:
             ch = next(x for x in defs if x.slug == a.change)
             T = c.tracks[ch.track]
         if s.kind == "run" and not draining:
             brief(db, ch, T, s)
-        elif s.kind in ("build", "gate", "ship", "deploy"):
+        elif s.kind in ("build", "gate", "ship", "deploy", "measure"):
             start(db, s, ch, T)
         elif s.kind == "merge":
             stage(db, ch, T, s.key.split(":")[1])

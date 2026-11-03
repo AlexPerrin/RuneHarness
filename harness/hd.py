@@ -77,12 +77,14 @@ def view(db, cfg):
     else:
         for r in db.execute("SELECT * FROM run WHERE started_at IS NULL AND ended_at IS NULL ORDER BY id"):
             head = open(os.path.join(ROOT, r["brief"])).readline().split("step: ", 1)
-            ch = change(r["change"])
-            out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {ch.priority}  {r["role"]}: {head[-1].strip()}')
+            pri = change(r["change"]).priority if os.path.exists(os.path.join(CHANGES, f"{r['change']}.md")) else "goal"
+            out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {pri}  {r["role"]}: {head[-1].strip()}')
     for e in db.execute("SELECT * FROM event WHERE id>? AND kind IN ('card','question','triage','alert','state','landed','attempt','ended') ORDER BY id", (seen,)):
         out.append(f"{e['kind']:<9}{e['change'] or '':<24} {e['detail']}")
     live = db.execute("SELECT * FROM run WHERE ended_at IS NULL AND started_at IS NOT NULL ORDER BY id").fetchall()
     out.append(f"runs     {len(live)}/{cfg.agents} live: " + ", ".join(f"{r['id']} {r['role']} {r['change']}" for r in live))
+    goals = [(g, Ledger(db).measure(g.slug)) for g in act.goals()]
+    out.append("goals    " + "   ".join(f"{g.slug} {m['value']:g}% @{m['tree'][:12]}" if m else f"{g.slug} unmeasured" for g, m in goals))
     last = db.execute("SELECT max(id) m FROM event").fetchone()["m"] or 0
     if s:
         db.execute("UPDATE session SET seen_event=? WHERE id=?", (last, s["id"]))
@@ -120,6 +122,10 @@ def cmd_new(a):
         body += f"\n## alert {al['id']} {al['kind']} {al['subject']} (×{al['count']}, first {al['first_at']})\n{al['detail']}\n"
         db.execute("UPDATE alert SET disposition='filed', change=?, by='orchestrator', at=? WHERE id=?", (a.slug, now(), al["id"]))
     fm = {"slug": a.slug, "track": a.track, "priority": a.priority}
+    if a.goal:
+        fm["goal"] = a.goal
+    if a.units:
+        fm["units"] = a.units
     if a.deps:
         fm["deps"] = a.deps
     if a.pr:
@@ -412,6 +418,13 @@ def cmd_stack(a):
                 d.get("token"), d.get("modulus"), d.get("started")))
 
 
+def cmd_measure(a):
+    """A goal script's result (its last act, with `hd job measure <key> ok`)."""
+    db = store.connect()
+    db.execute("INSERT OR REPLACE INTO measure(goal, tree, value, report, at) VALUES (?,?,?,?,?)", (a.goal, a.tree, a.value, a.report, now()))
+    event(db, "measure", a.goal, None, f"{a.value:g}% at {a.tree[:12]}")
+
+
 def cmd_step(a):
     db = store.connect()
     if a.state == "start":
@@ -512,7 +525,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("new"); s.add_argument("slug"); s.add_argument("--track", required=True); s.add_argument("--title", required=True)
     s.add_argument("--body", default=""); s.add_argument("--priority", default="P2"); s.add_argument("--deps", nargs="*")
     s.add_argument("--blocks", nargs="*"); s.add_argument("--on"); s.add_argument("--pr", type=int); s.add_argument("--from-alert", type=int)
-    s.add_argument("--no-upstream", dest="upstream", action="store_false", default=True)
+    s.add_argument("--no-upstream", dest="upstream", action="store_false", default=True); s.add_argument("--goal"); s.add_argument("--units", nargs="*")
+    s = sub.add_parser("measure"); s.add_argument("goal"); s.add_argument("tree"); s.add_argument("value", type=float); s.add_argument("report", nargs="?")
     s = sub.add_parser("fold"); s.add_argument("slug"); s.add_argument("--into", required=True)
     s = sub.add_parser("show"); s.add_argument("slug")
     s = sub.add_parser("criterion"); s.add_argument("add"); s.add_argument("slug"); s.add_argument("rid"); s.add_argument("--kind", choices=("script", "judge"), required=True)

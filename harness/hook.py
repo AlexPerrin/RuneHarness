@@ -90,6 +90,10 @@ def pre_tool_use(e):
     Bash command runs after `hd scope <run>` so its processes sit in the run's scope."""
     ti, name, text = e.get("tool_input", {}), e.get("tool_name"), tool_text(e)
     if name == "Bash" and DENY.search(text):
+        db = store.connect()
+        r = run_of(db, e.get("agent_id")) if e.get("agent_id") else None
+        event(db, "denied", r["change"] if r else None, r["id"] if r else None, text[:200])
+        store.alert(db, "denied", f"{r['id'] if r else 'orchestrator'}:approve-close", text[:200])
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                        "permissionDecisionReason": "hd approve and hd close are the user's own commands (typed with !)"}}
     agent = e.get("agent_id")

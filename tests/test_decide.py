@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
 import decide  # noqa: E402
 import store  # noqa: E402
-from decide import Cfg, Change, Track  # noqa: E402
+from decide import Cfg, Change, Goal, Track  # noqa: E402
 
 T = Track("harness", "AlexPerrin/osrs-harness", "/nowhere", "refs/heads/v9", "", "harness", {"gate": "harness-1", "ship": "harness-1"})
 F = Track("fork", "AlexPerrin/OpenRune-Server", "/nowhere", "refs/remotes/origin/main", "OpenRune/OpenRune-Server", "dev",
@@ -186,6 +186,22 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual((a[0].step.kind, a[0].step.key), ("deploy", "tr1:fork-1"))
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('deploy', 'tr1:fork-1', 1, 't')")
         self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
+
+
+class Goals(Base):  # T8
+    def test_measure_when_the_target_tree_moves_then_a_plan_run_when_below_target(self):
+        g = Goal("server-content", "fork", 100, "query")
+        self.assertEqual(decide.plan(self.L, [], CFG, [g]), [])   # no staging yet: nothing to measure
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
+        a = [x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"]
+        self.assertEqual((a[0].step.kind, a[0].step.key), ("measure", "tr1:query"))
+        self.db.execute("INSERT INTO measure(goal, tree, value, at) VALUES ('server-content', 'tr1', 38, 't')")
+        a = [x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"]
+        self.assertEqual((a[0].step.kind, a[0].step.mode), ("run", "plan"))
+        ch = Change("quest-x", "fork", goal="server-content")
+        self.assertEqual([x for x in decide.plan(self.L, [ch], CFG, [g]) if x.change == "goal:server-content"], [])  # something open names it
+        self.db.execute("UPDATE measure SET value=100")
+        self.assertEqual([x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"], [])   # at target
 
 
 class Authority(Base):  # A2 (close), A4 (ask)

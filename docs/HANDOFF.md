@@ -93,6 +93,8 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
 
 - CLAUDE.md "Rules" and "Shared rules" apply unchanged. Two public acts need the user; you never do either.
 - Never touch the live checkout, its timer, its orchestrator, its `state/`. Read them.
+- A script of the checkout the loop runs from changes only by a ship (git replaces a file by rename, so a running bash
+  keeps the old one): an in-place write to a running track script moves it under bash and ends it with a syntax error.
 - No new concept, file, knob or special case without a requirement in PRD naming it. A limit you meet in a mechanism
   is fixed in that mechanism; if the design itself is wrong, say so in the hand-back rather than patching around it.
 - Docs state current truth: a mechanism you change is updated in ARCHITECTURE in the same commit; nothing about v8

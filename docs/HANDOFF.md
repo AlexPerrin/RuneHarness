@@ -47,7 +47,7 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore`, `tracks/devtools`, `.claude/skills/` | **empty**: copy from the tools branches (below) |
 | `harness/goals/` | client-api.md, server-content.md, server-content.json |
 | `harness/changes/` | empty until the cutover |
-| `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the 45 `pins` |
+| `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the `pins` |
 | `tests/mermaid_parse.mjs` | checks every mermaid block of a markdown file; setup in its header |
 
 ## Where the loop stands (hand-off of 2026-11-03 04:20Z)
@@ -138,7 +138,7 @@ without a result) and resumes after the next harness ship. No run is live.
    change's criteria and lists criteria runs for the upstream ones; for a change whose dev tip already exists on the
    fork, run `hd submit <slug>` once (it records the tip and its candidate, checking nothing) before that pass, or
    right after it.
-5. The first checked server head creates `staging` from upstream main plus the 45 pins; a pin that no longer merges
+5. The first checked server head creates `staging` from upstream main plus the pins; a pin that no longer merges
    is alert `pin-conflict` naming it: rebase that pin branch on the fork and the next pass creates staging whole.
 6. The deploy of staging replaces the live test server (`osrs-openrune`) with staging's image, keyed on the live
    pair; the first deploy is the moment the test server moves from v8's integration tree to staging.

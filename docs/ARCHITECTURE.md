@@ -355,7 +355,7 @@ def candidate(repo, base, heads) -> (tree, tcommit):
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's date, so the same inputs give the same commit
     and the fork CI's child commit keeps its result. A conflict raises Conflict(files): the dev's step.
     A Central or FileStore dependency adds no commit: its candidate is built in as a Gradle composite (§11) and
-    joins the key as +c<tree12> / +f<tree12>."""
+    joins the key as _c<tree12> / _f<tree12> (decide.built: the T of the jobs and the image or:<T>)."""
 
 def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
@@ -560,7 +560,7 @@ flowchart LR
   `CENTRAL=<clone>:<head>` / `FILESTORE=<clone>:<head>`, the fork build includes that tree (Central through
   `build/central.init.gradle`, substituting the three artefacts explicitly; FileStore through
   `build/filestore.init.gradle`, whose included build substitutes every `dev.or2` module by name, transitively
-  through the `all` POM), and the key and image carry `+c<tree12>` / `+f<tree12>`. The test server image carries
+  through the `all` POM), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
   the composite, so a library change is live on the test server with the first server tree built on it.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the slug's
   gradle home), `test`, `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,

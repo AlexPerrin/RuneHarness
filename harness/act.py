@@ -264,7 +264,7 @@ def job_env(db, ch, T, s, **more) -> dict:
     cl = T.path if ch.slug == "staging" or ch.kind == "goal" else clone(T, ch)   # a job of staging or a goal has no dev clone
     env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"],
                HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=cl, HD_BUILDS=str(cfg().builds),
-               SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
+               SLUG=ch.slug, HEAD=s["head"], T=decide.built(s), TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
                BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
                PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
     comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}

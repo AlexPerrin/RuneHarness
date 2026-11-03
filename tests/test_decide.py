@@ -205,7 +205,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES ('genie', ?, ?, ?, ?, 't1')",
                         (TIP, TREE, TC, json.dumps({"central": {"head": "h", "tree": "c" * 40}})))
-        self.assertEqual(self.step().key, f"{TREE}+c{'c' * 12}:fork-1")
+        self.assertEqual(self.step().key, f"{TREE}_c{'c' * 12}:fork-1")
 
     def test_merge_conflict_lists_the_dev(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

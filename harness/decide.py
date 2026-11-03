@@ -106,11 +106,16 @@ def sub(C, ch):
     return C.L.submission(ch.slug, t) if t else None
 
 
-def key(C, ch, kind, s):
-    """<tree>[+c<central tree12>][+f<filestore tree12>]:<recipe>: a composite build is keyed by every tree built in."""
+def built(s) -> str:
+    """The tree built, T: <tree>[_c<central tree12>][_f<filestore tree12>], a composite keyed by every tree built in;
+    a valid docker tag (or:<T>), so the key, the jobs' T and the image name agree."""
     comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
-    tree = s["tree"] + "".join(f"+{k[0]}{v['tree'][:12]}" for k, v in sorted(comp.items()))
-    return f"{tree}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
+    return s["tree"] + "".join(f"_{k[0]}{v['tree'][:12]}" for k, v in sorted(comp.items()))
+
+
+def key(C, ch, kind, s):
+    """<T>:<recipe> (built)."""
+    return f"{built(s)}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
 
 
 def short(key) -> str:

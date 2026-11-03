@@ -50,50 +50,53 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the `pins` |
 | `tests/mermaid_parse.mjs` | checks every mermaid block of a markdown file; setup in its header |
 
-## Where the loop stands (hand-off of 2026-11-03 06:00Z)
+## Where the loop stands (hand-off of 2026-11-03 12:30Z)
 
-Every mechanism of ARCHITECTURE is built, unit-tested (`tests/`, 49 tests; the track suites `tracks/fork/server/test_tools.py`
+Every mechanism of ARCHITECTURE is built, unit-tested (`tests/`, 57 tests; the track suites `tracks/fork/server/test_tools.py`
 102 and `tracks/client/test_track.py` 29) and documented. The loop runs live from this worktree: `harness/orchestrator.sh`
-in the user's terminal (the orchestrator on Sonnet 5.5, autonomous; dev and qa on Opus 5.5; `agents: 5`), `hd-loop.timer`,
-`state/hd.db` (migration 5). The user chats with the engineer session (this hand-off's role); the design's driver console
-(`.claude/agents/driver.md`) is the long-term shape. Proven live so far:
+in the user's terminal (the orchestrator on Sonnet 5.5, autonomous: spawn, TaskStop, restart; dev and qa on Opus 5.5;
+`agents: 5`), `hd-loop.timer`, `state/hd.db` (migration 5). The user chats with this engineer session (one-off, for the v9
+build); the design's user console is the driver (`.claude/agents/driver.md`, manual: shows, records the user's words,
+one-off changes on their word). Proven live:
 
-- harness track: eight changes shipped by fast-forward through dev agents, gate (tests, replay over the live
-  definitions, both track suites) and ship; alerts filed and dismissed; the T5 lifecycle six times (bind, drain on a
-  moved definition, `hd restart`, the supervisor's next iteration); `hd close` ending a run's agent (the hook denies it
-  every tool).
-- fork track: `server-training-bow` (OpenRune #444) the whole way: criteria run, dev run, cached build, gate with fork
-  CI, a FAIL verdict (6 criteria) → dev → PASS verdict (run 25), the first `staging` (upstream main + the 11 pins;
-  two pins rebased by hand after a `pin-conflict` alert), its merge and landing, the card, the user's approval and the
-  publish: push, draft PR OpenRune/OpenRune-Server#450, CI, one comment, ready (A2 live). The staging deploy builds the
-  image and refuses without `state/live/key` (alert `attempts`, dismissed: the cutover's first deploy).
-- client track: the client-api measure fell back to a RuneLite desktop (`h-measure-desktop`) and logged in; the API
-  probe then called `Client.stopNow()`, which stops the client, so no report came. The measure's wait now ends when the
-  desktop's client is gone (fac3b3e); the probe fix is the client change `client-probe-no-stop` (run 35 live).
-- goals: `server-content` measured 0% on staging; its plan run filed 17 F2P quest changes at P2 (the user: test load
-  for the harness, below the Android work). `client-api` has no measure yet (the probe).
+- harness track: fourteen changes shipped by fast-forward (dev runs, gate: tests, replay over the live definitions, both
+  track suites; ship under `state/ship.lock`, shared with `hd commit`); alerts filed and dismissed; T5 six times; `hd close`
+  ending a run's agent; an agent interrupted in its console ended by the pass from its transcript, its successor listed.
+- fork track: `server-training-bow` (OpenRune #444) the whole way to PR OpenRune/OpenRune-Server#450 (criteria, dev, build,
+  gate with fork CI, FAIL then PASS verdict, the first `staging` from upstream main + the 11 pins, card, approval, publish:
+  push, draft PR, CI, one comment, ready). The staging deploy builds the image and refuses without `state/live/key`
+  (the cutover's first deploy; its `attempts` alert dismissed).
+- central track: `central-rights-test-mod` (fork-only: upstream main's RightsTest does not compile; upstream PR #5
+  carries the same fix) built, gated and judged PASS: the first central-track change. `central-token-login-op` (the token
+  LOGIN op, 0485930 from v8) is in its dev/build.
+- lab track (`tracks/lab`, repo AlexPerrin/pr-lab, its own upstream): two changes went criteria → dev → gate → card in
+  two minutes; cards 2 (`lab-ci-red`: CI red → dev → second card) and 3 (`lab-hello`: happy path, then the user merges
+  and the loop must see it land) wait for the user. Kill a publish after its push for A2's resume proof.
+- client track: the measure falls back to a RuneLite desktop; the probe's `Client.stopNow()` ends the client, so the
+  measure's wait ends when the client is gone (fac3b3e); `client-probe-no-stop` (dd3d04d, verified on the desktop) waits
+  on the Android chain below before its mobile criteria.
+- goals: `server-content` 0% on staging; its plan run filed 17 F2P quest changes, held at P4 (the user: content for its
+  own sake is the stretch goal); Cook's Assistant closed (upstream #445). `client-api` unmeasured until the probe fix ships.
 
-In flight (`hd tick --dry-run`): `server-android-token-login` (P1, fork): the official Android app's token login is
-refused by the live server's verifier while the issuer's sign-in completes and both secrets match (the token the app's
-login block carries was never captured; mobile reaches only the live stack). The quests' criteria and dev runs.
-`server-training-bow` waits on maintainers (#450). The 26 v7-era pins were dropped (562b5c5): what is wanted returns
-as a change.
+The Android chain (P1, the user's first priority): `client-probe-no-stop` ← `server-android-token-login` (453a45e in
+its gate; the official app's token is refused by the live verifier, cause uncaptured) ← `central-token-login-op`
+(Central maps a verified token to its account; dev run 64) ← `central-rights-test-mod` (done). `h-desktop-login-error-dialog`
+(P1): after a refused token the desktop sits on the login error dialog; the judge of the token change needs it.
+
+Of the 29 requirements, 27 have every proof observed; pending: A2's killed publish resuming (test it on a lab card),
+A3 a maintainer finding answered (needs a login that is not AlexPerrin, or #450's first comment).
 
 ## Next, toward the goal (a harness tested end to end; the PRD validated)
 
-1. **Android auth** (`server-android-token-login`): the fix reaches the mobile only through a live deploy, so the
-   cutover (below) is part of its path. Its dev run captures what the app sends under LOCAL_AUTH and fixes the verifier
-   or the issuer's response shape; the desktop token login (`track.sh up token`) must keep working.
-2. **Client, to a ship.** `client-probe-no-stop` ships to the client's `main` → the measure runs on the desktop
-   fallback and lands a value → below 100 lists the plan run (`goal:client-api`), which files client changes.
-3. **A3 and the resume case.** A maintainer comment on #450 → triage → a criterion → a dev → one comment; a publish
-   killed after its push resuming (A2's last pending). Replace each `pending:` in docs/ACCEPTANCE.json with the fact.
-4. **State lifetime.** Nothing removes a done change's `state/<slug>/`, its clone and build copy under the repo's
-   `.worktrees/`, or its `or:<tree>` images (v8 left 3.7 GB and 67 worktrees). The proposed rule: a change's working
-   state lives while the change is open; done or closed with its stack down, the pass removes them (a `clean` verb per
-   track), keeping evidence, the ledger and `state/live/`. A harness change after the goal.
-5. **Cutover** (below), the user's decision; `server-token-auth` and the other open v8 changes carry over as changes
-   (their heads are no longer pins).
+1. **Lab cards 2 and 3**: approve, kill one publish after its push, merge lab-hello's PR on GitHub; the loop must record
+   `ci-failed` → dev → second card, the resume, and the merge landing the change. Replace the `pending:` in ACCEPTANCE.
+2. **Android**: the chain above; the fix reaches the mobile only through a live deploy (every APK carries the live
+   modulus), so the cutover is on its path. Then `client-probe-no-stop` ships, the measure lands a value, the plan run
+   files client changes.
+3. **A3**: a maintainer comment on #450 → triage → criterion → dev → one comment.
+4. **State lifetime** (a `clean` verb per track when a change is done or closed), the `kpi` alert, the regression reprint,
+   the as-is submission for a quest found 1:1: after the goal.
+5. **Cutover** (below), the user's decision; the open v8 changes carry over as changes.
 
 ## Rules that bind you
 

@@ -1,12 +1,14 @@
 // Parses every ```mermaid block of a markdown file with the real mermaid parser under jsdom.
 // Setup once, outside the repo: mkdir -p ~/.cache/mm && cd ~/.cache/mm && npm i mermaid jsdom
 // Run: NODE_PATH=~/.cache/mm/node_modules node tests/mermaid_parse.mjs docs/ARCHITECTURE.md
-import { JSDOM } from 'jsdom';
+import { createRequire } from 'module';
 import fs from 'fs';
+const require = createRequire((process.env.NODE_PATH || '.') + '/');   // ESM imports ignore NODE_PATH
+const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!DOCTYPE html><body></body>', { pretendToBeVisual: true });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
-const mermaid = (await import('mermaid')).default;
+const mermaid = (await import(require.resolve('mermaid'))).default;
 mermaid.initialize({ startOnLoad: false });
 const md = fs.readFileSync(process.argv[2], 'utf8').split('\n');
 let blocks = [], cur = null, start = 0;

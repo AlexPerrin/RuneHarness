@@ -12,14 +12,14 @@ OpenRune/OpenRune-FileStore). It is neither product's code.
 docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`, live from `main`.** Every session and agent runs from this repo.
 
 ```
-harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
+harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | gate | candidate | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
 harness/store.py the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
 harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), processes, docker, alerts
 harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; no subprocess, no clock
 harness/act.py Step → world: candidates, keys, jobs in systemd scopes, staging merges, briefs, the wake
 harness/publish.py the card (recorded acts and texts) and the publish (logged steps, resume)
 harness/kpi.py hd kpi: one query per harness metric
-harness/hook.py SubagentStart/Stop, PreToolUse (approve/close denied, the scope line), PostToolUse (the context limit)
+harness/hook.py SessionStart/End, PreToolUse/PostToolUse (bind a run on its brief, approve/close denied, the scope line, the context limit), SubagentStop (the hand-back)
 hd.yaml        the repos, the agent count, the context limit, the held band, the pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tracks/        one directory per repo: track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md (rules, seed criteria), scripts; the product repos hold product code only

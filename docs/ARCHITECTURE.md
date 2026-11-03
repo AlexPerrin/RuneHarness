@@ -17,11 +17,12 @@ harness/decide.py      ledger → Step: next(change) over ordered guards, plan()
 harness/act.py         Step → world: candidates, keys, jobs in systemd scopes, staging merges, briefs, the wake
 harness/publish.py     the card (recorded acts and texts) and the publish (logged steps, resume)
 harness/kpi.py         hd kpi: one query per harness goal metric
-harness/hook.py        SubagentStart/Stop, PreToolUse (two denials, the scope line), PostToolUse (the context limit)
+harness/hook.py        SessionStart/End (the orchestrator's session), PreToolUse/PostToolUse (bind a run on its brief, two
+                       denials, the scope line, the context limit), SubagentStop (the hand-back line)
 harness/orchestrator.sh  the supervisor (§13)
-hd.yaml                repos {name, path, upstream?}, builds, agents, context_limit, hold, pins
-tracks/<repo>/         track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md (rules, seed
-                       criteria), the repo's scripts; the product repos hold product code only
+hd.yaml                repos {name, path, base, prefix?, upstream?}, builds, agents, context_limit, hold, pins
+tracks/<repo>/         track.sh (recipe | build | up | down | gate | ship | measure | log | test), track.md (rules, seed
+                       criteria), the repo's scripts (the harness: replay.sh); the product repos hold product code only
 .claude/agents/        orchestrator.md, dev.md, qa.md, reader.md
 .claude/skills/        the judgment skills of every track, loaded natively by every run spawned here
 harness/goals/*.md  harness/changes/*.md   definitions, committed
@@ -252,9 +253,9 @@ class Step:
     input: str = ""      # digest of the brief's inputs; a run is due while no run exists with this input
     key: str = ""        # the job's key
 
-def next(L: Ledger, ch: Change) -> Step:
+def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition by slug)
     for guard in GUARDS:                    # ordered; first non-None wins
-        if step := guard(L, ch): return step
+        if step := guard(C, ch): return step
     return DONE
 
 GUARDS = [
@@ -263,9 +264,11 @@ GUARDS = [
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
-                       # or a recorded merge conflict / CI failure / missing text → run dev/code (the reason is the input)
-    build_due,         # job(build, key) missing or ok NULL → build; ok 0 → run dev
-    gate_due,          # job(gate, key) missing or ok NULL → gate; ok 0 → run dev
+                       # or a build/gate/ship job ok 0 at the candidate, or a merge conflict / CI failure / missing text
+                       # → run dev/code; the input digests the tip, the reasons, the answers since the submission and a
+                       # predecessor that ended by handoff or console (its successor is listed once)
+    build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
+    gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
     stage_due,         # server tracks: head not an ancestor of ref staging → merge (act.stage)
     upstream_dep_wait, # a dep with its own PR not landed(upstream main) → wait; its card held → alert
@@ -274,7 +277,7 @@ GUARDS = [
     approval_wait,     # card and no approval → wait (the user); a hold → wait (hidden)
     publish_due,       # approval not spent and a publish_step undone → publish
     published_wait,    # every step done, not landed(upstream main) → wait (maintainers)
-    ship_due,          # harness/client: not landed(live) → ship (one job(ship) in flight per track)
+    ship_due,          # harness/client: not landed(base) → ship (one job(ship) in flight per branch); shipped → wait landed
     measure_due,       # a goal whose target tree moved since measure.tree → measure
     plan_due,          # a goal below target with no open change naming it → run dev/plan on its track
 ]
@@ -282,8 +285,9 @@ GUARDS = [
 def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     """next() per open change in priority order (harness, then PR rounds, then new content; each at the best
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
-    and no run exists for (change, input); a job Step only while no job of its key is in flight; a card only when
-    not shown at its digest. A harness change is P1 at least."""
+    and no run exists for (change, input) (a run with that input that ended by stop or hand-back parks the change: a
+    new fact makes a new input); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
+    only when not shown at its digest. A harness change is P1 at least."""
 ```
 
 ## 4 The pass (`hd tick`: a 60 s timer, after every run end, after every command)
@@ -292,10 +296,10 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
 flowchart TD
   T0([timer / run end / command]) --> F
   subgraph OBS["observe.py"]
-    F["git fetch each repo<br/>for-each-ref → UPSERT ref where sha changed"] --> L{"a target ref moved?"}
+    F["git fetch each repo with an open change<br/>for-each-ref → UPSERT ref where sha changed"] --> L{"a target ref moved?"}
     L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → INSERT landed"]
     L -- no --> P
-    LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok"]
+    LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok<br/>sessions: pid gone → crash, started runs → console; definition moved → drain"]
     P --> GH["GitHub, only for changes in WaitUpstreamDep / Publish / Published:<br/>GET If-None-Match → gh row; PR state, checks at head, comments → finding rows"]
   end
   GH --> D["decide.plan over the parsed definitions and the Ledger"]
@@ -307,16 +311,20 @@ flowchart TD
     E --> W["rewrite state/wake.orchestrator when a spawn/card/question/triage/alert line is new"]
   end
 ```
-Writes happen in short transactions inside act. A second tick while one runs exits at once (`flock state/tick.lock`).
-`hd tick --dry-run --db <copy> --offline` runs decide over a copy with observe skipped: the replay check (§9).
+Writes happen in short transactions inside act. A second tick while one runs exits at once (`flock state/tick.lock`);
+a dry run takes no lock. `hd tick --dry-run --db <copy> --offline` runs decide over a copy with observe skipped: the
+replay check (§9). Every writing command and every run end starts a pass without waiting for it (`act.tick_later`).
 
 ## 5 observe.py
 
 ```python
-def fetch(db, repo) -> set[str]:        # git fetch --prune; for-each-ref → UPSERT ref; returns names whose sha changed
-def landed(db, repo, target, changes):  # only when target moved: merge-base --is-ancestor per open change → INSERT landed
-def procs(db):                          # a job whose (pid, pid_start) is gone: its result row, else ended_at + attempt;
-                                        # exit 75 (a cause outside the tree) leaves ok NULL and the pass starts it again
+def fetch(db, T) -> set[str]:           # git fetch --all --prune; for-each-ref → UPSERT ref; returns names whose sha changed
+def landed(db, T, target, changes):     # only when target moved: merge-base --is-ancestor per open change → INSERT landed
+def procs(db):                          # a job whose (pid, pid_start) is gone: a result recorded → ended_at; else ended_at,
+                                        # pid NULL and an attempt row (the log's last line, hex runs dropped) so the pass
+                                        # starts it again, up to three attempts (alert 'attempts')
+def sessions(db, definition):           # a live session whose pid is gone → crash, its started runs → console; a live
+                                        # session whose definition digest differs from HEAD's → drain_at
 def gh(db, url) -> dict | None:         # GET with If-None-Match over one keep-alive connection; 304 → stored body;
                                         # 200 → UPSERT; quota refused → alert('quota'), None (unknown: the step holds)
 def pr_state(db, repo, pr)              # state, draft, head sha, merged_at (a squash or rebase merge is seen here)
@@ -337,15 +345,21 @@ def candidate(repo, base, heads) -> (tree, tcommit):
     A Central or FileStore dependency adds no commit: its candidate is built in as a Gradle composite (§11) and
     joins the key as +c<tree12> / +f<tree12>."""
 
-def key(kind, tree, repo) -> str:
-    """f"{tree}:{recipe}", recipe = `tracks/<repo>/track.sh recipe <kind>`, a version string the track declares and a
-    dev bumps when the recipe's output changes. A fixed checker re-runs by `hd regate`, never by a moved key."""
+def key(C, ch, kind, submission) -> str:
+    """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
+    `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. A track
+    without a `build` line has no build step. A fixed checker re-runs by `hd regate`, never by a moved key."""
 
-def start(db, step, ch):
-    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>;
-    INSERT job(kind, key, change, pid, pid_start, scope, log). The script's last act is `hd job <kind> <key> ok|fail
-    <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc. Builds take one of hd.yaml `builds` slots
-    (flock on state/build.<i>.lock)."""
+def start(db, step, ch, T):
+    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>, with
+    HD_ROOT, HD_DB, HD_SLUG, HD_KEY, HD_TREE, HD_TCOMMIT, HD_HEAD, HD_BASE, HD_REPO, HD_CLONE, HD_LOG, HD_RC in its
+    environment; INSERT job(kind, key, change, pid, pid_start, scope, log). The script's last act is `hd job <kind>
+    <key> ok|fail <detail>` (a gate: `hd gate <slug> <key> <dir>`, which runs every scripted criterion in the
+    candidate's files and records a check_result per criterion); the wrapper writes its exit to
+    state/<slug>/<kind>-<key12>.rc. Builds take one of hd.yaml `builds` slots (flock on state/build.<i>.lock)."""
+
+def clone(T, ch) -> path:
+    """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""
 
 def stage(db, ch, head):
     """In <fork>/.worktrees/staging: git merge --no-ff <head>, push fork staging; a conflict → merge --abort and
@@ -361,8 +375,9 @@ def wake(db):
     """Rewrite state/wake.orchestrator with the lines new since the last wake; unchanged → no write."""
 ```
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order.
-A ship (harness, client): `ship_due` takes the oldest gated submission of the track; `track.sh ship` merges the live
-tip and the head, gates that tree if no job(gate) holds it, and pushes it fast-forward to the live branch.
+A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
+than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
+merges records `ship fail`, the dev's step.
 
 ## 7 publish.py: the card and the publish
 
@@ -429,15 +444,17 @@ sequenceDiagram
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command; the hook denies agents) | approval; change_state.closed_at |
 | `hd publish <card id>` | the pass | publish_step, approval.spent |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log |
+| `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
+| `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |
-| `hd scope <run>` | the hook | moves the shell into `hd-<run>.slice` |
+| `hd scope <run>` | the hook, before every Bash command of a run | moves the calling shell into `hd-run-<id>.scope` (created with a placeholder sleep); silent when the user manager refuses |
 | `hd regate <slug>` | orchestrator, a harness dev | deletes job(gate) and check_result at the current candidate |
 | `hd kpi` | anyone | nothing: the harness goal's metrics |
 | `hd commit <paths> -m` | orchestrator | a pathspec commit as Alex Perrin with the co-author line; pushes the live branch |
 | `hd restart` | orchestrator, once `hd` prints `drain` and no run of it is live | session.ended_at, end_kind=restart; exits the claude process |
-| `hd session-ended <pid>` | orchestrator.sh | nothing: exit 1 when the session ended by the user's exit |
+| `hd session-ended` | orchestrator.sh | ends a dead session; exit 1 when the last session ended by the user's exit |
 
 Sample view:
 ```
@@ -472,18 +489,20 @@ flowchart LR
   J -- no --> DEV["the dev's step: the unexplained diff"]
   J -- yes --> S["ship: fast-forward the live branch"]
 ```
-The harness track's seed criteria are `tests` and `replay`. A dev's out-of-scope limit is `hd new … --blocks <own slug>`;
-a duplicate is folded by the orchestrator.
+The harness track's seed criteria are `tests` and `replay` (`tracks/harness/replay.sh`, run with the candidate's files
+as cwd). A candidate that must plan differently writes `evidence/<slug>/replay.md`, read from the live checkout, saying
+what differs and why. A dev's out-of-scope limit is `hd new … --blocks <own slug>`; a duplicate is folded by the orchestrator.
 
 ## 10 Tests
 
 ```
 tests/fixtures/ledger-<n>.db   snapshots of the live ledger at known moments (sqlite3 .backup); defs-<n>/ the definitions then
-tests/test_decide.py           one class per PRD group (M, H, G, A, T): plan(fixture) == expected; one inserted row moves one Step
+tests/test_decide.py           one class per PRD group (T, G, H, A): a hand-built ledger, one inserted row moves one Step;
+                               snapshots of the live ledger join as fixtures once it holds every kind of row
 tests/test_store.py            every migration upgrades every older fixture; CHECK, FK and UNIQUE violations refused
-tests/test_observe.py          fetch, landed, procs, gh over a throwaway git repo and a recorded HTTP transcript
+tests/test_observe.py          fetch, landed, candidate (linear, merged, conflicting), procs over a throwaway git repo
 tests/test_publish.py          publish() over a fake GitHub transport: killed after step n → resumes at n+1 with the card's texts
-tests/test_hook.py             the hook's JSON in and out: bind, end, the denials, the scope line, the context limit
+tests/test_hook.py             the hook's JSON in and out: bind, the denials, the scope line, the hand-back and its refusal
 ```
 decide.py takes a Ledger and never runs a subprocess, so it is tested over real snapshots, not fakes.
 
@@ -548,7 +567,10 @@ flowchart LR
 | a bulky lookup | **reader**, a run's sub-agent | context economy; read-only by its tool list |
 | spawn, stop, show, triage, file, dismiss | **orchestrator** | the one long-lived session; the user's chat; holds no state |
 
-`.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
+A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
+of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`, and its
+SubagentStop ends the run when the last line is its record (a missing line is asked for once; a second refusal ends
+the run without a record). `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
 wake, a hand-back, the user's words or the watch's expiry run `hd` and do what each line says; TaskStop an agent at
 its one-line hand-back; record the user's words with `hd new`, `hd answer`, `hd hold`, `hd commit`; on `drain`
 spawn nothing and run `hd restart` once no run of yours is live. It never approves, closes, writes code or waits on
@@ -601,7 +623,7 @@ roll-up.
 ```mermaid
 stateDiagram-v2
   [*] --> Starting : harness/orchestrator.sh runs `claude --agent orchestrator`
-  Starting --> Serving : SessionStart hook → INSERT session(pid, definition blob)
+  Starting --> Serving : SessionStart hook → INSERT session(claude pid, definition digest)
   Serving --> Serving : wake / hand-back / user words → `hd` (delta since seen_event) → act
   Serving --> Draining : hook: transcript past context_limit → drain_at\n pass: HEAD's orchestrator.md or .mcp.json ≠ session.definition → drain_at
   Draining --> Draining : `hd` lists no spawn; cards, questions, triage, alerts go on; live runs hand back
@@ -621,15 +643,17 @@ while :; do
 done
 ```
 
-- **Bind**: the SessionStart hook writes the `session` row with the pid and the blobs of `orchestrator.md` and
-  `.mcp.json` it loaded (Claude Code reads both once, at start). `hd` finds its session by the calling pid's ancestry.
+- **Bind**: the SessionStart hook (agent_type `orchestrator`) writes the `session` row with the claude pid and the
+  digest of `orchestrator.md` and `.mcp.json` it loaded (Claude Code reads both once, at start). `hd` finds its session
+  by the calling pid's ancestry. The supervisor runs the session in a user scope so that a run's shell can be moved into
+  the run's own scope, and starts the minute timer `hd-loop.timer` once.
 - **Delta view**: `hd` prints only lines with `event.id > session.seen_event` and advances it; a card is shown once
   per (head, texts) per session. A session's context grows with events, not with passes.
 - **Drain**: set by the PostToolUse hook when the transcript passes `context_limit`, or by the pass when HEAD's
   definition or MCP config differs from the session's blob. While draining, `plan` lists no spawn (runs die with
   their session), everything else proceeds, `hd` prints `drain` with the reason.
-- **End**: `hd restart` once no run of the session is live writes `end_kind` and exits the process. The supervisor
-  asks the ledger why and loops or stops. A crash is seen by `procs` (pid gone, no end row) and looped. Listed,
+- **End**: `hd restart` once no run of the session is live writes `end_kind` and terminates the claude process; the
+  SessionEnd hook writes `exit` for the user's own /exit. The supervisor asks the ledger why and loops or stops. A crash is seen by `procs` (pid gone, no end row) and looped. Listed,
   unspawned runs survive as rows; the successor's first `hd` spawns them. There is no hand-off file: the ledger holds
   every card shown, question asked and alert disposed.
 

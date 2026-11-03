@@ -30,14 +30,18 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 
 | file | state |
 |---|---|
-| `harness/store.py` | real: the full schema as migration 1, `connect()`, `migrate()`, the `Ledger` read view; `tests/test_store.py` passes |
-| `harness/decide.py` | the `Change`, `Step`, `Action`, `Cfg` dataclasses, `next()` over `GUARDS`; every guard, `priority()` and `plan()` are documented stubs |
-| `harness/observe.py`, `act.py`, `publish.py`, `kpi.py` | signatures and docstrings only |
-| `harness/hd.py` | the argparse command table; every command raises |
-| `harness/hook.py` | the four handlers as stubs; `main()` answers `{}` on an unwritten handler, so a session in this checkout works |
-| `harness/orchestrator.sh` | the five-line supervisor, final |
-| `.claude/agents/` | orchestrator.md final; dev.md, qa.md, reader.md short and usable, to be finished with the brief format |
-| `tracks/harness/` | `track.sh` answers only `recipe`; `track.md` has the two seed criteria |
+| `harness/store.py` | real: schema (migration 1), `connect()`, `migrate()`, `event()`, `alert()`, the `Ledger` read view |
+| `harness/decide.py` | real for the harness track: `Change`, `Track`, `Cfg`, `Ctx`, every guard of phase 1, `priority()`, `plan()`; `stage_due`, `upstream_dep_wait`, `texts_due`, `card_due`, `approval_wait`, `publish_due`, `measure_due`, `plan_due` return None (marked `shortcut:` for phases 2 and 4) |
+| `harness/observe.py` | real: `fetch`, `landed`, `procs`, `sessions`, `alerts` (attempts, run-lost, runs-per-head, ask-stale); `gh`, `docker` raise (phase 2) |
+| `harness/act.py` | real: `cfg()`, `changes()`, `candidate()`, `seed()`, `clone()`, `brief_text()`/`brief()`, `start()`, `wake()`, `tick()`, `tick_later()` |
+| `harness/hd.py` | real: every command of ARCHITECTURE §8 but `approve` (refuses: no cards yet), `publish`, `triage` (phase 2); `gate` and `candidate` added for the track scripts |
+| `harness/hook.py` | real: SessionStart/End, PreToolUse (deny, bind, scope line), PostToolUse (bind, context limit), SubagentStop (the record line, the one refusal) |
+| `harness/kpi.py` | eight queries; the rest of the metrics follow the phase that produces their rows |
+| `harness/publish.py` | signatures and docstrings only (phase 2) |
+| `harness/orchestrator.sh` | final: the session in a user scope, the `hd-loop` minute timer started once |
+| `.claude/agents/` | orchestrator.md (relative paths), dev.md, qa.md (hd is the brief's command), reader.md |
+| `tracks/harness/` | `track.sh` (recipe, test, gate, ship), `replay.sh`, `track.md` with the two seed criteria |
+| `state/hd.db` | the ledger of the three phase-1 changes (h-kpi-track by hand, h-test-warnings and h-agent-hd by dev agents): the first fixture source for `tests/fixtures/` |
 | `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore`, `tracks/devtools`, `.claude/skills/` | **empty**: copy from the tools branches (below) |
 | `harness/goals/` | client-api.md, server-content.md (its body still describes the old PASSES mechanism), server-content.json |
 | `harness/changes/` | empty until the cutover |
@@ -46,7 +50,12 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 
 ## Build order (docs/V9-PROPOSAL.md §3; each phase ends on an observed fact)
 
-**Phase 1, the loop on the harness track.** The proof: v9 ships a harness change to itself through its own loop.
+**Phase 1, the loop on the harness track: built.** Three harness changes shipped through the loop from this
+worktree (`git log v9`: 5f05598, 7f7f7e3, 3952ed1), two of them by dev agents spawned with the printed `Agent(dev, …)`
+call. Still to observe in a fresh session started by `harness/orchestrator.sh` (hooks are snapshotted at session
+start, so the dev session that built this could not exercise them): the Read binding, the `hd scope` prefix on each
+Bash command, SessionStart/End, drain and `hd restart`. The agents' hand-backs were bound through the record-line
+path, which the same hook also serves.
 1. `observe.fetch` and `landed` over the real repos; `procs`; `alerts` as SQL.
 2. The guards of `decide.py`, in order, each a few lines over `Ledger`; `plan()`. Write `tests/test_decide.py`
    against a fixture ledger you build by hand first, then against a `.backup` of your own `state/hd.db` once it has
@@ -98,8 +107,11 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
 
 ## Known gaps
 
-- `tracks/*` and `.claude/skills/` are declared in ARCHITECTURE and CLAUDE.md but empty on this branch.
+- `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore` and `.claude/skills/` are declared in ARCHITECTURE
+  and CLAUDE.md but empty on this branch (phases 2 and 3).
+- `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with
+  `NODE_PATH=~/.cache/mm/node_modules`.
 - `harness/goals/server-content.md` describes the old measurement; rewrite its body when the ledger query exists.
 - The `devtools` repo (OpenRune-Developer-Tools) is in ARCHITECTURE §11 but not yet in `hd.yaml`; the fork of it does
   not exist yet.
-- Nothing in v9 has run against the real repos. Every number in the KPI table is a target, not a measurement.
+- Only the harness track has run against its real repo. Every number in the KPI table is a target, not a measurement.

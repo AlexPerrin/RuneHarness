@@ -1,7 +1,7 @@
 ---
 slug: server-quest-daddyshome
 track: fork
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:miniquest_daddyshome

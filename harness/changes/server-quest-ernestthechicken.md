@@ -1,7 +1,7 @@
 ---
 slug: server-quest-ernestthechicken
 track: fork
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:ernestthechicken

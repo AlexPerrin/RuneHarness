@@ -1,7 +1,7 @@
 ---
 slug: server-quest-idesofmilk
 track: fork
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:idesofmilk

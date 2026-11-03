@@ -1,7 +1,7 @@
 ---
 slug: server-quest-dorics
 track: fork
-priority: P3
+priority: P4
 goal: server-content
 units:
 - quest:dorics

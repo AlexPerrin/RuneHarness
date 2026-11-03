@@ -93,6 +93,8 @@ class Gate(Base):  # G2, G3, H2
         self.submit()
         self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('h-one', 'x', 'judge', 't', 'user', 't2')")
         self.assertIn("criteria added", self.step().why)
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")
+        self.assertEqual(self.step().kind, "done")   # landed is done, whatever is seeded later
 
 
 class Hands(Base):  # H6

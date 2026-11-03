@@ -310,7 +310,8 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         observe.sessions(db, definition_blob())
         observe.alerts(db)
     for ch in open_:
-        seed(db, ch, c.tracks[ch.track])
+        if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
+            seed(db, ch, c.tracks[ch.track])
     actions = decide.plan(L, defs, c)
     if dry_run:
         return actions

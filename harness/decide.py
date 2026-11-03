@@ -118,7 +118,10 @@ def job_due(C, kind, k):
 # --- guards: each returns a Step or None; first non-None wins ---------------------------------------------------
 
 def closed(C, ch):
-    return DONE if C.L.closed(ch.slug) else None
+    """Closed, folded, or landed where it is done → done, whatever is added later."""
+    if C.L.closed(ch.slug) or C.L.landed(ch.slug, C.cfg.tracks[ch.track].done_ref(ch)):
+        return DONE
+    return None
 
 
 def deps_live(C, ch):

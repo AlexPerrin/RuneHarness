@@ -385,7 +385,7 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
             T = c.tracks[ch.track]
         if s.kind == "run" and not draining:
             brief(db, ch, T, s)
-        elif s.kind in ("build", "gate", "ship", "deploy", "measure"):
+        elif s.kind in ("build", "gate", "ship", "deploy", "measure", "publish"):
             start(db, s, ch, T)
         elif s.kind == "merge":
             stage(db, ch, T, s.key.split(":")[1])

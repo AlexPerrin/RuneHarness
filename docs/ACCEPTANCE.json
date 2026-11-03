@@ -93,6 +93,7 @@
     "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge (hold)"
   ],
   "T1": [
+    "test_act.Act.test_every_step_kind_the_pass_lists_is_acted_on",
     "live: hd tick on hd-loop.timer, after every run end and command; ~50 ms before the fetch when nothing moved"
   ],
   "T2": [

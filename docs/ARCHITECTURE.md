@@ -517,6 +517,7 @@ tests/test_decide.py           one class per PRD group (T, G, H, A): a hand-buil
 tests/test_store.py            every migration upgrades every older fixture; CHECK, FK and UNIQUE violations refused
 tests/test_observe.py          fetch, landed, candidate (linear, merged, conflicting), procs over a throwaway git repo
 tests/test_publish.py          publish() over a fake GitHub transport: killed after step n → resumes at n+1 with the card's texts
+tests/test_act.py             the pass acts on every Step kind it lists (a brief, a job start, a merge, a card) over a temporary ledger
 tests/test_hook.py             the hook's JSON in and out: bind, the denials, the scope line, the hand-back and its refusal
 ```
 decide.py takes a Ledger and never runs a subprocess, so it is tested over real snapshots, not fakes.

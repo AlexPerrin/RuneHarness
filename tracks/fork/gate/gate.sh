@@ -55,7 +55,7 @@ gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cann
 }
 gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in the build copy; a criterion exiting 75 (its source down) leaves no result and the pass starts the gate again
   tc=${TCOMMIT:-$arg}; build; git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq
-  BUILD=$copy exec $hd gate "$slug" "${HD_KEY:-$T:fork-1}" "$copy"
+  BUILD=$copy exec $hd gate "$slug" "$T:fork-1" "$copy"
 }
 gate_sha() {  # a child of TCOMMIT whose workflows move the ephemeral ports off the game port, and with CENTRAL hold that Central tree at .central/ built in
   set -e   # a command substitution does not inherit it

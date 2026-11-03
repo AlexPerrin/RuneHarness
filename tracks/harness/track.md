@@ -12,3 +12,5 @@ saying what differs and why; the replay then passes with that note.
 ## Seed criteria
 - tests  | the suite passes at the candidate | script: python3 -m unittest discover -s tests
 - replay | the candidate pass over a snapshot of the live ledger plans what the live pass plans, or evidence/<slug>/replay.md explains the difference | script: bash tracks/harness/replay.sh
+- fork-tools | the fork track's scripts pass their suite | script: python3 -m unittest tracks/fork/server/test_tools.py
+- client-tools | the client track's scripts pass their suite | script: python3 -m unittest tracks/client/test_track.py

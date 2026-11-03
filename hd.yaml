@@ -3,7 +3,7 @@
 # dev refs are pushed (in the product clones `origin` is upstream and `fork` the fork); none: the dev ref stays local. Scripts, rules and skills live in this repo (tracks/<repo>/, .claude/skills/);
 # the product repos hold product code only. Per-change clones and build copies are worktrees under <repo>/.worktrees/.
 repos:
-  client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/remotes/origin/master, prefix: client, remote: origin}
+  client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/remotes/origin/main,   prefix: client, remote: origin}
   fork:      {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Server,         remote: fork}
   central:   {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Central-Server, remote: fork}
   filestore: {name: AlexPerrin/OpenRune-FileStore,      path: ~/src/OpenRune-FileStore,      base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-FileStore,      remote: fork}

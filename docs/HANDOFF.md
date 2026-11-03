@@ -111,6 +111,23 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
   once per carried change with an existing dev tip, and the first re-judge of each open server change.
 - The Central upstream hold, the P3 band hold (`hold: P2` in hd.yaml), and every card.
 
+## The cutover (the user's call; the steps once decided)
+
+1. Stop v8: `systemctl --user disable --now hd-tick.timer` and `/exit` its orchestrator; `rm ~/.config/systemd/user/hd-tick.*`.
+2. Make the live checkout v9: `git -C ~/osrs-harness merge --ff-only v9`, then in hd.yaml `harness.base: refs/heads/main`
+   (commit, push) and `git worktree remove ~/osrs-harness/.worktrees/v9`. v8's `state/` stays (git-ignored); v9 writes
+   `state/hd.db` beside it and reads `state/live/key` and `state/live/tree.json` as they are.
+3. Definitions: for each open v8 change kept (`git ls-tree v8 harness/changes`), rewrite its front matter to v9's keys
+   (`track: server` → `fork`; `pr`, `public` the PR branch; drop deps on obsolete harness changes); commit them.
+4. Start `harness/orchestrator.sh` from `~/osrs-harness` (it starts `hd-loop.timer`). The first pass seeds every open
+   change's criteria and lists criteria runs for the upstream ones; for a change whose dev tip already exists on the
+   fork, run `hd submit <slug>` once (it records the tip and its candidate, checking nothing) before that pass, or
+   right after it.
+5. The first checked server head creates `staging` from upstream main plus the 45 pins; a pin that no longer merges
+   is alert `pin-conflict` naming it: rebase that pin branch on the fork and the next pass creates staging whole.
+6. The deploy of staging replaces the live test server (`osrs-openrune`) with staging's image, keyed on the live
+   pair; the first deploy is the moment the test server moves from v8's integration tree to staging.
+
 ## Known gaps
 
 - `tracks/central`, `tracks/filestore` and `tracks/devtools` are declared in ARCHITECTURE but empty on this branch.

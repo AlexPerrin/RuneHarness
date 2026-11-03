@@ -126,8 +126,10 @@ def stage(db, ch, T, head: str) -> None:
             git(T.path, "worktree", "add", "-b", "staging", wt, T.base)
             for pin in yaml.safe_load(open(os.path.join(ROOT, "hd.yaml"))).get("pins") or []:
                 r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", f"{T.remote}/{pin}"], capture_output=True, text=True)
-                if r.returncode:
+                if r.returncode:   # all or nothing: the next pass starts again once the pin merges (the user's rebase of it)
                     git(wt, "merge", "--abort", check=False)
+                    git(T.path, "worktree", "remove", "--force", wt, check=False)
+                    git(T.path, "branch", "-D", "staging", check=False)
                     store.alert(db, "pin-conflict", pin, r.stdout[-300:])
                     return
     r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", head], capture_output=True, text=True)

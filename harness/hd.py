@@ -68,23 +68,32 @@ def read_change(slug):
 
 # --- the view --------------------------------------------------------------------------------------------------
 
+DRIVER_KINDS = ('card', 'question', 'triage', 'alert', 'state', 'landed', 'attempt', 'ended')
+
+
 def view(db, cfg):
+    """The session's view, by role (ARCHITECTURE §8): the orchestrator's drain or spawns, ended runs and the runs line;
+    the driver's cards, questions, triage lines, alerts, states, runs and goals. A session-less caller reads as a driver."""
     s = session_of(db)
+    role = s["role"] if s else "driver"
     seen = s["seen_event"] if s else 0
     out = []
-    if s and s["drain_at"]:
-        out.append(f"drain    {s['drain_why']}: spawn nothing; `hd restart` once no run of yours is live")
-    else:
-        for r in db.execute("SELECT * FROM run WHERE started_at IS NULL AND ended_at IS NULL ORDER BY id"):
-            head = open(os.path.join(ROOT, r["brief"])).readline().split("step: ", 1)
-            pri = change(r["change"]).priority if os.path.exists(os.path.join(CHANGES, f"{r['change']}.md")) else "goal"
-            out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {pri}  {r["role"]}: {head[-1].strip()}')
-    for e in db.execute("SELECT * FROM event WHERE id>? AND kind IN ('card','question','triage','alert','state','landed','attempt','ended') ORDER BY id", (seen,)):
+    if role == "orchestrator":
+        if s["drain_at"]:
+            out.append(f"drain    {s['drain_why']}: spawn nothing; `hd restart` once no run of yours is live")
+        else:
+            for r in db.execute("SELECT * FROM run WHERE started_at IS NULL AND ended_at IS NULL ORDER BY id"):
+                head = open(os.path.join(ROOT, r["brief"])).readline().split("step: ", 1)
+                pri = change(r["change"]).priority if os.path.exists(os.path.join(CHANGES, f"{r['change']}.md")) else "goal"
+                out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {pri}  {r["role"]}: {head[-1].strip()}')
+    kinds = ("ended",) if role == "orchestrator" else DRIVER_KINDS
+    for e in db.execute(f"SELECT * FROM event WHERE id>? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id", (seen, *kinds)):
         out.append(f"{e['kind']:<9}{e['change'] or '':<24} {e['detail']}")
     live = db.execute("SELECT * FROM run WHERE ended_at IS NULL AND started_at IS NOT NULL ORDER BY id").fetchall()
     out.append(f"runs     {len(live)}/{cfg.agents} live: " + ", ".join(f"{r['id']} {r['role']} {r['change']}" for r in live))
-    goals = [(g, Ledger(db).measure(g.slug)) for g in act.goals()]
-    out.append("goals    " + "   ".join(f"{g.slug} {m['value']:g}% @{m['tree'][:12]}" if m else f"{g.slug} unmeasured" for g, m in goals))
+    if role == "driver":
+        goals = [(g, Ledger(db).measure(g.slug)) for g in act.goals()]
+        out.append("goals    " + "   ".join(f"{g.slug} {m['value']:g}% @{m['tree'][:12]}" if m else f"{g.slug} unmeasured" for g, m in goals))
     last = db.execute("SELECT max(id) m FROM event").fetchone()["m"] or 0
     if s:
         db.execute("UPDATE session SET seen_event=? WHERE id=?", (last, s["id"]))

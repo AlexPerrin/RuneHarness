@@ -19,6 +19,22 @@ class Hd(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
+    def test_the_view_by_role_the_orchestrator_spawns_and_stops_the_driver_reads_cards(self):
+        import contextlib, io, os
+        db = store.connect()
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'driver')", (os.getpid(),))
+        db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'card', 'c', 'card c @abc'), ('t', 'ended', 'c', 'run 1: closed with its change')")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hd.view(db, hd.act.cfg())
+        self.assertIn("card     c", out.getvalue()); self.assertIn("ended    c", out.getvalue()); self.assertIn("goals    ", out.getvalue())
+        self.assertEqual(db.execute("SELECT seen_event FROM session").fetchone()[0], 2)
+        db.execute("UPDATE session SET role='orchestrator', seen_event=0")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hd.view(db, hd.act.cfg())
+        self.assertNotIn("card", out.getvalue()); self.assertIn("ended    c", out.getvalue()); self.assertNotIn("goals", out.getvalue())
+
     def test_criterion_add_with_a_cmd_option(self):
         hd.main(["criterion", "add", "x", "acc-1", "--kind", "judge", "--text", "the rule", "--cmd", "accuracy", "--source", "accuracy"])
         hd.main(["criterion", "add", "x", "lint", "--kind", "script", "--text", "lint passes", "--cmd", "make lint", "--source", "seed"])

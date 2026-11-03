@@ -82,7 +82,7 @@ def sessions(db, definition: str) -> None:
             for r in db.execute("SELECT id, change FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL").fetchall():
                 db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
                 event(db, "ended", r["change"], r["id"], "console died")
-        elif s["definition"] != definition and not s["drain_at"]:
+        elif s["role"] == "orchestrator" and s["definition"] != definition and not s["drain_at"]:
             db.execute("UPDATE session SET drain_at=?, drain_why='definition moved' WHERE id=?", (now(), s["id"]))
             event(db, "drain", None, None, "the orchestrator's definition moved: spawn nothing, hd restart once no run is live")
 

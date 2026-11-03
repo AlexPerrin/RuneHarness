@@ -23,16 +23,16 @@ harness/hook.py SessionStart/End, PreToolUse/PostToolUse (bind a run on its brie
 hd.yaml        the repos, the agent count, the context limit, the held band, the pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tracks/        one directory per repo: track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md (rules, seed criteria), scripts; the product repos hold product code only
-.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, reader (a run's read-only lookup); skills/ the judgment skills of every track
+.claude/       agents/ driver (the user's chat, the harness engineer), orchestrator (the autonomous loop), dev, qa, reader (a run's read-only lookup); skills/ the judgment skills of every track
 harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover) beside the modules above; state/ and evidence/ at the root are git-ignored
 docs/          HANDOFF.md (the dev's brief); PROBLEM.md, PRD.md, ARCHITECTURE.md (the source of truth); V9-PROPOSAL.md (the change from v8, the plan); V9-BRIEF.md (v8 measured)
 tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, publish, hook small)
 ```
 
-Runs are spawned by the orchestrator session only (`harness/orchestrator.sh`, which runs `claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
-the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
+Runs are spawned by the orchestrator session only (`harness/orchestrator.sh`, which runs `claude --agent orchestrator`, autonomous: no chat), each by the path of its brief (a run may spawn its own `reader`).
+The user chats with the driver, the harness engineer's session (`claude` in the checkout). A write to OpenRune and a client release is shown as a card in the driver's chat
 (its head, acts and exact texts) and published by `hd publish` only after the user's yes: their own
-`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the orchestrator's window.
+`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the driver's window.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,

@@ -55,13 +55,13 @@ publish → maintainers' findings become criteria.
 
 ## A. Authority
 
-- **A1** Only a write to an OpenRune repo and a client release need the user. Each is one card in the orchestrator's
-  console: every act in order, each exact text, the verdict, the evidence, and the three commands.
+- **A1** Only a write to an OpenRune repo and a client release need the user. Each is one card in the driver's
+  chat: every act in order, each exact text, the verdict, the evidence, and the three commands.
 - **A2** `hd approve <slug> <head>` is typed by the user alone; it copies the card into the approval. The publish
   executes the approval's steps with its texts, logging each, resuming from the first not done, and nothing else. A
   new head or text makes a new card. `hd hold` hides a card; `hd close` ends a change. Agents cannot run approve or
   close.
-- **A3** A maintainer's word is triaged by the orchestrator as a finding, an ask of the user, or an acknowledgement;
+- **A3** A maintainer's word is triaged by the driver as a finding, an ask of the user, or an acknowledgement;
   a finding is a criterion on the PR's one open change; one comment per published head answers every finding; CI is
   never re-run at a head but by the user's word.
 - **A4** A question to the user carries typed options, each with its effect (a dependency, a waived criterion, an
@@ -85,10 +85,11 @@ publish → maintainers' findings become criteria.
   per head move.
 - **T5** The orchestrator is a visible session with the lifecycle of a run: bound when it starts, shown only what is
   new since its last view, drained when its context nears the limit or its definition moved, ended by its own exit,
-  replaced by a supervisor; it holds no state and spawns exactly what `hd` lists; it never waits on the user.
+  replaced by a supervisor; it holds no state, spawns exactly what `hd` lists and never chats or waits on the user. The
+  driver is the session the user chats with: it shows cards, questions and alerts and records the user's words.
 - **T6** Harness defects are facts the pass computes into alerts with a dedup key, not findings an agent searches
-  for; the orchestrator files or dismisses each once; a dev fixes at the root; an alert recurring after its fix
-  landed reprints as a regression. No agent runs to look for problems.
+  for; the driver disposes of each once: a quick fix as its own commit, a long task as a harness change a dev fixes at
+  the root; an alert recurring after its fix landed reprints as a regression. No agent runs to look for problems.
 - **T7** `hd` prints spawns, cards, questions, triage lines, alerts, runs and goals, derived; `hd kpi` prints the
   harness goal's numbers; every run is an agent of the visible orchestrator.
 - **T8** A goal is measured whenever its target's tree moves; a goal below target with nothing open lists one dev

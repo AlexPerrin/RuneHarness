@@ -53,14 +53,14 @@ def run_of(db, agent_id):
 
 
 def session_start(e):
-    """The orchestrator binds: a session row with the claude pid and the definition it loaded."""
-    if e.get("agent_type") != "orchestrator":
-        return {}
+    """A top-level session binds: a session row with the claude pid, its role (the orchestrator by agent type; any other
+    session in this checkout is the driver, the user's chat) and the definition it loaded."""
     pid = claude_pid()
     if pid:
         db = store.connect()
-        db.execute("INSERT OR IGNORE INTO session(pid, pid_start, session_id, definition, started_at) VALUES (?,?,?,?,?)",
-                   (pid, int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[19]), e["session_id"], act.definition_blob(), now()))
+        role = "orchestrator" if e.get("agent_type") == "orchestrator" else "driver"
+        db.execute("INSERT OR IGNORE INTO session(pid, pid_start, session_id, definition, started_at, role) VALUES (?,?,?,?,?,?)",
+                   (pid, int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[19]), e["session_id"], act.definition_blob(), now(), role))
     return {}
 
 

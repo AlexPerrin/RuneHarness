@@ -306,11 +306,11 @@ def start(db, step: Step, ch, T) -> None:
 
 # --- the wake and the pass -------------------------------------------------------------------------------------
 
-WAKE_KINDS = ("run", "card", "question", "triage", "alert", "drain")
+WAKE_KINDS = ("run", "ended", "drain")   # what the orchestrator acts on; the driver watches the ledger itself
 
 
 def wake(db) -> None:
-    """Rewrite state/wake.orchestrator when events the orchestrator acts on are newer than the file's header."""
+    """Rewrite state/wake.orchestrator when events the orchestrator acts on (a listed run, an ended run, a drain) are newer than the file's header."""
     path = os.path.join(STATE, "wake.orchestrator")
     seen = 0
     if os.path.exists(path):

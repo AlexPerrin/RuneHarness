@@ -23,7 +23,7 @@ harness/orchestrator.sh  the supervisor (§13)
 hd.yaml                repos {name, path, base, prefix?, upstream?}, builds, agents, context_limit, hold, pins
 tracks/<repo>/         track.sh (recipe | build | up | down | gate | ship | measure | log | test), track.md (rules, seed
                        criteria), the repo's scripts (the harness: replay.sh); the product repos hold product code only
-.claude/agents/        orchestrator.md, dev.md, qa.md, reader.md
+.claude/agents/        driver.md, orchestrator.md, dev.md, qa.md, reader.md
 .claude/skills/        the judgment skills of every track, loaded natively by every run spawned here
 harness/goals/*.md  harness/changes/*.md   definitions, committed
 evidence/<slug>/       accuracy.md, pr-title.txt, pr-body.md, pr-comment.md, pr-reply-<id>.md, handoff.md, in-game proof
@@ -66,6 +66,7 @@ CREATE TABLE session (                                 -- the orchestrator (§13
   id INTEGER PRIMARY KEY, pid INTEGER NOT NULL, pid_start INTEGER NOT NULL, session_id TEXT UNIQUE,
   definition TEXT NOT NULL,                            -- blob of orchestrator.md + .mcp.json it started on
   started_at TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'orchestrator' CHECK (role IN ('orchestrator','driver')),   -- migration 5: the user's chat
   drain_at TEXT, drain_why TEXT,                       -- the hook (context limit) or the pass (definition moved)
   ended_at TEXT, end_kind TEXT CHECK (end_kind IN ('restart','exit','crash')),
   seen_event INTEGER NOT NULL DEFAULT 0                -- the last event id its view printed
@@ -312,7 +313,7 @@ flowchart TD
     D --> B["write a brief per new run Step → INSERT run"]
     D --> M["merge gated server heads into staging"]
     D --> E["INSERT event where the Step differs from the change's last;<br/>UPSERT alert rows from the anomaly queries"]
-    E --> W["rewrite state/wake.orchestrator when a spawn/card/question/triage/alert line is new"]
+    E --> W["rewrite state/wake.orchestrator when a spawn, ended or drain line is new"]
   end
 ```
 Writes happen in short transactions inside act. A second tick while one runs exits at once (`flock state/tick.lock`);
@@ -440,7 +441,7 @@ sequenceDiagram
 
 | command | caller | writes |
 |---|---|---|
-| `hd` | orchestrator | a pass, then the view: `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `card`, `question`, `triage`, `alert`, `drain`, runs, goals; only lines newer than the session's `seen_event` |
+| `hd` | orchestrator, driver | a pass, then the session's view, only lines newer than its `seen_event`: the orchestrator's `drain` or `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `ended`, runs; the driver's `card`, `question`, `triage`, `alert`, `state`, `landed`, `attempt`, `ended`, runs, goals |
 | `hd tick [--dry-run] [--db F] [--offline] [--defs D]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing; `--defs` reads another tree's `changes/` and `goals/` (the replay, the fixtures) |
 | `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--touches p…] [--pr n] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
@@ -588,7 +589,8 @@ flowchart LR
 | the criteria before code (server tracks) | **qa**, mode `criteria` | the evaluator states what the generator must meet |
 | judged criteria | **qa**, mode `judge` | skepticism separate from the generator |
 | a bulky lookup | **reader**, a run's sub-agent | context economy; read-only by its tool list |
-| spawn, stop, show, triage, file, dismiss | **orchestrator** | the one long-lived session; the user's chat; holds no state |
+| spawn, stop, restart | **orchestrator** | the autonomous loop's hands: one visible session that spawns exactly what `hd` lists; holds no state |
+| the user's chat: cards, questions, triage, alerts, the user's words; harness fixes | **driver** | the harness engineer's session; a quick fix lands as its own commit, a long task as a change |
 
 A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
 of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. An agent whose run
@@ -597,10 +599,13 @@ on its record: a `SubagentHandback` call whose message is the line (a wrong line
 last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is
 pending is left alone (its notification resumes it); an idle one is asked once, and a second idle stop ends the run
 without a record. `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
-wake, a hand-back, the user's words or the watch's expiry run `hd` and do what each line says; TaskStop an agent at
-its one-line hand-back; record the user's words with `hd new`, `hd answer`, `hd hold`, `hd commit`; on `drain`
-spawn nothing and run `hd restart` once no run of yours is live. It never approves, closes, writes code or waits on
-the user. dev.md, qa.md and reader.md hold each role's steps, one wait rule (a step runs in the foreground; one still
+wake, a hand-back or the watch's expiry run `hd` and do what each line says: spawn as printed, TaskStop an agent at its
+one-line hand-back or its run's `ended` line; on `drain` spawn nothing and run `hd restart` once no run of yours is live.
+It never approves, closes, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's chat, the
+harness engineer's session (`claude` in the checkout): it shows each card, question, triage line and alert as `hd`
+prints it, records the user's words (`hd new`, `hd answer`, `hd hold`, `hd triage`, `hd dismiss`, `hd commit`), fixes a
+harness defect at once as its own commit and dismisses its alert naming it, and files a long harness task as a change
+for a dev run. It spawns nothing. dev.md, qa.md and reader.md hold each role's steps, one wait rule (a step runs in the foreground; one still
 running at 180 s is backgrounded by Claude Code and its notification resumes the run; game events by `wait_for`), and
 the one hand-back line: `run <id>: submitted <sha>` | `run <id>: PASS` | `run <id>: FAIL <n> criteria` |
 `run <id>: criteria agreed` | `run <id>: filed <slug>` | `run <id>: ask` | `run <id>: handoff`.
@@ -638,10 +643,10 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `pin-conflict` | pin | upstream main no longer merges with staging |
 | `quota` | api | GitHub refused on quota |
 
-`hd` prints an alert without a disposition once. The orchestrator disposes of it at once, without investigating:
-`hd new --track harness --from-alert <id>` (a harness change carrying the evidence, fixed by a dev run and checked
-by the replay) or `hd dismiss <id> <why>`. An alert whose subject recurs after its change landed reprints as a
-regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6); the `kpi` alert is its daily
+`hd` prints an alert without a disposition once, to the driver, which disposes of it once: a quick fix is its own
+commit, then `hd dismiss <id> <why>` naming it; a long task is `hd new --track harness --from-alert <id>` (a harness
+change carrying the evidence, fixed by a dev run and checked by the replay). An alert whose subject recurs after its
+fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6); the `kpi` alert is its daily
 roll-up.
 
 ## 13 The orchestrator's lifecycle
@@ -673,9 +678,10 @@ while :; do
 done
 ```
 
-- **Bind**: the SessionStart hook (agent_type `orchestrator`) writes the `session` row with the claude pid and the
-  digest of `orchestrator.md` and `.mcp.json` it loaded (Claude Code reads both once, at start). `hd` finds its session
-  by the calling pid's ancestry. The supervisor runs the session in a user scope so that a run's shell can be moved into
+- **Bind**: the SessionStart hook writes the `session` row with the claude pid, the role (agent_type `orchestrator`;
+  any other top-level session in the checkout is the `driver`) and the digest of `orchestrator.md` and `.mcp.json` it
+  loaded (Claude Code reads both once, at start). `hd` finds its session by the calling pid's ancestry. A driver is
+  never drained for a moved definition. The supervisor runs the session in a user scope so that a run's shell can be moved into
   the run's own scope, and starts the minute timer `hd-loop.timer` once.
 - **Delta view**: `hd` prints only lines with `event.id > session.seen_event` and advances it; a card is shown once
   per (head, texts) per session. A session's context grows with events, not with passes.

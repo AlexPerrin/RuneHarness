@@ -149,7 +149,9 @@ CREATE TABLE job_4 (
 INSERT INTO job_4 SELECT * FROM job; DROP TABLE job; ALTER TABLE job_4 RENAME TO job;"""
 
 # One function per schema version; migrate() applies those above PRAGMA user_version in order, each in a transaction.
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4]
+SCHEMA_5 = "ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator' CHECK (role IN ('orchestrator','driver'));"   # the user's chat is the driver (§12)
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5]
 
 
 def now() -> str:

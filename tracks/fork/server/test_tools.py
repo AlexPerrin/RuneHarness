@@ -5,8 +5,8 @@ from pathlib import Path
 SUITE_TMP = tempfile.TemporaryDirectory(prefix="tools-suite-", ignore_cleanup_errors=True)   # every temp dir of these tests and of each process they
 tempfile.tempdir = os.environ["TMPDIR"] = SUITE_TMP.name                          # start (mktemp) is under it, removed at the end, a failed test's too
 
-for k in ("SLUG", "HEAD", "T", "G", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "HD_ROOT", "CENTRAL", "TOOLS", "NAMES", "ROWS", "TOOLS_ROOT", "TOOLS_SRC"):
-    os.environ.pop(k, None)   # hd's env of the gate that runs these tests is not the tests': a T it set named every build log
+for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", "G", "TCOMMIT", "BASE", "EVIDENCE", "BUILD", "CLONE", "TRACK", "PUBLIC_BRANCH", "PR", "PINS", "CENTRAL", "TOOLS", "NAMES", "ROWS", "TOOLS_ROOT", "TOOLS_SRC"]:
+    os.environ.pop(k, None)   # hd's env of the gate that runs these tests is not the tests': its HD_TREE named another tree's commit in every build
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 SRC = "\n".join((HERE.parent / f).read_text() for f in ("track.sh", "build/build.sh", "gate/gate.sh"))   # the track script and the code a build and a gate run
@@ -177,8 +177,8 @@ class BuildAttempts(unittest.TestCase):
         (s.root / "bin/docker").write_text(f'#!/bin/sh\necho "$*" >> {calls}\ncase "$*" in "image inspect"*) exit 1;; *"--name build-x"*) exec sleep 60;; esac\n')
         p = subprocess.Popen(["bash", str(HERE.parent / "track.sh"), "build", "x", s.tc], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
                              env={**os.environ, "HD_ROOT": str(s.root), "CLONE": str(s.repo), "PATH": f"{s.root / 'bin'}:{os.environ['PATH']}", "CENTRAL": ""})
-        while "--name build-x" not in (calls.read_text() if calls.exists() else ""):
-            time.sleep(0.05)
+        while p.poll() is None and "--name build-x" not in (calls.read_text() if calls.exists() else ""):
+            time.sleep(0.05)   # a build that ends first fails the test below instead of holding the suite
         os.killpg(p.pid, signal.SIGTERM); p.communicate()                       # a stop: the scope's every process gets SIGTERM
         c = calls.read_text().splitlines()
         s.assertIn("--init", next(l for l in c if "--name build-x" in l))         # the container's init takes the SIGTERM docker run proxies

@@ -441,7 +441,7 @@ sequenceDiagram
 | command | caller | writes |
 |---|---|---|
 | `hd` | orchestrator | a pass, then the view: `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `card`, `question`, `triage`, `alert`, `drain`, runs, goals; only lines newer than the session's `seen_event` |
-| `hd tick [--dry-run] [--db F] [--offline]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing |
+| `hd tick [--dry-run] [--db F] [--offline] [--defs D]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing; `--defs` reads another tree's `changes/` and `goals/` (the replay, the fixtures) |
 | `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--touches p…] [--pr n] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
@@ -502,14 +502,15 @@ flowchart LR
   J -- yes --> S["ship: fast-forward the live branch"]
 ```
 The harness track's seed criteria are `tests`, `replay` (`tracks/harness/replay.sh`, run with the candidate's files as
-cwd: the candidate's plan against its merge base's, with the live definitions on both sides, so only the change's own
-effect shows), `fork-tools` and `client-tools` (the track scripts' suites). A candidate that must plan differently
+cwd: the candidate's plan against its merge base's, both over the live definitions (`--defs`), so only the change's own
+effect shows), `fork-tools` and `client-tools` (the track scripts' suites, which drop the gate's `HD_*` environment). A candidate that must plan differently
 writes `evidence/<slug>/replay.md`, read from the live checkout, saying what differs and why. A dev's out-of-scope limit is `hd new … --blocks <own slug>`; a duplicate is folded by the orchestrator.
 
 ## 10 Tests
 
 ```
 tests/fixtures/ledger-<n>.db   snapshots of the live ledger at known moments (sqlite3 .backup); defs-<n>/ the definitions then
+tests/fixtures/ledger-<n>.plan the plan over that ledger with those definitions (`hd tick --dry-run --offline --db --defs`)
 tests/test_decide.py           one class per PRD group (T, G, H, A): a hand-built ledger, one inserted row moves one Step;
                                snapshots of the live ledger join as fixtures once it holds every kind of row
 tests/test_store.py            every migration upgrades every older fixture; CHECK, FK and UNIQUE violations refused

@@ -224,7 +224,7 @@ class Goals(Base):  # T8
         self.assertEqual([x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"], [])   # at target
 
 
-class Snapshots(unittest.TestCase):  # the recorded ledger: the pass plans over it what was recorded (tests/fixtures/<n>.plan)
+class Snapshots(unittest.TestCase):  # the recorded ledger with the definitions then (tests/fixtures/ledger-<n>.db, defs-<n>/): the pass plans what was recorded (ledger-<n>.plan)
     def test_plan_over_each_recorded_ledger(self):
         import glob
         import shutil
@@ -234,7 +234,8 @@ class Snapshots(unittest.TestCase):  # the recorded ledger: the pass plans over 
             with tempfile.TemporaryDirectory() as d:
                 copy = Path(d) / "hd.db"
                 shutil.copy(f, copy)
-                out = subprocess.run([sys.executable, str(root / "harness" / "hd.py"), "tick", "--dry-run", "--offline", "--db", str(copy)],
+                defs = f[:-3].replace("ledger-", "defs-")
+                out = subprocess.run([sys.executable, str(root / "harness" / "hd.py"), "tick", "--dry-run", "--offline", "--db", str(copy), "--defs", defs],
                                      capture_output=True, text=True)
                 self.assertEqual(out.stdout, Path(f[:-3] + ".plan").read_text(), out.stderr)
 

@@ -66,13 +66,16 @@ def parse_change(path) -> Change:
                   public=y.get("public", ""), branch=y.get("branch", ""), title=title, body=body)
 
 
+DEFS = os.path.join(ROOT, "harness")   # the definitions: changes/ and goals/; `hd tick --defs` reads another tree's (the replay, the fixtures)
+
+
 def changes() -> list:
-    return [parse_change(p) for p in sorted(glob.glob(os.path.join(ROOT, "harness", "changes", "*.md")))]
+    return [parse_change(p) for p in sorted(glob.glob(os.path.join(DEFS, "changes", "*.md")))]
 
 
 def goals() -> list:
     out = []
-    for p in sorted(glob.glob(os.path.join(ROOT, "harness", "goals", "*.md"))):
+    for p in sorted(glob.glob(os.path.join(DEFS, "goals", "*.md"))):
         _, fm, body = open(p).read().split("---\n", 2)
         y = yaml.safe_load(fm)
         out.append(Goal(y["slug"], y["track"], float(y["target"]), y.get("measure", "script"), body))
@@ -82,7 +85,7 @@ def goals() -> list:
 def measure_query(db, g, T, tree) -> None:
     """The server-content goal: inventory units (harness/goals/<goal>.json) named in `units:` of a change landed on the
     goal's tree with a passing verdict, over all units → a measure row."""
-    units = {u["unit"] for u in json.load(open(os.path.join(ROOT, "harness", "goals", f"{g.slug}.json")))}
+    units = {u["unit"] for u in json.load(open(os.path.join(DEFS, "goals", f"{g.slug}.json")))}
     L = store.Ledger(db)
     passed = set()
     for ch in changes():
@@ -323,9 +326,11 @@ def definition_blob() -> str:
     return store.digest(*(open(os.path.join(ROOT, f)).read() for f in (".claude/agents/orchestrator.md", ".mcp.json")))
 
 
-def tick(path=None, dry_run=False, offline=False) -> list:
+def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
     """One pass: observe (unless offline) → decide.plan → act (unless dry_run). Returns the actions.
-    A second tick while one runs exits at once (flock on state/tick.lock)."""
+    A second tick while one runs exits at once (flock on state/tick.lock). defs: another tree's definitions (dry runs)."""
+    global DEFS
+    DEFS = defs or DEFS
     os.makedirs(STATE, exist_ok=True)
     lock = open(os.path.join(STATE, "tick.lock"), "w")
     if not dry_run:

@@ -99,7 +99,7 @@ def cmd_view(a):
 
 
 def cmd_tick(a):
-    actions = act.tick(a.db, a.dry_run, a.offline)
+    actions = act.tick(a.db, a.dry_run, a.offline, a.defs)
     if a.dry_run:
         for x in actions:
             print(f"{x.change:<28} {x.step.kind}: {x.step.why}")
@@ -539,7 +539,7 @@ def cmd_session_ended(a):
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="hd", description="the harness loop; no argument runs a pass and prints the view")
     sub = p.add_subparsers(dest="command")   # not "cmd": `criterion add --cmd` is an option
-    s = sub.add_parser("tick"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--db"); s.add_argument("--offline", action="store_true")
+    s = sub.add_parser("tick"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--db"); s.add_argument("--offline", action="store_true"); s.add_argument("--defs")
     s = sub.add_parser("new"); s.add_argument("slug"); s.add_argument("--track", required=True); s.add_argument("--title", required=True)
     s.add_argument("--body", default=""); s.add_argument("--priority", default="P2"); s.add_argument("--deps", nargs="*")
     s.add_argument("--blocks", nargs="*"); s.add_argument("--on"); s.add_argument("--pr", type=int); s.add_argument("--from-alert", type=int)

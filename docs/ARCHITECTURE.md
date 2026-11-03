@@ -107,7 +107,7 @@ CREATE TABLE verdict_row (
 );
 
 CREATE TABLE job (                                     -- one row per (kind, key); ok NULL = in flight or no result
-  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','ship','publish','test')),
+  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','ship','publish','test','measure')),   -- measure: migration 4
   key  TEXT NOT NULL,                                  -- "<tree>:<recipe>"; ship "<branch>:<tcommit>"; publish "<card id>"
   change TEXT, ok INTEGER, detail TEXT,
   pid INTEGER, pid_start INTEGER, scope TEXT, log TEXT,
@@ -619,7 +619,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `run-lost` | change | two runs of a change ended `console` or `stop` without a record |
 | `runs-per-head` | change | more than five runs since the last submission |
 | `ask-stale` | ask id | an ask still open after its change submitted twice |
-| `denied` | run:rule | a hook denial; a kind dismissed three times is an alert on the rule |
+| `denied` | run:rule | a hook denial (`hd approve`/`hd close` from an agent); the event names the command |
 | `fault` | run | `hd fault`: a run met a broken script or a step it could not do |
 | `ci-runner` | gate key | fork CI failed three times at a step the head does not touch |
 | `kpi` | metric | a metric past its target at the day's roll-up |
@@ -678,6 +678,9 @@ done
 | `client-api` | client | 100 | `track.sh measure`: the probe's share of `net.runelite.api` methods confirmed in the running app against the live test server |
 | `server-content` | fork | 100 | a ledger query: inventory units (`harness/goals/server-content.json`, from the FileStore task) named in `units:` of a change landed with a passing verdict, over all units |
 
-A goal file is `slug`, `track`, `target` and a body; a client goal's `measure` is a script, the server goal's is the
-query. `measure` rows are written when the target's tree moves (`measure_due`); a goal below target with nothing
-open lists a dev run in plan mode (`plan_due`).
+A goal file is `slug`, `track`, `target`, `measure` (`script`: a job `track.sh measure <goal>` whose last act is `hd
+measure <goal> <tree> <value> <report>`; `query`: the pass computes it) and a body. A goal is measured on its track's
+live tree (the base branch; staging for a server track): one `measure` row per tree (`measure_due`, keyed
+`<tree>:<recipe>`); a goal below target with no open change naming it (`goal:`) lists one dev run in plan mode
+(`plan_due`, Action change `goal:<slug>`), whose brief is the goal's body and whose hand-back is `filed <slug>`;
+`hd new --goal <goal> --units …` names the goal a change serves. `hd` prints each goal's latest measure.

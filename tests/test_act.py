@@ -29,6 +29,21 @@ class Act(unittest.TestCase):
         act.tick(store.DB, offline=True)
         self.assertEqual(calls, [("brief", None)] + [("start", k) for k in ("build", "gate", "ship", "deploy", "measure", "publish")] + [("stage", None), ("card", None), ("wake", None)])
 
+    def test_a_pass_that_raises_leaves_a_fault_alert_not_a_traceback(self):
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        self.addCleanup(setattr, act, "STATE", act.STATE); self.addCleanup(setattr, store, "DB", store.DB)
+        store.DB = str(Path(d.name) / "hd.db"); act.STATE = d.name
+        for mod, name, fake in ((act, "wake", lambda *a, **k: None), (act, "changes", lambda: []), (act, "goals", lambda: []), (decide, "plan", None)):
+            self.addCleanup(setattr, mod, name, getattr(mod, name))
+            if fake:
+                setattr(mod, name, fake)
+        def boom(*a, **k):
+            raise ValueError("'1' is not in list")
+        decide.plan = boom
+        self.assertEqual(act.tick(store.DB, offline=True), [])
+        a = store.connect(store.DB).execute("SELECT kind, subject, detail FROM alert").fetchone()
+        self.assertEqual((a["kind"], a["subject"]), ("fault", "pass")); self.assertIn("ValueError", a["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

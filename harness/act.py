@@ -372,7 +372,14 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
             seed(db, ch, c.tracks[ch.track])
-    actions = decide.plan(L, defs, c, gs)
+    try:
+        actions = decide.plan(L, defs, c, gs)
+    except Exception as e:   # the pass never dies silently: the fault is an alert the driver sees, the next pass tries again
+        if dry_run:
+            raise
+        store.alert(db, "fault", "pass", f"plan raised {type(e).__name__}: {e}"[:300])
+        wake(db)
+        return []
     if dry_run:
         return actions
     draining = (L.live_session() or {"drain_at": None})["drain_at"]
@@ -391,14 +398,18 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
         else:
             ch = next(x for x in defs if x.slug == a.change)
             T = c.tracks[ch.track]
-        if s.kind == "run" and not draining:
-            brief(db, ch, T, s)
-        elif s.kind in ("build", "gate", "ship", "deploy", "measure", "publish"):
-            start(db, s, ch, T)
-        elif s.kind == "merge":
-            stage(db, ch, T, s.key.split(":")[1])
-        elif s.kind == "card":
-            publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug), s.input)
+        try:
+            if s.kind == "run" and not draining:
+                brief(db, ch, T, s)
+            elif s.kind in ("build", "gate", "ship", "deploy", "measure", "publish"):
+                start(db, s, ch, T)
+            elif s.kind == "merge":
+                stage(db, ch, T, s.key.split(":")[1])
+            elif s.kind == "card":
+                publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug), s.input)
+        except Exception as e:   # one change's act failing never stops the others'
+            store.alert(db, "fault", f"act:{ch.slug}", f"{s.kind} raised {type(e).__name__}: {e}"[:300])
+            continue
         last = L.last_event(ch.slug, "state")
         if not last or last["detail"] != f"{s.kind}: {s.why}":
             event(db, "state", ch.slug, None, f"{s.kind}: {s.why}")

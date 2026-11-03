@@ -315,7 +315,8 @@ flowchart TD
     E --> W["rewrite state/wake.orchestrator when a spawn, ended or drain line is new"]
   end
 ```
-Writes happen in short transactions inside act. A second tick while one runs exits at once (`flock state/tick.lock`);
+Writes happen in short transactions inside act. A pass that raises (a definition it cannot read, an act that fails)
+records a `fault` alert (`pass`, `act:<slug>`) and goes on: the pass never dies silently. A second tick while one runs exits at once (`flock state/tick.lock`);
 a dry run takes no lock. `hd tick --dry-run --db <copy> --offline` runs decide over a copy with observe skipped: the
 replay check (§9). Every writing command and every run end starts a pass without waiting for it (`act.tick_later`).
 

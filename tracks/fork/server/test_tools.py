@@ -995,7 +995,7 @@ mkdir -p {copy}/mod/build/test-results/test; echo '<testsuite name="ATest" tests
         fn = lambda name: f"{name}() {{" + src.split(f"\n{name}() {{")[1].split("\n}")[0] + "\n}"
         line = lambda pre: next(l for l in src.splitlines() if l.startswith(pre))
         script = "\n".join(["set -euo pipefail", f"slug=s1; repo={s.repo}; copy={copy}; state={root}/st; root={root}; T=t1; tc={tc}",
-                            line("atomic()"), line("record()"), line("size="), line("fault="), line("ooms()"), fn("hosted"), fn("slot"), line("box()"), line("projects()"), line("projdir()"), "build() { :; }", fn("central"), fn("gradle_check"), line("tests()"), "tests"])
+                            line("atomic()"), line("record()"), line("size="), line("fault="), line("ooms()"), fn("hosted"), fn("slot"), line("box()"), line("projects()"), line("projdir()"), "build() { :; }", fn("central"), fn("filestore"), fn("gradle_check"), line("tests()"), "tests"])
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PATH": f"{root}/bin:{os.environ['PATH']}"})
         s.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         s.assertEqual((root / "tasks").read_text().split(), [":mod:test", ":mod:spotlessCheck"])
@@ -1029,7 +1029,7 @@ for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 
         line = lambda pre: next(l for l in src.splitlines() if l.startswith(pre))
         script = "\n".join(["set -euo pipefail", f"slug=s1; repo={s.repo}; copy={copy}; state={root}/st; root={root}; T=t1",
                             line("atomic()"), line("record()"), line("size="), line("fault="), line("ooms()"), fn("hosted"), fn("slot"), line("box()"), line("projects()"), line("projdir()"), "build() { echo build >&2; exit 9; }",
-                            f"tree() {{ tc={tc}; }}", fn("central"), fn("gradle_check"), fn("spotless"), "spotless"])
+                            f"tree() {{ tc={tc}; }}", fn("central"), fn("filestore"), fn("gradle_check"), fn("spotless"), "spotless"])
         run = lambda: subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PATH": f"{root}/bin:{os.environ['PATH']}"})
         r = run()
         s.assertEqual(r.returncode, 1, r.stderr + r.stdout)

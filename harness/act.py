@@ -249,8 +249,9 @@ def job_env(db, ch, T, s, **more) -> dict:
                BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
                PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
     comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
-    if "central" in comp:
-        env["CENTRAL"] = f"{cfg().tracks['central'].path}:{comp['central']['head']}"
+    for lib in ("central", "filestore"):
+        if lib in comp:
+            env[lib.upper()] = f"{cfg().tracks[lib].path}:{comp[lib]['head']}"
     env.update(more)
     return env
 

@@ -43,8 +43,14 @@ tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the work
   GIT_INDEX_FILE=$idx git -C "$dev" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dev" add -A . && snap=$(git -C "$dev" commit-tree "$(GIT_INDEX_FILE=$idx git -C "$dev" write-tree)" -p HEAD -m snapshot)
   read -r T tc < <($hd candidate "$slug" --head "$snap"); T=$T$(composite_suffix)
 }
-composite_suffix() {  # the image of a composite build is its own: +c<central tree12>
-  [ -n "${CENTRAL:-}" ] || return 0; local cp cc; IFS=: read -r cp cc <<< "$CENTRAL"; echo "+c$(git -C "$cp" rev-parse "$cc^{tree}" | cut -c1-12)"
+composite_suffix() {  # the image of a composite build is its own: +c<central tree12>, +f<filestore tree12>
+  local p c; for v in CENTRAL FILESTORE; do [ -n "${!v:-}" ] || continue; IFS=: read -r p c <<< "${!v}"; printf '+%s%s' "${v:0:1}" "$(git -C "$p" rev-parse "$c^{tree}" | cut -c1-12)" | tr CF cf; done; echo
+}
+filestore() {  # the change's FileStore dependency, built in (build/filestore.init.gradle): fdir and fvols for build and tests
+  fdir= fvols=(); [ -n "${FILESTORE:-}" ] || return 0
+  IFS=: read -r fpath fcommit <<< "$FILESTORE"; fdir=$fpath/.worktrees/$slug-filestore
+  if [ -d "$fdir" ]; then git -C "$fdir" reset -q --hard "$fcommit" && git -C "$fdir" clean -fdq; else git -C "$fpath" worktree add -q --detach "$fdir" "$fcommit"; fi
+  fvols=(-v "$fpath/.git:$fpath/.git:ro" -v "$fdir:$fdir" -v "$self/filestore.init.gradle:/filestore.init.gradle:ro")
 }
 central() {  # the change's Central dependencies, merged by hd, built in (gate/central.init.gradle): cdir and cvols for build and tests
   cdir= cvols=(); [ -n "${CENTRAL:-}" ] || return 0
@@ -64,7 +70,7 @@ build_locked() {
   fi
   ck=$(git -C "$copy" ls-tree -r "$tc" | grep -E 'or-cache/|/pack/|gamevals|raw-cache' | sha1sum | cut -c1-12)   # the cache's inputs
   gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12 || true)   # the game data's: the revision (game.example.yml), as the gate's release asset
-  central; vols=(-v "gradle-$slug:/gradle" -v or-cache-store:/store "${cvols[@]}")
+  central; filestore; vols=(-v "gradle-$slug:/gradle" -v or-cache-store:/store "${cvols[@]}" "${fvols[@]}")
   docker run --rm "${vols[@]}" eclipse-temurin:21 chown 1000:1000 /gradle /store   # docker makes a new volume root's; the build runs as 1000
   gd=$state/.game-data-$gk.tgz; rm -f "$gd"   # the revision missing from the store: the gate's release asset of it (seeded from an image), so a build needs openrs2 only for a revision no image holds yet
   if [ -n "$gk" ] && ! docker run --rm -v or-cache-store:/store eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
@@ -74,10 +80,10 @@ build_locked() {
   [ -s "$gd" ] && vols+=(-v "$gd:/game-data.tgz:ro")
   docker rm -f "build-$slug" >/dev/null 2>&1 || true   # a killed build's container, still running: the slug's build lock is held, it is no one else's
   trap 'docker rm -f "build-$slug" >/dev/null 2>&1 || true' EXIT; trap 'exit 143' TERM INT   # a stopped build's container ends with it
-  box "$log" --rm --name "build-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CK="$ck" -e GK="$gk" -e CDIR="$cdir" \
+  box "$log" --rm --name "build-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CK="$ck" -e GK="$gk" -e CDIR="$cdir" -e FDIR="$fdir" \
     "${vols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
     eclipse-temurin:21 bash -c '
-      set -e; mkdir -p "$HOME"; g="./gradlew --console=plain --build-cache --no-configuration-cache --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m${CDIR:+ --init-script /central.init.gradle}"
+      set -e; mkdir -p "$HOME"; g="./gradlew --console=plain --build-cache --no-configuration-cache --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m${CDIR:+ --init-script /central.init.gradle}${FDIR:+ --init-script /filestore.init.gradle}"
       s=/store/s-$CK d=/store/g-$GK   # s: every output of the cache step (api/generated is compiled, the gamevals are read at boot); d: the game data of the revision
       if [ -d $s ]; then cp -a $s/. .; else
         [ -z "$GK" ] || [ -d $d ] || [ ! -s /game-data.tgz ] || { rm -rf $d.tmp && mkdir -p $d.tmp/.data && tar -xzf /game-data.tgz -C $d.tmp/.data && mv $d.tmp $d; }   # the asset: the revision stored, never openrs2

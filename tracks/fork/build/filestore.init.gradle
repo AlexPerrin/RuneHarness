@@ -1,0 +1,6 @@
+// A server build with FILESTORE (tracks/fork/track.sh build): every dev.or2 FileStore module (filesystem, definition, opcode,
+// filestore, tools, …) is the FileStore tree's at $FDIR; each project is named as its artefact, so the included build
+// substitutes them, transitively through the dev.or2:all aggregate POM.
+settingsEvaluated { settings ->
+    settings.includeBuild(System.getenv('FDIR'))
+}

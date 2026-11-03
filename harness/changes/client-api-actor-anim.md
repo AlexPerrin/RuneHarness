@@ -5,7 +5,7 @@ kind: change
 title: Actor and Player animation, pose and spot anims instead of PlayerStub throws
   (29 inert, 1 mismatch, unblocks ActorSpotAnim)
 priority: P2
-deps: []
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

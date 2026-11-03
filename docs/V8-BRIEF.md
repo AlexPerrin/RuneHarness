@@ -5,10 +5,34 @@ transcripts, 2026-10-25 → 2026-10-31: 132 runs, 14.5k tool calls). Read it bef
 docs/ISSUES.md. docs/ARCHITECTURE.md describes v7 as it was built, legacy logic included: reference only, not a spec.
 Goal of v8: the same outcomes with the fewest concepts, files and lines, and more throughput per token.
 
+## 0. Where to start (priorities by measured impact)
+Order the v8 work by what the data says each removes. Section numbers point to the evidence.
+1. **A contract per change, judged once** (§4.1, §4.11): QA FAILs and re-checks drove ~36 of the 95 runs on upstream
+   changes; 68 of 108 findings repeated. An upstream change cost a median 15 runs against 2 for a client change.
+2. **Ask the user only what needs the user** (§4.20): questions drove ~30 of those runs, and about half did not need
+   the user (rewords the harness caused, notices, duplicates).
+3. **The driver wakes on events and spawns at once** (§1b, §4.5): ~30% of a change's life was due for a spawn; 49% of
+   long waits had a free slot.
+4. **Measure goals when their target moves** (§4.19): the client track has been idle since 10-31 04:26 UTC because one
+   open upstream PR blocks the measurement.
+5. **R8: build and gate each tree once** (§1a, §4.12–4.13, §4.16): ~7 builds per round, cache re-downloads, re-gates
+   on unchanged heads, a build that dirties the tree.
+6. **Bring-up and test scenarios as scripts** (§4.2, §4.15): 52–148 calls before work, ~6 min per fix loop, 39–51% of
+   run time spent choosing the next step.
+7. **Runs hand off at a context limit** (§4.3): one run read ~205M tokens, 5% of all v7.
+8. **Authority by credential; pins owned by changes; the pass acts on edges** (§4.4, §4.12, §4.22–4.25).
+
+## 0a. Before v8 starts (only the user can do these)
+- At the hand-off: set `networkingMode=mirrored` in `C:\Users\Alex\.wslconfig` and restart WSL (a restart ends
+  every session), then check WSL reaches the desktop client on `127.0.0.1:7780`.
+- Drop `admin:public_key` from the GitHub token.
+- Decide `fix/31-friend-add-update`: give it a change, or have the integrator record the union with friends-chat.
+- Land or drop the P0 privacy change `server-sidecar-jav-config-local-auth`.
+
 ## 1. Keep (the constraints, by id)
 - PROBLEM axioms A1–A10 and principles P1–P8; PRD R1–R7. The user's rules: CLAUDE.md "Rules" and "Shared rules", and
   the memory index `~/.claude/projects/-home-alex-osrs-harness/memory/MEMORY.md`.
-- Goals. Client: % of RuneLite API interface methods working in the app, by probe (`tools/api-probe.sh`; about 93% at client master 6cc6bbe, though `hd` still shows a stale 60.9, §4.18).
+- Goals. Client: % of RuneLite API interface methods working in the app, by probe (`tools/api-probe.sh`; about 93% at client master 6cc6bbe, though `hd` still shows a stale 60.9, §4.19).
   Server: 1:1 with the official game, the client never blocked; **no metric exists**: v8 defines one (an inventory of
   content units from the cache, each checked against RSProx recordings and the wiki, with a pass flag).
   Harness: simpler and faster each iteration; measured by §3's numbers, which v8 must beat.
@@ -17,12 +41,12 @@ Goal of v8: the same outcomes with the fewest concepts, files and lines, and mor
 A server build is a function of one tree, **T = upstream base + the change's dependencies + its head** (computed by
 `git merge-tree`; a conflict goes to the dev before anything builds). Each T is built once, and dev check, QA, gate
 and test-server deploy all use that build. The game cache is its own artefact, keyed by its inputs, built and
-verified only when they change. A gate is keyed by T: an upstream move re-gates only if T changes. Only three events
+verified only when they change. A gate is keyed by T; every upstream move changes T and re-gates (A5), so the build cache, not the key, makes that cheap. Only three events
 make a new T: a commit, an upstream move, a dependency change.
 Workflow: pin → T → build(T) → up(T, accounts) → dev loop (each edit is a new T, built incrementally) → hand-over at
 T → gate(T) → QA on the same build → verdict(T); integration = base + all pins is its own T, built once and deployed.
 Measured waste R8 removes: ~72 min of identical-tree builds, ~97 min of cache re-downloads, ~27 min of cache steps
-with unchanged inputs, ~219 CI min of re-gates on unchanged heads, and by-hand dependency trees (clans dev, 10-31).
+with unchanged inputs, re-gates of an identical (head, base) pair (1 seen) and CI runs cancelled by a newer upstream move (2), and by-hand dependency trees (clans dev, 10-31). Re-gating after an upstream move is not waste: the move changes T (A5 parity); a cached build(T) makes it cost CI only.
 
 ## 1b. The driver: the user's primary chat (main)
 Main is the user's chat and the only session that can spawn agents (A2). Both jobs collide: 53 of 56 long spawn waits fell while the user and main were mid-conversation (main acts only at a turn boundary), and harness traffic fills main's context (51 spawns pasted 149k chars of briefs; hand-back reports in full; main compacted twice on 10-31, each time losing the run's state). The interface:
@@ -31,7 +55,7 @@ Main is the user's chat and the only session that can spawn agents (A2). Both jo
 3. **Event-woken, one step**: a watch on the harness's events wakes main when `hd` lists a spawn, card or question; main makes that one background call and returns to the user.
 4. **Long work leaves main**: investigations, harness changes and reviews go to subagents or a side session, so main's turns stay short and spawns never queue behind a conversation.
 5. **Main holds no state**: after a compaction or restart, `hd` rebuilds the picture from files; compaction costs nothing.
-6. **The user sees only what needs them**: cards, questions that need a decision (§4.19), one-line notices, the goal number measured when a change goes live (§4.18).
+6. **The user sees only what needs them**: cards, questions that need a decision (§4.20), one-line notices, the goal number measured when a change goes live (§4.19).
 
 ## 2. The workflow as it ran
 One loop over five nouns: **change** (definition) · **commit** (head + base) · **judgment** (hand-over, verdict,
@@ -54,6 +78,8 @@ Where a change's life went (35 changes):
 | Metric | v7 |
 |---|---|
 | runs per upstream PR | 15–23 (4 PRs = 77 of 132 runs, 41 of 66 agent-hours) |
+| what triggered the 95 runs on 7 upstream changes | after a QA FAIL or for a QA check ~36; around a question to the user ~30 (18 of 20 runs "without a record" ended with `hd ask`, which the pass does not count as a record); after a gate or train failure ~23; maintainer findings 2; truly empty runs 2 |
+| per change, by kind (median) | upstream-PR server change 15 runs, 5.4 agent-h, 290M tokens; client change 2 runs, 1.0 h, 56M; local server change 3 runs, 0.8 h; harness change 1 run, 0.3 h |
 | QA rounds per PR | up to 9; findings per round goblin 4,2,1,PASS,4,6,4,2 |
 | spawn wait after the record that makes a run due | median 11 min, p90 83, max 534 |
 | context | starts at ~35k; peak median server-dev 160k, server-qa 189k, client-dev 207k; max 887k |
@@ -61,11 +87,11 @@ Where a change's life went (35 changes):
 | tool calls before first edit | server-dev 81, client-dev 52, server-qa 148 |
 | share of calls that are sleep/until polling | 12% (server-dev 946 sleeps, client-dev 683) |
 | subtask calls by server-dev | 0 |
-| guard denials judged wrong | ≥ half of 40 |
+| guard denials judged wrong | at least half of 44 (5 harmless reads on 10-31 alone) |
 | step events that repeat the last one | 764 of 1174 |
 
 ## 4. What failed, and why (the root causes)
-1. **Review has no contract.** QA finds new defects every round, and devs fix a finding where it was named, not as a
+1. **Review has no contract.** The costliest change of v7 (goblin-367-fftgsrq: 23 runs, 13.4 agent-h, 9 QA rounds) began as one maintainer comment on #367, "I'd really like to get the cutscene in as well": the deferral a pre-coding checklist row (everything the wiki page lists) would have held. Maintainers raised only 3 findings in v7. QA finds new defects every round, and devs fix a finding where it was named, not as a
    rule across the diff (goblin: `MailDye` enum fixed, `ARMOURS` list next round). PR-text-only fails cost a full dev
    and QA run each. Only the last `verdict.json` is kept. → QA and dev agree a fixed checklist (accuracy spec, live
    AGENTS.md rules, PR text, in-game) before coding; each item pass/fail; verdicts appended; text fixed without a new QA run.
@@ -77,10 +103,10 @@ Where a change's life went (35 changes):
    existing PR, pr-comment.md covers only the net change since the live head; (7) the unsourced list names every
    reconstruction and cheat; (6) no game data or raw ids in Kotlin; (6) every flow playable without a cheat.
 2. **Know-how is prose, so agents re-derive it.** Bring-up of build, server and client is in skills, executed by hand
-   every run (52–148 calls before work, 12% polling). Four of five agent retros independently ask for the same
+   every run (52–148 calls before work, 12% polling). Five of six agent retros independently ask for the same
    tool (`qa-run`, `hd up`, `qa-session`, `branch-session`): clone and merge onto the gate's base, build, start the
    server on free ports, seed accounts (members, dev_mode), start and log in N clients, print ports, block until
-   ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11). → that one script per track,
+   ready, and stop it all (retros goblin-23, hunter-16, hunter-18, friends-chat-11, clan-channels-2; the last adds a `reload` that only reinstalls and logs back in, and a recipe for features that need N players). → that one script per track,
    plus a `wait-for <fact>` tool, a dialogue driver and a `gameval <table> <name|id>` lookup over every table;
    skills keep judgment only.
    Transcript sweep (82 server runs; phase share of time, dev / QA): waiting 23% / 14%, code 17% / 13%, in-game test
@@ -110,6 +136,7 @@ Where a change's life went (35 changes):
    - Rule clashes: the brief's "one commit off upstream main" vs a change on an existing PR branch; "FAIL any
      unticked item" vs a gap the user accepted (hunter's wiki item, so FAIL by rule every round); "default no tests"
      vs upstream AGENTS.md's dupe tests.
+   - Wrong facts that cost runs (clan-channels-2): build-test says the `gate-run` tree is enough for in-game checks, but it never runs `buildCache`, so new pack configs are missing (two extra rebuild rounds); accuracy-check never says RSProx filters hide clan and friends-chat packets by default, so an earlier spec claimed "no recordings" that exist (an accuracy defect, A-class; measured: of 151 text transcripts in re/ref/rsprox/txt, 0 contain CLANCHANNEL, CLANSETTINGS, MESSAGE_CLANCHANNEL, VARCLAN or UPDATE_FRIENDLIST and 2–3 contain friends-chat packets, so the text corpus is blind to them while the binary recordings hold them; 6 accuracy specs make "no recording" claims, 4 each in both social changes. → transcripts regenerated with every packet filter on, or an index of packet types per recording); the brief's "build on the friends chat change" against server-track's "never stacked" (the dependency tree R8 defines).
    - Monolithic skills: server-track's integrator section and test-instances' Android parts are noise for others.
    → v8: instructions point only at scripts that a test runs (a dead path fails CI); one file per role; each user
    answer amends the checklist, not a free-text Answers section.
@@ -119,7 +146,7 @@ Where a change's life went (35 changes):
    13 days behind on 10-31). 3 QA runs passed `main` (cannon-19, goblin-11, hunter-18); cannon-19 and goblin-11
    noticed and fetched the gate's scratch merge by hand. → the bring-up merges onto the gate's recorded base, never
    a local ref (R3).
-10. **The hand-over asks for what the harness already knows.** 29 of 98 `hd handover` calls were refused because
+10. **The hand-over asks for what the harness already knows, and the gate finds the rest a pass later.** Gate failures (27 distinct): 17 harness-made (a required evidence file missing 10, a Claude-Session trailer the tooling wrote 4, a gate script bug 3), 5 gameval id clashes between parallel branches (each branch allocates new ids alone, e.g. varp 65464 taken by both friends-chat and hunter), 3 stale client probe reports, 2 genuine (merge, CI). → the hand-over command enforces evidence and trailer rules at once instead of the gate finding them a pass later; ids are reserved from one registry when a branch creates them.  29 of 98 `hd handover` calls were refused because
    the pushed dev ref was not at the sha the agent typed. → the hand-over reads the pushed ref; it takes no sha.
 11. **No agent can read the previous verdict** (`hd show` is missing; 26 failed calls), so "close every prior finding
    first" is not a step, and repeats follow. → a read command, and the checklist's first line.
@@ -136,13 +163,12 @@ Where a change's life went (35 changes):
    (438 min, 9 failed: 8 gameval id clashes between merged branches), 10 QA gate-runs, 63 fork CI runs (~14 min
    each, 838 min); ~72 min spent building identical trees twice (e.g. world-entities f2a808495 built as `or/`
    and `run/` with nothing merged in; two train gates of the identical tree eab9908af).
-   Gates: 49 fork CI dispatches over 35 heads, 811 run-minutes; 14 were re-gates of an unchanged head caused only by
-   an upstream move (~219 min, 27%); goblin-367 gated one head 7 times; three upstream moves in 4 min cancelled 2
+   Gates: 49 fork CI dispatches over 35 heads, 811 run-minutes; 14 re-gated an unchanged head after an upstream move (~219 min, 27%): the base moved, so T changed and the re-gate is A5 parity, not waste; only 1 re-gated an identical (head, base) pair; goblin-367 gated one head 7 times; three upstream moves in 4 min cancelled 2
    runs. Train: 47 starts → 22 deploys; 8 rebuild conflicts, 7 silent exits (overlapping trains), 10 gate fails; gate
    median ~850 s; one train rebuilt a tree identical to the previous one: liveness is commit ancestry (steps.py:75-87), never tree equality, and the pass computes all next steps from one snapshot then acts (tick.py:164), so it started a train for a head the just-written live.json already held; every rebuild makes new merge commits, so nothing noticed the same tree. A start is counted at Popen (server.py:88-95), so 7 trains that exited silently (likely the flock path) still logged a start. Integrator
    (15 runs): conflicts and gameval clashes mostly between two pinned changes, not with upstream; one wrong recorded
    resolution caused a later failure; one "conflict" was a stale MERGE_RR.lock from an overlapping train.
-   Pins: 53 of the 60 branches in integration.txt belong to no change (fix/ 22, local/ 11, content/ 10, fin/ 7, other 3); most integrator runs involved one of them (fix/25, fix/71, fix/31 twice and the train failure of 10-31 2:55 PM on FriendListAddHandler.kt, fin/grand-exchange, fin/diaries, fin/jewellery in the gameval clashes). fix/31-friend-add-update is one v6-era commit (10-18), not upstream, no PR, editing the file friends-chat changes. The two are independent edits of the same line (`CentralSocialResult.Ok -> Unit` becomes refreshAddedFriend in fix/31, friendChats.socialChanged in friends-chat); the right merge is the union. It was resolved twice before (hunter-13, friends-chat-8), one recorded resolution was wrong (friends-chat-4), and rerere replays a resolution only while the conflicting text is identical, so it recurs with each friends-chat commit there. → v8: a gate is keyed by tree (re-gate only when the merged tree changes); pins conflict-checked against each
+   Pins: 53 of the 60 branches in integration.txt belong to no change (fix/ 22, local/ 11, content/ 10, fin/ 7, other 3); most integrator runs involved one of them (fix/25, fix/71, fix/31 twice and the train failure of 10-31 2:55 PM on FriendListAddHandler.kt, fin/grand-exchange, fin/diaries, fin/jewellery in the gameval clashes). fix/31-friend-add-update is one v6-era commit (10-18), not upstream, no PR, editing the file friends-chat changes. The two are independent edits of the same line (`CentralSocialResult.Ok -> Unit` becomes refreshAddedFriend in fix/31, friendChats.socialChanged in friends-chat); the right merge is the union. It was resolved twice before (hunter-13, friends-chat-8), one recorded resolution was wrong (friends-chat-4), and rerere replays a resolution only while the conflicting text is identical, so it recurs with each friends-chat commit there. At 4:13 PM it blocked three things at once: friends-chat's new head (not live), server-clan-channels (depends on friends-chat, so the pass will not gate it until that is live; handed over 5e6344c7b and waiting), and the client goal's 17 social rows, all behind one unspawned integrator run. → v8: a gate is keyed by T (it re-runs on every upstream move, by A5; a cached build(T) makes that CI-only, and a newer move should not cancel a run in flight); pins conflict-checked against each
    other when pinned, not at train time; one train at a time by construction.
 13. **Every run builds the change twice.** The dev's own tree (`qa.sh dev`, persistent container) and a merged tree (`qa.sh gate-run`, fresh container, `clean` first) each compile and run the cache step; QA builds a third copy. → R8: one build per T, reused by dev, QA, gate and deploy.
 14. **One dev-lane rebuild recompiled the whole server (cause unconfirmed).** After the clans dev added a pack module, `qa.sh dev ... :or-cache:buildCache` took 8 min 37 s: the cache build itself 15 s, then 131 `compileKotlin` tasks with 0 hits in the remote build cache, on the dev lane's 2 workers and in-process Kotlin. A plain code fix rebuilds in 15 s, so incremental compile works. The suspect, `api:generated`, was up to date in the first Gradle pass and its sources match git; the log was then overwritten by the next build (qa.sh keeps one log per step name). → keep build logs per T next to R8's build record; give the dev lane the gate's workers and Kotlin daemon.
@@ -151,11 +177,12 @@ Where a change's life went (35 changes):
    Cause: the cache step runs upstream's `mergePluginGamevals`, which by design writes all plugin gamevals into the
    tracked `.data/gamevals/*.rscm` (or-cache/build.gradle.kts:65-71, "used by release CI"): +3016 lines in 19 files
    in the clans clone. → build in a disposable copy of T, never in the tree an agent commits from.
-17. **PR size drives findings, not rounds.** Diff vs base, FAIL rounds, findings: hunter 85 files +12.0k lines, 5, 34; goblin-367 9 files +1.3k, 7, 23; cannon-354 13 files +1.9k, 4, 21; genie-355 11 files +1.2k, 5, 17; friends-chat 18 files +0.9k, 2, 13. The smallest-but-one PR took the most rounds, so rounds come from the missing contract (§4.1), not size; a wide diff adds findings (hunter: data lists per feature, gameval renumbering against other branches). → a size bound helps reviewers, the checklist ends loops.
-18. **The client goal's number is six days stale.** `hd` and the dashboard show `client-api: 60.9 / 100`, measured only on 10-25 (client-api/measure.json); since then 8 client changes merged to master and their commits record the probe at 90.8%, 92.2%, 92.6%, then 1168/1253 = 93.2% (client master 6cc6bbe). Only the orchestrator measures, and it ran 3 times, all on 10-25. Cause: `_measure_done` (hd/steps.py:530-536) counts the measure step as met whenever any change serving the goal is not done, and a server change is done only when upstream merges it. `server-friends-chat-clan-channels` (goal client-api, filed 10-25 20:31Z) has been open since, so the goal was never re-measured, no orchestrator ran, no client change was filed after the 10-25 backlog, and the client track has been idle since its last run (10-31 04:26Z). One slow upstream PR stops a whole track's planning. What remains of the goal (probe at client master 6cc6bbe, 1168 of 1253 pass): 38 unreached, ~35 of them waiting on server features on the test server (WorldEntity/Config 15, whose change server-world-entities went live on the test server after the probe's last run, f2a808495 in integration ce529defa, so possibly already passing and unmeasured; friends chat and clans 17; NpcOverrides 4), 43 inert and 4 mismatch on the client side (Client 31, Widget 9, GameEngine 4), none of them filed because no orchestrator ran. → a goal is measured whenever its target moves, and a server change unblocks the client once it is live on the test server, not when upstream merges it. The goal is re-measured by the pass whenever its track's target moves (a fact), and the number shown is that measurement with its commit (R1, R7).
-19. **Half the questions to the user did not need the user.** 23 asks (~30 question texts in transcripts; answer median 5 min, p75 46 min, max 4.9 days over 10-26→10-31). Needed the user: scope and accuracy decisions (~9), upstream overlap (4), safety incidents (2). Did not: commit rewords to drop Claude-Session trailers that need a forced push the guard blocks (6, a problem the harness created), train notices that a pin was dropped (3, statements), infrastructure (3), and the same question asked 2–3 times (~6). → the harness fixes what it caused (no trailers written in the first place), notices are events not questions, an open question blocks a second ask on the same change.
-20. **`hd` prints the pending step's name where a reader expects a state.** "cannon-review-354: done | merged" means "live on the test server | waiting for upstream to merge" (steps.stage, hd/steps.py:587-592), while upstream #354 is open; this monitor misread it too. → print facts ("live on test server; PR #354 open, ready, awaiting review"), not step names.
-21. **The pass repeats work with no state change.** Per pass-sweep: 467 gate-pending polls (357 identical, each a
+17. **Every client change edits the same two files.** 8 of 16 client changes hit a merge conflict on master, each costing an extra dev run and a re-gate (the probe report is rebuilt at the new head): all in `docs/client-state.md` (a hand-maintained status document) or `ApiProbePlugin.java` (the single probe). Client runs: 32 for 16 changes, 8 of them merges. → derive the status document from the probe report; one probe file per API interface.
+18. **PR size drives findings, not rounds.** Diff vs base, FAIL rounds, findings: hunter 85 files +12.0k lines, 5, 34; goblin-367 9 files +1.3k, 7, 23; cannon-354 13 files +1.9k, 4, 21; genie-355 11 files +1.2k, 5, 17; friends-chat 18 files +0.9k, 2, 13. The smallest-but-one PR took the most rounds, so rounds come from the missing contract (§4.1), not size; a wide diff adds findings (hunter: data lists per feature, gameval renumbering against other branches). → a size bound helps reviewers, the checklist ends loops.
+19. **The client goal's number is six days stale.** `hd` and the dashboard show `client-api: 60.9 / 100`, measured only on 10-25 (client-api/measure.json); since then 8 client changes merged to master and their commits record the probe at 90.8%, 92.2%, 92.6%, then 1168/1253 = 93.2% (client master 6cc6bbe). Only the orchestrator measures, and it ran 3 times, all on 10-25. Cause: `_measure_done` (hd/steps.py:530-536) counts the measure step as met whenever any change serving the goal is not done, and a server change is done only when upstream merges it. `server-friends-chat-clan-channels` (goal client-api, filed 10-25 20:31Z) has been open since, so the goal was never re-measured, no orchestrator ran, no client change was filed after the 10-25 backlog, and the client track has been idle since its last run (10-31 04:26Z). One slow upstream PR stops a whole track's planning. What remains of the goal (probe at client master 6cc6bbe, 1168 of 1253 pass): 38 unreached, ~35 of them waiting on server features on the test server (WorldEntity/Config 15, whose change server-world-entities went live on the test server after the probe's last run, f2a808495 in integration ce529defa, so possibly already passing and unmeasured; friends chat and clans 17; NpcOverrides 4), 43 inert and 4 mismatch on the client side (Client 31, Widget 9, GameEngine 4), none of them filed because no orchestrator ran. → a goal is measured whenever its target moves, and a server change unblocks the client once it is live on the test server, not when upstream merges it. The goal is re-measured by the pass whenever its track's target moves (a fact), and the number shown is that measurement with its commit (R1, R7).
+20. **Half the questions to the user did not need the user.** 23 asks (~30 question texts in transcripts; answer median 5 min, p75 46 min, max 4.9 days over 10-26→10-31). Needed the user: scope and accuracy decisions (~9), upstream overlap (4), safety incidents (2). Did not: commit rewords to drop Claude-Session trailers that need a forced push the guard blocks (6, a problem the harness created), train notices that a pin was dropped (3, statements), infrastructure (3), and the same question asked 2–3 times (~6). → the harness fixes what it caused (no trailers written in the first place), notices are events not questions, an open question blocks a second ask on the same change.
+21. **`hd` prints the pending step's name where a reader expects a state.** "cannon-review-354: done | merged" means "live on the test server | waiting for upstream to merge" (steps.stage, hd/steps.py:587-592), while upstream #354 is open; this monitor misread it too. → print facts ("live on test server; PR #354 open, ready, awaiting review"), not step names.
+22. **The pass repeats work with no state change.** Per pass-sweep: 467 gate-pending polls (357 identical, each a
    CI API call), 202 gate records re-saved for an unchanged head, 432 identical "train running" lines, and the same
    volume repaired 68 times (gd17-dev-gradle): a repair that never converges. → act and log on edges only; a repair
    that recurs is a bug, raised once.
@@ -165,10 +192,11 @@ Where a change's life went (35 changes):
    anyway. Harm: once a live dev's container idles out (45 min), the next pass deletes its warm Gradle home. The
    container rule (tick.py:97) has the mirror bug and almost never removes a real orphan. → every artefact is named
    after its run (no agent-chosen labels); a repair is recorded only when its effect is observed.
-22. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
+23. **An agent's exit waits for a whole pass.** The SubagentStop hook records the run's end, then runs `hd tick` synchronously (hooks/hook.py:123, limit 600 s) before the agent can finish exiting. Timer passes take up to ~14 s; the one after server-clan-channels-2's hand-back (10-31 4:14 PM) ran past 18.7 s and was cancelled, leaving the agent ended in the harness but still running in main. Not a one-off: all 14 SubagentStop hooks recorded in v7 transcripts were cancelled (median 5.5 s, p90 18.7 s). → the hook records the end and starts the pass without waiting (`systemctl --user start --no-block hd-tick.service`).
+24. **The pass merges into a shared working tree.** Any session's uncommitted edit in ~/osrs-harness stops every
    harness merge (the monitor's draft blocked harness-dupe-check, 2026-10-31). → the pass merges in its own clone.
-23. **The desktop clients' config still names Jagex.** The branch server's jav_config (sidecar osrs-rsps-test:241) lists account.jagex.com, auth.jagex.com, social.auth.jagex.com, auth.runescape.com and a Google OAuth client id; only game and config endpoints are local. No contact seen in RSProx logs (10-31), but the Jagex-account path is one misplaced click away (fixed-mode clicks in resized clients). → the served jav_config rewrites every Jagex host to localhost (as LOCAL_AUTH does for the APK), and a desktop network check like the client's network QA.
-24. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
+25. **The desktop clients' config still names Jagex.** The branch server's jav_config (sidecar osrs-rsps-test:241) lists account.jagex.com, auth.jagex.com, social.auth.jagex.com, auth.runescape.com and a Google OAuth client id; only game and config endpoints are local. No contact seen in RSProx logs (10-31), but the Jagex-account path is one misplaced click away (fixed-mode clicks in resized clients). → the served jav_config rewrites every Jagex host to localhost (as LOCAL_AUTH does for the APK), and a desktop network check like the client's network QA.
+26. Also open in docs/ISSUES.md: a client build reached Jagex (no install-time check of the repack log); stale pins in
    integration; the brief's first line parsed by three programs; orphans found only by v7 run names.
 
 ## 5. Component ledger: cut, merge, keep

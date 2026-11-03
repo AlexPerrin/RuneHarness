@@ -1,0 +1,15 @@
+{
+  "osrs-mcp": [
+    "/home/alex/osrs-harness/mcp/osrs-mcp.sh"
+  ],
+  "osrs-devtools-mobile": [
+    "/home/alex/osrs-harness/mcp/devtools_bridge.py",
+    "mobile",
+    "/home/alex/osrs-plugins-reverse/tools/devtools-mcp.sh"
+  ],
+  "osrs-devtools-desktop": [
+    "/home/alex/osrs-harness/mcp/devtools_bridge.py",
+    "desktop",
+    "http://127.0.0.1:7780/mcp"
+  ]
+}

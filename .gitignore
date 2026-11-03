@@ -1,6 +1,6 @@
-harness/state/
+state/
 evidence/
 __pycache__/
 *.pyc
 .claude/settings.local.json
-harness/state.v6/
+.worktrees/

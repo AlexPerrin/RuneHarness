@@ -5,7 +5,7 @@ kind: change
 title: 'Cache indexes, node caches and config lookups (EntityOps, params, NPC overrides,
   DBRowConfig): 23 inert, unblocks 8'
 priority: P2
-deps: []
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

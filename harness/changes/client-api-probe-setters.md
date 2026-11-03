@@ -5,7 +5,7 @@ kind: change
 title: 'api-probe: observe setters without a same-name getter, game-owned collection
   mutations and native hooks (53 skipped/unchecked rows)'
 priority: P2
-deps: []
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

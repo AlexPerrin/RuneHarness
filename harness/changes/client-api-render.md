@@ -4,8 +4,8 @@ track: client
 kind: change
 title: 'Client and WorldView rendering surface: rasterizer, textures, buffer provider,
   projections, camera focal point (29 inert, unblocks 37 rows)'
-priority: P1
-deps: []
+priority: P2
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

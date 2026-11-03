@@ -170,7 +170,7 @@ ship() {  # the candidate on the live tip: the gated one, or a new merge gated h
   git -C "$repo" push -q origin "$tcommit:refs/heads/main" && $hd job ship "$HD_KEY" ok "main at ${tcommit:0:9}"
 }
 measure() {
-  tc=$(git -C "$repo" rev-parse "${arg:-origin/HEAD}^{commit}"); arg=$tc; T=$(git -C "$repo" rev-parse "$tc^{tree}"); T=$T "$self/build/build.sh" build "$slug" "$tc"; up
+  tc=$(git -C "$repo" rev-parse "${TCOMMIT:-${arg:-origin/HEAD}}^{commit}"); arg=$tc; T=$(git -C "$repo" rev-parse "$tc^{tree}"); T=$T TCOMMIT=$tc HD_KEY= "$self/build/build.sh" build "$slug" "$tc"; up   # the pass passes its commit in TCOMMIT (the argument is the job key)
   (cd "$copy" && ANDROID_SERIAL=$(serial) tools/api-probe.sh "$ev")
   v=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" | grep -oE '[0-9.]+%$' | tr -d %)
   python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"value":float(sys.argv[2]),"report":sys.argv[3]}))' "${TREE:-$T}" "$v" "$ev/api-probe.tsv" | atomic "$state/measure.json"

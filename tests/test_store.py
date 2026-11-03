@@ -1,3 +1,5 @@
+import glob
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -22,6 +24,15 @@ class Store(unittest.TestCase):
         self.assertEqual(store.migrate(self.db), len(store.MIGRATIONS))
         tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertTrue({"run", "session", "submission", "criterion", "check_result", "verdict", "job", "card", "approval", "publish_step", "alert"} <= tables)
+
+    def test_every_migration_upgrades_every_recorded_fixture(self):
+        for f in glob.glob(str(Path(__file__).parent / "fixtures" / "*.db")):
+            copy = Path(self.dir.name) / Path(f).name
+            shutil.copy(f, copy)
+            db = store.connect(str(copy))
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], len(store.MIGRATIONS), f)
+            self.assertTrue(db.execute("SELECT count(*) FROM run").fetchone()[0] > 0, f)
+            db.close()
 
     def test_one_live_run_per_change(self):
         ins = "INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c', 'dev', 'code', 'i', 'b', 't')"

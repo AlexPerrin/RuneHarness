@@ -217,6 +217,21 @@ class Goals(Base):  # T8
         self.assertEqual([x for x in decide.plan(self.L, [], CFG, [g]) if x.change == "goal:server-content"], [])   # at target
 
 
+class Snapshots(unittest.TestCase):  # the recorded ledger: the pass plans over it what was recorded (tests/fixtures/<n>.plan)
+    def test_plan_over_each_recorded_ledger(self):
+        import glob
+        import shutil
+        import subprocess
+        root = Path(__file__).resolve().parents[1]
+        for f in glob.glob(str(root / "tests" / "fixtures" / "*.db")):
+            with tempfile.TemporaryDirectory() as d:
+                copy = Path(d) / "hd.db"
+                shutil.copy(f, copy)
+                out = subprocess.run([sys.executable, str(root / "harness" / "hd.py"), "tick", "--dry-run", "--offline", "--db", str(copy)],
+                                     capture_output=True, text=True)
+                self.assertEqual(out.stdout, Path(f[:-3] + ".plan").read_text(), out.stderr)
+
+
 class Authority(Base):  # A2 (close), A4 (ask)
     def test_closed_is_done_and_open_ask_waits(self):
         self.db.execute("INSERT INTO change_state(slug, closed_at) VALUES ('h-one', 't')")

@@ -1,13 +1,20 @@
 """The ledger: the one SQLite file every decision reads (docs/ARCHITECTURE.md §2).
 
-Only this module opens the database. Observations (ref, gh, landed, stack) and commitments (submission, verdict,
-answer, approval, publish_step) are criteria written once by the actor that made them; decide.py reads them through
+Only this module opens the database. Observations (ref, landed, gh, stack) and commitments (submission, verdict,
+answer, approval, publish_step) are rows written once by the actor that made them; decide.py reads them through
 Ledger and never recomputes them from the world.
 """
+import hashlib
+import json
 import os
+import re
 import sqlite3
+from datetime import datetime, timezone
 
-DB = os.environ.get("HD_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "state", "hd.db"))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE = os.path.join(ROOT, "state")
+DB = os.environ.get("HD_DB", os.path.join(STATE, "hd.db"))
+RECORD = re.compile(r"^run (\d+): (submitted [0-9a-f]{7,40}|PASS|FAIL \d+ criteria|criteria agreed|filed \S+|ask|handoff)$")  # the hand-back line
 
 SCHEMA_1 = """
 CREATE TABLE change_state (
@@ -135,10 +142,20 @@ CREATE TABLE alert (
 MIGRATIONS = [SCHEMA_1]
 
 
-def connect(path: str = DB) -> sqlite3.Connection:
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def digest(*parts) -> str:
+    """A short stable digest of any JSON-able parts: run inputs, card digests, criteria sets."""
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def connect(path: str = None) -> sqlite3.Connection:
     """Open the ledger (WAL, foreign keys on), creating and migrating it when needed."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    db = sqlite3.connect(path, isolation_level=None)
+    path = path or DB
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    db = sqlite3.connect(path, isolation_level=None, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
@@ -155,6 +172,18 @@ def migrate(db: sqlite3.Connection) -> int:
     return version
 
 
+def event(db, kind: str, change=None, run=None, detail=None) -> int:
+    return db.execute("INSERT INTO event(at, kind, change, run, detail) VALUES (?,?,?,?,?)",
+                      (now(), kind, change, run, detail)).lastrowid
+
+
+def alert(db, kind: str, subject: str, detail: str) -> None:
+    """UPSERT an alert on (kind, subject): a recurrence counts up and refreshes last_at and detail."""
+    db.execute("""INSERT INTO alert(kind, subject, detail, first_at, last_at) VALUES (?,?,?,?,?)
+                  ON CONFLICT(kind, subject) DO UPDATE SET count=count+1, last_at=excluded.last_at, detail=excluded.detail""",
+               (kind, subject, detail, now(), now()))
+
+
 class Ledger:
     """Read-only view of the store for decide.py: one method per fact the guards ask (ARCHITECTURE §3).
 
@@ -164,54 +193,83 @@ class Ledger:
     def __init__(self, db: sqlite3.Connection):
         self.db = db
 
-    def closed(self, slug: str):
-        return self.db.execute("SELECT closed_at, folded_into FROM change_state WHERE slug=?", (slug,)).fetchone()
+    def one(self, sql, *args):
+        return self.db.execute(sql, args).fetchone()
 
-    def ref(self, repo: str, name: str):
-        row = self.db.execute("SELECT sha FROM ref WHERE repo=? AND name=?", (repo, name)).fetchone()
+    def all(self, sql, *args):
+        return self.db.execute(sql, args).fetchall()
+
+    def closed(self, slug):
+        return self.one("SELECT closed_at, folded_into FROM change_state WHERE slug=? AND (closed_at IS NOT NULL OR folded_into IS NOT NULL)", slug)
+
+    def ref(self, repo, name):
+        row = self.one("SELECT sha FROM ref WHERE repo=? AND name=?", repo, name)
         return row["sha"] if row else None
 
-    def landed(self, slug: str, target: str):
-        return self.db.execute("SELECT sha FROM landed WHERE change=? AND target=?", (slug, target)).fetchone()
+    def landed(self, slug, target):
+        return self.one("SELECT sha FROM landed WHERE change=? AND target=?", slug, target)
 
-    def open_ask(self, slug: str):
-        return self.db.execute(
-            "SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", (slug,)
-        ).fetchone()
+    def open_ask(self, slug):
+        return self.one("SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", slug)
 
-    def submission(self, slug: str, head: str):
-        return self.db.execute("SELECT * FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
+    def answers_since(self, slug, at):
+        return self.all("SELECT n.* FROM answer n JOIN ask a ON a.id=n.ask WHERE a.change=? AND n.at>? ORDER BY n.at", slug, at)
 
-    def criteria(self, slug: str):
-        return self.db.execute("SELECT * FROM criterion WHERE change=? AND waived=0 ORDER BY id", (slug,)).fetchall()
+    def submission(self, slug, head):
+        return self.one("SELECT * FROM submission WHERE change=? AND head=?", slug, head)
 
-    def last_verdict(self, slug: str, head: str):
-        return self.db.execute(
-            "SELECT * FROM verdict WHERE change=? AND head=? ORDER BY id DESC LIMIT 1", (slug, head)
-        ).fetchone()
+    def criteria(self, slug, kind=None):
+        sql = "SELECT * FROM criterion WHERE change=? AND waived=0" + (" AND kind=?" if kind else "") + " ORDER BY id"
+        return self.all(sql, slug, *([kind] if kind else []))
 
-    def job(self, kind: str, key: str):
-        return self.db.execute("SELECT * FROM job WHERE kind=? AND key=?", (kind, key)).fetchone()
+    def criteria_after(self, slug, at):
+        return self.one("SELECT count(*) n FROM criterion WHERE change=? AND waived=0 AND created_at>?", slug, at)["n"]
 
-    def live_run(self, slug: str):
-        return self.db.execute("SELECT * FROM run WHERE change=? AND ended_at IS NULL", (slug,)).fetchone()
+    def check_results(self, tree):
+        return {r["criterion_id"]: r for r in self.all("SELECT * FROM check_result WHERE tree=?", tree)}
 
-    def run_for(self, slug: str, input: str):
-        return self.db.execute("SELECT * FROM run WHERE change=? AND input=? ORDER BY id DESC LIMIT 1", (slug, input)).fetchone()
+    def last_verdict(self, slug, head):
+        return self.one("SELECT * FROM verdict WHERE change=? AND head=? ORDER BY id DESC LIMIT 1", slug, head)
 
-    def card(self, slug: str, head: str, digest: str):
-        return self.db.execute("SELECT * FROM card WHERE change=? AND head=? AND digest=?", (slug, head, digest)).fetchone()
+    def job(self, kind, key):
+        return self.one("SELECT * FROM job WHERE kind=? AND key=?", kind, key)
 
-    def approval(self, card_id: int):
-        return self.db.execute("SELECT * FROM approval WHERE card=? AND spent_at IS NULL", (card_id,)).fetchone()
+    def jobs_in_flight(self, kind, prefix=""):
+        return self.all("SELECT * FROM job WHERE kind=? AND key LIKE ? AND pid IS NOT NULL AND ended_at IS NULL", kind, prefix + "%")
 
-    def undone_steps(self, card_id: int):
-        return self.db.execute("SELECT * FROM publish_step WHERE card=? AND done_at IS NULL ORDER BY n", (card_id,)).fetchall()
+    def attempts(self, kind, key):
+        return self.one("SELECT count(*) n FROM attempt WHERE kind=? AND key=?", kind, key)["n"]
 
-    def hold(self, slug: str, head: str):
-        return self.db.execute(
-            "SELECT * FROM hold WHERE change=? AND lifted_at IS NULL AND (head IS NULL OR head=?)", (slug, head)
-        ).fetchone()
+    def live_run(self, slug):
+        return self.one("SELECT * FROM run WHERE change=? AND ended_at IS NULL", slug)
 
-    def last_event(self, slug: str):
-        return self.db.execute("SELECT * FROM event WHERE change=? ORDER BY id DESC LIMIT 1", (slug,)).fetchone()
+    def live_runs(self):
+        return self.all("SELECT * FROM run WHERE ended_at IS NULL ORDER BY id")
+
+    def last_run(self, slug):
+        return self.one("SELECT * FROM run WHERE change=? ORDER BY id DESC LIMIT 1", slug)
+
+    def run_for(self, slug, input):
+        return self.one("SELECT * FROM run WHERE change=? AND input=? ORDER BY id DESC LIMIT 1", slug, input)
+
+    def runs_with_record(self, slug, mode, record):
+        return self.one("SELECT * FROM run WHERE change=? AND mode=? AND record LIKE ? ORDER BY id DESC LIMIT 1", slug, mode, "%" + record)
+
+    def card(self, slug, head, digest):
+        return self.one("SELECT * FROM card WHERE change=? AND head=? AND digest=?", slug, head, digest)
+
+    def approval(self, card_id):
+        return self.one("SELECT * FROM approval WHERE card=? AND spent_at IS NULL", card_id)
+
+    def undone_steps(self, card_id):
+        return self.all("SELECT * FROM publish_step WHERE card=? AND done_at IS NULL ORDER BY n", card_id)
+
+    def hold(self, slug, head):
+        return self.one("SELECT * FROM hold WHERE change=? AND lifted_at IS NULL AND (head IS NULL OR head=?)", slug, head)
+
+    def last_event(self, slug, kind=None):
+        sql = "SELECT * FROM event WHERE change=?" + (" AND kind=?" if kind else "") + " ORDER BY id DESC LIMIT 1"
+        return self.one(sql, slug, *([kind] if kind else []))
+
+    def live_session(self):
+        return self.one("SELECT * FROM session WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1")

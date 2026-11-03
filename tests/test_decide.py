@@ -1,0 +1,133 @@
+"""decide.plan over a hand-built ledger: one class per PRD group it touches."""
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
+import decide  # noqa: E402
+import store  # noqa: E402
+from decide import Cfg, Change, Track  # noqa: E402
+
+T = Track("harness", "AlexPerrin/osrs-harness", "/nowhere", "refs/heads/v9", "", "harness", {"gate": "harness-1", "ship": "harness-1"})
+CFG = Cfg(agents=2, hold="P2", tracks={"harness": T})
+TIP, TREE, TC = "a" * 40, "b" * 40, "c" * 40
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.db = store.connect(str(Path(self.dir.name) / "hd.db"))
+        self.L = store.Ledger(self.db)
+        self.ch = Change("h-one", "harness", priority="P2")
+
+    def tearDown(self):
+        self.db.close()
+        self.dir.cleanup()
+
+    def step(self, ch=None):
+        return {a.change: a.step for a in decide.plan(self.L, [ch or self.ch], CFG)}[(ch or self.ch).slug]
+
+    def submit(self):
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('harness', 'refs/heads/harness/h-one', ?)", (TIP,))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-one', ?, ?, ?, 't1')", (TIP, TREE, TC))
+
+    def run_row(self, input, **kw):
+        cols = dict(change="h-one", role="dev", mode="code", input=input, brief="b", listed_at="t", **kw)
+        self.db.execute(f"INSERT INTO run({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", tuple(cols.values()))
+
+
+class Tempo(Base):  # T1, T3, T4
+    def test_new_change_lists_one_dev_run_until_a_run_exists_with_that_input(self):
+        s = self.step()
+        self.assertEqual((s.kind, s.role, s.mode, s.why), ("run", "dev", "code", "new"))
+        self.run_row(s.input, ended_at="t", end_kind="stop")
+        self.assertEqual(self.step().kind, "wait")
+
+    def test_a_live_run_blocks_the_change(self):
+        self.run_row("x")
+        self.assertIn("live", self.step().why)
+
+    def test_successor_after_console_death_or_handoff(self):
+        s = self.step()
+        self.run_row(s.input, ended_at="t", end_kind="handoff")
+        s2 = self.step()
+        self.assertEqual(s2.kind, "run")
+        self.assertNotEqual(s.input, s2.input)
+
+    def test_agent_count_and_held_band(self):
+        other = [Change(f"h-{i}", "harness") for i in range(3)]
+        actions = decide.plan(self.L, other, CFG)
+        self.assertEqual([a.step.kind for a in actions], ["run", "run", "wait"])
+        held = Change("c-x", "client", priority="P3")
+        cfg = Cfg(agents=2, hold="P2", tracks={"harness": T, "client": T})
+        self.assertEqual(decide.plan(self.L, [held], cfg), [])
+        self.assertEqual(decide.priority(Change("h-x", "harness", priority="P3"), {}), "P1")
+        self.assertEqual(decide.priority(Change("a", "client", priority="P3"), {"a": [Change("b", "client", priority="P0")]}), "P0")
+
+
+class Gate(Base):  # G2, G3, H2
+    def test_submission_gates_the_candidate_once(self):
+        self.submit()
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("gate", f"{TREE}:harness-1"))
+        self.db.execute("INSERT INTO job(kind, key, pid, pid_start, started_at) VALUES ('gate', ?, 1, 1, 't')", (s.key,))
+        self.assertEqual(self.step().kind, "wait")
+
+    def test_gate_failure_lists_the_dev(self):
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'tests (1 failed)', 't')", (f"{TREE}:harness-1",))
+        s = self.step()
+        self.assertEqual((s.kind, s.role), ("run", "dev"))
+        self.assertIn("gate failed: tests", s.why)
+
+    def test_three_starts_without_result_park_the_job(self):
+        self.submit()
+        for _ in range(3):
+            self.db.execute("INSERT INTO attempt(kind, key, cause, at) VALUES ('gate', ?, 'oom', 't')", (f"{TREE}:harness-1",))
+        self.assertIn("3 starts", self.step().why)
+
+    def test_criteria_added_after_submission_list_the_dev(self):
+        self.submit()
+        self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('h-one', 'x', 'judge', 't', 'user', 't2')")
+        self.assertIn("criteria added", self.step().why)
+
+
+class Hands(Base):  # H6
+    def test_gated_change_ships_then_waits_for_landed(self):
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("ship", f"refs/heads/v9:{TC}"))
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('ship', ?, 1, 't')", (s.key,))
+        self.assertIn("not yet landed", self.step().why)
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")
+        self.assertEqual(self.step().kind, "done")
+
+    def test_one_ship_per_branch(self):
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
+        self.db.execute("INSERT INTO job(kind, key, pid, pid_start, started_at) VALUES ('ship', 'refs/heads/v9:other', 1, 1, 't')")
+        self.assertIn("ship of this branch is running", self.step().why)
+
+
+class Authority(Base):  # A2 (close), A4 (ask)
+    def test_closed_is_done_and_open_ask_waits(self):
+        self.db.execute("INSERT INTO change_state(slug, closed_at) VALUES ('h-one', 't')")
+        self.assertEqual(decide.plan(self.L, [self.ch], CFG), [])
+        self.db.execute("DELETE FROM change_state")
+        self.db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('h-one', 'which?', '[]', 't')")
+        self.assertIn("question", self.step().why)
+
+    def test_dep_waits_until_landed(self):
+        dep = Change("h-dep", "harness")
+        ch = Change("h-one", "harness", deps=("h-dep",))
+        steps = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}
+        self.assertEqual(steps["h-one"].why, "dep h-dep")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd', 't')")
+        steps = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}
+        self.assertEqual(steps["h-one"].kind, "run")
+
+
+if __name__ == "__main__":
+    unittest.main()

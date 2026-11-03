@@ -1,55 +1,112 @@
-"""world → ledger (docs/ARCHITECTURE.md §5). The only module besides act.py and publish.py that runs git, gh or docker.
+"""world → ledger (docs/ARCHITECTURE.md §5). Each function writes observation rows bound to what it observed
+(sha, pid, comment id) and nothing else."""
+import os
+import re
+import subprocess
 
-Each function writes observation rows bound to what it observed (sha, etag, comment id) and nothing else.
-"""
-
-
-def fetch(db, repo) -> set:
-    """git fetch --prune <remote>; git for-each-ref → UPSERT ref rows; returns the names whose sha changed."""
-    raise NotImplementedError
+from store import alert, event, now
 
 
-def landed(db, repo, target: str, changes: list) -> None:
-    """Only when `target` moved: for each open change of the repo without a landed row for target,
-    git merge-base --is-ancestor <dev head> <target sha> → INSERT landed. A squash or rebase merge upstream is
-    seen through pr_state().merged_at instead."""
-    raise NotImplementedError
+def pid_start(pid) -> int:
+    """The process's start time from /proc: with the pid, the identity of a process."""
+    try:
+        return int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[19])
+    except OSError:
+        return 0
+
+
+def alive(pid, start) -> bool:
+    return bool(pid) and pid_start(pid) == start
+
+
+def fetch(db, T) -> set:
+    """git fetch --prune every remote; for-each-ref → UPSERT ref rows; returns the names whose sha changed."""
+    subprocess.run(["git", "-C", T.path, "fetch", "--all", "--prune", "-q"], capture_output=True)
+    out = subprocess.run(["git", "-C", T.path, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes"],
+                         capture_output=True, text=True).stdout
+    have = {r["name"]: r["sha"] for r in db.execute("SELECT name, sha FROM ref WHERE repo=?", (T.name,))}
+    moved = set()
+    for line in out.splitlines():
+        sha, name = line.split()
+        if have.get(name) != sha:
+            moved.add(name)
+            db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
+                       (T.name, name, sha, now()))
+    for name in set(have) - {l.split()[1] for l in out.splitlines()}:
+        db.execute("DELETE FROM ref WHERE repo=? AND name=?", (T.name, name))
+        moved.add(name)
+    return moved
+
+
+def landed(db, T, target: str, changes: list) -> None:
+    """For each open change of the track with a submission and no landed row for target: its head an ancestor of
+    target's sha → INSERT landed."""
+    sha = db.execute("SELECT sha FROM ref WHERE repo=? AND name=?", (T.name, target)).fetchone()
+    if not sha:
+        return
+    for ch in changes:
+        if db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (ch.slug, target)).fetchone():
+            continue
+        head = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (ch.slug,)).fetchone()
+        if head and subprocess.run(["git", "-C", T.path, "merge-base", "--is-ancestor", head["head"], sha["sha"]]).returncode == 0:
+            db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (ch.slug, target, sha["sha"], now()))
+            event(db, "landed", ch.slug, None, f"{head['head'][:7]} on {target}")
 
 
 def procs(db) -> None:
-    """job rows with a pid and no ended_at whose (pid, pid_start) is gone: read state/<change>/<kind>.rc;
-    a result row written by the script → nothing; else ended_at, exit, INSERT attempt(cause = last log line with
-    hex runs dropped). Exit 75 = a cause outside the head: ok stays NULL and the pass starts it again."""
-    raise NotImplementedError
+    """A job whose (pid, pid_start) is gone: a result recorded by the script → ended_at; else an attempt row with the
+    log's last line as cause (hex runs dropped), the pid cleared so the pass may start it again."""
+    for j in db.execute("SELECT * FROM job WHERE pid IS NOT NULL AND ended_at IS NULL").fetchall():
+        if alive(j["pid"], j["pid_start"]):
+            continue
+        rc = j["log"][:-4] + ".rc"
+        code = int(open(rc).read() or -1) if os.path.exists(rc) else -1
+        db.execute("UPDATE job SET ended_at=?, exit=?, pid=NULL WHERE kind=? AND key=?", (now(), code, j["kind"], j["key"]))
+        if j["ok"] is None:
+            tail = open(j["log"], errors="replace").read().strip().splitlines()[-1:] if os.path.exists(j["log"]) else []
+            cause = re.sub(r"[0-9a-f]{7,}", "", tail[0] if tail else "no output").strip()[:200]
+            db.execute("INSERT INTO attempt(kind, key, cause, exit, at) VALUES (?,?,?,?,?)", (j["kind"], j["key"], cause, code, now()))
+            event(db, "attempt", j["change"], None, f"{j['kind']} {j['key'][:12]} exit {code}: {cause}")
 
 
-def gh(db, url: str):
-    """GET with If-None-Match from gh.etag over one keep-alive connection: 304 → the stored body; 200 → UPSERT;
-    403 on quota → alert('quota') and None (unknown: the step holds)."""
-    raise NotImplementedError
-
-
-def pr_state(db, repo, pr: int):
-    """state, draft, head sha, merged_at, base — from gh()."""
-    raise NotImplementedError
-
-
-def checks(db, repo, sha: str) -> list:
-    """the latest run per check name at sha plus commit statuses — from gh()."""
-    raise NotImplementedError
-
-
-def comments(db, repo, pr: int) -> None:
-    """review and issue comments of the PR: not a bot, not ours → INSERT OR IGNORE finding."""
-    raise NotImplementedError
-
-
-def docker(db) -> set:
-    """running container names (stack recovery)."""
-    raise NotImplementedError
+def sessions(db, definition: str) -> None:
+    """A live session whose pid is gone ended by a crash, with its started runs (they die with their console);
+    a live session whose definition differs from HEAD's is drained."""
+    for s in db.execute("SELECT * FROM session WHERE ended_at IS NULL").fetchall():
+        if not alive(s["pid"], s["pid_start"]):
+            db.execute("UPDATE session SET ended_at=?, end_kind='crash' WHERE id=?", (now(), s["id"]))
+            for r in db.execute("SELECT id, change FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL").fetchall():
+                db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
+                event(db, "ended", r["change"], r["id"], "console died")
+        elif s["definition"] != definition and not s["drain_at"]:
+            db.execute("UPDATE session SET drain_at=?, drain_why='definition moved' WHERE id=?", (now(), s["id"]))
+            event(db, "drain", None, None, "the orchestrator's definition moved: spawn nothing, hd restart once no run is live")
 
 
 def alerts(db) -> None:
-    """UPSERT alert rows from the anomaly queries (ARCHITECTURE §12): attempts, run-lost, runs-per-head, ask-stale, denied,
-    ci-runner, kpi, pin-conflict, quota. Dedup on (kind, subject): count += 1, last_at = now."""
-    raise NotImplementedError
+    """UPSERT alert rows from the anomaly queries (ARCHITECTURE §12)."""
+    for r in db.execute("SELECT kind, key, count(*) n, max(cause) cause FROM attempt GROUP BY kind, key HAVING n>=3"):
+        alert(db, "attempts", f"{r['kind']}:{r['key']}", f"×{r['n']} {r['cause']}")
+    for r in db.execute("""SELECT change, count(*) n FROM run WHERE end_kind IN ('console','stop') AND record IS NULL
+                           GROUP BY change HAVING n>=2"""):
+        alert(db, "run-lost", r["change"], f"{r['n']} runs ended without a record")
+    for r in db.execute("""SELECT r.change, count(*) n FROM run r
+                           WHERE r.listed_at > coalesce((SELECT max(at) FROM submission s WHERE s.change=r.change), '')
+                           GROUP BY r.change HAVING n>5"""):
+        alert(db, "runs-per-head", r["change"], f"{r['n']} runs since the last submission")
+    for r in db.execute("""SELECT a.id, a.change FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE n.ask IS NULL
+                           AND (SELECT count(*) FROM submission s WHERE s.change=a.change AND s.at>a.at) >= 2"""):
+        alert(db, "ask-stale", str(r["id"]), f"ask {r['id']} of {r['change']} open across two submissions")
+    for a in db.execute("SELECT * FROM alert WHERE disposition IS NULL AND NOT EXISTS (SELECT 1 FROM event e WHERE e.kind='alert' AND e.detail LIKE 'alert ' || alert.id || ' %')").fetchall():
+        event(db, "alert", a["change"], None, f"alert {a['id']} {a['kind']} {a['subject']}: {a['detail']}   → hd new --track harness --from-alert {a['id']} --title \"…\" | hd dismiss {a['id']} \"<why>\"")
+
+
+# --- GitHub and docker: phase 2 ----------------------------------------------------------------------------------
+
+def gh(db, url: str):
+    """GET with If-None-Match from gh.etag; 304 → the stored body; 200 → UPSERT; quota → alert('quota'), None."""
+    raise NotImplementedError  # shortcut: phase 2 (publish)
+
+
+def docker(db) -> set:
+    raise NotImplementedError  # shortcut: phase 2 (stack recovery)

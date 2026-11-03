@@ -1,9 +1,12 @@
 #!/bin/bash
 # The orchestrator's supervisor (docs/ARCHITECTURE.md §13): the user runs it once, in their terminal, and chats with the
-# session it runs. A session ends by `hd restart` (drained: context limit or a moved definition), by a crash, or by the
-# user's /exit; the ledger says which, and only the user's exit stops the loop.
+# session it runs. The session runs in a user scope so each run's shell can be moved into the run's own scope. A session
+# ends by `hd restart` (drained: context limit or a moved definition), by a crash, or by the user's /exit; the ledger says
+# which, and only the user's exit stops the loop. The minute timer that runs the pass is started once.
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+systemctl --user is-active -q hd-loop.timer || systemd-run --user --quiet --unit hd-loop --on-calendar='*:*:00' \
+  --timer-property=AccuracySec=1s python3 "$PWD/harness/hd.py" tick
 while :; do
-  claude --agent orchestrator "drive"
-  python3 harness/hd.py session-ended $$ || break
+  systemd-run --user --scope --quiet --unit "hd-orchestrator-$$" -- claude --agent orchestrator "drive"
+  python3 harness/hd.py session-ended || break
 done

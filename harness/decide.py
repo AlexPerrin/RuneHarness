@@ -367,11 +367,11 @@ def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
     for c in open_:
         if cfg.hold and TIERS.index(tier[c.slug]) > TIERS.index(cfg.hold):
             continue
+        s = next(C, c)
         r = L.live_run(c.slug)
-        if r:
+        if r and s is not DONE:
             actions.append(Action(c.slug, Step("wait", f"run {r['id']} {r['role']} {'live' if r['started_at'] else 'listed'}")))
             continue
-        s = next(C, c)
         if s.kind == "run":
             prior = L.run_for(c.slug, s.input)
             if prior:

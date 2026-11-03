@@ -31,16 +31,18 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | file | state |
 |---|---|
 | `harness/store.py` | real: schema (migration 1), `connect()`, `migrate()`, `event()`, `alert()`, the `Ledger` read view |
-| `harness/decide.py` | real for the harness track: `Change`, `Track`, `Cfg`, `Ctx`, every guard of phase 1, `priority()`, `plan()`; `stage_due`, `upstream_dep_wait`, `texts_due`, `card_due`, `approval_wait`, `publish_due`, `measure_due`, `plan_due` return None (marked `shortcut:` for phases 2 and 4) |
-| `harness/observe.py` | real: `fetch`, `landed`, `procs`, `sessions`, `alerts` (attempts, run-lost, runs-per-head, ask-stale); `gh`, `docker` raise (phase 2) |
+| `harness/decide.py` | real: every guard but `measure_due` and `plan_due` (phase 4, marked `shortcut:`); one deploy per staging tree in `plan()` |
+| `harness/observe.py` | real: `fetch` (with trees), `landed`, `procs`, `sessions`, `alerts`, `texts`, `transport`/`gh` (ETag), `pr` (findings, merged), `checks`; `docker` raises |
 | `harness/act.py` | real: `cfg()`, `changes()`, `candidate()`, `seed()`, `clone()`, `brief_text()`/`brief()`, `start()`, `wake()`, `tick()`, `tick_later()` |
-| `harness/hd.py` | real: every command of ARCHITECTURE §8 but `approve` (refuses: no cards yet), `publish`, `triage` (phase 2); `gate` and `candidate` added for the track scripts |
+| `harness/hd.py` | real: every command of ARCHITECTURE §8; `gate`, `candidate` and `stack` added for the track scripts |
 | `harness/hook.py` | real: SessionStart/End, PreToolUse (deny, bind, scope line), PostToolUse (bind, context limit), SubagentStop (the record line, the one refusal) |
 | `harness/kpi.py` | eight queries; the rest of the metrics follow the phase that produces their rows |
-| `harness/publish.py` | signatures and docstrings only (phase 2) |
+| `harness/publish.py` | real: the card (acts and texts from the observed PR and the text rows), the approval, the resumable publish; `tests/test_publish.py` over a fake transport |
 | `harness/orchestrator.sh` | final: the session in a user scope, the `hd-loop` minute timer started once |
 | `.claude/agents/` | orchestrator.md (relative paths), dev.md, qa.md (hd is the brief's command), reader.md |
-| `tracks/harness/` | `track.sh` (recipe, test, gate, ship), `replay.sh`, `track.md` with the two seed criteria |
+| `tracks/harness/` | `track.sh` (recipe, test, gate, ship), `replay.sh`, `track.md`: seeds tests, replay, fork-tools, client-tools |
+| `tracks/fork/`, `tracks/client/` | the tools branches' scripts adapted (no TOOLS_ROOT copies, `hd candidate`/`hd gate`/`hd job`/`hd stack`, build slots by flock, `deploy` of staging, a client `ship` that fast-forwards main); their suites pass (103 and 28 tests) |
+| `.claude/skills/` | accuracy, dupes, pr-text, probe, qa-server, network-qa, qa-client, reverse, in v9 vocabulary |
 | `state/hd.db` | the ledger of the three phase-1 changes (h-kpi-track by hand, h-test-warnings and h-agent-hd by dev agents): the first fixture source for `tests/fixtures/` |
 | `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore`, `tracks/devtools`, `.claude/skills/` | **empty**: copy from the tools branches (below) |
 | `harness/goals/` | client-api.md, server-content.md (its body still describes the old PASSES mechanism), server-content.json |
@@ -69,15 +71,19 @@ path, which the same hook also serves.
 7. Run `harness/orchestrator.sh` from this worktree with a fresh `state/hd.db`, file one harness change with
    `hd new`, and let the loop take it to `landed`.
 
-**Phase 2, the server track** (criteria → dev → build → gate → judge → staging → card → approve → publish →
-finding). Copy `tools/` of `~/src/OpenRune-Server/.worktrees/harness` into `tracks/fork/` and its `.claude/skills/`
-into `.claude/skills/`; add `recipe`, replace `hd rows`/`hd artefact`/`up.json` writes with `hd job`, `hd step` and
-the `stack` table; create `staging` on the fork from upstream `main` plus the pins. `publish.py` and the
-`finding`/`triage` path. Proof: a P2 change to a ready PR after the user's yes, a maintainer finding answered through
-the criterion path, and a publish killed after its push step resuming with the approved texts.
+**Phase 2, the server track: built, proof pending.** The scripts, skills, staging merge, deploy of staging, PR
+observation, findings, triage, card, approval and publish exist and are unit-tested (the publish over a fake
+transport: killed after a step, it resumes with the card's texts). Observed live so far: a fork-only probe (f-probe)
+whose dev built the candidate through `tracks/fork/track.sh build`. Still to observe: the gate job (spotless, gamevals,
+gate-ci on the fork), a judge run with desktops, the first staging merge (which creates `staging` from upstream main
+plus the pins: a pin that no longer merges is alert `pin-conflict`), and the upstream proof (a P2 change to a ready
+PR after the user's yes; a maintainer finding answered; a killed publish resuming), which needs the cutover: the
+deploy script refuses without `state/live/key`, and the open PRs are v8's until then. Comment 6586756996 on PR #448
+is a real triage case waiting.
 
-**Phase 3, the client track**: copy `~/osrs-plugins-reverse/.worktrees/harness-v8/tools/` into `tracks/client/`
-and its skills; the mobile bridge stays in the client repo. Proof: one client change live on `main`.
+**Phase 3, the client track: scripts built, proof pending.** `tracks/client/` and its skills are in; a client
+build needs `state/live/key/client.key` (the live modulus), so the proof (one client change live on `main`) waits for
+the cutover's copy of the live key pair.
 
 **Phase 4, alerts and KPIs**: `kpi.py` queries; the alert kinds; a goal gap listing a plan-mode dev run.
 
@@ -107,8 +113,9 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
 
 ## Known gaps
 
-- `tracks/client`, `tracks/fork`, `tracks/central`, `tracks/filestore` and `.claude/skills/` are declared in ARCHITECTURE
-  and CLAUDE.md but empty on this branch (phases 2 and 3).
+- `tracks/central`, `tracks/filestore` and `tracks/devtools` are declared in ARCHITECTURE but empty on this branch.
+- `tracks/fork/track.sh` `up` loads the desktops' devtools jar from v8's client script (`CLIENT_TRACK` default) until
+  the client track's `build live` is wired (marked `shortcut:`).
 - `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with
   `NODE_PATH=~/.cache/mm/node_modules`.
 - `harness/goals/server-content.md` describes the old measurement; rewrite its body when the ledger query exists.

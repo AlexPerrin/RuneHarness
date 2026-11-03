@@ -241,7 +241,8 @@ def tick(path=None, dry_run=False, offline=False) -> list:
     L = store.Ledger(db)
     open_ = [ch for ch in defs if not L.closed(ch.slug) and ch.track in c.tracks]
     if not offline:
-        for T in {c.tracks[ch.track] for ch in open_}:
+        for T in {ch.track for ch in open_}:
+            T = c.tracks[T]
             moved = observe.fetch(db, T)
             for ch in open_:
                 if ch.track == T.name and T.done_ref(ch) in moved:

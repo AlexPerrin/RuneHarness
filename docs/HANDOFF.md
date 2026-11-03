@@ -130,7 +130,10 @@ Central, FileStore and Developer-Tools tracks (ARCHITECTURE §11) follow the for
 
 ## Known gaps
 
-- `tracks/central`, `tracks/filestore` and `tracks/devtools` are declared in ARCHITECTURE but empty on this branch.
+- `tracks/central` and `tracks/filestore` are built from their repos (in-process Central; FileStore's modules named as
+  their artefacts) but have not run against a real change; `tracks/devtools` waits for the fork of
+  OpenRune-Developer-Tools, which does not exist yet.
+- The `kpi` alert (a metric past its target) is not computed; `hd kpi` prints the metrics.
 - `tracks/fork/track.sh` `up` loads the desktops' devtools jar from v8's client script (`CLIENT_TRACK` default) until
   the client track's `build live` is wired (marked `shortcut:`).
 - `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with

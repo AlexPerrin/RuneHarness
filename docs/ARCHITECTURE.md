@@ -337,7 +337,8 @@ def pr(db, T, ch, ours)                 # the PR's gh row (Ledger.pr reads state
                                         # review comments not by a bot or us → INSERT OR IGNORE finding (+ a triage event);
                                         # merged_at → landed(change, upstream main) (a squash or rebase merge is seen only here)
 def checks(db, upstream, sha) -> list   # the latest check run per name at sha plus commit statuses; None when unknown
-def docker(db) -> set[str]              # running container names (stack recovery)
+def stacks(db, tracks)                  # a stack row (mirrored from up.json by `hd stack`) with no live run → `track.sh down`
+                                        # in the scope hd-down-<slug>, once at a time
 def alerts(db)                          # UPSERT alert rows from the anomaly queries (§12); dedup on (kind, subject)
 ```
 GitHub is read each pass only for public changes with a PR, conditionally (a 304 costs no quota); checks only by a publish.
@@ -544,12 +545,18 @@ flowchart LR
   CEU -->|"a server change bumps the version"| FORK
 ```
 
-- The fork consumes Central and FileStore as published Maven artefacts pinned in `libs.versions.toml`. A server
-  change that depends on a library change names it in `deps`; the library's candidate is built into the server build
-  as a Gradle composite (Central through the fork's `openrune.central.includeBuild`; FileStore through an init script
-  substituting `dev.or2:*` with the project), recorded in `submission.composite_json`, and joins the build key. The
-  test server image carries the composite, so a library change is live on the test server with the first server
-  tree built on it.
+- The fork consumes Central and FileStore as published Maven artefacts pinned in `libs.versions.toml`; the game
+  server runs Central in-process (`central.same-instance`). A server change that depends on a library change names
+  it in `deps`; `hd submit` records the library head and tree in `submission.composite_json`, the job env carries
+  `CENTRAL=<clone>:<head>` / `FILESTORE=<clone>:<head>`, the fork build includes that tree (Central through
+  `build/central.init.gradle`, substituting the three artefacts explicitly; FileStore through
+  `build/filestore.init.gradle`, whose included build substitutes every `dev.or2` module by name, transitively
+  through the `all` POM), and the key and image carry `+c<tree12>` / `+f<tree12>`. The test server image carries
+  the composite, so a library change is live on the test server with the first server tree built on it.
+- `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the slug's
+  gradle home), `test`, `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
+  then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
+  in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits
   (`upstream_dep_wait`) until the library PR is merged and released, then a server change bumps the version.
 - Library gates: `gradle test` on the candidate (FileStore's against the fork's live cache), the text criteria, fork

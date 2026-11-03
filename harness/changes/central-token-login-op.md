@@ -3,6 +3,7 @@ slug: central-token-login-op
 track: central
 priority: P1
 deps:
+- central-rights-test-mod
 - harness-central-build-gradlew
 ---
 # Central: token LOGIN op on the world link (openruneCentral 2.0.3), in the v9 ledger

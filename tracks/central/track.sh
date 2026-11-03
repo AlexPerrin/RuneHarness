@@ -31,10 +31,10 @@ gradle() {  # gradle <tasks...>: in the build copy, in a container, the slug's o
   docker run --rm -v "gradle-central-$slug:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle
   slot docker run --rm --init "${size[@]}" --name "central-$slug-$$" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle \
     -v "gradle-central-$slug:/gradle" -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
-    eclipse-temurin:21 ./gradlew --console=plain --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m "$@"
+    eclipse-temurin:21 bash ./gradlew --console=plain --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m "$@"
 }
 checkout() {  # the build copy at the candidate commit
-  local tc=${TCOMMIT:-$arg}
+  local tc=${TCOMMIT:-${arg:-dev/$slug}}  # no key before the first candidate: the dev ref
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
 }
 case "$verb" in

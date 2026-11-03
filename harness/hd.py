@@ -506,8 +506,8 @@ def cmd_regate(a):
     s = db.execute("SELECT tree FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (a.slug,)).fetchone()
     if not s:
         sys.exit("hd regate: no submission")
-    db.execute("DELETE FROM job WHERE kind='gate' AND key LIKE ? AND pid IS NULL", (s["tree"] + ":%",))
-    db.execute("DELETE FROM attempt WHERE kind='gate' AND key LIKE ?", (s["tree"] + ":%",))
+    db.execute("DELETE FROM job WHERE kind IN ('build', 'gate') AND key LIKE ? AND pid IS NULL", (s["tree"] + ":%",))   # a fixed tool re-runs the build and the gate at the same tree
+    db.execute("DELETE FROM attempt WHERE kind IN ('build', 'gate') AND key LIKE ?", (s["tree"] + ":%",))
     db.execute("DELETE FROM check_result WHERE tree=?", (s["tree"],))
     event(db, "regate", a.slug, None, s["tree"][:12])
     act.tick_later()

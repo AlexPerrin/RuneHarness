@@ -264,12 +264,14 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted dep joins the candidate
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate;
+                       # a dep on another track (a harness fix, a library) must land or close
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate, or a merge conflict / CI failure / missing text
-                       # → run dev/code; the input digests the tip, the reasons and the answers since the submission
+                       # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
+                       # deps that have landed (a blocker filed by the dev lands → the dev runs again)
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
@@ -464,7 +466,7 @@ sequenceDiagram
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |
 | `hd scope <run>` | the hook, before every Bash command of a run | moves the calling shell into `hd-run-<id>.scope` (created with a placeholder sleep); silent when the user manager refuses |
-| `hd regate <slug>` | orchestrator, a harness dev | deletes job(gate) and check_result at the current candidate |
+| `hd regate <slug>` | driver, a harness dev | deletes job(build), job(gate) and check_result at the current candidate: a fixed tool re-runs them at the same tree |
 | `hd kpi` | anyone | nothing: the harness goal's metrics |
 | `hd commit <paths> -m` | orchestrator | a pathspec commit as Alex Perrin with the co-author line; pushes the live branch |
 | `hd restart` | orchestrator, once `hd` prints `drain` and no run of it is live | session.ended_at, end_kind=restart; exits the claude process |

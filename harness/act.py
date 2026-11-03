@@ -51,7 +51,7 @@ def cfg() -> Cfg:
             out = subprocess.run([script, "recipe"], capture_output=True, text=True).stdout
             recipes = dict(line.split(None, 1) for line in out.splitlines() if " " in line)
         path = os.path.normpath(os.path.join(ROOT, os.path.expanduser(r["path"])))
-        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""))
+        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""), tuple(r.get("pins") or ()))
     return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3))
 
 
@@ -121,7 +121,7 @@ def candidate(path, base: str, heads: list) -> tuple:
 
 
 def stage(db, ch, T, head: str) -> None:
-    """Merge a checked head into the fork's staging (worktree <repo>/.worktrees/staging, created from base plus hd.yaml's pins
+    """Merge a checked head into the track's staging (worktree <repo>/.worktrees/staging, created from base plus the track's pins
     once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <files>'), the dev's step
     (dev_due); a pin that no longer merges → alert('pin-conflict')."""
     wt = os.path.join(T.path, ".worktrees", "staging")
@@ -130,7 +130,7 @@ def stage(db, ch, T, head: str) -> None:
             git(T.path, "worktree", "add", wt, "staging")
         else:
             git(T.path, "worktree", "add", "-b", "staging", wt, T.base)
-            for pin in yaml.safe_load(open(os.path.join(ROOT, "hd.yaml"))).get("pins") or []:
+            for pin in T.pins:
                 r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", f"{T.remote}/{pin}"], capture_output=True, text=True)
                 if r.returncode:   # all or nothing: the next pass starts again once the pin merges (the user's rebase of it)
                     git(wt, "merge", "--abort", check=False)

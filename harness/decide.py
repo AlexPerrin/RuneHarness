@@ -51,6 +51,7 @@ class Track:
     prefix: str = "dev"     # dev branch prefix
     recipes: dict = field(default_factory=dict)   # verb → version string from `track.sh recipe`
     remote: str = ""        # the remote dev refs are pushed to; "" when the dev ref stays local (the harness)
+    pins: tuple = ()        # the fork's permanent local branches, merged into staging after the base, in order
 
     def dev_ref(self, ch):
         if ch.branch:

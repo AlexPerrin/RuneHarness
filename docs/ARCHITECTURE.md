@@ -20,7 +20,7 @@ harness/kpi.py         hd kpi: one query per harness goal metric
 harness/hook.py        SessionStart/End (the orchestrator's session), PreToolUse/PostToolUse (bind a run on its brief, two
                        denials, the scope line, the context limit), SubagentStop (the hand-back line)
 harness/orchestrator.sh  the supervisor (§13)
-hd.yaml                repos {name, path, base, prefix?, upstream?}, builds, agents, context_limit, hold, pins
+hd.yaml                repos {name, path, base, prefix?, upstream?, remote?, pins?}, builds, agents, context_limit, hold
 tracks/<repo>/         track.sh (recipe | build | up | down | gate | ship | measure | log | test), track.md (rules, seed
                        criteria), the repo's scripts (the harness: replay.sh); the product repos hold product code only
 .claude/agents/        driver.md, orchestrator.md, dev.md, qa.md, reader.md
@@ -532,6 +532,7 @@ decide.py takes a Ledger and never runs a subprocess, so it is tested over real 
 | `filestore` AlexPerrin/OpenRune-FileStore | OpenRune/OpenRune-FileStore | upstream `main` → `dev/<slug>` | the cache library: I/O, every config codec, gameval references, packing |
 | `devtools` AlexPerrin/OpenRune-Developer-Tools | OpenRune/OpenRune-Developer-Tools | upstream `main` → `dev/<slug>` | the in-client MCP plugin both game clients are driven through |
 | `harness` AlexPerrin/osrs-harness | — | live branch → `harness/<slug>` | this repo |
+| `lab` AlexPerrin/pr-lab | itself | `main` → `dev/<slug>` | the PR lab: a repo of our own as its own upstream, so every GitHub path of the loop (a PR, CI, comments, a merge landing) runs without a maintainer; its CI fails on a root file named `FAIL` |
 
 ```mermaid
 flowchart LR

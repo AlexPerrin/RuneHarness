@@ -880,7 +880,7 @@ class Repo(unittest.TestCase):
         git(s.repo, "update-ref", "refs/remotes/origin/main", "HEAD")
         s.base = git(s.repo, "rev-parse", "HEAD")
         s.hd = tempfile.mkdtemp()
-        Path(s.hd, "hd.yaml").write_text("pins:\n  - x\n")   # the pins come from hd.yaml alone, never the env
+        Path(s.hd, "hd.yaml").write_text("repos:\n  fork:\n    pins:\n      - x\n")   # the pins come from hd.yaml alone, never the env
         s.env = {"CLONE": s.repo, "HD_ROOT": s.hd, "SLUG": "s1", "BASE": s.base}
 
     def tearDown(s):

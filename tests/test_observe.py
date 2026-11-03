@@ -119,17 +119,18 @@ class Observe(unittest.TestCase):
         (root / "tracks/harness").mkdir(parents=True)
         (root / "tracks/harness/track.sh").write_text("exit 0\n")
         (root / "tracks/harness/track.sh").chmod(0o755)
-        unit = "hd-h-one-measure-retryscope0-"
+        k11 = f"r{os.getpid():010d}"  # unique per suite run: concurrent gates share the user systemd
+        unit = f"hd-h-one-measure-{k11}-"
         self.addCleanup(subprocess.run, ["systemctl", "--user", "stop", unit + ".scope"], capture_output=True)
         subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit, "--", "bash", "-c", "sleep 300 &"], check=True)
         saved = act.ROOT, act.STATE, act.job_env
         act.ROOT, act.STATE, act.job_env = str(root), str(root / "state"), lambda db, ch, T, s, **more: dict(os.environ, **more)
         try:
-            act.start(self.db, Step("measure", "t", key="retryscope0:script"), self.ch, self.T)
+            act.start(self.db, Step("measure", "t", key=f"{k11}:script"), self.ch, self.T)
         finally:
             act.ROOT, act.STATE, act.job_env = saved
         os.waitpid(self.db.execute("SELECT pid FROM job").fetchone()[0], 0)
-        self.assertEqual(Path(root, "state/h-one", "measure-retryscope0-.rc").read_text(), "0\n")
+        self.assertEqual(Path(root, "state/h-one", f"measure-{k11}-.rc").read_text(), "0\n")
 
 if __name__ == "__main__":
     unittest.main()

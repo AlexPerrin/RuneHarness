@@ -36,7 +36,7 @@ class Base(unittest.TestCase):
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-one', ?, ?, ?, 't1')", (TIP, TREE, TC))
 
     def run_row(self, input, **kw):
-        cols = dict(change="h-one", role="dev", mode="code", input=input, brief="b", listed_at="t", **kw)
+        cols = {**dict(change="h-one", role="dev", mode="code", input=input, brief="b", listed_at="t"), **kw}
         self.db.execute(f"INSERT INTO run({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", tuple(cols.values()))
 
 

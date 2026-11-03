@@ -55,6 +55,7 @@ def live_run(db, slug):
 
 def write_change(ch_slug, fm: dict, body: str):
     import yaml
+    os.makedirs(CHANGES, exist_ok=True)
     open(os.path.join(CHANGES, f"{ch_slug}.md"), "w").write("---\n" + yaml.safe_dump(fm, sort_keys=False) + "---\n" + body)
 
 

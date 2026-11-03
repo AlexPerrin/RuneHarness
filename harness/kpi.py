@@ -8,7 +8,7 @@ QUERIES = [
     ("successor runs", "0",
      "SELECT count(*) FROM run r WHERE EXISTS (SELECT 1 FROM run p WHERE p.change=r.change AND p.id<r.id AND p.input=r.input AND p.end_kind IN ('console','handoff'))"),
     ("harness share of runs", "<15%",
-     "SELECT printf('%d of %d', sum(change IN (SELECT change FROM run WHERE brief LIKE '%' )), count(*)) FROM run"),
+     "SELECT printf('%d of %d', sum(change IN (SELECT value FROM json_each(:harness))), count(*)) FROM run"),
     ("jobs per tree (build, gate)", "1.0",
      "SELECT printf('%.2f', 1.0*count(*)/max(1, count(DISTINCT substr(key,1,40)))) FROM job WHERE kind IN ('build','gate')"),
     ("ships per change > 1", "0",
@@ -20,8 +20,12 @@ QUERIES = [
 
 
 def report(db) -> str:
+    import json
+
+    import act
+    harness = json.dumps([c.slug for c in act.changes() if c.track == "harness"])
     out = []
     for name, target, sql in QUERIES:
-        row = db.execute(sql).fetchone()
+        row = db.execute(sql, {"harness": harness} if ":harness" in sql else {}).fetchone()
         out.append(f"{name:<36} {str(row[0]) if row else '-':<12} target {target}")
     return "\n".join(out)

@@ -465,7 +465,7 @@ sequenceDiagram
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |
 | `hd scope <run>` | the hook, before every Bash command of a run | moves the calling shell into `hd-run-<id>.scope` (created with a placeholder sleep); silent when the user manager refuses |
-| `hd regate <slug>` | orchestrator, a harness dev | deletes job(gate) and check_result at the current candidate |
+| `hd regate <slug>` | driver, a harness dev | deletes job(build), job(gate) and check_result at the current candidate: a fixed tool re-runs them at the same tree |
 | `hd kpi` | anyone | nothing: the harness goal's metrics |
 | `hd commit <paths> -m` | orchestrator | a pathspec commit as Alex Perrin with the co-author line; pushes the live branch |
 | `hd restart` | orchestrator, once `hd` prints `drain` and no run of it is live | session.ended_at, end_kind=restart; exits the claude process |

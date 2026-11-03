@@ -46,6 +46,15 @@ class Hook(unittest.TestCase):
         self.assertEqual((r["end_kind"], r["record"][:18]), ("handback", "run 1: submitted a"))
         self.assertEqual(hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "run 1: PASS"}), {})  # already ended
 
+    def test_handback_as_a_tool_call_ends_the_run_and_a_wrong_line_is_denied(self):
+        self.db.execute("UPDATE run SET agent_id='ag1', started_at='t' WHERE id=1")
+        out = hook.pre_tool_use({"tool_name": "SubagentHandback", "tool_input": {"message": "done, see above"}, "agent_id": "ag1", "transcript_path": "/x/s.jsonl", "session_id": "s"})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        out = hook.pre_tool_use({"tool_name": "SubagentHandback", "tool_input": {"message": "run 1: handoff"}, "agent_id": "ag1", "transcript_path": "/x/s.jsonl", "session_id": "s"})
+        self.assertEqual(out, {})
+        r = self.db.execute("SELECT end_kind, record FROM run WHERE id=1").fetchone()
+        self.assertEqual((r["end_kind"], r["record"]), ("handoff", "run 1: handoff"))
+
     def test_a_run_waiting_on_a_background_task_is_left_alone(self):
         self.db.execute("UPDATE run SET agent_id='ag1', started_at='t' WHERE id=1")
         out = hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "waiting for the build", "stop_hook_active": False,

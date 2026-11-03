@@ -81,8 +81,18 @@ def bind(db, agent, run_id):
 
 
 def tool_text(e) -> str:
-    ti = e.get("tool_input", {})
-    return ti.get("command", "") if e.get("tool_name") == "Bash" else ti.get("file_path", "")
+    ti, name = e.get("tool_input", {}), e.get("tool_name")
+    return ti.get("command", "") if name == "Bash" else ti.get("message", "") if name == "SubagentHandback" else ti.get("file_path", "")
+
+
+def end(db, r, line, m, tpath=""):
+    """The run ends on its record line: end_kind handback (or handoff), its scope stopped, a pass started."""
+    db.execute("UPDATE run SET ended_at=?, end_kind=?, record=?, usage_json=?, transcript=? WHERE id=?",
+               (now(), "handoff" if m.group(2) == "handoff" else "handback", line,
+                json.dumps({"context_tokens": context_tokens(tpath)}), tpath, r["id"]))
+    event(db, "ended", r["change"], r["id"], line)
+    act.stop_scope(r["id"])
+    act.tick_later()
 
 
 def pre_tool_use(e):
@@ -106,6 +116,14 @@ def pre_tool_use(e):
         r = bind(db, agent, int(m.group(1))) if m else None
         if not r:
             return {}
+    if name == "SubagentHandback":   # the hand-back as a tool call: its message is the line
+        line = text.strip().splitlines()[-1].strip() if text.strip() else ""
+        m = store.RECORD.match(line)
+        if m and int(m.group(1)) == r["id"]:
+            end(db, r, line, m, os.path.join(os.path.dirname(e["transcript_path"]), e["session_id"], "subagents", f"agent-{agent}.jsonl"))
+            return {}
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                       "permissionDecisionReason": f"Hand back exactly one line and nothing beside it: run {r['id']}: <record>, as the brief's last section says."}}
     if name == "Bash":
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                        "updatedInput": {**ti, "command": f"{HD} scope {r['id']}; {ti['command']}"}}}
@@ -155,11 +173,8 @@ def subagent_stop(e):
     if not r:
         return {}
     if m and int(m.group(1)) == r["id"]:
-        tpath = e.get("agent_transcript_path", "")
-        db.execute("UPDATE run SET ended_at=?, end_kind=?, record=?, usage_json=?, transcript=? WHERE id=?",
-                   (now(), "handoff" if m.group(2) == "handoff" else "handback", line,
-                    json.dumps({"context_tokens": context_tokens(tpath)}), tpath, r["id"]))
-        event(db, "ended", r["change"], r["id"], line)
+        end(db, r, line, m, e.get("agent_transcript_path", ""))
+        return {}
     elif e.get("background_tasks"):
         return {}
     elif not e.get("stop_hook_active"):

@@ -7,7 +7,7 @@
       {"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "PreToolUse": [
-      {"matcher": "Bash|Read", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|Read|SubagentHandback", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "PostToolUse": [
       {"matcher": "Bash|Read|Edit|Write|Agent|TaskStop|SendMessage|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*|mcp__osrs-devtools-mobile__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}

@@ -9,8 +9,8 @@ judgments bound to T or to the head, its targets, and the runs that worked it. O
 docker, processes) and does the first unmet step of every change: a script, an agent to spawn, or a card for the user.
 
 ```
-python3 hd.py                 # a pass, then the view: spawns, cards, questions, runs, goals, changes, alerts
-python3 hd.py tick --dry-run  # the view, changing nothing
+python3 harness/hd.py                 # a pass, then the view: spawns, cards, questions, runs, goals, changes, alerts
+python3 harness/hd.py tick --dry-run  # the view, changing nothing
 python3 -m unittest discover -s tests
 ```
 

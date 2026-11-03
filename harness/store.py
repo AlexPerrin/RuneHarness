@@ -31,6 +31,16 @@ CREATE TABLE run (
 );
 CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;
 
+CREATE TABLE session (
+  id INTEGER PRIMARY KEY, pid INTEGER NOT NULL, pid_start INTEGER NOT NULL, session_id TEXT UNIQUE,
+  definition TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  drain_at TEXT, drain_why TEXT,
+  ended_at TEXT, end_kind TEXT CHECK (end_kind IN ('restart','exit','crash')),
+  seen_event INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX session_live ON session(pid) WHERE ended_at IS NULL;
+
 CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
   tree TEXT NOT NULL, tcommit TEXT NOT NULL, composite_json TEXT, tools_json TEXT,

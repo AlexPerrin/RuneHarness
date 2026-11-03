@@ -92,19 +92,19 @@ Acceptance: docs/ACCEPTANCE.json, one test class per R over recorded ledger snap
 ### 3.1 Files
 
 ```
-hd.py            argparse front: one function per command (§3.8), ~300 lines
-store.py         connect(), MIGRATIONS, typed query helpers; the only module that opens hd.db, ~350
-observe.py       world → ledger: fetch, refs, landed, gh (ETag), procs, docker, ~250
-decide.py        ledger → Step per change, plan() for the pass; imports no subprocess, ~350
-act.py           start a script in a systemd scope, write a brief, compute T, wake the orchestrator, ~250
-carry.py         card() builds steps+texts; ship() executes carry_step rows, ~250
-hook.py          SubagentStart/Stop, PreToolUse (2 rules + scope line), PostToolUse (context limit), ~150
-kpi.py           the queries behind `hd kpi`, ~100
+harness/hd.py    argparse front: one function per command (§3.8), ~300 lines
+harness/store.py connect(), MIGRATIONS, typed query helpers; the only module that opens hd.db, ~350
+harness/observe.py world → ledger: fetch, refs, landed, gh (ETag), procs, docker, ~250
+harness/decide.py ledger → Step per change, plan() for the pass; imports no subprocess, ~350
+harness/act.py   start a script in a systemd scope, write a brief, compute T, wake the orchestrator, ~250
+harness/carry.py card() builds steps+texts; ship() executes carry_step rows, ~250
+harness/hook.py  SubagentStart/Stop, PreToolUse (2 rules + scope line), PostToolUse (context limit), ~150
+harness/kpi.py   the queries behind `hd kpi`, ~100
 hd.yaml          repos {name, path, tools, upstream?}, agents, context_limit, hold, pins
 tools/track.sh   the harness track: test | gate | ship | recipe
 tools/track.md   the harness track's rules and seed rows
 .claude/agents/  orchestrator.md (≤20 lines), dev.md, qa.md, reader.md      (no planner, no monitor: §3.13)
-harness/goals/*.md  harness/changes/*.md     definitions, committed (format unchanged)
+harness/goals/*.md  harness/changes/*.md     definitions, committed (format unchanged), beside the code
 evidence/<slug>/    accuracy.md pr-title.txt pr-body.md pr-comment.md pr-reply-<id>.md handoff.md ...
 state/hd.db         the ledger        state/<slug>/*.log   script logs      state/briefs/<run>.md
 state/wake.orchestrator                 one line per new spawn/card/question/triage/alert (inotify target)
@@ -139,6 +139,16 @@ CREATE TABLE run (
   usage_json  TEXT, transcript TEXT
 );
 CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;   -- at most one live run per change
+
+CREATE TABLE session (                                 -- the orchestrator, lifecycled like a run (§3.16)
+  id INTEGER PRIMARY KEY, pid INTEGER NOT NULL, pid_start INTEGER NOT NULL, session_id TEXT UNIQUE,
+  definition TEXT NOT NULL,                            -- blob of orchestrator.md + .mcp.json it started on
+  started_at TEXT NOT NULL,
+  drain_at TEXT, drain_why TEXT,                       -- the hook (context limit) or the pass (definition moved) set it
+  ended_at TEXT, end_kind TEXT CHECK (end_kind IN ('restart','exit','crash')),
+  seen_event INTEGER NOT NULL DEFAULT 0                -- the last event id its `hd` view printed: the view is a delta
+);
+CREATE UNIQUE INDEX session_live ON session(pid) WHERE ended_at IS NULL;
 
 CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
@@ -539,7 +549,7 @@ refused the yes.
 | `hd regate <slug>` | orchestrator (the user's word), a harness dev | DELETE artefact(gate) and row_result for the change's current T |
 | `hd kpi` | anyone | nothing (queries) |
 | `hd commit <paths> -m` | orchestrator | pathspec commit as Alex Perrin + co-author line, push live branch |
-| `hd restart` | orchestrator | writes state/orchestrator-handoff.md, exits the session (orchestrator.sh restarts) |
+| `hd restart` | orchestrator (when `hd` prints `drain` and no run of it is live) | session.ended_at, end_kind='restart'; exits the claude process; orchestrator.sh starts the next (§3.16) |
 
 Sample `hd` output:
 ```
@@ -552,7 +562,7 @@ card   goblin-367 @def7f2c  PR OpenRune/OpenRune-Server#367 (update)
        4 comment                        ── text ──  <push summary> <reply to #r1734 quoting it, @maintainer>
        5 ready
        verdict PASS (run 201)  evidence/goblin-367/
-       yes: ! python3 ~/osrs-harness/hd.py approve goblin-367 def7f2c   no: hd hold goblin-367 "<why>"   close: ! … close goblin-367 "<why>"
+       yes: ! python3 ~/osrs-harness/harness/hd.py approve goblin-367 def7f2c   no: hd hold goblin-367 "<why>"   close: ! … close goblin-367 "<why>"
 question hunter-408  "Row dupes-3 needs the shop sell path: (a) add dep server-shop-sell  (b) waive dupes-3  (c) accept-difference 'shop sell not in scope'"
 triage   #448 comment 2201 by <maintainer>: "Could you also update the FileStore side?"
 runs     7/7 live: 210 dev genie-355 (41 turns) …
@@ -567,7 +577,7 @@ flowchart LR
   H --> G["gate at T = merge-tree(live tip, head)"]
   subgraph GR["gate rows"]
     G --> T1["tests: unittest at T"]
-    G --> T2["replay: cp state/hd.db snap.db;<br/>python3 T/hd.py tick --dry-run --db snap.db --offline > cand;<br/>python3 live/hd.py … > live; diff"]
+    G --> T2["replay: cp state/hd.db snap.db;<br/>python3 T/harness/hd.py tick --dry-run --db snap.db --offline > cand;<br/>python3 live/harness/hd.py … > live; diff"]
     G --> T3["docs: docfmt --check"]
     G --> T4["tools: each carried tools head ff + tests"]
   end
@@ -631,7 +641,7 @@ kill, pgrep, timeout, loops or desktop ports (the slice and the devtools bearer 
 name: orchestrator
 description: Drives the harness loop and is the user's chat. Spawns and stops runs. Writes no code.
 ---
-`hd` is `python3 ~/osrs-harness/hd.py`. You hold no state.
+`hd` is `python3 ~/osrs-harness/harness/hd.py`. You hold no state: the ledger holds every card shown, question asked and alert disposed.
 1. Arm the watch (Monitor, timeout 1800000): `inotifywait -qm -e close_write --format %f ~/osrs-harness/state | grep --line-buffered -x wake.orchestrator | while read f; do cat ~/osrs-harness/state/$f; done`. Re-arm before every idle.
 2. On a wake, a hand-back, the user's words or the watch's expiry: run `hd` and do what each section says:
    spawn → call Agent exactly as printed, in the background; card → show it whole; question → ask in your reply;
@@ -641,7 +651,8 @@ description: Drives the harness loop and is the user's chat. Spawns and stops ru
 3. A hand-back is one line: TaskStop that agent. Any other notification: leave it.
 4. The user's words: a change → `hd new`; an answer → `hd answer <slug> <option> "<words>"`; wait/no → `hd hold`;
    an instruction to a live run → SendMessage. Their yes and close are theirs (`! hd approve|close`). Commit definitions with `hd commit`.
-5. `hd` prints `restart` → `hd restart` (tools/orchestrator.sh starts your successor with the hand-off).
+5. `hd` prints `drain` (your context is near its limit, or your definition moved): spawn nothing, go on with every other
+   section, and once `hd` shows no run of yours live run `hd restart`: tools/orchestrator.sh starts your successor.
 Never: approve, close, product code, EnterWorktree, AskUserQuestion, a pass in a subagent. Times US Eastern.
 ```
 dev.md / qa.md / reader.md: v8's substance, rewritten short, one wait rule (foreground; a step still
@@ -825,6 +836,56 @@ consumes the fork head (the `REV` pin becomes the gated head) until upstream mer
 desktop and mobile at once and upstream when accepted. The harness keeps only transport in `mcp/`: `.mcp.json` names
 `osrs-mcp.sh`, the desktop bridge and the client repo's `devtools-mcp.sh` directly; `servers.json` and `serve.py` go.
 
+### 3.16 The orchestrator's lifecycle
+
+The orchestrator is a session with the same lifecycle as a run: bound by a hook when it starts, measured by the hook
+as it works, drained when a fact says it must end, ended by its own exit, replaced by a supervisor. It holds no
+state, so there is no hand-off file: its successor's first `hd` shows the same cards, questions and alerts.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Starting : tools/orchestrator.sh runs `claude --agent orchestrator`
+  Starting --> Serving : SessionStart hook INSERT session(pid, definition blob)
+  Serving --> Serving : wake / hand-back / user words → `hd` (delta since seen_event) → act
+  Serving --> Draining : hook: transcript bytes > context_limit → drain_at\n pass: HEAD's orchestrator.md or .mcp.json blob ≠ session.definition → drain_at
+  Draining --> Draining : `hd` lists no spawn; cards, questions, triage, alerts go on; live runs hand back
+  Draining --> Ended : no live run bound to this session → `hd restart` → end_kind=restart, exit 0
+  Serving --> Ended : user /exit → end_kind=exit (observe.procs: pid gone)
+  Serving --> Ended : crash → end_kind=crash (pid gone, no restart row)
+  Ended --> Starting : end_kind in (restart, crash) → orchestrator.sh loops
+  Ended --> [*] : end_kind=exit → orchestrator.sh stops
+```
+
+```bash
+# tools/orchestrator.sh — the supervisor, run once by the user in their terminal (the session must be visible: A2)
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+while :; do
+  claude --agent orchestrator "drive"
+  python3 harness/hd.py session-ended $$ || break     # exit 1 when the ended session's end_kind is 'exit' (the user's)
+done
+```
+
+What each piece does:
+- **Bind**: the SessionStart hook writes the `session` row with the pid and the blobs of `orchestrator.md` and
+  `.mcp.json` it loaded (both are read by Claude Code once, at start). `hd` run from that session finds its row by
+  the calling pid's ancestry, so the view is per session.
+- **Delta view**: `hd` prints spawns, cards, questions, triage lines and alerts with `event.id > session.seen_event`
+  and updates `seen_event`. A card is shown once per (head, texts) per session, so a session's context grows with
+  events, not with passes. v8's orchestrator re-read the whole view every wake; this is why v8 needed 46 hand-offs
+  at a 150k limit and then an 800k limit.
+- **Drain**: two facts set `drain_at`: the PostToolUse hook when the transcript passes `context_limit`, and the pass
+  when HEAD's definition or MCP config differs from the session's blob (a shipped harness change). While draining,
+  `decide.plan` lists no spawn (runs it spawned die with it: A2), everything else proceeds, and `hd` prints `drain`
+  with the reason. The user's `/exit` is also an end; the supervisor stops on it.
+- **End**: the orchestrator runs `hd restart` once no run of its session is live: the command writes `end_kind`
+  and exits the claude process. The supervisor asks the ledger why the session ended and loops or stops. A crash is
+  seen by `observe.procs` (pid gone with no end row) and looped too. Listed, unspawned runs survive the restart as
+  rows; the successor's first `hd` spawns them.
+- **No special cases kept from v8**: no definition re-read into a live session, no hand-off file, no
+  `orchestrator-started`/`restarting` flag files, no supervisor detection by fd 255, no "restart alert" plumbing.
+  The cost is that a definition change is a drain, which is rare because the definition says only "run `hd` and do
+  what it prints" (§3.12).
+
 ---
 
 ## 4. What v8 has that v9 does not
@@ -839,7 +900,7 @@ desktop and mobile at once and upstream when accepted. The harness keeps only tr
 | mechanisms, auto-joins, limit-of, supersedes | `--blocks`, `--on`, `hd fold` | 98 joins + 55 limit filings in a day |
 | the pass ends runs whose step moved → successors | a run ends only by its own hand-back, stop, close, console | 49 successor runs |
 | 14 hook text rules | 2 denials + scope line + context limit | ≥7 of 122 denials wrong |
-| orchestrator blob reread, restart alerts, 72-line definition | 15 lines executing `hd`'s text | definition stops changing |
+| orchestrator blob reread, restart alerts, hand-off file, flag files, 72-line definition | a `session` row lifecycled like a run: bind, delta view, drain, `hd restart`, a 5-line supervisor (§3.16) | definition stops changing; the ledger is the hand-off |
 | always-on monitor sweep agent, planner role | typed `alert` rows from the ledger, dispositioned by the orchestrator, fixed by a harness dev (§3.13) | interfered with dev/qa; 331 filings, 38% regressions |
 | 116 `gh api` + 91 `merge-base` per pass | `ref`/`landed`/`gh` rows written on change only | 15–44 s CPU per pass |
 | 5,123 lines of tests over fakes | decide over ledger snapshots; small observer tests | fakes hid the stale-ref bug |

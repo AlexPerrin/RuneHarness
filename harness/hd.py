@@ -28,7 +28,8 @@ COMMANDS = {
     "regate":   ("orchestrator, a harness dev", "drops artefact(gate) and row_result at the current T"),
     "kpi":      ("anyone", "nothing"),
     "commit":   ("orchestrator", "a pathspec commit as Alex Perrin, pushed"),
-    "restart":  ("orchestrator", "state/orchestrator-handoff.md; exits the session"),
+    "restart":  ("orchestrator, once hd prints drain and no run of it is live", "session.end_kind='restart'; exits the claude process"),
+    "session-ended": ("tools/orchestrator.sh", "exit 1 when the ended session's end_kind is 'exit' (the user's), else 0: loop"),
 }
 
 

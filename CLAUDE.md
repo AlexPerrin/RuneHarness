@@ -11,19 +11,19 @@ module skeletons), then docs/V9-BRIEF.md (what v8 did, measured). v8 as built, i
 are on branch `v8` (merged into `main`), context only.** Every session and agent runs from this repo.
 
 ```
-hd.py          the commands (thin): hd | tick | new | fold | show | row | handover | verdict | ask | answer | triage | hold | approve | close | ship | artefact | step | fault | dismiss | stop | scope | regate | kpi | commit | restart
-store.py       the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
-observe.py     world → ledger: fetch, refs, landed, GitHub (ETag), procs, docker, alerts
-decide.py      ledger → Step: next(change) over the ordered guards, plan() for the pass; pure, no subprocess
-act.py         Step → world: trees, keys, scripts in systemd scopes, integration merges, briefs, the wake
-carry.py       the card (recorded acts and texts) and the carry (logged steps, resume)
-kpi.py         hd kpi: one query per harness metric
-hook.py        SubagentStart/Stop, PreToolUse (approve/close denied, the scope line), PostToolUse (the context limit)
+harness/hd.py  the commands (thin): hd | tick | new | fold | show | row | handover | verdict | ask | answer | triage | hold | approve | close | ship | artefact | step | fault | dismiss | stop | scope | regate | kpi | commit | restart
+harness/store.py the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
+harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), procs, docker, alerts
+harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; pure, no subprocess
+harness/act.py Step → world: trees, keys, scripts in systemd scopes, integration merges, briefs, the wake
+harness/carry.py the card (recorded acts and texts) and the carry (logged steps, resume)
+harness/kpi.py hd kpi: one query per harness metric
+harness/hook.py SubagentStart/Stop, PreToolUse (approve/close denied, the scope line), PostToolUse (the context limit)
 hd.yaml        the repos, the agent count, the context limit, the held band, the pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
 .claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, reader (a run's read-only lookup); product repos hold the judgment skills
-harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover); state/ and evidence/ at the root are git-ignored
+harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover) beside the modules above; state/ and evidence/ at the root are git-ignored
 docs/          V9-PROPOSAL.md (the design), V9-BRIEF.md (v8 measured); PROBLEM.md, PRD.md and ARCHITECTURE.md are rewritten from the proposal as the build lands
 tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, carry, hook small)
 ```
@@ -31,7 +31,7 @@ tests/         python3 -m unittest discover -s tests   (decide over recorded led
 Runs are spawned by the orchestrator session only (`tools/orchestrator.sh`, which runs `claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
 the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
 (its head, acts and exact texts) and carried by `hd ship` only after the user's yes: their own
-`! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
+`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the orchestrator's window.
 
 ## Iteration protocol
 docs/V9-PROPOSAL.md is the source of truth until docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are rewritten from it; then they are. Every iteration reads them first,

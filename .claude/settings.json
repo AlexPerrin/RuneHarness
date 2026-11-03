@@ -1,19 +1,19 @@
 {
   "hooks": {
     "SessionStart": [
-      {"matcher": "startup|compact", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "startup|compact", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "SubagentStart": [
-      {"matcher": "dev|qa", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "dev|qa", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "PreToolUse": [
-      {"matcher": "Bash|Monitor|SubagentHandback|AskUserQuestion|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|Monitor|SubagentHandback|AskUserQuestion|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "PostToolUse": [
-      {"matcher": "Bash|Read|Edit|Write|Agent|TaskStop|SendMessage|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 10}]}
+      {"matcher": "Bash|Read|Edit|Write|Agent|TaskStop|SendMessage|Grep|Glob|mcp__osrs-mcp__.*|mcp__osrs-devtools-desktop__.*", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 10}]}
     ],
     "SubagentStop": [
-      {"matcher": "dev|qa", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/hook.py", "timeout": 30}]}
+      {"matcher": "dev|qa", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/harness/hook.py", "timeout": 30}]}
     ]
   }
 }

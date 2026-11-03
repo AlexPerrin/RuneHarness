@@ -255,9 +255,10 @@ class Ledger:
         """Starts of a key without a result since `since` (the harness's last landing: a fix that landed lets a job run again)."""
         return self.one("SELECT count(*) n FROM attempt WHERE kind=? AND key=? AND at>?", kind, key, since)["n"]
 
-    def harness_moved_at(self, harness):
-        row = self.one("SELECT seen_at FROM ref WHERE repo=? AND name=?", harness.name, harness.base)
-        return row["seen_at"] if row else ""
+    def harness_shipped_at(self, harness):
+        """When a harness change last shipped (a fix landed), not any commit of its branch."""
+        row = self.one("SELECT max(ended_at) t FROM job WHERE kind='ship' AND ok=1 AND key LIKE ?", harness.base + ":%")
+        return row["t"] or ""
 
     def live_run(self, slug):
         return self.one("SELECT * FROM run WHERE change=? AND ended_at IS NULL", slug)

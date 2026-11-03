@@ -126,8 +126,8 @@ def job_due(C, kind, k):
         return Step("wait", f"{kind} failed: {j['detail']}")
     if j and j["pid"] and not j["ended_at"]:
         return Step("wait", f"{kind} running ({short(k)})")
-    if C.L.attempts(kind, k, C.L.harness_moved_at(C.cfg.tracks["harness"])) >= ATTEMPTS:
-        return Step("wait", f"{kind} {short(k)}: {ATTEMPTS} starts without a result since the harness last moved")
+    if C.L.attempts(kind, k, C.L.harness_shipped_at(C.cfg.tracks["harness"])) >= ATTEMPTS:
+        return Step("wait", f"{kind} {short(k)}: {ATTEMPTS} starts without a result since the harness last shipped")
     return Step(kind, f"{kind} {short(k)}", key=k)
 
 

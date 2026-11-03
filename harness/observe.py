@@ -1,11 +1,11 @@
-"""world → ledger (docs/V9-PROPOSAL.md §3.5). The only module besides act.py and carry.py that runs git, gh or docker.
+"""world → ledger (docs/V9-PROPOSAL.md §3.5). The only module besides act.py and publish.py that runs git, gh or docker.
 
-Each function writes observation rows bound to what it observed (sha, etag, comment id) and nothing else.
+Each function writes observation criteria bound to what it observed (sha, etag, comment id) and nothing else.
 """
 
 
 def fetch(db, repo) -> set:
-    """git fetch --prune <remote>; git for-each-ref → UPSERT ref rows; returns the names whose sha changed."""
+    """git fetch --prune <remote>; git for-each-ref → UPSERT ref criteria; returns the names whose sha changed."""
     raise NotImplementedError
 
 
@@ -17,7 +17,7 @@ def landed(db, repo, target: str, changes: list) -> None:
 
 
 def procs(db) -> None:
-    """artefact rows with a pid and no ended_at whose (pid, pid_start) is gone: read state/<change>/<kind>.rc;
+    """job criteria with a pid and no ended_at whose (pid, pid_start) is gone: read state/<change>/<kind>.rc;
     a result row written by the script → nothing; else ended_at, exit, INSERT attempt(cause = last log line with
     hex runs dropped). Exit 75 = a cause outside the head: ok stays NULL and the pass starts it again."""
     raise NotImplementedError
@@ -50,6 +50,6 @@ def docker(db) -> set:
 
 
 def alerts(db) -> None:
-    """UPSERT alert rows from the anomaly queries (§3.13): attempts, run-lost, runs-per-head, ask-stale, denied,
+    """UPSERT alert criteria from the anomaly queries (§3.13): attempts, run-lost, runs-per-head, ask-stale, denied,
     ci-runner, kpi, pin-conflict, quota. Dedup on (kind, subject): count += 1, last_at = now."""
     raise NotImplementedError

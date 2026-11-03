@@ -9,7 +9,7 @@ QUERIES = {
     "harness changes shipped twice": None,
     "builds / gates per tree": None,
     "cards withdrawn on an unchanged tree": None,
-    "carries not resumed": None,
+    "publishes not resumed": None,
     "pass CPU, nothing moved": None,
     "wrong hook denials": None,
     "peak context p90": None,

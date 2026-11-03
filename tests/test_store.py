@@ -21,7 +21,7 @@ class Store(unittest.TestCase):
         self.assertEqual(self.db.execute("PRAGMA user_version").fetchone()[0], len(store.MIGRATIONS))
         self.assertEqual(store.migrate(self.db), len(store.MIGRATIONS))
         tables = {r[0] for r in self.db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertTrue({"run", "handover", "row", "verdict", "card", "approval", "carry_step", "alert"} <= tables)
+        self.assertTrue({"run", "session", "submission", "criterion", "check_result", "verdict", "job", "card", "approval", "publish_step", "alert"} <= tables)
 
     def test_one_live_run_per_change(self):
         ins = "INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c', 'dev', 'code', 'i', 'b', 't')"

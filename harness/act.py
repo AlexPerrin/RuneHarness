@@ -5,10 +5,10 @@ class Conflict(Exception):
     """merge-tree conflict; args[0] is the list of files."""
 
 
-def tree(repo, base: str, heads: list) -> tuple:
-    """T: fold `git merge-tree --write-tree` over base + each dep head (closure, deps first) + head, then
+def candidate(repo, base: str, heads: list) -> tuple:
+    """The candidate: fold `git merge-tree --write-tree` over base + each dep head (closure, deps first) + head, then
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's committer date → (tree, tcommit).
-    Deterministic, so the CI child of T is the same sha and its green run answers again. Raises Conflict(files)."""
+    Deterministic, so the CI child of the candidate is the same sha and its green run answers again. Raises Conflict(files)."""
     raise NotImplementedError
 
 
@@ -20,26 +20,26 @@ def key(kind: str, tree: str, repo) -> str:
 
 def start(db, step, ch) -> None:
     """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>;
-    INSERT artefact(kind, key, change, pid, pid_start, scope, log, started_at). The script's last act is
-    `hd artefact <kind> <key> ok|fail <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc."""
+    INSERT job(kind, key, change, pid, pid_start, scope, log, started_at). The script's last act is
+    `hd job <kind> <key> ok|fail <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc."""
     raise NotImplementedError
 
 
-def integrate(db, ch, head: str) -> None:
-    """In <fork>/.worktrees/integration: git merge --no-ff --no-edit <head>, push fork integration; a conflict →
+def stage(db, ch, head: str) -> None:
+    """In <fork>/.worktrees/staging: git merge --no-ff --no-edit <head>, push fork staging; a conflict →
     git merge --abort and event(kind='merge-conflict', detail=files), which dev_due reads. Also merges upstream
-    main into integration when ref upstream/main moved; a conflict there is alert('pin-conflict')."""
+    main into staging when ref upstream/main moved; a conflict there is alert('pin-conflict')."""
     raise NotImplementedError
 
 
 def revert(db, ch) -> None:
-    """A closed change: git revert -m 1 <its merge commit> on integration; a conflict is an alert."""
+    """A closed change: git revert -m 1 <its merge commit> on staging; a conflict is an alert."""
     raise NotImplementedError
 
 
 def brief(db, ch, step) -> str:
-    """Write state/briefs/<run id>.md: definition, rows with their latest results and verdict marks, answers and
-    findings since the last handover, build/gate detail and log paths, the hand-off file, the clone/build
+    """Write state/briefs/<run id>.md: definition, criteria with their latest results and verdict marks, answers and
+    findings since the last submission, build/gate detail and log paths, the hand-off file, the clone/build
     copy/evidence paths, the exact hand-back line expected. Returns the path."""
     raise NotImplementedError
 

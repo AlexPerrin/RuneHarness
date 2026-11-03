@@ -4,8 +4,8 @@ The harness that moves changes to their live targets for two products: a RuneLit
 Android app (AlexPerrin/osrs-plugins-reverse, APK releases) and an OpenRune test server (the fork
 AlexPerrin/OpenRune-Server, contributed upstream to OpenRune/OpenRune-Server). It is neither product's code.
 
-One loop over five nouns: a change (its definition and its contract), its tree T (base + dependencies + head), the
-judgments bound to T or to the head, its targets, and the runs that worked it. One pass reads the facts (git, GitHub,
+One loop over five nouns: a change (its definition and its contract), its tree candidate (base + dependencies + head), the
+judgments bound to candidate or to the head, its targets, and the runs that worked it. One pass reads the facts (git, GitHub,
 docker, processes) and does the first unmet step of every change: a script, an agent to spawn, or a card for the user.
 
 ```

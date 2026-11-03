@@ -25,7 +25,7 @@ class Change:
 
 @dataclass(frozen=True)
 class Step:
-    kind: str               # done|wait|run|build|gate|merge|card|carry|ship|measure|alert
+    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure|alert
     why: str                # printed by `hd`; the event detail
     role: str = ""          # dev|qa for kind == run
     mode: str = ""          # code|contract|judge|plan
@@ -72,28 +72,28 @@ def contract_due(L: Ledger, ch: Change):
 
 
 def dev_due(L: Ledger, ch: Change):
-    """no handover at ref(dev tip), or rows created after handover.at, or last verdict at head FAIL, or a recorded
+    """no submission at ref(dev tip), or criteria created after submission.at, or last verdict at head FAIL, or a recorded
     merge conflict / CI failure / missing text at head → run dev/code with the reason as input."""
     raise NotImplementedError
 
 
 def build_due(L: Ledger, ch: Change):
-    """artefact(build, key(T)) missing or ok NULL → build; ok 0 → run dev."""
+    """job(build, key(candidate)) missing or ok NULL → build; ok 0 → run dev."""
     raise NotImplementedError
 
 
 def gate_due(L: Ledger, ch: Change):
-    """artefact(gate, key(T)) missing or ok NULL → gate; ok 0 → run dev (row_result rows name the failures)."""
+    """job(gate, key(candidate)) missing or ok NULL → gate; ok 0 → run dev (check_result criteria name the failures)."""
     raise NotImplementedError
 
 
 def judge_due(L: Ledger, ch: Change):
-    """judge rows and no verdict(head, digest(judge rows)) → run qa/judge; verdict ok 0 is dev_due's."""
+    """judged criteria and no verdict(head, digest(judged criteria)) → run qa/judge; verdict ok 0 is dev_due's."""
     raise NotImplementedError
 
 
-def integrate_due(L: Ledger, ch: Change):
-    """server tracks: head not an ancestor of ref integration → merge (act.integrate does it)."""
+def stage_due(L: Ledger, ch: Change):
+    """server tracks: head not an ancestor of ref staging → merge (act.integrate does it)."""
     raise NotImplementedError
 
 
@@ -117,18 +117,18 @@ def approval_wait(L: Ledger, ch: Change):
     raise NotImplementedError
 
 
-def carry_due(L: Ledger, ch: Change):
-    """approval not spent and a carry_step undone → carry."""
+def publish_due(L: Ledger, ch: Change):
+    """approval not spent and a publish_step undone → publish."""
     raise NotImplementedError
 
 
-def carried_wait(L: Ledger, ch: Change):
+def published_wait(L: Ledger, ch: Change):
     """every step done and not landed(upstream main) → wait (maintainers)."""
     raise NotImplementedError
 
 
 def ship_due(L: Ledger, ch: Change):
-    """harness/client: not landed(live branch) → ship (serial: one artefact(ship) in flight per track)."""
+    """harness/client: not landed(live branch) → ship (serial: one job(ship) in flight per track)."""
     raise NotImplementedError
 
 
@@ -143,8 +143,8 @@ def plan_due(L: Ledger, ch: Change):
 
 
 GUARDS = [
-    closed, deps_live, ask_open, contract_due, dev_due, build_due, gate_due, judge_due, integrate_due,
-    upstream_dep_wait, texts_due, card_due, approval_wait, carry_due, carried_wait, ship_due, measure_due, plan_due,
+    closed, deps_live, ask_open, contract_due, dev_due, build_due, gate_due, judge_due, stage_due,
+    upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due, measure_due, plan_due,
 ]
 
 
@@ -164,5 +164,5 @@ def priority(ch: Change, blocked: dict) -> str:
 def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
     """The pass's action list (§3.3): next() per open change in priority order (harness, PR rounds, new content;
     below cfg.hold → skip); a run Step listed only while live runs < cfg.agents and no run exists for
-    (change, input); a script Step only while no artefact of its key is in flight; a card only when not shown."""
+    (change, input); a script Step only while no job of its key is in flight; a card only when not shown."""
     raise NotImplementedError

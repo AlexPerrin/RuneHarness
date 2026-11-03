@@ -1,7 +1,7 @@
 """The ledger: the one SQLite file every decision reads (docs/V9-PROPOSAL.md §3.2).
 
-Only this module opens the database. Observations (ref, gh, landed, stack) and commitments (handover, verdict,
-answer, approval, carry_step) are rows written once by the actor that made them; decide.py reads them through
+Only this module opens the database. Observations (ref, gh, landed, stack) and commitments (submission, verdict,
+answer, approval, publish_step) are criteria written once by the actor that made them; decide.py reads them through
 Ledger and never recomputes them from the world.
 """
 import os
@@ -41,14 +41,14 @@ CREATE TABLE session (
 );
 CREATE UNIQUE INDEX session_live ON session(pid) WHERE ended_at IS NULL;
 
-CREATE TABLE handover (
+CREATE TABLE submission (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
   tree TEXT NOT NULL, tcommit TEXT NOT NULL, composite_json TEXT,
   run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );
 
-CREATE TABLE row (
+CREATE TABLE criterion (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, rid TEXT NOT NULL,
   kind   TEXT NOT NULL CHECK (kind IN ('script','judge')),
   text   TEXT NOT NULL, cmd TEXT,
@@ -58,23 +58,23 @@ CREATE TABLE row (
   created_at TEXT NOT NULL,
   UNIQUE (change, rid)
 );
-CREATE TABLE row_result (
-  row_id INTEGER REFERENCES row(id), tree TEXT NOT NULL, ok INTEGER NOT NULL, note TEXT, at TEXT NOT NULL,
-  PRIMARY KEY (row_id, tree)
+CREATE TABLE check_result (
+  criterion_id INTEGER REFERENCES criterion(id), tree TEXT NOT NULL, ok INTEGER NOT NULL, note TEXT, at TEXT NOT NULL,
+  PRIMARY KEY (criterion_id, tree)
 );
 CREATE TABLE verdict (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
   run INTEGER NOT NULL REFERENCES run(id), ok INTEGER NOT NULL,
-  rows_digest TEXT NOT NULL, at TEXT NOT NULL
+  criteria_digest TEXT NOT NULL, at TEXT NOT NULL
 );
 CREATE TABLE verdict_row (
-  verdict INTEGER REFERENCES verdict(id), row_id INTEGER REFERENCES row(id),
+  verdict INTEGER REFERENCES verdict(id), criterion_id INTEGER REFERENCES criterion(id),
   result TEXT NOT NULL CHECK (result IN ('pass','fail','not-judged')), note TEXT,
-  PRIMARY KEY (verdict, row_id)
+  PRIMARY KEY (verdict, criterion_id)
 );
 
-CREATE TABLE artefact (
-  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','ship','test')),
+CREATE TABLE job (
+  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','publish','test')),
   key  TEXT NOT NULL,
   change TEXT, ok INTEGER, detail TEXT,
   pid INTEGER, pid_start INTEGER, scope TEXT, log TEXT,
@@ -98,7 +98,7 @@ CREATE TABLE card (
   UNIQUE (change, head, digest)
 );
 CREATE TABLE approval (card INTEGER PRIMARY KEY REFERENCES card(id), at TEXT NOT NULL, spent_at TEXT, spent_why TEXT);
-CREATE TABLE carry_step (
+CREATE TABLE publish_step (
   card INTEGER REFERENCES card(id), n INTEGER, name TEXT NOT NULL, done_at TEXT, result_json TEXT,
   PRIMARY KEY (card, n)
 );
@@ -107,7 +107,7 @@ CREATE TABLE hold (id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT, why 
 CREATE TABLE finding (
   comment_id INTEGER PRIMARY KEY, repo TEXT, pr INTEGER, author TEXT, body TEXT, url TEXT, seen_at TEXT,
   triage TEXT CHECK (triage IN ('finding','ask','ack')), triaged_at TEXT,
-  change TEXT, row_id INTEGER REFERENCES row(id)
+  change TEXT, criterion_id INTEGER REFERENCES criterion(id)
 );
 
 CREATE TABLE ref    (repo TEXT, name TEXT, sha TEXT NOT NULL, seen_at TEXT, PRIMARY KEY (repo, name));
@@ -179,19 +179,19 @@ class Ledger:
             "SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", (slug,)
         ).fetchone()
 
-    def handover(self, slug: str, head: str):
-        return self.db.execute("SELECT * FROM handover WHERE change=? AND head=?", (slug, head)).fetchone()
+    def submission(self, slug: str, head: str):
+        return self.db.execute("SELECT * FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
 
-    def rows(self, slug: str):
-        return self.db.execute("SELECT * FROM row WHERE change=? AND waived=0 ORDER BY id", (slug,)).fetchall()
+    def criteria(self, slug: str):
+        return self.db.execute("SELECT * FROM criterion WHERE change=? AND waived=0 ORDER BY id", (slug,)).fetchall()
 
     def last_verdict(self, slug: str, head: str):
         return self.db.execute(
             "SELECT * FROM verdict WHERE change=? AND head=? ORDER BY id DESC LIMIT 1", (slug, head)
         ).fetchone()
 
-    def artefact(self, kind: str, key: str):
-        return self.db.execute("SELECT * FROM artefact WHERE kind=? AND key=?", (kind, key)).fetchone()
+    def job(self, kind: str, key: str):
+        return self.db.execute("SELECT * FROM job WHERE kind=? AND key=?", (kind, key)).fetchone()
 
     def live_run(self, slug: str):
         return self.db.execute("SELECT * FROM run WHERE change=? AND ended_at IS NULL", (slug,)).fetchone()
@@ -206,7 +206,7 @@ class Ledger:
         return self.db.execute("SELECT * FROM approval WHERE card=? AND spent_at IS NULL", (card_id,)).fetchone()
 
     def undone_steps(self, card_id: int):
-        return self.db.execute("SELECT * FROM carry_step WHERE card=? AND done_at IS NULL ORDER BY n", (card_id,)).fetchall()
+        return self.db.execute("SELECT * FROM publish_step WHERE card=? AND done_at IS NULL ORDER BY n", (card_id,)).fetchall()
 
     def hold(self, slug: str, head: str):
         return self.db.execute(

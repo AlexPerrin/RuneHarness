@@ -9,6 +9,7 @@ guard: writes the instance's guard file (DevtoolsOwner reads it on each request)
 session's desktop bridge predates mcp/serve.py; keep writes it again whenever that fact changes, so the guard turns on once none lives.
 """
 import contextlib, fcntl, http.client, json, os, re, subprocess, sys, tempfile, threading, time, urllib.error, urllib.request
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # this checkout: its state/ is the one its hd writes
 
 LOGOUT_BUTTON = 11927560  # component.logout:logout
 INVENTORY_ITEMS = 9764864  # component.inventory:items, one dynamic child per slot of container 93
@@ -79,7 +80,7 @@ def guarding(port):  # keep's guard: written again on each change of the legacy 
 
 def devtoken(port):  # the devtools token of the up owning the instance on that port (its state/<slug>/up.json): the endpoint answers no other caller
     try:
-        with open(f"{os.environ.get('HD_ROOT', os.path.expanduser('~/osrs-harness'))}/state/{(owner(port) or '').split(' ')[0]}/up.json") as f:
+        with open(f"{os.environ.get('HD_ROOT', ROOT)}/state/{(owner(port) or '').split(' ')[0]}/up.json") as f:
             return json.load(f).get("token", "")
     except (OSError, ValueError):
         return ""

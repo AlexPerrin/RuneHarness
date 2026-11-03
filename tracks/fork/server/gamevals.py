@@ -11,6 +11,7 @@ The official ids are the cache's (.data/gamevals-binary/max-ids.toml); every id 
 import os, re, subprocess, sys
 import yaml
 from collections import defaultdict
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # this checkout: its state/ is the one its hd writes
 
 SECTION = re.compile(r"^\s*\[gamevals\.([^.\]]+)\]\s*$")
 KV = re.compile(r"^(\s*)([^=#\[]+?)(\s*=\s*)(-?\d+)(\s*)$")
@@ -59,7 +60,7 @@ def ids(ref, mx):
 
 def members():
     own = f"dev/{os.environ.get('SLUG', '')}"
-    cfg = os.path.join(os.environ.get("HD_ROOT") or os.path.expanduser("~/osrs-harness"), "hd.yaml")
+    cfg = os.path.join(os.environ.get("HD_ROOT") or ROOT, "hd.yaml")
     out = [("upstream main", "origin/main")] + [(p, f"fork/{p}") for p in yaml.safe_load(open(cfg)).get("pins") or []]
     for r in git("for-each-ref", "--format=%(refname:short)", "refs/remotes/fork/dev/").split():
         b = r[len("fork/"):]

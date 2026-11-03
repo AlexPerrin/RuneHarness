@@ -49,7 +49,8 @@ class Publish(unittest.TestCase):
         self.db = store.connect(str(Path(self.dir.name) / "hd.db"))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', ?, 't', 'c', 't')", (HEAD,))
         observe.wait = lambda s: None
-        publish.subprocess.run = lambda *a, **k: None   # the push
+        self.pushes = []
+        publish.subprocess.run = lambda cmd, **k: (self.pushes.append(cmd), type("R", (), {"returncode": 0, "stderr": ""})())[1]   # the push
 
     def tearDown(self):
         self.db.close()
@@ -103,6 +104,31 @@ class Publish(unittest.TestCase):
         self.assertIsNone(self.db.execute("SELECT spent_at FROM approval WHERE card=?", (cid,)).fetchone()[0])
         self.assertEqual(self.db.execute("SELECT detail FROM event WHERE kind='ci-failed'").fetchone()[0], "aaaaaaa ['build']")
         self.assertEqual(len(store.Ledger(self.db).undone_steps(cid)), 3)
+
+    def test_a_rejected_push_spends_the_approval_and_the_next_card_names_it(self):
+        ch = Change("genie", "fork", pr=5, public="content/genie")
+        cid = publish.card(self.db, ch, F, HEAD, PR, TEXTS)
+        publish.approve(self.db, "genie", HEAD[:7])
+        publish.subprocess.run = lambda cmd, **k: type("R", (), {"returncode": 1, "stderr": "! [rejected] non-fast-forward"})()
+        observe.transport = Fake()
+        publish.publish(self.db, cid, F, "/nowhere")
+        why = self.db.execute("SELECT spent_why FROM approval WHERE card=?", (cid,)).fetchone()[0]
+        self.assertIn("non-fast-forward", why)
+        cid2 = publish.card(self.db, ch, F, HEAD, PR, TEXTS, refusal=why)
+        self.assertNotEqual(cid2, cid)
+        self.assertIn("refused", publish.render(self.db, self.db.execute("SELECT * FROM card WHERE id=?", (cid2,)).fetchone(), F))
+
+    def test_a_read_that_fails_spends_nothing(self):
+        cid = publish.card(self.db, Change("genie", "fork", pr=5), F, HEAD, PR, TEXTS)
+        publish.approve(self.db, "genie", HEAD[:7])
+        fake = Fake()
+        real = fake.__call__
+        def flaky(method, url, data=None, headers=()):
+            return (503, {}, "") if url.endswith("/pulls/5") and method == "GET" else real(method, url, data, headers)
+        observe.transport = flaky
+        publish.publish(self.db, cid, F, "/nowhere")
+        self.assertIsNone(self.db.execute("SELECT spent_at FROM approval WHERE card=?", (cid,)).fetchone()[0])
+        self.assertEqual(len(store.Ledger(self.db).undone_steps(cid)), 1)   # ready is left for the next publish
 
     def test_a_refused_write_spends_the_approval(self):
         cid = publish.card(self.db, Change("genie", "fork", pr=5), F, HEAD, PR, TEXTS)

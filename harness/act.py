@@ -1,6 +1,7 @@
 """Step → the world (docs/ARCHITECTURE.md §4, §6): config and definitions, candidates, briefs, jobs in systemd scopes,
 the wake file, and the pass itself (tick)."""
 import fcntl
+import functools
 import glob
 import json
 import os
@@ -38,7 +39,9 @@ def git(path, *args, check=True, env=None):
 
 # --- config and definitions ------------------------------------------------------------------------------------
 
+@functools.lru_cache(maxsize=1)
 def cfg() -> Cfg:
+    """hd.yaml and every track's recipe, read once per process (a pass, a command)."""
     y = yaml.safe_load(open(os.path.join(ROOT, "hd.yaml")))
     tracks = {}
     for name, r in y["repos"].items():
@@ -153,7 +156,10 @@ def seed(db, ch, T):
     for line in section[1].splitlines():
         if not line.startswith("- "):
             continue
-        rid, text, how, *flags = (p.strip() for p in line[2:].split("|"))
+        parts = [p.strip() for p in line[2:].split("|")]
+        if len(parts) < 3:
+            continue   # not a seed line
+        rid, text, how, *flags = parts
         kind, _, cmd = how.partition(":")
         if kind == "judge" and not cmd.strip():
             cmd = None
@@ -242,10 +248,10 @@ def db_path(db) -> str:
 def job_env(db, ch, T, s, **more) -> dict:
     """The environment of a job and of every scripted criterion: HD_* and the short names the scripts read."""
     base = git(T.path, "rev-parse", T.base)
+    cl = T.path if ch.slug == "staging" else clone(T, ch)
     env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"],
-               HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=T.path if ch.slug == "staging" else clone(T, ch),
-               HD_BUILDS=str(cfg().builds),
-               SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=T.path if ch.slug == "staging" else clone(T, ch),
+               HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=cl, HD_BUILDS=str(cfg().builds),
+               SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
                BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
                PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
     comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
@@ -332,9 +338,9 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         for T in {ch.track for ch in open_}:
             T = c.tracks[T]
             moved = observe.fetch(db, T)
-            for ch in open_:
-                if ch.track == T.name and T.done_ref(ch) in moved:
-                    observe.landed(db, T, T.done_ref(ch), [x for x in open_ if x.track == T.name])
+            targets = {T.done_ref(ch) for ch in open_ if ch.track == T.name} | ({decide.STAGING} if T.upstream else set())
+            for target in targets & moved:
+                observe.landed(db, T, target, [x for x in open_ if x.track == T.name])
         for ch in open_:
             T = c.tracks[ch.track]
             if T.upstream and ch.upstream:
@@ -343,7 +349,7 @@ def tick(path=None, dry_run=False, offline=False) -> list:
                     observe.pr(db, T, ch, ours=(publish.OWNER,))
         observe.procs(db)
         observe.sessions(db, definition_blob())
-        observe.stacks(db, c.tracks)
+        observe.stacks(db)
         observe.alerts(db)
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
@@ -375,7 +381,7 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         elif s.kind == "merge":
             stage(db, ch, T, s.key.split(":")[1])
         elif s.kind == "card":
-            publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug))
+            publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug), s.input)
         last = L.last_event(ch.slug, "state")
         if not last or last["detail"] != f"{s.kind}: {s.why}":
             event(db, "state", ch.slug, None, f"{s.kind}: {s.why}")

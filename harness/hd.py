@@ -192,7 +192,7 @@ def cmd_submit(a):
     for dep in ch.deps:
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
-        if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, T.done_ref(d))).fetchone():
+        if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, track(d, cfg).done_ref(d))).fetchone():
             continue
         if d.track == ch.track:
             heads.append(s["head"])
@@ -219,6 +219,10 @@ def cmd_verdict(a):
     r = live_run(db, a.slug)
     if not r or r["role"] != "qa":
         sys.exit("hd verdict: no live qa run of this change")
+    sub = db.execute("SELECT head FROM submission WHERE change=? AND head LIKE ? ORDER BY id DESC LIMIT 1", (a.slug, a.head + "%")).fetchone()
+    if not sub:
+        sys.exit(f"hd verdict: no submission of {a.slug} at {a.head}")
+    head = sub["head"]
     data = json.load(open(a.file))
     crit = {c["rid"]: c for c in Ledger(db).criteria(a.slug, "judge")}
     rows = data.get("rows", data)
@@ -226,13 +230,19 @@ def cmd_verdict(a):
     if missing:
         sys.exit(f"hd verdict: no judged criterion {', '.join(sorted(missing))}")
     results = {rid: (rows.get(rid, "not-judged") or "not-judged") for rid in crit}
+    bad = [rid for rid, v in results.items() if v.partition(":")[0].strip() not in ("pass", "fail", "not-judged")]
+    if bad:
+        sys.exit(f"hd verdict: a result is pass, fail: <note> or not-judged, not {', '.join(repr(results[b]) for b in bad)}")
     fails = [rid for rid, v in results.items() if not v.startswith("pass")]
     d = store.digest([(c["rid"], c["text"]) for c in crit.values()])
+    db.execute("BEGIN")
     vid = db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES (?,?,?,?,?,?)",
-                     (a.slug, a.head, r["id"], int(not fails), d, now())).lastrowid
+                     (a.slug, head, r["id"], int(not fails), d, now())).lastrowid
     for rid, v in results.items():
         res, _, note = v.partition(":")
         db.execute("INSERT INTO verdict_row(verdict, criterion_id, result, note) VALUES (?,?,?,?)", (vid, crit[rid]["id"], res.strip(), note.strip() or None))
+    db.execute("COMMIT")
+    a.head = head
     line = f"run {r['id']}: PASS" if not fails else f"run {r['id']}: FAIL {len(fails)} criteria"
     event(db, "verdict", a.slug, r["id"], f"{'PASS' if not fails else 'FAIL ' + ', '.join(fails)} at {a.head[:7]}")
     print(line)

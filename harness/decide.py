@@ -122,6 +122,8 @@ def job_due(C, kind, k):
     j = C.L.job(kind, k)
     if j and j["ok"] == 1:
         return None
+    if j and j["ok"] == 0:
+        return Step("wait", f"{kind} failed: {j['detail']}")
     if j and j["pid"] and not j["ended_at"]:
         return Step("wait", f"{kind} running ({short(k)})")
     if C.L.attempts(kind, k) >= ATTEMPTS:
@@ -276,6 +278,8 @@ def card_due(C, ch):
         refused = a and a["spent_why"] and a["spent_why"] != "published"
         if not refused and not texts_moved:
             return None
+        if refused:
+            return Step("card", f"card at {t[:7]} after a refusal", key=t, input=a["spent_why"])
     return Step("card", f"card at {t[:7]}", key=t)
 
 

@@ -195,20 +195,20 @@ def checks(db, upstream, sha) -> list | None:
     return out
 
 
-def stacks(db, tracks) -> None:
+def stacks(db) -> None:
     """A change's running stack (its stack row, mirrored from up.json) with no live run of the change is brought down:
     `track.sh down <slug>` in the scope hd-down-<slug>, once at a time (the scope's name)."""
     for s in db.execute("SELECT s.change FROM stack s WHERE NOT EXISTS (SELECT 1 FROM run r WHERE r.change=s.change AND r.ended_at IS NULL)").fetchall():
         unit = f"hd-down-{s['change']}"
         if subprocess.run(["systemctl", "--user", "is-active", "-q", unit + ".scope"]).returncode == 0:
             continue
-        script = tracks_script(db, tracks, s["change"])
+        script = tracks_script(db, s["change"])
         if script:
             subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit, "--", "bash", script, "down", s["change"]],
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=dict(os.environ, HD_ROOT=ROOT), start_new_session=True)
             event(db, "down", s["change"], None, "its run ended with the stack up: track.sh down started")
 
 
-def tracks_script(db, tracks, slug):
+def tracks_script(db, slug):
     row = db.execute("SELECT script FROM stack WHERE change=?", (slug,)).fetchone()
     return row["script"] if row and row["script"] and os.path.exists(row["script"]) else None

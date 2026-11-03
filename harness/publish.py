@@ -14,7 +14,7 @@ from store import ROOT, event, now
 OWNER = "AlexPerrin"   # our GitHub login: the PR head's owner, the comments that are ours
 
 
-def card(db, ch, T, head: str, pr: dict | None, texts: dict) -> int:
+def card(db, ch, T, head: str, pr: dict | None, texts: dict, refusal: str = "") -> int:
     """Steps from the PR's state and the texts: push (unless the PR is at head) → pr (open a draft) | edit (title or body
     differ) → ci (if pushed or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready (if draft or new).
     INSERT OR IGNORE card and its publish_step rows; returns the card id."""
@@ -25,6 +25,8 @@ def card(db, ch, T, head: str, pr: dict | None, texts: dict) -> int:
     if replies:
         comment += "\n\n" + "\n\n".join(texts[k].strip() for k in replies)
     t["comment"] = comment
+    if refusal:
+        t["refusal"] = refusal   # a new card names what GitHub refused last time
     pushed = not pr or pr["head"] != head
     if pushed:
         steps.append({"name": "push", "head": head, "branch": public})
@@ -42,6 +44,7 @@ def card(db, ch, T, head: str, pr: dict | None, texts: dict) -> int:
     digest = store.digest(steps, t)
     row = db.execute("SELECT id FROM card WHERE change=? AND head=? AND digest=?", (ch.slug, head, digest)).fetchone()
     if row:
+        db.execute("UPDATE card SET shown_at=? WHERE id=?", (now(), row["id"]))   # the same card, re-shown after moved texts
         return row["id"]
     cid = db.execute("INSERT INTO card(change, head, pr, steps_json, texts_json, digest, shown_at) VALUES (?,?,?,?,?,?,?)",
                      (ch.slug, head, pr["number"] if pr else None, json.dumps(steps), json.dumps(t), digest, now())).lastrowid
@@ -55,7 +58,7 @@ def render(db, c, T) -> str:
     """The card as `hd` prints it: each act in order, each exact text, the verdict, the evidence path, the commands."""
     steps, t = json.loads(c["steps_json"]), json.loads(c["texts_json"])
     target = f"PR {T.upstream}#{c['pr']}" if c["pr"] else f"new PR on {T.upstream}"
-    out = [f"{c['change']} @{c['head'][:7]}  {target}"]
+    out = [f"{c['change']} @{c['head'][:7]}  {target}" + (f"   (the last publish was refused: {t['refusal']})" if t.get("refusal") else "")]
     for n, s in enumerate(steps, 1):
         line = {"push": lambda: f"push {c['head'][:7]} → fork {s['branch']}",
                 "pr": lambda: f"open draft PR {s['branch']} → main   ── title ──  {t['title']}\n── body ──\n{t['body'].rstrip()}",
@@ -99,13 +102,16 @@ def publish(db, card_id: int, T, path: str) -> None:
         for row in db.execute("SELECT * FROM publish_step WHERE card=? AND done_at IS NULL ORDER BY n", (card_id,)).fetchall():
             s = steps[row["n"] - 1]
             if s["name"] == "push":
-                subprocess.run(["git", "-C", path, "push", "-q", T.remote, f"{s['head']}:refs/heads/{s['branch']}"], check=True)
+                r = subprocess.run(["git", "-C", path, "push", "-q", T.remote, f"{s['head']}:refs/heads/{s['branch']}"], capture_output=True, text=True)
+                if r.returncode:
+                    raise Refused(f"push {s['head'][:7]} to {s['branch']}: {r.stderr.strip()[-200:]}")
                 result = {"pushed": s["head"]}
             elif s["name"] == "pr":
                 r = write("POST", f"repos/{up}/pulls", {"title": t["title"], "body": t["body"], "draft": True,
                                                         "head": f"{OWNER}:{s['branch']}", "base": "main"})
                 pr = r["number"]
                 db.execute("UPDATE card SET pr=? WHERE id=?", (pr, card_id))
+                record_pr(c["change"], pr, s["branch"])
                 result = {"pr": pr, "url": r.get("html_url")}
             elif s["name"] == "edit":
                 write("PATCH", f"repos/{up}/pulls/{pr}", {"title": t["title"], "body": t["body"]})
@@ -121,7 +127,10 @@ def publish(db, card_id: int, T, path: str) -> None:
                 r = write("POST", f"repos/{up}/issues/{pr}/comments", {"body": t["comment"]})
                 result = {"comment": r.get("id")}
             elif s["name"] == "ready":
-                node = read(f"repos/{up}/pulls/{pr}")["node_id"]
+                p = read(f"repos/{up}/pulls/{pr}")
+                if p is None:
+                    return   # unknown: nothing spent, the pass starts the publish again
+                node = p["node_id"]
                 write("POST", "graphql", {"query": "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }",
                                           "variables": {"id": node}})
                 result = {"ready": pr}
@@ -148,10 +157,22 @@ def ci(db, c, T, pr) -> dict | None:
 
 
 def read(url):
+    """A read; None when GitHub did not answer it (a refusal is only for writes)."""
     status, _, body = observe.transport("GET", url)
-    if status != 200:
-        raise Refused(f"GET {url}: HTTP {status}")
-    return json.loads(body)
+    return json.loads(body) if status == 200 else None
+
+
+def record_pr(slug: str, pr: int, branch: str) -> None:
+    """The opened PR in the change's definition (`pr`, `public`), committed: the pass reads it from there."""
+    import yaml
+    path = os.path.join(ROOT, "harness", "changes", f"{slug}.md")
+    _, fm, body = open(path).read().split("---\n", 2)
+    y = yaml.safe_load(fm)
+    y["pr"], y["public"] = pr, branch
+    open(path, "w").write("---\n" + yaml.safe_dump(y, sort_keys=False) + "---\n" + body)
+    subprocess.run(["git", "-C", ROOT, "add", "--", path], capture_output=True)
+    subprocess.run(["git", "-C", ROOT, "commit", "-q", "--author", "Alex Perrin <44126061+AlexPerrin@users.noreply.github.com>",
+                    "-m", f"change: {slug} is PR #{pr}\n\nCo-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>", "--", path], capture_output=True)
 
 
 def write(method, url, data):

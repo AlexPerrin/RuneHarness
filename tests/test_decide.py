@@ -188,6 +188,11 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'genie', ?)", (TIP[:7] + " content/x.kt",))
         self.assertIn("merge conflict", self.step().why)
 
+    def test_a_job_that_failed_is_not_relaunched(self):
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('deploy', 'tr1:fork-1', 0, 'port in use', 't')")
+        self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
+
     def test_one_deploy_per_staging_tree(self):
         self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
         a = [x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"]

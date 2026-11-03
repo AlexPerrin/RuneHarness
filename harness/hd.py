@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""hd: the commands (docs/V9-PROPOSAL.md §3.8). Each is one function; the loop lives in decide.py and act.py."""
+"""hd: the commands (docs/ARCHITECTURE.md §8). Each is one function; the loop lives in decide.py and act.py."""
 import argparse
 import sys
 
 COMMANDS = {
     # name: (who calls it, what it writes)
     "tick":     ("timer, hook", "the pass; --dry-run prints plan() and writes nothing; --db F --offline for the replay"),
-    "new":      ("orchestrator, dev, user", "harness/changes/<slug>.md; --on appends to an open change; --from-alert publishes the evidence"),
+    "new":      ("orchestrator, dev, user", "harness/changes/<slug>.md; --on appends to an open change; --from-alert carries the alert's evidence"),
     "fold":     ("orchestrator", "change_state.folded_into"),
     "show":     ("runs, orchestrator", "prints the brief text"),
-    "criterion":      ("qa (contract), the pass", "row"),
-    "submission": ("dev", "runs every check row at the candidate, refuses on failure; submission; prints the hand-back line"),
+    "criterion": ("qa (criteria mode), the pass", "criterion"),
+    "submit":   ("dev", "submission(head, candidate): the dev ref's tip is done; prints the hand-back line"),
     "verdict":  ("qa", "verdict + verdict_row"),
     "ask":      ("runs", "ask (one open per change)"),
     "answer":   ("orchestrator", "answer; applies the option's effect in the same transaction"),
@@ -18,8 +18,8 @@ COMMANDS = {
     "hold":     ("orchestrator", "hold"),
     "approve":  ("the user only", "approval"),
     "close":    ("the user only", "change_state.closed_at"),
-    "ship":     ("the pass", "publish_step, approval.spent"),
-    "job": ("track scripts", "job result"),
+    "publish":  ("the pass", "publish_step, approval.spent"),
+    "job":      ("track scripts", "job result"),
     "step":     ("track scripts", "step_log"),
     "fault":    ("any run", "alert(kind='fault')"),
     "dismiss":  ("orchestrator", "alert.disposition"),

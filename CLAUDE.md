@@ -11,11 +11,11 @@ requirements) and docs/ARCHITECTURE.md (the ledger, the state machine, the modul
 change from v8 and the build plan, docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`.** Every session and agent runs from this repo.
 
 ```
-harness/hd.py  the commands (thin): hd | tick | new | fold | show | row | submission | verdict | ask | answer | triage | hold | approve | close | ship | job | step | fault | dismiss | stop | scope | regate | kpi | commit | restart
+harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
 harness/store.py the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
-harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), procs, docker, alerts
-harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; pure, no subprocess
-harness/act.py Step → world: trees, keys, scripts in systemd scopes, staging merges, briefs, the wake
+harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), processes, docker, alerts
+harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; no subprocess, no clock
+harness/act.py Step → world: candidates, keys, jobs in systemd scopes, staging merges, briefs, the wake
 harness/publish.py the card (recorded acts and texts) and the publish (logged steps, resume)
 harness/kpi.py hd kpi: one query per harness metric
 harness/hook.py SubagentStart/Stop, PreToolUse (approve/close denied, the scope line), PostToolUse (the context limit)

@@ -1,4 +1,4 @@
-"""The ledger: the one SQLite file every decision reads (docs/V9-PROPOSAL.md §3.2).
+"""The ledger: the one SQLite file every decision reads (docs/ARCHITECTURE.md §2).
 
 Only this module opens the database. Observations (ref, gh, landed, stack) and commitments (submission, verdict,
 answer, approval, publish_step) are criteria written once by the actor that made them; decide.py reads them through
@@ -20,7 +20,7 @@ CREATE TABLE run (
   id          INTEGER PRIMARY KEY,
   change      TEXT NOT NULL,
   role        TEXT NOT NULL CHECK (role IN ('dev','qa')),
-  mode        TEXT NOT NULL CHECK (mode IN ('code','contract','judge','plan')),
+  mode        TEXT NOT NULL CHECK (mode IN ('code','criteria','judge','plan')),
   input       TEXT NOT NULL,
   brief       TEXT NOT NULL,
   agent_id    TEXT UNIQUE,
@@ -156,7 +156,7 @@ def migrate(db: sqlite3.Connection) -> int:
 
 
 class Ledger:
-    """Read-only view of the store for decide.py: one method per fact the guards ask (§3.3).
+    """Read-only view of the store for decide.py: one method per fact the guards ask (ARCHITECTURE §3).
 
     Every method is a single query; none runs a subprocess or reads the clock.
     """

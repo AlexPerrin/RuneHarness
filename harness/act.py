@@ -1,4 +1,4 @@
-"""Step → the world (docs/V9-PROPOSAL.md §3.4, §3.6): start scripts, compute trees, write briefs, wake the orchestrator."""
+"""Step → the world (docs/ARCHITECTURE.md §4, §6): start scripts, compute trees, write briefs, wake the orchestrator."""
 
 
 class Conflict(Exception):
@@ -21,7 +21,8 @@ def key(kind: str, tree: str, repo) -> str:
 def start(db, step, ch) -> None:
     """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>;
     INSERT job(kind, key, change, pid, pid_start, scope, log, started_at). The script's last act is
-    `hd job <kind> <key> ok|fail <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc."""
+    `hd job <kind> <key> ok|fail <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc.
+    A build takes one of hd.yaml `builds` slots (flock on state/build.<i>.lock)."""
     raise NotImplementedError
 
 

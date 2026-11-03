@@ -1,4 +1,4 @@
-"""Claude Code hooks (docs/V9-PROPOSAL.md §3.11): bind and end runs, two denials, the scope line, the context limit.
+"""Claude Code hooks (docs/ARCHITECTURE.md §11): bind and end runs, two denials, the scope line, the context limit.
 
 stdin: the hook's JSON. stdout: the hook's JSON answer. Wired in .claude/settings.json.
 """

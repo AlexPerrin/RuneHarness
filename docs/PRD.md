@@ -26,7 +26,7 @@ publish → maintainers' findings become criteria.
 
 - **H1** Build, bring-up, check, deploy, publish and measure are scripts per track, in this repo, blocking on facts
   and returning results; an agent runs them by one command and never reproduces their steps by hand.
-- **H2** A candidate tree is built at most once, in a copy no agent commits from; its artefact serves the dev's
+- **H2** A candidate tree is built at most once, in a copy no agent commits from; its build serves the dev's
   check, the gate, the evaluator and the deployment. A build, gate or deployment is keyed by the tree it runs on and
   an explicit recipe version, never by the checker's code; a fixed checker is re-run on request.
 - **H3** A script logs each step it completes, so an interrupted one resumes and a hung one names its step; a step

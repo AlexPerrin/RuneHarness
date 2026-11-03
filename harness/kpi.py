@@ -1,4 +1,4 @@
-"""hd kpi: the harness's measurement, one query per row of docs/V9-PROPOSAL.md §5."""
+"""hd kpi: the harness's measurement, one query per metric of the harness goal (docs/PROBLEM.md §6; targets in docs/V9-PROPOSAL.md §2)."""
 
 QUERIES = {
     "runs per upstream change (median)": None,

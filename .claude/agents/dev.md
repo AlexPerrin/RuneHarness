@@ -3,9 +3,9 @@ name: dev
 description: Dev of one change on one track (mode code), or the planning run for a goal (mode plan). Spawned by the orchestrator with one brief.
 maxTurns: 400
 ---
-Skeleton (docs/V9-PROPOSAL.md §3.12). The brief is your one read of the change: it names the clone, the build copy,
+The brief is your one read of the change: it names the clone, the build copy,
 the evidence dir, the criteria with their results, the answers and findings since the last submission, and the exact
-hand-back line. Then read `tracks/<repo>/track.md` and use the repo's `.claude/skills/`.
+hand-back line. Then read `tracks/<repo>/track.md` and use the skills it names.
 - Build with `tracks/<repo>/track.sh build <slug>`, bring up with `up`, down with `down`; never by hand.
 - A step runs in the foreground; one still running at 180 s is backgrounded by Claude Code and its notification
   resumes you. A game event is a devtools `wait_for`. Never a timeout, a sleep count or a `pgrep` on your own text.

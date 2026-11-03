@@ -1,4 +1,4 @@
-"""ledger → Step: next(change) and the pass's plan (docs/V9-PROPOSAL.md §3.3).
+"""ledger → Step: next(change) and the pass's plan (docs/ARCHITECTURE.md §3).
 
 Pure: takes a Ledger and parsed definitions; no subprocess, no network, no clock. Tested over recorded ledger
 snapshots (tests/fixtures/), never over fakes of git or GitHub.
@@ -13,8 +13,9 @@ class Change:
     """A parsed harness/changes/<slug>.md front matter + body."""
     slug: str
     track: str              # client | server | central | filestore | harness
-    kind: str               # change | local | release
-    priority: str           # P0..P4
+    kind: str               # change | release
+    upstream: bool = True   # False: fork only, never a PR
+    priority: str = "P2"    # P0..P4
     deps: tuple = ()
     goal: str = ""
     units: tuple = ()
@@ -25,12 +26,12 @@ class Change:
 
 @dataclass(frozen=True)
 class Step:
-    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure|alert
+    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure
     why: str                # printed by `hd`; the event detail
     role: str = ""          # dev|qa for kind == run
-    mode: str = ""          # code|contract|judge|plan
+    mode: str = ""          # code|criteria|judge|plan
     input: str = ""         # digest of the brief's inputs; a run is due while no run exists with this input
-    key: str = ""           # build/gate/deploy/ship key
+    key: str = ""           # the job's key
 
 
 @dataclass(frozen=True)
@@ -66,8 +67,8 @@ def ask_open(L: Ledger, ch: Change):
     raise NotImplementedError
 
 
-def contract_due(L: Ledger, ch: Change):
-    """upstream kind and no run(mode=contract) with record 'contract agreed' → run qa/contract."""
+def criteria_due(L: Ledger, ch: Change):
+    """an upstream change with no run(mode=criteria) whose record is 'criteria agreed' → run qa/criteria."""
     raise NotImplementedError
 
 
@@ -83,7 +84,7 @@ def build_due(L: Ledger, ch: Change):
 
 
 def gate_due(L: Ledger, ch: Change):
-    """job(gate, key(candidate)) missing or ok NULL → gate; ok 0 → run dev (check_result criteria name the failures)."""
+    """job(gate, key(candidate)) missing or ok NULL → gate; ok 0 → run dev (check_result rows name the failures)."""
     raise NotImplementedError
 
 
@@ -93,7 +94,7 @@ def judge_due(L: Ledger, ch: Change):
 
 
 def stage_due(L: Ledger, ch: Change):
-    """server tracks: head not an ancestor of ref staging → merge (act.integrate does it)."""
+    """server tracks: head not an ancestor of ref staging → merge (act.stage)."""
     raise NotImplementedError
 
 
@@ -103,7 +104,7 @@ def upstream_dep_wait(L: Ledger, ch: Change):
 
 
 def texts_due(L: Ledger, ch: Change):
-    """pr-comment.md misses commits since the PR's live head, or a finding row has no reply file → run dev."""
+    """pr-comment.md misses commits since the PR's live head, or a finding has no reply file → run dev."""
     raise NotImplementedError
 
 
@@ -143,7 +144,7 @@ def plan_due(L: Ledger, ch: Change):
 
 
 GUARDS = [
-    closed, deps_live, ask_open, contract_due, dev_due, build_due, gate_due, judge_due, stage_due,
+    closed, deps_live, ask_open, criteria_due, dev_due, build_due, gate_due, judge_due, stage_due,
     upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due, measure_due, plan_due,
 ]
 
@@ -162,7 +163,7 @@ def priority(ch: Change, blocked: dict) -> str:
 
 
 def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
-    """The pass's action list (§3.3): next() per open change in priority order (harness, PR rounds, new content;
+    """The pass's action list (ARCHITECTURE §3): next() per open change in priority order (harness, PR rounds, new content;
     below cfg.hold → skip); a run Step listed only while live runs < cfg.agents and no run exists for
     (change, input); a script Step only while no job of its key is in flight; a card only when not shown."""
     raise NotImplementedError

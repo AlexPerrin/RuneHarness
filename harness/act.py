@@ -295,6 +295,7 @@ def start(db, step: Step, ch, T) -> None:
         cmd[-4:] = [sys.executable, os.path.join(ROOT, "harness", "hd.py"), "publish", step.key]
     if os.path.exists(rc):
         os.remove(rc)
+    subprocess.run(["systemctl", "--user", "stop", unit + ".scope"], capture_output=True)   # a prior attempt's leftovers hold the name
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=open(log, "ab"), stderr=subprocess.STDOUT,
                          env=env, cwd=ROOT, start_new_session=True)
     db.execute("""INSERT INTO job(kind, key, change, pid, pid_start, scope, log, started_at) VALUES (?,?,?,?,?,?,?,?)

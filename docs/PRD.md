@@ -86,10 +86,11 @@ publish → maintainers' findings become criteria.
 - **T5** The orchestrator is a visible session with the lifecycle of a run: bound when it starts, shown only what is
   new since its last view, drained when its context nears the limit or its definition moved, ended by its own exit,
   replaced by a supervisor; it holds no state, spawns exactly what `hd` lists and never chats or waits on the user. The
-  driver is the session the user chats with: it shows cards, questions and alerts and records the user's words.
+  driver is the console the user chats with: it shows cards, questions and alerts and does what the user says, nothing
+  on its own.
 - **T6** Harness defects are facts the pass computes into alerts with a dedup key, not findings an agent searches
-  for; the driver disposes of each once: a quick fix as its own commit, a long task as a harness change a dev fixes at
-  the root; an alert recurring after its fix landed reprints as a regression. No agent runs to look for problems.
+  for; the user disposes of each once through the driver: a one-off fix, a harness change a dev fixes at the root, or
+  a dismissal; an alert recurring after its fix landed reprints as a regression. No agent runs to look for problems.
 - **T7** `hd` prints spawns, cards, questions, triage lines, alerts, runs and goals, derived; `hd kpi` prints the
   harness goal's numbers; every run is an agent of the visible orchestrator.
 - **T8** A goal is measured whenever its target's tree moves; a goal below target with nothing open lists one dev

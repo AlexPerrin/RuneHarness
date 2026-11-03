@@ -104,8 +104,9 @@ without a result) and resumes after the next harness ship. No run is live.
   use absolute paths into this worktree; never write under `~/osrs-harness`.
 - Claude Code snapshots hook matchers at session start: a hook change is tested by a fresh session (the orchestrator
   restarts itself on a moved definition; a hook change needs `hd restart` by hand).
-- An alert is the driver's (yours): a quick fix is your own commit, then `hd dismiss <id>` naming it; a long task is
-  `hd new --track harness --from-alert <id>` for a dev run. Never both.
+- An alert is the user's to dispose of, through the driver console. In this engineering session you fix it at once as
+  your own commit and `hd dismiss <id>` naming it, or file it with `hd new --from-alert <id>` on the user's word. Never
+  both. The engineer role is this hand-off's only; the design has the driver and the autonomous agents.
 - Commit a definition the orchestrator filed (`harness/changes/*.md`) if it did not (`hd commit`).
 - No new concept, file, knob or special case without a requirement in PRD naming it. A limit you meet in a mechanism
   is fixed in that mechanism; if the design itself is wrong, say so in the hand-back rather than patching around it.

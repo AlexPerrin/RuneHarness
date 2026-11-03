@@ -590,7 +590,7 @@ flowchart LR
 | judged criteria | **qa**, mode `judge` | skepticism separate from the generator |
 | a bulky lookup | **reader**, a run's sub-agent | context economy; read-only by its tool list |
 | spawn, stop, restart | **orchestrator** | the autonomous loop's hands: one visible session that spawns exactly what `hd` lists; holds no state |
-| the user's chat: cards, questions, triage, alerts, the user's words; harness fixes | **driver** | the harness engineer's session; a quick fix lands as its own commit, a long task as a change |
+| the user's console: cards, questions, triage, alerts; the user's words; one-off changes the user directs | **driver** | manual: acts only on the user's word; `claude --agent driver` in the checkout, beside the orchestrator's pane |
 
 A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
 of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. An agent whose run
@@ -601,11 +601,10 @@ pending is left alone (its notification resumes it); an idle one is asked once, 
 without a record. `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
 wake, a hand-back or the watch's expiry run `hd` and do what each line says: spawn as printed, TaskStop an agent at its
 one-line hand-back or its run's `ended` line; on `drain` spawn nothing and run `hd restart` once no run of yours is live.
-It never approves, closes, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's chat, the
-harness engineer's session (`claude` in the checkout): it shows each card, question, triage line and alert as `hd`
-prints it, records the user's words (`hd new`, `hd answer`, `hd hold`, `hd triage`, `hd dismiss`, `hd commit`), fixes a
-harness defect at once as its own commit and dismisses its alert naming it, and files a long harness task as a change
-for a dev run. It spawns nothing. dev.md, qa.md and reader.md hold each role's steps, one wait rule (a step runs in the foreground; one still
+It never approves, closes, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's console
+(`claude --agent driver` in the checkout, the pane beside the orchestrator's): it shows each card, question, triage line
+and alert as `hd` prints it, records the user's words (`hd new`, `hd answer`, `hd hold`, `hd triage`, `hd dismiss`,
+`hd commit`) and makes the one-off changes the user directs. It acts on nothing by itself and spawns nothing. dev.md, qa.md and reader.md hold each role's steps, one wait rule (a step runs in the foreground; one still
 running at 180 s is backgrounded by Claude Code and its notification resumes the run; game events by `wait_for`), and
 the one hand-back line: `run <id>: submitted <sha>` | `run <id>: PASS` | `run <id>: FAIL <n> criteria` |
 `run <id>: criteria agreed` | `run <id>: filed <slug>` | `run <id>: ask` | `run <id>: handoff`.
@@ -643,9 +642,9 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `pin-conflict` | pin | upstream main no longer merges with staging |
 | `quota` | api | GitHub refused on quota |
 
-`hd` prints an alert without a disposition once, to the driver, which disposes of it once: a quick fix is its own
-commit, then `hd dismiss <id> <why>` naming it; a long task is `hd new --track harness --from-alert <id>` (a harness
-change carrying the evidence, fixed by a dev run and checked by the replay). An alert whose subject recurs after its
+`hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the
+driver, then `hd dismiss <id> <why>` naming it; a harness change, `hd new --track harness --from-alert <id>` (carrying
+the evidence, fixed by a dev run and checked by the replay); or a dismissal. An alert whose subject recurs after its
 fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6); the `kpi` alert is its daily
 roll-up.
 

@@ -25,8 +25,8 @@ The actors:
 - **agents**: Claude Code sessions. A **dev** builds a change (the generator); a **qa** writes what "done" means
   before the code and judges the result after (the evaluator); a **reader** looks things up for them; the
   **orchestrator** is the one long-lived autonomous session that spawns the others and does nothing else; the
-  **driver** is the session the user chats with, the harness's engineer: it shows what needs the user and records
-  their words.
+  **driver** is the console the user chats with: it shows what needs the user and does what the user says, one-off
+  changes included, and nothing on its own.
 - **scripts**: build, bring the server and clients up, deploy, check, publish. They block on facts and return results.
 - **the world**: git remotes, GitHub, docker, an Android emulator and RuneLite desktops on Windows, reached from WSL.
 

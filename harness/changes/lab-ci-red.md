@@ -2,6 +2,8 @@
 slug: lab-ci-red
 track: lab
 priority: P1
+pr: 2
+public: content/lab-ci-red
 ---
 # lab: a head whose CI fails, then a second head that passes (the publish's CI step lists the dev; the second card edits and comments)
 

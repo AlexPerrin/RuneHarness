@@ -31,8 +31,10 @@ state/hd.db  state/<slug>/*.log  state/briefs/<run>.md  state/wake.orchestrator 
 ```
 
 A change definition's front matter: `slug`, `track` (client | fork | central | filestore | harness), `kind` (change |
-release), `upstream` (false: fork only), `priority` (P0–P4), `deps`, `goal`, `units`, `pr`, `branch`; other keys
-are the track script's. Definitions are parsed each pass; the ledger holds runtime rows only.
+release), `upstream` (false: fork only), `priority` (P0–P4), `deps`, `goal`, `units`, `pr`, `public` (the PR branch on
+the fork), `branch`; other keys are the track script's. Definitions are parsed each pass; the ledger holds runtime rows
+only. hd.yaml's repos carry `base` (the full ref a candidate starts from), `prefix` (dev branches) and `remote` (where
+dev refs are pushed; in the product clones `origin` is upstream and `fork` the fork; none: the dev ref stays local).
 
 ## 2 Schema (store.py, migration 1)
 
@@ -153,7 +155,8 @@ CREATE TABLE finding (                                 -- a maintainer's word on
 );
 
 -- observations
-CREATE TABLE ref    (repo TEXT, name TEXT, sha TEXT NOT NULL, seen_at TEXT, PRIMARY KEY (repo, name));
+CREATE TABLE ref    (repo TEXT, name TEXT, sha TEXT NOT NULL, seen_at TEXT, tree TEXT, PRIMARY KEY (repo, name));  -- tree: migration 2
+CREATE TABLE text   (change TEXT, name TEXT, sha TEXT NOT NULL, body TEXT NOT NULL, at TEXT, PRIMARY KEY (change, name));  -- migration 3: evidence/<slug>/pr-*
 CREATE TABLE landed (change TEXT, target TEXT, sha TEXT, at TEXT, PRIMARY KEY (change, target));
 CREATE TABLE gh     (url TEXT PRIMARY KEY, etag TEXT, status INTEGER, body TEXT, at TEXT);
 CREATE TABLE stack  (change TEXT PRIMARY KEY, script TEXT, containers_json TEXT, desktops_json TEXT,
@@ -260,7 +263,7 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # every dep landed(dep, dep's target) or closed; else wait (the dep)
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted dep joins the candidate
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
@@ -270,12 +273,12 @@ GUARDS = [
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
-    stage_due,         # server tracks: head not an ancestor of ref staging → merge (act.stage)
-    upstream_dep_wait, # a dep with its own PR not landed(upstream main) → wait; its card held → alert
-    texts_due,         # pr-comment.md misses commits since the PR's live head, or a finding has no reply → run dev
-    card_due,          # no card(change, head, digest(steps, texts)) → card
+    stage_due,         # server tracks: no landed(change, staging) → merge (act.stage); a recorded conflict is dev_due's
+    upstream_dep_wait, # a dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
+    texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
+    card_due,          # no card at the head, or its approval spent by a refusal, or texts observed since it was shown → card
     approval_wait,     # card and no approval → wait (the user); a hold → wait (hidden)
-    publish_due,       # approval not spent and a publish_step undone → publish
+    publish_due,       # approval not spent and a publish_step undone, no ci-failed event at the head → publish (a job: hd publish)
     published_wait,    # every step done, not landed(upstream main) → wait (maintainers)
     ship_due,          # harness/client: not landed(base) → ship (one job(ship) in flight per branch); shipped → wait landed
     measure_due,       # a goal whose target tree moved since measure.tree → measure
@@ -287,7 +290,8 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
     and no run exists for (change, input) (a run with that input that ended by stop or hand-back parks the change: a
     new fact makes a new input); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
-    only when not shown at its digest. A harness change is P1 at least."""
+    only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
+    tree of each server track whose script has a deploy recipe (Action change "<track>:staging")."""
 ```
 
 ## 4 The pass (`hd tick`: a 60 s timer, after every run end, after every command)
@@ -300,7 +304,7 @@ flowchart TD
     L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → INSERT landed"]
     L -- no --> P
     LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok<br/>sessions: pid gone → crash, started runs → console; definition moved → drain"]
-    P --> GH["GitHub, only for changes in WaitUpstreamDep / Publish / Published:<br/>GET If-None-Match → gh row; PR state, checks at head, comments → finding rows"]
+    P --> GH["public changes: evidence/<slug>/pr-* → text rows;<br/>a change with a pr: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]
   end
   GH --> D["decide.plan over the parsed definitions and the Ledger"]
   subgraph ACT["act.py"]
@@ -325,15 +329,18 @@ def procs(db):                          # a job whose (pid, pid_start) is gone: 
                                         # starts it again, up to three attempts (alert 'attempts')
 def sessions(db, definition):           # a live session whose pid is gone → crash, its started runs → console; a live
                                         # session whose definition digest differs from HEAD's → drain_at
-def gh(db, url) -> dict | None:         # GET with If-None-Match over one keep-alive connection; 304 → stored body;
-                                        # 200 → UPSERT; quota refused → alert('quota'), None (unknown: the step holds)
-def pr_state(db, repo, pr)              # state, draft, head sha, merged_at (a squash or rebase merge is seen here)
-def checks(db, repo, sha) -> list       # the latest run per check name at sha, plus commit statuses
-def comments(db, repo, pr)              # review and issue comments; not a bot, not ours → INSERT OR IGNORE finding
+def texts(db, slug)                     # evidence/<slug>/pr-title.txt, pr-body.md, pr-comment.md, pr-reply-<id>.md → text rows by sha
+def transport(method, url, data, headers)  # one `gh api -i` call → (status, headers, body); tests replace it
+def gh(db, url) -> dict | list | None:  # GET with If-None-Match from the stored ETag; 304 → stored body (no quota);
+                                        # 200 → UPSERT; quota refused → alert('quota'); None when unknown (the step holds)
+def pr(db, T, ch, ours)                 # the PR's gh row (Ledger.pr reads state, draft, head, title, body, merged_at); issue and
+                                        # review comments not by a bot or us → INSERT OR IGNORE finding (+ a triage event);
+                                        # merged_at → landed(change, upstream main) (a squash or rebase merge is seen only here)
+def checks(db, upstream, sha) -> list   # the latest check run per name at sha plus commit statuses; None when unknown
 def docker(db) -> set[str]              # running container names (stack recovery)
 def alerts(db)                          # UPSERT alert rows from the anomaly queries (§12); dedup on (kind, subject)
 ```
-GitHub is read only for changes waiting on an upstream dependency, publishing, or waiting on maintainers.
+GitHub is read each pass only for public changes with a PR, conditionally (a 304 costs no quota); checks only by a publish.
 
 ## 6 act.py: candidates, keys, jobs, staging, briefs
 
@@ -361,10 +368,12 @@ def start(db, step, ch, T):
 def clone(T, ch) -> path:
     """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""
 
-def stage(db, ch, head):
-    """In <fork>/.worktrees/staging: git merge --no-ff <head>, push fork staging; a conflict → merge --abort and
-    event('merge-conflict', files), which dev_due reads. When upstream main moves: merge it into staging; a conflict
-    there is alert('pin-conflict'). A closed change: git revert -m 1 of its merge commit."""
+def stage(db, ch, T, head):
+    """In <fork>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
+    merges is alert('pin-conflict')): git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
+    merge --abort and event('merge-conflict', '<head7> <files>'), which dev_due reads. The pass then lists one deploy
+    job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
+    live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
 
 def brief(db, ch, step) -> path:
     """state/briefs/<run id>.md: the definition; the criteria with their latest results and verdict marks; answers
@@ -382,19 +391,20 @@ merges records `ship fail`, the dev's step.
 ## 7 publish.py: the card and the publish
 
 ```python
-def card(db, ch, head) -> Card:
-    """steps: push (unless the PR is at head) → pr (open draft | edit title/body that differ) → ci (if pushed or
-    draft) → comment (pr-comment.md, then each pr-reply-<id>.md quoting its finding, @author once) → ready.
-    A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps + texts).
-    INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL."""
+def card(db, ch, T, head, pr, texts) -> card id:
+    """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
+    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready
+    (if new or draft). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
+    texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 
 def approve(db, slug, head):
-    """hd approve (the user only): refuses unless the card at (slug, head) is the latest and not held; INSERT approval."""
+    """hd approve (the user only): refuses unless the latest card of the change is at head, not held, not yet approved;
+    INSERT approval."""
 
-def publish(db, card_id):
-    """hd publish (a job of kind publish): each publish_step with done_at NULL, in order, executed with the card's
-    texts, never anything re-read from the PR or evidence/; success → done_at, result_json.
-    ci: poll checks() until every check at head concluded; a failure → event('ci-failed'), approval kept, stop
+def publish(db, card_id, T, path):
+    """hd publish (a job of kind publish, key = the card id): each publish_step with done_at NULL, in order, executed
+    with the card's texts, never anything re-read from the PR or evidence/; success → done_at, result_json.
+    ci: observe.checks() until every check at head concluded; a failure → event('ci-failed'), approval kept, stop
     (the dev's step). A GitHub write refused → approval.spent_why, stop (a new card names it). A read unknown
     (quota) → stop with no step done; the pass starts it again. After the last step: approval.spent_why = 'published'."""
 ```
@@ -439,10 +449,11 @@ sequenceDiagram
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
 | `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, close (refused: the user's own) |
-| `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → criterion(source=finding) on the PR's open change or a new change `<track>-<pr>-c<id>`; ask → also an ask |
+| `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command; the hook denies agents) | approval; change_state.closed_at |
-| `hd publish <card id>` | the pass | publish_step, approval.spent |
+| `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
+| `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
 | `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
@@ -544,6 +555,9 @@ flowchart LR
 - Library gates: `gradle test` on the candidate (FileStore's against the fork's live cache), the text criteria, fork
   CI. Judged criteria: from the gated build and the diff; a Central change from a server `up` built with it.
 - Central PRs are held from upstream until the user lifts the hold (a `hold` row with `head NULL` per change).
+- The fork track's seed criteria (tracks/fork/track.md): eleven judged (each naming its skill), seven scripted; those
+  marked `upstream` seed only a change that opens a PR. A dev pushes `dev/<slug>` to the fork before `hd submit`, which
+  refuses a local branch ahead of the pushed ref.
 - The server-content inventory is a FileStore task under `tracks/fork/`, run by `track.sh measure` in the build
   container; osrs-mcp reads its dumps. The harness itself stays standard-library Python.
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`

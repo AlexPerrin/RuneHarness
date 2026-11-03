@@ -782,6 +782,49 @@ token the game verifies. When both land the stack is game + Central + Postgres, 
 `SIDECAR_DATA` go, and docs/ISSUES.md's "sidecar data and image come from v7" entry closes. Until then the compose
 keeps the sidecars beside Central, behind the same `track.sh ship`.
 
+### 3.15 Devtools and MCP: what stays, what goes upstream
+
+The game clients are driven through **OpenRune-Developer-Tools**, upstream's own plugin: the client repo builds it from
+source at a pinned revision (`host/plugins/devtools/build.sh`, `REV=8304e71`, self-updater stubbed) into the dexed
+Android jar and the desktop's sideloaded jar. It serves MCP over HTTP at `127.0.0.1:7780/mcp` (desktop: `7779+N` per
+instance; mobile: the device's loopback, a per-process token in logcat). Around it v8 stacked three layers of ours:
+
+| layer | what it does | verdict |
+|---|---|---|
+| `mcp/serve.py` (78) | hot-reloads a stdio MCP server when a file in `mcp/` changes, replaying `initialize` | **cut**. It existed because mcp/ changed daily under a long-lived session. With a thin bridge that rarely changes, an mcp/ change is `hd restart` (orchestrator.sh restarts the session anyway) |
+| `mcp/devtools_bridge.py` (270) | a stdio front to the HTTP plugin: answers `initialize`/`tools/list` from a snapshot when no client runs; routes each call to the desktop named by its `port` argument; injects the bearer token of the up that owns that desktop; probes Windows `netstat` (mirrored WSL drops a connect to a closed port instead of refusing); bounds every answer; **`walk_to` over any distance** as minimap clicks of 12 tiles with camera-yaw correction; appends a "session dropped" note when `gameState` is a login screen | **split**: the transport half stays, the game half goes upstream (below) |
+| mobile `tools/devtools_mcp.py` (client repo) | stdio → `adb shell nc` to the device's loopback (a Windows `adb forward` is unreachable from WSL) | **keep**, in the client repo: a transport the environment needs |
+| `tools/server/DevtoolsOwner.java` (fork) | a `-javaagent` replacing the JDK `HttpServerProvider` so the plugin's endpoint answers only a request with the up's token | **replace by upstream auth** (below) |
+
+**Why a stdio front at all (the "proxy" the user wants kept).** Claude Code connects to an MCP server once, at session
+start, and an HTTP server config names one URL. Our sessions outlive clients: a desktop is `up` and `down` many times
+per run, a session drives several desktops on several ports at once, and a call must reach the client that exists
+*now*. A stdio process that is always alive and forwards each call to whatever client answers is the only way to get
+that with the MCP Claude Code offers; it is MCP used as designed (stdio server, JSON-RPC pass-through), not a misuse.
+It stays, at about 80 lines: snapshot `tools/list`, `port` routing, token header, bounded answer, the netstat probe.
+
+**What is game logic in the wrong layer, and the PR each becomes on OpenRune-Developer-Tools:**
+1. **Long-distance `walk_to`.** The plugin's `walk_to` clicks the viewport, so a far tile lands under the chatbox or a
+   side panel and the walk stops; our bridge reimplements it as minimap steps on the client's behalf, reading
+   `dump_interface` for the minimap centre and `cameraYaw` every step, over HTTP. In the plugin this is one method
+   with direct access to the minimap widget, the camera and `find_path`. PR: `walk_to` walks any distance (minimap
+   steps or path following), returns where it stopped and why.
+2. **Session state in every answer.** Our bridge makes a second call (`get_client_state`) after each tool call to
+   detect a dropped session, since an empty answer from a logged-out client reads like an empty scene. PR: every tool
+   result carries `gameState` (or the server refuses tool calls off `LOGGED_IN` with a typed error).
+3. **Bearer-token auth.** Upstream's README calls the endpoint "an unauthenticated local control surface"; the Android
+   host already mints a per-process token, the desktop plugin none, so we patch the JDK HTTP server from a javaagent.
+   PR: a `token` config on both platforms, checked on every request, printed once at start; `DevtoolsOwner.java` and
+   its `--add-exports` javaagent go.
+4. **`wait_for` with `at_tile`/`idle` semantics** our walk relies on, if the plugin's differ after (1).
+
+**Mechanism.** OpenRune-Developer-Tools becomes a sixth repo in hd.yaml (`devtools`, upstream
+OpenRune/OpenRune-Developer-Tools, our fork's `dev/<slug>` heads), a track like central's: build = Gradle jar, gate =
+its tests, judge rows in game from a desktop running the built jar, PR after the yes. The client track's build
+consumes the fork head (the `REV` pin becomes the gated head) until upstream merges, so our patches are live on every
+desktop and mobile at once and upstream when accepted. The harness keeps only transport in `mcp/`: `.mcp.json` names
+`osrs-mcp.sh`, the desktop bridge and the client repo's `devtools-mcp.sh` directly; `servers.json` and `serve.py` go.
+
 ---
 
 ## 4. What v8 has that v9 does not

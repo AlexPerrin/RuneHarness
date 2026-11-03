@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
 import act  # noqa: E402
 import observe  # noqa: E402
 import store  # noqa: E402
-from decide import Change, Track  # noqa: E402
+from decide import Change, Step, Track  # noqa: E402
 
 
 def sh(path, *args):
@@ -96,6 +96,24 @@ class Observe(unittest.TestCase):
         self.assertIsNone(j["pid"])
         self.assertIsNotNone(j["ended_at"])
 
+
+    def test_a_retry_starts_while_its_last_attempt_left_processes_in_the_scope(self):
+        observe.fetch(self.db, self.T)
+        root = Path(self.dir.name, "root")
+        (root / "tracks/harness").mkdir(parents=True)
+        (root / "tracks/harness/track.sh").write_text("exit 0\n")
+        (root / "tracks/harness/track.sh").chmod(0o755)
+        unit = "hd-h-one-measure-retryscope0-"
+        self.addCleanup(subprocess.run, ["systemctl", "--user", "stop", unit + ".scope"], capture_output=True)
+        subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit, "--", "bash", "-c", "sleep 300 &"], check=True)
+        saved = act.ROOT, act.STATE, act.job_env
+        act.ROOT, act.STATE, act.job_env = str(root), str(root / "state"), lambda db, ch, T, s, **more: dict(os.environ, **more)
+        try:
+            act.start(self.db, Step("measure", "t", key="retryscope0:script"), self.ch, self.T)
+        finally:
+            act.ROOT, act.STATE, act.job_env = saved
+        os.waitpid(self.db.execute("SELECT pid FROM job").fetchone()[0], 0)
+        self.assertEqual(Path(root, "state/h-one", "measure-retryscope0-.rc").read_text(), "0\n")
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 ---
 name: dev
+model: claude-opus-5-5
 description: Dev of one change on one track (mode code), or the planning run for a goal (mode plan). Spawned by the orchestrator with one brief.
 maxTurns: 400
 ---

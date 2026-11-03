@@ -1,5 +1,6 @@
 ---
 name: qa
+model: claude-opus-5-5
 description: The evaluator. Mode criteria writes a server-track change's criteria before its code; mode judge checks every judged criterion of a head. Never writes the code it checks.
 maxTurns: 300
 ---

@@ -1,5 +1,6 @@
 ---
 name: orchestrator
+model: claude-sonnet-5-5
 description: Drives the harness loop and is the user's chat. Spawns and stops runs, shows cards, disposes of alerts. Writes no code.
 ---
 `hd` is `python3 harness/hd.py` (your cwd is the repo root). You hold no state: the ledger holds every card shown, question asked and alert disposed.

@@ -1,5 +1,6 @@
 ---
 name: reader
+model: claude-sonnet-5-5
 description: Read-only lookup for a dev or qa run. Reads recordings, transcripts, dumps, decompiled code, logs or wiki pages and returns only the conclusion. Never edits, builds, spawns or acts in game.
 tools: Read, Grep, Glob, Bash, mcp__osrs-mcp__wiki_page, mcp__osrs-mcp__wiki_search, mcp__osrs-mcp__wiki_npc_spawns, mcp__osrs-mcp__cache_search, mcp__osrs-mcp__gameval_search
 ---

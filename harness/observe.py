@@ -3,6 +3,7 @@
 import os
 import re
 import subprocess
+from pathlib import Path
 
 from store import alert, event, now
 
@@ -60,10 +61,10 @@ def procs(db) -> None:
         if alive(j["pid"], j["pid_start"]):
             continue
         rc = j["log"][:-4] + ".rc"
-        code = int(open(rc).read() or -1) if os.path.exists(rc) else -1
+        code = int(Path(rc).read_text() or -1) if os.path.exists(rc) else -1
         db.execute("UPDATE job SET ended_at=?, exit=?, pid=NULL WHERE kind=? AND key=?", (now(), code, j["kind"], j["key"]))
         if j["ok"] is None:
-            tail = open(j["log"], errors="replace").read().strip().splitlines()[-1:] if os.path.exists(j["log"]) else []
+            tail = Path(j["log"]).read_text(errors="replace").strip().splitlines()[-1:] if os.path.exists(j["log"]) else []
             cause = re.sub(r"[0-9a-f]{7,}", "", tail[0] if tail else "no output").strip()[:200]
             db.execute("INSERT INTO attempt(kind, key, cause, exit, at) VALUES (?,?,?,?,?)", (j["kind"], j["key"], cause, code, now()))
             event(db, "attempt", j["change"], None, f"{j['kind']} {j['key'][:12]} exit {code}: {cause}")

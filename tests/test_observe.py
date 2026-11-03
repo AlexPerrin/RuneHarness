@@ -24,7 +24,7 @@ class Observe(unittest.TestCase):
         self.repo = os.path.join(self.dir.name, "repo")
         os.makedirs(self.repo)
         sh(self.repo, "init", "-q", "-b", "live")
-        open(os.path.join(self.repo, "a"), "w").write("1\n")
+        Path(os.path.join(self.repo, "a")).write_text("1\n")
         sh(self.repo, "add", "a")
         sh(self.repo, "commit", "-qm", "base")
         self.T = Track("harness", "x/y", self.repo, "refs/heads/live", "", "harness", {})
@@ -39,7 +39,7 @@ class Observe(unittest.TestCase):
         self.assertEqual(observe.fetch(self.db, self.T), {"refs/heads/live"})
         self.assertEqual(observe.fetch(self.db, self.T), set())
         sh(self.repo, "checkout", "-qb", "harness/h-one")
-        open(os.path.join(self.repo, "b"), "w").write("2\n")
+        Path(os.path.join(self.repo, "b")).write_text("2\n")
         sh(self.repo, "add", "b")
         sh(self.repo, "commit", "-qm", "work")
         self.assertEqual(observe.fetch(self.db, self.T), {"refs/heads/harness/h-one"})
@@ -47,13 +47,13 @@ class Observe(unittest.TestCase):
     def test_candidate_is_the_head_when_linear_and_a_deterministic_merge_otherwise(self):
         base = sh(self.repo, "rev-parse", "HEAD")
         sh(self.repo, "checkout", "-qb", "harness/h-one")
-        open(os.path.join(self.repo, "b"), "w").write("2\n")
+        Path(os.path.join(self.repo, "b")).write_text("2\n")
         sh(self.repo, "add", "b")
         sh(self.repo, "commit", "-qm", "work")
         head = sh(self.repo, "rev-parse", "HEAD")
         self.assertEqual(act.candidate(self.repo, base, [head])[1], head)
         sh(self.repo, "checkout", "-q", "live")
-        open(os.path.join(self.repo, "c"), "w").write("3\n")
+        Path(os.path.join(self.repo, "c")).write_text("3\n")
         sh(self.repo, "add", "c")
         sh(self.repo, "commit", "-qm", "live moved")
         live = sh(self.repo, "rev-parse", "HEAD")
@@ -62,7 +62,7 @@ class Observe(unittest.TestCase):
         self.assertEqual((t1, c1), (t2, c2))
         self.assertNotEqual(c1, head)
         self.assertEqual(sh(self.repo, "ls-tree", "--name-only", t1), "a\nb\nc")
-        open(os.path.join(self.repo, "b"), "w").write("conflict\n")
+        Path(os.path.join(self.repo, "b")).write_text("conflict\n")
         sh(self.repo, "add", "b")
         sh(self.repo, "commit", "-qm", "live edits b")
         with self.assertRaises(act.Conflict) as cm:
@@ -71,7 +71,7 @@ class Observe(unittest.TestCase):
 
     def test_landed_when_the_head_is_an_ancestor_of_the_target(self):
         sh(self.repo, "checkout", "-qb", "harness/h-one")
-        open(os.path.join(self.repo, "b"), "w").write("2\n")
+        Path(os.path.join(self.repo, "b")).write_text("2\n")
         sh(self.repo, "add", "b")
         sh(self.repo, "commit", "-qm", "work")
         head = sh(self.repo, "rev-parse", "HEAD")
@@ -87,7 +87,7 @@ class Observe(unittest.TestCase):
 
     def test_dead_job_without_result_is_an_attempt(self):
         log = os.path.join(self.dir.name, "gate-x.log")
-        open(log, "w").write("Traceback\nMemoryError at 0xdeadbeef1234\n")
+        Path(log).write_text("Traceback\nMemoryError at 0xdeadbeef1234\n")
         self.db.execute("INSERT INTO job(kind, key, change, pid, pid_start, log, started_at) VALUES ('gate', 'k', 'h-one', 999999, 1, ?, 't')", (log,))
         observe.procs(self.db)
         a = self.db.execute("SELECT * FROM attempt").fetchone()

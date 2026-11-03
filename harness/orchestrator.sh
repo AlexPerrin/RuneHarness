@@ -6,7 +6,10 @@
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 systemctl --user is-active -q hd-loop.timer || systemd-run --user --quiet --unit hd-loop --on-calendar='*:*:00' \
   --timer-property=AccuracySec=1s python3 "$PWD/harness/hd.py" tick
+n=0
 while :; do
-  systemd-run --user --scope --quiet --unit "hd-orchestrator-$$" -- claude --agent orchestrator "drive"
+  n=$((n + 1)); unit=hd-orchestrator-$$-$n
+  systemd-run --user --scope --quiet --collect --unit "$unit" -- claude --agent orchestrator "drive"
+  systemctl --user stop "$unit.scope" 2>/dev/null   # what the session left behind (MCP servers, a watch) ends with it
   python3 harness/hd.py session-ended || break
 done

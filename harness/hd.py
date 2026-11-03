@@ -551,7 +551,7 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="command")   # not "cmd": `criterion add --cmd` is an option
     s = sub.add_parser("tick"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--db"); s.add_argument("--offline", action="store_true"); s.add_argument("--defs")
     s = sub.add_parser("new"); s.add_argument("slug"); s.add_argument("--track", required=True); s.add_argument("--title", required=True)
-    s.add_argument("--body", default=""); s.add_argument("--priority", default="P2"); s.add_argument("--deps", nargs="*")
+    s.add_argument("--body", default=""); s.add_argument("--priority", default="P2", type=lambda p: act.tier(p)); s.add_argument("--deps", nargs="*")
     s.add_argument("--blocks", nargs="*"); s.add_argument("--on"); s.add_argument("--pr", type=int); s.add_argument("--from-alert", type=int)
     s.add_argument("--no-upstream", dest="upstream", action="store_false", default=True); s.add_argument("--goal"); s.add_argument("--units", nargs="*")
     s = sub.add_parser("measure"); s.add_argument("goal"); s.add_argument("tree"); s.add_argument("value", type=float); s.add_argument("report", nargs="?")

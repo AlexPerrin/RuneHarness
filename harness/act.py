@@ -55,13 +55,20 @@ def cfg() -> Cfg:
     return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3))
 
 
+def tier(p) -> str:
+    """A priority as written ('P1', 'p1', 1, '1') → the tier; anything else P2 (a definition never halts the pass)."""
+    p = str(p).strip().upper()
+    p = p if p.startswith("P") else "P" + p
+    return p if p in decide.TIERS else "P2"
+
+
 def parse_change(path) -> Change:
     text = open(path).read()
     _, fm, body = text.split("---\n", 2)
     y = yaml.safe_load(fm) or {}
     title = next((l[2:] for l in body.splitlines() if l.startswith("# ")), "")
     return Change(slug=y.get("slug") or os.path.basename(path)[:-3], track=y["track"], kind=y.get("kind", "change"),
-                  upstream=y.get("upstream", True), priority=y.get("priority", "P2"), deps=tuple(y.get("deps") or ()),
+                  upstream=y.get("upstream", True), priority=tier(y.get("priority", "P2")), deps=tuple(y.get("deps") or ()),
                   goal=y.get("goal", ""), units=tuple(y.get("units") or ()), pr=y.get("pr", 0) or 0,
                   public=y.get("public", ""), branch=y.get("branch", ""), title=title, body=body)
 

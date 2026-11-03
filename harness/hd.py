@@ -29,7 +29,7 @@ COMMANDS = {
     "kpi":      ("anyone", "nothing"),
     "commit":   ("orchestrator", "a pathspec commit as Alex Perrin, pushed"),
     "restart":  ("orchestrator, once hd prints drain and no run of it is live", "session.end_kind='restart'; exits the claude process"),
-    "session-ended": ("tools/orchestrator.sh", "exit 1 when the ended session's end_kind is 'exit' (the user's), else 0: loop"),
+    "session-ended": ("harness/orchestrator.sh", "exit 1 when the ended session's end_kind is 'exit' (the user's), else 0: loop"),
 }
 
 

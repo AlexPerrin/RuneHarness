@@ -79,7 +79,7 @@ def post(url, method, params):
     # mirrored WSL drops a connect to a closed Windows port instead of refusing it: ask netstat, as the bring-up does
     port = re.search(r":(\d+)/", url).group(1)
     if listening(port) is False:
-        return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
+        return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tracks/fork/track.sh up <slug> starts one)"}}
     # the whole call is bounded, its token read on /mnt/c included, not each socket read (a body read is many): a hung
     # client or a hung file read answers no call past it
     limit = ANSWER_WAIT + ((params.get("arguments") or {}).get("timeoutMs") or 0) / 1000
@@ -99,7 +99,7 @@ def post(url, method, params):
     t.start()
     t.join(limit)
     if not out:
-        return {"error": {"code": -32000, "message": f"the desktop client on {url} did not answer within {limit:g} s: it is hung (tools/track.sh restart or down/up <slug>)"}}
+        return {"error": {"code": -32000, "message": f"the desktop client on {url} did not answer within {limit:g} s: it is hung (tracks/fork/track.sh restart or down/up <slug>)"}}
     if isinstance(out[0], OSError):
         return {"error": {"code": -32000, "message": f"no desktop client answers on {url} ({out[0]})"}}
     body = out[0]

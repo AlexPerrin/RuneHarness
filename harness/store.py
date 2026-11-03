@@ -43,14 +43,14 @@ CREATE UNIQUE INDEX session_live ON session(pid) WHERE ended_at IS NULL;
 
 CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
-  tree TEXT NOT NULL, tcommit TEXT NOT NULL, composite_json TEXT, tools_json TEXT,
-  limits_json TEXT NOT NULL, run INTEGER REFERENCES run(id), at TEXT NOT NULL,
+  tree TEXT NOT NULL, tcommit TEXT NOT NULL, composite_json TEXT,
+  run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );
 
 CREATE TABLE row (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, rid TEXT NOT NULL,
-  kind   TEXT NOT NULL CHECK (kind IN ('check','gate','judge')),
+  kind   TEXT NOT NULL CHECK (kind IN ('script','judge')),
   text   TEXT NOT NULL, cmd TEXT,
   source TEXT NOT NULL CHECK (source IN ('seed','accuracy','answer','finding','user')),
   source_id INTEGER,

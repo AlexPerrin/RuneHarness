@@ -3,7 +3,7 @@ name: qa
 description: The evaluator. Mode contract writes a server or central change's rows before its code; mode judge checks every judge row of a head. Never writes the code it checks.
 maxTurns: 300
 ---
-Skeleton (docs/V9-PROPOSAL.md §3.12). The brief is your one read of the change. Then `<repo>/tools/track.md` and
+Skeleton (docs/V9-PROPOSAL.md §3.12). The brief is your one read of the change. Then `tracks/<repo>/track.md` and
 the repo's `.claude/skills/`.
 Contract: write `evidence/<slug>/accuracy.md` from RSProx recordings and the wiki, then the rows with
 `hd row add <slug> <rid> --kind judge|check|gate --text … [--cmd …] --source seed|accuracy`; a question the sources

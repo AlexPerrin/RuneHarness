@@ -13,13 +13,13 @@ def tree(repo, base: str, heads: list) -> tuple:
 
 
 def key(kind: str, tree: str, repo) -> str:
-    """f"{tree}:{recipe}" where recipe = `tools/track.sh recipe <kind>` of the repo's tools copy. No hashing of
+    """f"{tree}:{recipe}" where recipe = `tracks/<repo>/track.sh recipe <kind>`. No hashing of
     tools files: a fixed checker re-runs by `hd regate`."""
     raise NotImplementedError
 
 
 def start(db, step, ch) -> None:
-    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tools/track.sh <verb> <slug> <key>;
+    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>;
     INSERT artefact(kind, key, change, pid, pid_start, scope, log, started_at). The script's last act is
     `hd artefact <kind> <key> ok|fail <detail>`; the wrapper writes its exit to state/<slug>/<kind>.rc."""
     raise NotImplementedError

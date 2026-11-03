@@ -1,14 +1,14 @@
-# hd: the facts the harness cannot derive. Each track's scripts, rules and skills live in its own repo (tools/track.sh,
-# tools/track.md, .claude/skills/) on its `tools` branch, worktree <repo>/.worktrees/<the branch's last segment>. Per-change clones and build
-# copies are worktrees of that repo under <repo>/.worktrees/; a track's base is its repo's default branch.
+# hd: the facts the harness cannot derive. Scripts, rules and skills live in this repo (tracks/<repo>/, .claude/skills/);
+# the product repos hold product code only. Per-change clones and build copies are worktrees under <repo>/.worktrees/.
 repos:
-  client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse, tools: client/harness-v8}
-  fork:     {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         tools: local/harness, upstream: OpenRune/OpenRune-Server}
-  central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
-  filestore: {name: AlexPerrin/OpenRune-FileStore,       path: ~/src/OpenRune-FileStore,       tools: local/harness, upstream: OpenRune/OpenRune-FileStore}
+  client:   {name: AlexPerrin/osrs-plugins-reverse, path: ~/osrs-plugins-reverse}
+  fork:     {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server, upstream: OpenRune/OpenRune-Server}
+  central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, upstream: OpenRune/OpenRune-Central-Server}
+  filestore: {name: AlexPerrin/OpenRune-FileStore,       path: ~/src/OpenRune-FileStore, upstream: OpenRune/OpenRune-FileStore}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
 
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
+builds: 3                 # builds and container steps at once (an N-slot flock semaphore)
 agents: 7                 # runs alive at once (raised from 3, then 6->7 for the P0 qa login fix: the user's word)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list

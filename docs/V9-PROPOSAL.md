@@ -33,7 +33,7 @@ flowchart LR
   D --> O
   O -->|"ref, gh, landed, finding, artefact rows"| DB
   DB --> DE --> A
-  A -->|"systemd scope"| S["tools/track.sh build/gate/deploy<br/>hd ship carry"]
+  A -->|"systemd scope"| S["tracks/&lt;repo&gt;/track.sh build/gate/deploy<br/>hd ship carry"]
   S -->|"hd artefact / hd step rows"| DB
   A -->|"state/wake.orchestrator"| OR
   OR -->|"Agent(role, brief path)"| R
@@ -76,7 +76,7 @@ it is carried upstream → maintainer feedback becomes rows on the PR's one open
 |---|---|---|
 | R1 Goals | a goal is measured when its target's tree moves, recorded with that tree; below target with nothing open → one dev run in plan mode on the goal (files changes, no code); a server change takes the best priority of the client changes it blocks | `measure` table (§3.17), `decide.priority()` |
 | R2 Flow | a defined change reaches its target with no person once its deps are live; closed → no step, leaves integration, worktrees removed; the orchestrator spawns and stops every run, never waits on the user; a run ends only by hand-back / stop / close / console death | state machine §3.3, `run.end_kind` |
-| R3 Contract | typed rows written before code (`check`, `gate`, `judge`; sources seed/accuracy/answer/finding/user); hand-over passes every check row; gate = check rows then gate rows; the evaluator judges every judge row once per (head, rows), never `pass` on a row it did not check; a verdict binds to (head, rows digest); a late row lists the dev | `row`, `row_result`, `verdict`, `verdict_row` |
+| R3 Contract | typed rows written before code (`script`, `judge`; sources seed/accuracy/answer/finding/user); the gate runs every script row at T; the evaluator judges every judge row once per (head, rows), never `pass` on a row it did not check; a verdict binds to (head, rows digest); a late row lists the dev | `row`, `row_result`, `verdict`, `verdict_row` |
 | R4 Authority | a complete PR is one card (ordered steps, exact texts, verdict, evidence, the three commands); `hd approve` copies the card into `approval`; the carry executes `carry_step` rows, resuming at the first undone; a new head or text = new card; maintainer words triaged `finding\|ask\|ack`; one comment per carried head; CI never re-runs at a head but by the user's word | `card`, `approval`, `carry_step`, `finding` |
 | R5 Recovery | every failure repaired by the next pass from the ledger; a cause outside the head records no result and re-runs; the same cause 3× → one alert; nothing from elapsed time | `attempt`, `artefact.ok IS NULL` |
 | R6 Economy | nothing checked twice per tree; one agent count; P0–P4 with a held band; harness first, PR rounds before new content; one dev + one qa per head move; events on edges; context-limit hand-off lists a successor at once | `decide.plan()`, `event` |
@@ -101,17 +101,23 @@ harness/carry.py card() builds steps+texts; ship() executes carry_step rows, ~25
 harness/hook.py  SubagentStart/Stop, PreToolUse (2 rules + scope line), PostToolUse (context limit), ~150
 harness/kpi.py   the queries behind `hd kpi`, ~100
 hd.yaml          repos {name, path, tools, upstream?}, agents, context_limit, hold, pins
-tools/track.sh   the harness track: test | gate | ship | recipe
-tools/track.md   the harness track's rules and seed rows
+tracks/<repo>/   one directory per repo: track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md
+                 (rules, seed rows), the repo's scripts; tracks/harness/track.sh: test | gate | ship | recipe
+.claude/skills/  the judgment skills of every track (accuracy, dupes, pr-text, probe, qa-server, reverse, qa-client,
+                 network-qa): in this repo, so every run spawned by the orchestrator has them natively
+harness/orchestrator.sh   the supervisor (§3.16)
 .claude/agents/  orchestrator.md (≤20 lines), dev.md, qa.md, reader.md      (no planner, no monitor: §3.13)
 harness/goals/*.md  harness/changes/*.md     definitions, committed (format unchanged), beside the code
 evidence/<slug>/    accuracy.md pr-title.txt pr-body.md pr-comment.md pr-reply-<id>.md handoff.md ...
 state/hd.db         the ledger        state/<slug>/*.log   script logs      state/briefs/<run>.md
 state/wake.orchestrator                 one line per new spawn/card/question/triage/alert (inotify target)
 ```
-Product repos keep `tools/track.sh build|up|down|gate|ship|measure|log|test|recipe`, `tools/track.md`,
-`.claude/skills/` on their tools branch (client `client/harness`, fork `local/harness`), run from a content-hashed
-copy as in v8. Two additions: `recipe <verb>` prints the recipe version string; `up`/`deploy` call `hd step` per step.
+The product repos hold product code only. Every script and skill the harness runs lives here, under `tracks/<repo>/`
+and `.claude/skills/` (v8 kept them on a tools branch in each product repo, which needed carried tools heads, tools
+rebases, tools conflicts and content-hashed copies so a ship would not move a running script; one repo and serial
+ships need none of that: a script runs from the live checkout, and a ship waits for the scripts in flight it would
+change, a fact in `artefact`). The scripts' content is v8's: the fork CI at `gate/<slug>`, the desktop instances,
+the mobile allowlist. Two additions: `recipe <verb>` prints the recipe version string; `up`/`deploy` call `hd step`.
 
 ### 3.2 Schema (store.py, migration 1)
 
@@ -154,15 +160,14 @@ CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
   tree TEXT NOT NULL, tcommit TEXT NOT NULL,
   composite_json TEXT,                                 -- {central: tree, filestore: tree} built in by composite build (§3.14)
-  tools_json TEXT,                                     -- {repo: head} carried tools heads
-  limits_json TEXT NOT NULL, run INTEGER REFERENCES run(id), at TEXT NOT NULL,
+  run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );
 
 CREATE TABLE row (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, rid TEXT NOT NULL,
-  kind   TEXT NOT NULL CHECK (kind IN ('check','gate','judge')),
-  text   TEXT NOT NULL, cmd TEXT,                      -- cmd for check/gate rows
+  kind   TEXT NOT NULL CHECK (kind IN ('script','judge')),
+  text   TEXT NOT NULL, cmd TEXT,                      -- cmd for script rows, run by the gate at T
   source TEXT NOT NULL CHECK (source IN ('seed','accuracy','answer','finding','user')),
   source_id INTEGER,                                   -- answer.ask or finding.comment_id
   upstream_only INTEGER NOT NULL DEFAULT 0, waived INTEGER NOT NULL DEFAULT 0,
@@ -279,7 +284,8 @@ erDiagram
   CHANGE_DEF {
     file harness_changes_slug_md
     string track
-    string kind "change|local|release"
+    string kind "change|release"
+    bool upstream "false: fork only"
     string priority "P0..P4"
     list deps
     int pr
@@ -441,11 +447,11 @@ def tree(repo: Repo, base: str, heads: list[str]) -> tuple[str, str]:
     composite (§3.14) and joins the key as +c<tree12> / +f<tree12>."""
 
 def key(kind: str, tree: str, repo: Repo) -> str:
-    """f"{tree}:{recipe}" where recipe = `tools/track.sh recipe <kind>` of the repo's tools copy (a string the
+    """f"{tree}:{recipe}" where recipe = `tracks/<repo>/track.sh recipe <kind>` (a string the
     track declares; bumped by a dev when the recipe's output changes). No hashing of tools files."""
 
 def start(db, step: Step, ch: Change) -> None:
-    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tools/track.sh <verb> <slug> <key>;
+    """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>;
     INSERT artefact(kind, key, change, pid, pid_start, scope, log=state/<slug>/<kind>-<key12>.log, started_at).
     The script writes its result with `hd artefact <kind> <key> ok|fail <detail>` as its last act; exit code to
     state/<slug>/<kind>.rc by the wrapper."""
@@ -467,7 +473,7 @@ def wake(db) -> None:
 Integration branch, once: `git checkout -b integration upstream/main && for p in pins: git merge --no-ff $p`
 (the user's `pins` order). A closed change: `git revert -m 1 <its merge commit>`; a conflict there is an alert.
 
-Serial ship (harness, client): `ship_due` picks the oldest gated hand-over on the track; `tools/track.sh ship` does
+Serial ship (harness, client): `ship_due` picks the oldest gated hand-over on the track; `track.sh ship` does
 `git merge-tree` of live tip + head → gate at that tree if no artefact(gate) for it → `git push origin <tcommit>:<live>`
 fast-forward; tools heads pushed to the repo's own remote (`fork`, never `origin`). One `artefact(ship)` in flight
 per track.
@@ -535,7 +541,7 @@ refused the yes.
 | `hd fault <run> <what>` | any run | alert(kind='fault', subject=<run>, detail): a harness defect met by a run, the hand-back goes on |
 | `hd show <slug>` / `hd brief <run>` | runs, orchestrator | nothing (prints the brief text) |
 | `hd row add <slug> <rid> --kind --text [--cmd] --source [--source-id]` | qa (contract), pass (seeds, findings) | row |
-| `hd handover <slug> Limits: none\|limit:<slug>…` | dev | runs every check row at T (`row_result`), refuses on failure/conflict/prose; INSERT handover; prints the one hand-back line |
+| `hd handover <slug>` | dev | the dev's commitment that the dev ref's tip is done: INSERT handover(head, T); refuses while the ref is unpushed (product tracks) or T conflicts; prints the one hand-back line. The dev runs `track.sh gate <slug>` itself first; the pass gates anyway |
 | `hd verdict <slug> <head> <rows.json>` | qa | verdict + verdict_row; refuses a missing row, `pass` on an unchecked row, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
 | `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer; applies the effect in the same transaction (dep → definition edit; waive → row.waived; accept-difference → row source=user; close → refused: the user's own) |
@@ -573,19 +579,18 @@ goals    client-api 71% @4f0c…   server-content 38% @integration 9ac1…
 
 ```mermaid
 flowchart LR
-  D["dev run in .worktrees/slug<br/>branch harness/slug"] --> H["hd handover: check row tests at T"]
+  D["dev run in .worktrees/slug<br/>branch harness/slug"] --> H["hd handover: head, T"]
   H --> G["gate at T = merge-tree(live tip, head)"]
   subgraph GR["gate rows"]
     G --> T1["tests: unittest at T"]
     G --> T2["replay: cp state/hd.db snap.db;<br/>python3 T/harness/hd.py tick --dry-run --db snap.db --offline > cand;<br/>python3 live/harness/hd.py … > live; diff"]
-    G --> T3["docs: docfmt --check"]
     G --> T4["tools: each carried tools head ff + tests"]
   end
   T2 --> J{"diff empty or named by a<br/>row 'replay: &lt;expected&gt;'"}
   J -- no --> DEV["Step dev: the unexplained diff"]
   J -- yes --> S["ship: ff live branch to tcommit;<br/>push tools heads to fork remote"]
 ```
-Harness seed rows: `tests` (check), `replay` (gate), `docs` (gate), `tools` (gate). `hd new` on the harness track
+Harness seed rows: `tests` and `replay`, both script rows. `hd new` on the harness track
 takes no mechanism; a dev's out-of-scope limit is `hd new … --blocks <own slug>`; duplicates are the orchestrator's
 `hd fold`.
 
@@ -652,25 +657,25 @@ description: Drives the harness loop and is the user's chat. Spawns and stops ru
 4. The user's words: a change → `hd new`; an answer → `hd answer <slug> <option> "<words>"`; wait/no → `hd hold`;
    an instruction to a live run → SendMessage. Their yes and close are theirs (`! hd approve|close`). Commit definitions with `hd commit`.
 5. `hd` prints `drain` (your context is near its limit, or your definition moved): spawn nothing, go on with every other
-   section, and once `hd` shows no run of yours live run `hd restart`: tools/orchestrator.sh starts your successor.
+   section, and once `hd` shows no run of yours live run `hd restart`: harness/orchestrator.sh starts your successor.
 Never: approve, close, product code, EnterWorktree, AskUserQuestion, a pass in a subagent. Times US Eastern.
 ```
 dev.md / qa.md / reader.md: v8's substance, rewritten short, one wait rule (foreground; a step still
 running at 180 s is backgrounded by Claude Code and its notification resumes you; game events by `wait_for`), one
-hand-back line each (`run <id>: handed over <sha> Limits: …` | `run <id>: PASS|FAIL n rows` | `run <id>: contract
+hand-back line each (`run <id>: handed over <sha>` | `run <id>: PASS|FAIL n rows` | `run <id>: contract
 agreed` | `run <id>: filed <slug>` | `run <id>: ask` | `run <id>: handoff`). The brief carries the expected line.
 
 Sample brief (`state/briefs/212.md`, abridged):
 ```
 # run 212: dev genie-355 (server, P2)  step: CI failed at 306d7ed (Formatting)
 clone ~/src/OpenRune-Server/.worktrees/genie-355   build copy …/genie-355-build   evidence ~/osrs-harness/evidence/genie-355
-rules: ~/src/OpenRune-Server/.worktrees/harness/tools/track.md   skills: accuracy, dupes, pr-text, probe, qa-server
+rules: ~/osrs-harness/tracks/fork/track.md   skills: accuracy, dupes, pr-text, probe, qa-server
 ## definition            (harness/changes/genie-355.md verbatim)
 ## rows @T 9ac1…         evidence   check  ok | subject check ok | … | ci gate FAIL: Formatting (spotless on genie/Genie.kt:41) | claims judge pass@306d7ed | …
 ## since your last hand-over
 answer 14 (the user, to "…"): option b — waive dupes-3 "the lamp cannot be sold"
 finding 2201 by <maintainer>: "Could you also …"   → row finding-2201 (judge)
-## hand back exactly:  run 212: handed over <sha> Limits: none
+## hand back exactly:  run 212: handed over <sha>
 ```
 
 ### 3.13 The agent model (no planner, no monitor)
@@ -724,7 +729,7 @@ What the v8 monitor taught, and the property that answers it:
 ### 3.14 Tracks and repos
 
 Three loops, five repos. The server loop spans the fork and the two OpenRune libraries it depends on; each is a repo
-in hd.yaml with its upstream, a track with its own tools branch, base and head, and its own PRs.
+in hd.yaml with its upstream, a track with its own `tracks/<repo>/`, base and head, and its own PRs.
 
 | repo (hd.yaml key) | upstream | base → head | delivers | serves |
 |---|---|---|---|---|
@@ -775,7 +780,7 @@ parses dbrow definitions (config group 38) by opcode to find each row's dbtable,
 `gamevals.dat`, to emit `server-content.json` (one unit per quest, skill, minigame and boss dbrow). Every one of
 those steps is FileStore's job (`filestore` for the store, `definition/osrs` `DBRowCodec` and `DBTableCodec` for the
 rows, `tools/gameval` for the names), and a second decoder drifts from the first at every cache revision. In v9 the
-inventory is a FileStore-based task on the fork's tools branch, run by `tools/track.sh measure` in the build
+inventory is a FileStore-based task under `tracks/fork/`, run by `track.sh measure` in the build
 container (where Gradle already is), writing the same JSON; `server-content.py` is deleted and osrs-mcp reads the
 task's dumps. The harness itself stays stdlib Python (A9): the JVM work lives in the server track's tools.
 
@@ -844,7 +849,7 @@ state, so there is no hand-off file: its successor's first `hd` shows the same c
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Starting : tools/orchestrator.sh runs `claude --agent orchestrator`
+  [*] --> Starting : harness/orchestrator.sh runs `claude --agent orchestrator`
   Starting --> Serving : SessionStart hook INSERT session(pid, definition blob)
   Serving --> Serving : wake / hand-back / user words → `hd` (delta since seen_event) → act
   Serving --> Draining : hook: transcript bytes > context_limit → drain_at\n pass: HEAD's orchestrator.md or .mcp.json blob ≠ session.definition → drain_at
@@ -857,7 +862,7 @@ stateDiagram-v2
 ```
 
 ```bash
-# tools/orchestrator.sh — the supervisor, run once by the user in their terminal (the session must be visible: A2)
+# harness/orchestrator.sh — the supervisor, run once by the user in their terminal (the session must be visible: A2)
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 while :; do
   claude --agent orchestrator "drive"
@@ -923,7 +928,7 @@ a server goal's measure is the query above. `measure` rows are written when the 
 
 Kept: spawn by path; events on edges; contract before code; deterministic T commits; one-line hand-backs; the track
 scripts (fork CI at `gate/<slug>` on a child of T, game-data asset, CI step classifier, live key pair/modulus,
-desktop instances + bearer token, mobile allowlist, network QA, docfmt); `hd room`; copy-and-exec tools; the carry
+desktop instances + bearer token, mobile allowlist, network QA), now under `tracks/`; the carry
 over REST; `hd triage`; the context hand-off; definitions/evidence as files; the repos' skills (client: reverse,
 qa-client, network-qa; server: accuracy, dupes, pr-text, probe, qa-server). Seed rows of all three tracks move into
 `row` with their ids; the client's are all script rows, the server's eleven judge rows stay the evaluator's.
@@ -953,7 +958,7 @@ qa-client, network-qa; server: accuracy, dupes, pr-text, probe, qa-server). Seed
 
 ## 6. Build and proof plan (each phase ends on an observed fact)
 
-1. **Ledger + loop, harness track only.** store, observe, decide, act, hook, orchestrator.md, tools/track.sh
+1. **Ledger + loop, harness track only.** store, observe, decide, act, hook, orchestrator.md, tracks/harness/track.sh
    (test/gate/ship/recipe), test_decide over a first snapshot. Proof: v9 ships a harness change to itself through
    its own loop; `hd kpi` reads 1 run, 1 build, 1 gate, 1 ship for it.
 2. **Server track.** contract → dev → build → gate (rows + fork CI) → judge → integration merge + deploy → card →
@@ -974,9 +979,48 @@ merge into `main`; v8's timer stops at the cutover yes.
 
 ---
 
-## 7. Default decisions (overturn in feedback)
+## 7. Inheritance audit
+
+Every concept in §3, with the axiom or fact that requires it. A concept whose only justification was "v8 had it" is
+cut here and above.
+
+| concept | required by | verdict |
+|---|---|---|
+| a change as a committed markdown file with slug, track, priority, deps | A1 (the user defines work and reads it), A5 (one change per PR, deps across repos) | keep |
+| rows agreed before code; `judge` rows for an evaluator | A3 (agents' words are not evidence), A5 (maintainer findings) | keep; **`check` vs `gate` kinds cut**: one `script` kind, run by the gate at T; the dev runs the gate script itself before `hd handover`, which only records |
+| hand-over as a recorded commitment | A3 (a ref tip is not "done": agents push WIP) | keep; **`Limits:` section cut** (a hook text rule; an out-of-scope limit is `hd new --blocks`) |
+| verdict bound to (head, rows) | A3 | keep |
+| card, approval as a copy, carry step log | A4 | keep |
+| ask with typed options | A4 (scope decisions are the user's) | keep |
+| triage of maintainer words by the orchestrator | A5 (an ack must not become a comment) | keep: one line of judgment beats a dev run per ack |
+| T by merge-tree, deterministic commit | A7 (a build is a function of a tree), the CI-at-the-same-sha fact | keep |
+| key = tree + recipe | A7 | keep (new in v9) |
+| `integration` branch | A6/A7 (one test server, many changes) | keep (replaces v8's recomputed T_int) |
+| serial fast-forward ships | nothing requires batching at <20/day | keep |
+| scripts for build/up/gate/ship/measure | P6 (know-how is a script) | keep; **their home moves into this repo** (`tracks/<repo>/`): the tools branches in product repos, carried tools heads, tools rebases and conflicts, content-hashed copies, `TOOLS_ROOT` are cut; skills in `.claude/skills/` here, where spawned runs load them natively |
+| orchestrator as a visible `claude --agent` session in a terminal loop | A2 (visible session spawns agents; the user chats) | keep, lifecycled (§3.16) |
+| wake file + inotify | A2 (a watch can wake a session) | keep |
+| the hook: bind, end, two denials, scope line, context limit | A2, A4 | keep |
+| systemd scope per run | A2 (agents die, processes leak), the user's "only stop what you started" | keep (one line) |
+| `hd room` admission by MemTotal/nproc | A7 (the machine bounds) | **cut to a build semaphore**: N slots by `flock` on `state/build.<i>.lock`, N in hd.yaml; the room table, records and pidfd waits go |
+| briefs as files | the spawn prompt names a path the hook binds on | keep |
+| evidence/<slug>/ | the user's rule | keep |
+| P0–P4 tiers, held band, agent count | the user's vocabulary; A7 | keep |
+| pins | the fork's 45 branches the test server must carry | read once to create `integration`, then history |
+| docfmt one-fact-per-line docs | v8's parallel batch ships | **cut**: docs merge like code; a conflict is the dev's |
+| `kind: local` | — | **cut**: `upstream: false` on a change |
+| alerts as ledger facts | A3, the monitor's failure | keep (new in v9) |
+| goals as a measure command or a ledger query | A1 (outcomes), R1 | keep, reduced (§3.17) |
+| `.mcp.json` stdio bridges | Claude Code connects once at session start; clients come and go | keep as transport (§3.15) |
+
+---
+
+## 8. Default decisions (overturn in feedback)
 
 1. Keys drop tools hashing; a fixed checker re-runs by `hd regate`.
+11. Scripts and skills live in this repo under `tracks/<repo>/` and `.claude/skills/`; the product repos' tools branches are retired after the cutover copies their content in.
+12. Row kinds are `script` and `judge`; `hd handover` records, it does not check.
+13. Builds are bounded by an N-slot flock semaphore, not by reading MemTotal.
 2. The evaluator is per-row: client and harness changes are script-judged unless given judge rows.
 3. A real `integration` branch replaces the recomputed T_int; a closed change is reverted out.
 4. The pass never ends a live run; a run finishes and the next pass judges its hand-over against the current rows.

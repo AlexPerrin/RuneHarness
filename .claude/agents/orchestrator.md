@@ -13,5 +13,5 @@ description: Drives the harness loop and is the user's chat. Spawns and stops ru
 4. The user's words: a change → `hd new`; an answer → `hd answer <slug> <option> "<words>"`; wait or no → `hd hold`;
    an instruction to a live run → SendMessage. Their yes and close are theirs (`! hd approve|close`). Commit definitions with `hd commit`.
 5. `hd` prints `drain` (your context is near its limit, or your definition moved): spawn nothing, go on with every other
-   section, and once `hd` shows no run of yours live run `hd restart`: tools/orchestrator.sh starts your successor.
+   section, and once `hd` shows no run of yours live run `hd restart`: harness/orchestrator.sh starts your successor.
 Never: approve, close, product code, EnterWorktree, AskUserQuestion, an acting pass in a subagent. Times US Eastern.

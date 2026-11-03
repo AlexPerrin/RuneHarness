@@ -50,46 +50,50 @@ The architect's hand-off: what exists, what to read, what to build first, and wh
 | `hd.yaml` | repos, `builds`, `agents`, `context_limit`, `hold`, the `pins` |
 | `tests/mermaid_parse.mjs` | checks every mermaid block of a markdown file; setup in its header |
 
-## Where the loop stands (hand-off of 2026-11-03 04:20Z)
+## Where the loop stands (hand-off of 2026-11-03 06:00Z)
 
-Every mechanism of ARCHITECTURE is built, unit-tested (`tests/`, 42 tests; the track suites under `tracks/*/test_*.py`,
-103 and 28) and documented. The loop runs live from this worktree: `harness/orchestrator.sh` in the user's terminal
-(session 3, the orchestrator on Sonnet 5.5; dev and qa on Opus 5.5, reader on Sonnet 5.5, set in the agent files),
-`hd-loop.timer`, `state/hd.db` (154 events). Proven live so far:
+Every mechanism of ARCHITECTURE is built, unit-tested (`tests/`, 49 tests; the track suites `tracks/fork/server/test_tools.py`
+102 and `tracks/client/test_track.py` 29) and documented. The loop runs live from this worktree: `harness/orchestrator.sh`
+in the user's terminal (the orchestrator on Sonnet 5.5, autonomous; dev and qa on Opus 5.5; `agents: 5`), `hd-loop.timer`,
+`state/hd.db` (migration 5). The user chats with the engineer session (this hand-off's role); the design's driver console
+(`.claude/agents/driver.md`) is the long-term shape. Proven live so far:
 
-- harness track: three changes shipped by fast-forward through dev agents, gate (tests, replay, the track suites)
-  and ship; the T6 path twice (a run's `hd fault` → alert → `hd new --from-alert` by the orchestrator → a dev run →
-  a root fix submitted); the T5 lifecycle three times (bind, drain on a moved definition, `hd restart`, the
-  supervisor's next iteration).
-- fork track: `f-probe` (fork-only) built through `tracks/fork/track.sh` and gated (gamevals, dupe-tests, spotless;
-  fork CI green on `gate/f-probe`); `server-training-bow` (OpenRune #444, upstream) through the criteria run (run 7,
-  `criteria agreed`), the dev run (run 8, one line of item data plus the PR texts in `evidence/server-training-bow/`),
-  the cached build and into its gate with fork CI.
-- client track: the client-api goal's measure job built the APK with the live modulus and booted the emulator on
-  the allowlist; the mobile login failed (unknown screens, then the server refusing), so `h-measure-desktop` (run 11,
-  submitted) adds the RuneLite desktop fallback the user asked for.
+- harness track: eight changes shipped by fast-forward through dev agents, gate (tests, replay over the live
+  definitions, both track suites) and ship; alerts filed and dismissed; the T5 lifecycle six times (bind, drain on a
+  moved definition, `hd restart`, the supervisor's next iteration); `hd close` ending a run's agent (the hook denies it
+  every tool).
+- fork track: `server-training-bow` (OpenRune #444) the whole way: criteria run, dev run, cached build, gate with fork
+  CI, a FAIL verdict (6 criteria) → dev → PASS verdict (run 25), the first `staging` (upstream main + the 11 pins;
+  two pins rebased by hand after a `pin-conflict` alert), its merge and landing, the card, the user's approval and the
+  publish: push, draft PR OpenRune/OpenRune-Server#450, CI, one comment, ready (A2 live). The staging deploy builds the
+  image and refuses without `state/live/key` (alert `attempts`, dismissed: the cutover's first deploy).
+- client track: the client-api measure fell back to a RuneLite desktop (`h-measure-desktop`) and logged in; the API
+  probe then called `Client.stopNow()`, which stops the client, so no report came. The measure's wait now ends when the
+  desktop's client is gone (fac3b3e); the probe fix is the client change `client-probe-no-stop` (run 35 live).
+- goals: `server-content` measured 0% on staging; its plan run filed 17 F2P quest changes at P2 (the user: test load
+  for the harness, below the Android work). `client-api` has no measure yet (the probe).
 
-In flight at hand-off (`hd tick --dry-run` lists them): the gates of `server-training-bow` (fork CI), `h-measure-scope`
-(unique scope names per start), `h-measure-desktop`, `h-desktop-login-401` (two fork scripts defaulted their root to
-`~/osrs-harness`, v8's tree: the login read the wrong stack record) and `h-criterion-cmd-dest` (a duplicate of a fix
-already live, 949f000: it fails its replay; the user may close it). The client-api measure is parked (three starts
-without a result) and resumes after the next harness ship. No run is live.
+In flight (`hd tick --dry-run`): `server-android-token-login` (P1, fork): the official Android app's token login is
+refused by the live server's verifier while the issuer's sign-in completes and both secrets match (the token the app's
+login block carries was never captured; mobile reaches only the live stack). The quests' criteria and dev runs.
+`server-training-bow` waits on maintainers (#450). The 26 v7-era pins were dropped (562b5c5): what is wanted returns
+as a change.
 
 ## Next, toward the goal (a harness tested end to end; the PRD validated)
 
-1. **Server, to the card.** When the training-bow gate passes, the pass lists the qa judge run (needs the desktops:
-   the 401 fix must have shipped first; if the judge fails on bring-up, read `state/server-training-bow/` and the
-   alert). A PASS verdict → the first staging merge (`act.stage` creates `staging` from upstream main plus the 45
-   pins; a `pin-conflict` alert names a pin to rebase) → the deploy job, which refuses without `state/live/key/game.key`
-   (correct until the cutover) → `texts_due` (the texts exist) → the card. The user approves or not; the publish is the
-   remaining unproven step of A2 (a killed publish resuming) and is testable only with the user's yes.
-2. **Client, to a ship.** After `h-measure-desktop` ships, the measure runs on a desktop; a value below 100 lists a
-   plan-mode dev run (`goal:client-api`) that files client changes with `hd new --goal client-api`; each then runs dev,
-   build, gate (the seeds in `tracks/client/track.md`) and ships to the client's `main` (autonomous by the rules).
-3. **Validate the PRD.** `docs/ACCEPTANCE.json` maps every requirement to its tests and live checks; replace each
-   `pending:` with the observed fact as the steps above land (A2 publish, A3 finding on PR #448 after the cutover, H4
-   first staging merge). Keep `python3 -m unittest discover -s tests` green at every commit.
-4. **Cutover** (below), the user's decision; then the upstream proofs and the devtools track.
+1. **Android auth** (`server-android-token-login`): the fix reaches the mobile only through a live deploy, so the
+   cutover (below) is part of its path. Its dev run captures what the app sends under LOCAL_AUTH and fixes the verifier
+   or the issuer's response shape; the desktop token login (`track.sh up token`) must keep working.
+2. **Client, to a ship.** `client-probe-no-stop` ships to the client's `main` → the measure runs on the desktop
+   fallback and lands a value → below 100 lists the plan run (`goal:client-api`), which files client changes.
+3. **A3 and the resume case.** A maintainer comment on #450 → triage → a criterion → a dev → one comment; a publish
+   killed after its push resuming (A2's last pending). Replace each `pending:` in docs/ACCEPTANCE.json with the fact.
+4. **State lifetime.** Nothing removes a done change's `state/<slug>/`, its clone and build copy under the repo's
+   `.worktrees/`, or its `or:<tree>` images (v8 left 3.7 GB and 67 worktrees). The proposed rule: a change's working
+   state lives while the change is open; done or closed with its stack down, the pass removes them (a `clean` verb per
+   track), keeping evidence, the ledger and `state/live/`. A harness change after the goal.
+5. **Cutover** (below), the user's decision; `server-token-auth` and the other open v8 changes carry over as changes
+   (their heads are no longer pins).
 
 ## Rules that bind you
 

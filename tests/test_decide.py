@@ -87,8 +87,10 @@ class Gate(Base):  # G2, G3, H2
     def test_three_starts_without_result_park_the_job(self):
         self.submit()
         for _ in range(3):
-            self.db.execute("INSERT INTO attempt(kind, key, cause, at) VALUES ('gate', ?, 'oom', 't')", (f"{TREE}:harness-1",))
+            self.db.execute("INSERT INTO attempt(kind, key, cause, at) VALUES ('gate', ?, 'oom', 't1')", (f"{TREE}:harness-1",))
         self.assertIn("3 starts", self.step().why)
+        self.db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES ('harness', 'refs/heads/v9', 'new', 't2')")   # a fix landed
+        self.assertEqual(self.step().kind, "gate")
 
     def test_criteria_added_after_submission_list_the_dev(self):
         self.submit()

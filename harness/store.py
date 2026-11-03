@@ -251,8 +251,13 @@ class Ledger:
     def jobs_in_flight(self, kind, prefix=""):
         return self.all("SELECT * FROM job WHERE kind=? AND key LIKE ? AND pid IS NOT NULL AND ended_at IS NULL", kind, prefix + "%")
 
-    def attempts(self, kind, key):
-        return self.one("SELECT count(*) n FROM attempt WHERE kind=? AND key=?", kind, key)["n"]
+    def attempts(self, kind, key, since=""):
+        """Starts of a key without a result since `since` (the harness's last landing: a fix that landed lets a job run again)."""
+        return self.one("SELECT count(*) n FROM attempt WHERE kind=? AND key=? AND at>?", kind, key, since)["n"]
+
+    def harness_moved_at(self, harness):
+        row = self.one("SELECT seen_at FROM ref WHERE repo=? AND name=?", harness.name, harness.base)
+        return row["seen_at"] if row else ""
 
     def live_run(self, slug):
         return self.one("SELECT * FROM run WHERE change=? AND ended_at IS NULL", slug)

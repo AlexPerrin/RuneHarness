@@ -12,7 +12,8 @@
   ],
   "M3": [
     "test_observe.Observe.test_fetch_records_refs_and_reports_what_moved",
-    "test_observe.Observe.test_landed_when_the_head_is_an_ancestor_of_the_target"
+    "test_observe.Observe.test_landed_when_the_head_is_an_ancestor_of_the_target",
+    "live: lab-hello PR AlexPerrin/pr-lab#1 squash-merged → landed from the PR's merged flag, change done (event 966)"
   ],
   "M4": [
     "live: harness/changes/*.md and evidence/<slug>/ are files; hd commit commits definitions"
@@ -78,6 +79,7 @@
     "test_publish.Publish.test_a_refused_write_spends_the_approval",
     "test_hook.Hook.test_approve_and_close_denied_to_every_agent",
     "live: card 1 approved by the user (05:49Z) → publish job: push, draft PR OpenRune/OpenRune-Server#450, CI green, comment 6596558303, ready, 05:52–05:54Z; approval spent 'published'",
+    "live: lab-ci-red card 2: publish stopped at CI red (event ci-failed), approval kept, dev listed (run 75), 2026-11-03T14:39Z",
     "pending: a publish killed after its push step resuming live"
   ],
   "A3": [

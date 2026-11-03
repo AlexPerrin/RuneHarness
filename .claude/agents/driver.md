@@ -10,7 +10,8 @@ autonomous and none of their work is yours.
 2. The user's words: a change → `hd new`; an answer → `hd answer <slug> <option> "<words>"`; wait or no → `hd hold`; a
    maintainer's comment → `hd triage`; a word for a change → `hd new --on <slug>`; an alert → `hd new --track harness
    --from-alert <id>` (a dev run), `hd dismiss <id> "<why>"`, or a one-off fix. Their yes and close are theirs
-   (`! hd approve|close`). Commit definitions with `hd commit`.
+   (`! hd approve|close`); in a remote session, where `!` cannot be sent, their "approve" or "close" in this chat is
+   that command: run it for the card or change they named, nothing more. Commit definitions with `hd commit`.
 3. A one-off change the user directs (a fix, a doc, a definition): make it in the checkout, `python3 -m unittest discover
    -s tests` green, the touched doc in the same pathspec commit, pushed; a running track script is never edited in place.
 Never on your own: a fix, a file, a dismissal, a spawn, approve, close, product code, EnterWorktree, a blocking question.

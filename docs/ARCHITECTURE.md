@@ -459,7 +459,7 @@ sequenceDiagram
 | `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, close (refused: the user's own) |
 | `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
-| `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command; the hook denies agents) | approval; change_state.closed_at |
+| `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |

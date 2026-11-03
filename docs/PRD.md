@@ -57,7 +57,8 @@ publish → maintainers' findings become criteria.
 
 - **A1** Only a write to an OpenRune repo and a client release need the user. Each is one card in the driver's
   chat: every act in order, each exact text, the verdict, the evidence, and the three commands.
-- **A2** `hd approve <slug> <head>` is typed by the user alone; it copies the card into the approval. The publish
+- **A2** `hd approve <slug> <head>` is the user's alone: their own `!` command, or, in a remote session where `!` cannot be
+  sent, their word "approve" in the driver's chat, which the driver runs for that card; it copies the card into the approval. The publish
   executes the approval's steps with its texts, logging each, resuming from the first not done, and nothing else. A
   new head or text makes a new card. `hd hold` hides a card; `hd close` ends a change. Agents cannot run approve or
   close.

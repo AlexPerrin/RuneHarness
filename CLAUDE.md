@@ -32,7 +32,8 @@ tests/         python3 -m unittest discover -s tests   (decide over recorded led
 Runs are spawned by the orchestrator session only (`harness/orchestrator.sh`, which runs `claude --agent orchestrator`, autonomous: no chat), each by the path of its brief (a run may spawn its own `reader`).
 The user chats with the driver console (`claude --agent driver` in the checkout, the pane beside the orchestrator's), which does only what the user says. A write to OpenRune and a client release is shown as a card in the driver's chat
 (its head, acts and exact texts) and published by `hd publish` only after the user's yes: their own
-`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the driver's window.
+`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the driver's window, or, in a remote session where `!`
+cannot be sent, their "approve" in the driver's chat, which the driver runs for that card.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,

@@ -175,9 +175,10 @@ measure_desktop() {  # the mobile did not come up: the probe on one RuneLite des
   "$copy/host/plugins/api-probe/build.sh" >/dev/null   # the plugin classes jar, undexed: the desktop loads it beside its devtools plugin
   local out d dir
   out=$(EXTRA_PLUGINS="$copy/host/plugins/api-probe/build/api-probe-classes.jar" "$fork" live-desktop "$slug") || return 1
-  d=$(tail -1 <<< "$out"); dir=${d##* }
-  until r=$(find "$dir/home" -name api-probe.tsv 2>/dev/null | head -1); [ -n "$r" ] || [ ! -f "$dir/owner" ]; do sleep 3; done   # the plugin renames its .part whole
-  [ -n "$r" ] && ! grep -q '^# error' "$r" || { echo "api-probe: no report on the desktop"; return 1; }
+  d=$(tail -1 <<< "$out"); set -- $d; port=$2; dir=$3; dl=$(dirname "$fork")/server/desktop_login.py
+  until r=$(find "$dir/home" -name api-probe.tsv 2>/dev/null | head -1); [ -n "$r" ] || [ ! -f "$dir/owner" ] || ! python3 "$dl" "$port" state >/dev/null 2>&1; do sleep 3; done   # the plugin renames its .part whole; a client gone (stopped, crashed) ends the wait
+  [ -n "$r" ] || { echo "api-probe: no report: the desktop's client is gone"; return 1; }
+  ! grep -q '^# error' "$r" || { echo "api-probe: $(head -1 "$r")"; return 1; }
   cp "$r" "$ev/api-probe.tsv"
 }
 measure() {

@@ -65,9 +65,15 @@ class Rows(unittest.TestCase):
 echo "$1 $2 $EXTRA_PLUGINS" >> {log}
 case "$1" in live-desktop) mkdir -p {inst}/home/.runelite; touch {inst}/owner; echo "# result: pass 1 / 2 = 50.0%" > {inst}/home/.runelite/api-probe.tsv; echo "LIVE_DESKTOP 7780 {inst}" ;; esac''')
         fork.chmod(0o755); s.env.update(HD_REPO=str(repo), FORK_TRACK=str(fork))
+        (s.ev / "server").mkdir(); dl = s.ev / "server/desktop_login.py"; dl.write_text("import sys; sys.exit(0)\n")   # the desktop's client answers
         rc, out = s.row("measure-desktop"); s.assertEqual(rc, 0, out)
         s.assertEqual((s.ev / "api-probe.tsv").read_text(), "# result: pass 1 / 2 = 50.0%\n")
         s.assertEqual(log.read_text().splitlines(), ["live-desktop x " + str(b / "build/api-probe-classes.jar"), "live-desktop-down x "])   # started with the probe jar, stopped after
+        # the client gone before its report (a probe that stopped it, a crash): the wait ends, the measure fails, the desktop goes
+        (s.ev / "api-probe.tsv").unlink(); shutil.rmtree(inst); log.unlink()
+        fork.write_text(f'#!/bin/sh\necho "$1 $2" >> {log}\ncase "$1" in live-desktop) mkdir -p {inst}/home; touch {inst}/owner; echo "LIVE_DESKTOP 7780 {inst}" ;; esac'); dl.write_text("import sys; print('FAILED: devtools endpoint on 7780: gone'); sys.exit(1)\n")
+        rc, out = s.row("measure-desktop"); s.assertEqual(rc, 1, out); s.assertIn("api-probe: no report: the desktop's client is gone", out)
+        s.assertEqual(log.read_text().splitlines()[-1], "live-desktop-down x")
 
     def test_down_checks_the_restore(s):  # down judges the harness's baseline, not the app's writes after a first login
         st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True)

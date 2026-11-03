@@ -223,6 +223,17 @@ def inventory(port):
     return "LOGGED_IN" if shown == held else f"FAILED: the inventory widget shows {shown} but container 93 holds {held}"
 
 
+def state_line(port):
+    """(0, the client's state) or (1, FAILED: why) when the endpoint or its client thread is gone (a crash, a probe
+    that stopped the client); a busy client (Cancelled) is there."""
+    try:
+        return 0, call(port, "get_client_state")
+    except Cancelled as e:
+        return 0, str(e)
+    except (OSError, Refused, Gone) as e:
+        return 1, f"FAILED: devtools endpoint on {port}: {e}"
+
+
 def tick(port):  # the game tick of the newest recorded event (a logged-in client's interfaces fire scripts every frame), None before any
     events = json.loads(call(port, "get_timeline", channels=["script", "var", "chat", "container"], limit=1)).get("events") or []
     return events[-1]["tick"] if events else None
@@ -284,6 +295,8 @@ if __name__ == "__main__":
         if old:
             print(f"desktop on {port} answers any caller while the desktop bridges {' '.join(old)} predate mcp/serve.py and send no token")
         sys.exit(0)
+    if a[0] == "state":
+        rc, text = state_line(port); print(text); sys.exit(rc)
     k = a[0] == "keep"; c, a = (a[1], a[2:]) if k else (None, a)
     act = (lambda: logout(port)) if a[0] == "logout" else (lambda: token(port)) if a[0] == "token" else (lambda: login(port, a[0], a[1]))
     if k:

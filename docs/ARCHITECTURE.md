@@ -228,7 +228,7 @@ stateDiagram-v2
   Judge --> Dev : verdict(head, criteria_digest).ok = 0
   Judge --> Stage : verdict.ok = 1
   state Stage <<fork>>
-  Stage --> TestServer : server tracks, head not in ref staging → merge, conflict → Dev
+  Stage --> TestServer : tracks with a deploy recipe, head not in ref staging → merge, conflict → Dev
   Stage --> Public : upstream PR or release
   Stage --> Ship : harness or client, not landed(live branch)
   Public --> WaitUpstreamDep : a dep in another PR has no landed(upstream main)
@@ -275,7 +275,7 @@ GUARDS = [
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
-    stage_due,         # server tracks: no landed(change, staging) → merge (act.stage); a recorded conflict is dev_due's
+    stage_due,         # tracks with a deploy recipe: no landed(change, staging) → merge (act.stage); a recorded conflict is dev_due's
     upstream_dep_wait, # a dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
     texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
     card_due,          # no card at the head, or its approval spent by a refusal, or texts observed since it was shown → card

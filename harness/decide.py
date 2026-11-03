@@ -192,7 +192,7 @@ def dev_due(C, ch):
         j = C.L.job("ship", f"{C.cfg.tracks[ch.track].base}:{s['tcommit']}")
         if j and j["ok"] == 0:
             why.append(f"ship failed: {j['detail']}")
-        e = C.L.last_event(ch.slug, "merge-conflict")
+        e = C.L.last_event(ch.slug, "merge-conflict") if stages(C, ch) else None
         if e and e["detail"].startswith(t[:7]):
             why.append(f"merge conflict on staging: {e['detail']}")
         e = C.L.last_event(ch.slug, "ci-failed")
@@ -232,10 +232,15 @@ def judge_due(C, ch):
 STAGING = "refs/heads/staging"
 
 
-def stage_due(C, ch):
-    """Server tracks: a checked head not yet on staging → merge (act.stage); a recorded conflict of this head is dev_due's."""
+def stages(C, ch):
+    """Staging exists to deploy the test server: only a track with an upstream and a deploy recipe merges into it."""
     T = C.cfg.tracks[ch.track]
-    if not T.upstream or C.L.landed(ch.slug, STAGING):
+    return bool(T.upstream and "deploy" in T.recipes)
+
+
+def stage_due(C, ch):
+    """Tracks with a deploy recipe: a checked head not yet on staging → merge (act.stage); a recorded conflict of this head is dev_due's."""
+    if not stages(C, ch) or C.L.landed(ch.slug, STAGING):
         return None
     t = tip(C, ch)
     return Step("merge", f"merge {t[:7]} into staging", key=f"staging:{t}")

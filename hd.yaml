@@ -1,12 +1,13 @@
 # hd: the facts the harness cannot derive. A repo's path is relative to this file; base is the full ref a candidate
-# starts from and (for the tracks without an upstream) the branch a ship fast-forwards; prefix names dev branches. Scripts, rules and skills live in this repo (tracks/<repo>/, .claude/skills/);
+# starts from and (for the tracks without an upstream) the branch a ship fast-forwards; prefix names dev branches; remote is where
+# dev refs are pushed (in the product clones `origin` is upstream and `fork` the fork); none: the dev ref stays local. Scripts, rules and skills live in this repo (tracks/<repo>/, .claude/skills/);
 # the product repos hold product code only. Per-change clones and build copies are worktrees under <repo>/.worktrees/.
 repos:
-  client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/heads/main,           prefix: client}
-  fork:      {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         base: refs/remotes/upstream/main, upstream: OpenRune/OpenRune-Server}
-  central:   {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, base: refs/remotes/upstream/main, upstream: OpenRune/OpenRune-Central-Server}
-  filestore: {name: AlexPerrin/OpenRune-FileStore,      path: ~/src/OpenRune-FileStore,      base: refs/remotes/upstream/main, upstream: OpenRune/OpenRune-FileStore}
-  harness:   {name: AlexPerrin/osrs-harness,            path: .,                             base: refs/heads/v9,             prefix: harness}
+  client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/remotes/origin/master, prefix: client, remote: origin}
+  fork:      {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Server,         remote: fork}
+  central:   {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Central-Server, remote: fork}
+  filestore: {name: AlexPerrin/OpenRune-FileStore,      path: ~/src/OpenRune-FileStore,      base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-FileStore,      remote: fork}
+  harness:   {name: AlexPerrin/osrs-harness,            path: .,                             base: refs/heads/v9,              prefix: harness}
 
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
 builds: 3                 # builds and container steps at once (an N-slot flock semaphore)

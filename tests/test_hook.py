@@ -16,7 +16,7 @@ class Hook(unittest.TestCase):
         self.db = store.connect()
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('h-one', 'dev', 'code', 'i', 'state/briefs/1.md', 't')")
         hook.act.tick_later = lambda: None
-        hook.stop_scope = lambda r: None
+        hook.act.stop_scope = lambda r: None
 
     def tearDown(self):
         self.db.close()

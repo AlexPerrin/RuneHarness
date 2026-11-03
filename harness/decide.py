@@ -23,6 +23,7 @@ class Change:
     goal: str = ""
     units: tuple = ()
     pr: int = 0
+    public: str = ""        # the PR branch on the fork (content/<x>, fix/<x>), moved only by a publish
     branch: str = ""        # the dev ref; default refs/heads/<track prefix>/<slug>
     title: str = ""
     body: str = ""
@@ -38,9 +39,12 @@ class Track:
     upstream: str = ""      # upstream GitHub name; "" for the tracks that ship by fast-forward
     prefix: str = "dev"     # dev branch prefix
     recipes: dict = field(default_factory=dict)   # verb → version string from `track.sh recipe`
+    remote: str = ""        # the remote dev refs are pushed to; "" when the dev ref stays local (the harness)
 
     def dev_ref(self, ch):
-        return ch.branch or f"refs/heads/{self.prefix}/{ch.slug}"
+        if ch.branch:
+            return ch.branch
+        return f"refs/remotes/{self.remote}/{self.prefix}/{ch.slug}" if self.remote else f"refs/heads/{self.prefix}/{ch.slug}"
 
     def done_ref(self, ch):
         """Where a landed row means done: the live branch, upstream main, or staging for a fork-only change."""
@@ -50,6 +54,7 @@ class Track:
 @dataclass(frozen=True)
 class Cfg:
     agents: int = 7
+    builds: int = 3
     hold: str = ""          # the held band, e.g. "P2": tiers below it do not run
     tracks: dict = field(default_factory=dict)
 
@@ -162,6 +167,9 @@ def dev_due(C, ch):
         j = C.L.job("ship", f"{C.cfg.tracks[ch.track].base}:{s['tcommit']}")
         if j and j["ok"] == 0:
             why.append(f"ship failed: {j['detail']}")
+        e = C.L.last_event(ch.slug, "merge-conflict")
+        if e and e["detail"].startswith(t[:7]):
+            why.append(f"merge conflict on staging: {e['detail']}")
     if not why:
         return None
     last = C.L.last_run(ch.slug)
@@ -194,9 +202,16 @@ def judge_due(C, ch):
     return Step("run", f"judge: {len(judged)} criteria at {t[:7]}", role="qa", mode="judge", input=digest(t, d))
 
 
+STAGING = "refs/heads/staging"
+
+
 def stage_due(C, ch):
-    # shortcut: no staging merge until the fork track exists (phase 2), when it reads landed(change, staging)
-    return None
+    """Server tracks: a checked head not yet on staging → merge (act.stage); a recorded conflict of this head is dev_due's."""
+    T = C.cfg.tracks[ch.track]
+    if not T.upstream or C.L.landed(ch.slug, STAGING):
+        return None
+    t = tip(C, ch)
+    return Step("merge", f"merge {t[:7]} into staging", key=f"staging:{t}")
 
 
 def upstream_dep_wait(C, ch):
@@ -287,6 +302,14 @@ def plan(L: Ledger, changes: list, cfg: Cfg) -> list:
     open_.sort(key=lambda c: (0 if c.track == "harness" else 1 if c.pr else 2, TIERS.index(tier[c.slug]), c.slug))
     live = len(L.live_runs())
     actions = []
+    for T in cfg.tracks.values():   # the test server runs staging: one deploy per staging tree
+        tree = L.ref_tree(T.name, STAGING) if T.upstream and "deploy" in T.recipes else None
+        if tree:
+            s = job_due(C, "deploy", f"{tree}:{T.recipes['deploy']}")
+            if s and s.kind == "deploy" and L.jobs_in_flight("deploy"):
+                s = Step("wait", "a deploy is running")
+            if s and s.kind != "wait":
+                actions.append(Action(f"{T.name}:staging", s))
     for c in open_:
         if cfg.hold and TIERS.index(tier[c.slug]) > TIERS.index(cfg.hold):
             continue

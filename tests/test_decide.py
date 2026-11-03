@@ -10,7 +10,9 @@ import store  # noqa: E402
 from decide import Cfg, Change, Track  # noqa: E402
 
 T = Track("harness", "AlexPerrin/osrs-harness", "/nowhere", "refs/heads/v9", "", "harness", {"gate": "harness-1", "ship": "harness-1"})
-CFG = Cfg(agents=2, hold="P2", tracks={"harness": T})
+F = Track("fork", "AlexPerrin/OpenRune-Server", "/nowhere", "refs/remotes/origin/main", "OpenRune/OpenRune-Server", "dev",
+          {"build": "fork-1", "gate": "fork-1", "deploy": "fork-1"}, "fork")
+CFG = Cfg(agents=2, hold="P2", tracks={"harness": T, "fork": F})
 TIP, TREE, TC = "a" * 40, "b" * 40, "c" * 40
 
 
@@ -109,6 +111,50 @@ class Hands(Base):  # H6
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
         self.db.execute("INSERT INTO job(kind, key, pid, pid_start, started_at) VALUES ('ship', 'refs/heads/v9:other', 1, 1, 't')")
         self.assertIn("ship of this branch is running", self.step().why)
+
+
+class Server(Base):  # G1, H4: criteria before code, the staging merge, one deploy per staging tree
+    def setUp(self):
+        super().setUp()
+        self.ch = Change("genie", "fork")
+
+    def submit(self):
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', ?, ?, ?, 't1')", (TIP, TREE, TC))
+
+    def test_criteria_run_first_then_dev_then_build_gate_judge_merge(self):
+        s = self.step()
+        self.assertEqual((s.kind, s.role, s.mode), ("run", "qa", "criteria"))
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.assertEqual((self.step().kind, self.step().role), ("run", "dev"))
+        self.submit()
+        self.assertEqual(self.step().kind, "build")
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('build', ?, 1, 't')", (f"{TREE}:fork-1",))
+        self.assertEqual(self.step().kind, "gate")
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:fork-1",))
+        self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('genie', 'acc-1', 'judge', 'r', 'seed', 't0')")
+        s = self.step()
+        self.assertEqual((s.kind, s.mode), ("run", "judge"))
+        d = store.digest([("acc-1", "r")])
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind) VALUES ('genie','qa','judge','j','b','t','t','handback')")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('genie', ?, 2, 1, ?, 't')", (TIP, d))
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("merge", f"staging:{TIP}"))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't')")
+        self.assertEqual(self.step().why, "maintainers")
+
+    def test_merge_conflict_lists_the_dev(self):
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.submit()
+        self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'genie', ?)", (TIP[:7] + " content/x.kt",))
+        self.assertIn("merge conflict", self.step().why)
+
+    def test_one_deploy_per_staging_tree(self):
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
+        a = [x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"]
+        self.assertEqual((a[0].step.kind, a[0].step.key), ("deploy", "tr1:fork-1"))
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('deploy', 'tr1:fork-1', 1, 't')")
+        self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
 
 
 class Authority(Base):  # A2 (close), A4 (ask)

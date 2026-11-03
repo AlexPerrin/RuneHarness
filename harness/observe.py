@@ -23,16 +23,16 @@ def alive(pid, start) -> bool:
 def fetch(db, T) -> set:
     """git fetch --prune every remote; for-each-ref → UPSERT ref rows; returns the names whose sha changed."""
     subprocess.run(["git", "-C", T.path, "fetch", "--all", "--prune", "-q"], capture_output=True)
-    out = subprocess.run(["git", "-C", T.path, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes"],
+    out = subprocess.run(["git", "-C", T.path, "for-each-ref", "--format=%(objectname) %(refname) %(tree)", "refs/heads", "refs/remotes"],
                          capture_output=True, text=True).stdout
     have = {r["name"]: r["sha"] for r in db.execute("SELECT name, sha FROM ref WHERE repo=?", (T.name,))}
     moved = set()
     for line in out.splitlines():
-        sha, name = line.split()
+        sha, name, tree = (line.split() + [None])[:3]
         if have.get(name) != sha:
             moved.add(name)
-            db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
-                       (T.name, name, sha, now()))
+            db.execute("INSERT INTO ref(repo, name, sha, seen_at, tree) VALUES (?,?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at, tree=excluded.tree",
+                       (T.name, name, sha, now(), tree))
     for name in set(have) - {l.split()[1] for l in out.splitlines()}:
         db.execute("DELETE FROM ref WHERE repo=? AND name=?", (T.name, name))
         moved.add(name)

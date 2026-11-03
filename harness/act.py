@@ -46,8 +46,8 @@ def cfg() -> Cfg:
             out = subprocess.run([script, "recipe"], capture_output=True, text=True).stdout
             recipes = dict(line.split(None, 1) for line in out.splitlines() if " " in line)
         path = os.path.normpath(os.path.join(ROOT, os.path.expanduser(r["path"])))
-        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes)
-    return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks)
+        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""))
+    return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3))
 
 
 def parse_change(path) -> Change:
@@ -58,7 +58,7 @@ def parse_change(path) -> Change:
     return Change(slug=y.get("slug") or os.path.basename(path)[:-3], track=y["track"], kind=y.get("kind", "change"),
                   upstream=y.get("upstream", True), priority=y.get("priority", "P2"), deps=tuple(y.get("deps") or ()),
                   goal=y.get("goal", ""), units=tuple(y.get("units") or ()), pr=y.get("pr", 0) or 0,
-                  branch=y.get("branch", ""), title=title, body=body)
+                  public=y.get("public", ""), branch=y.get("branch", ""), title=title, body=body)
 
 
 def changes() -> list:
@@ -86,6 +86,32 @@ def candidate(path, base: str, heads: list) -> tuple:
     return git(path, "rev-parse", cur + "^{tree}"), cur
 
 
+def stage(db, ch, T, head: str) -> None:
+    """Merge a checked head into the fork's staging (worktree <repo>/.worktrees/staging, created from base plus hd.yaml's pins
+    once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <files>'), the dev's step
+    (dev_due); a pin that no longer merges → alert('pin-conflict')."""
+    wt = os.path.join(T.path, ".worktrees", "staging")
+    if not os.path.isdir(wt):
+        if subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", decide.STAGING]).returncode == 0:
+            git(T.path, "worktree", "add", wt, "staging")
+        else:
+            git(T.path, "worktree", "add", "-b", "staging", wt, T.base)
+            for pin in yaml.safe_load(open(os.path.join(ROOT, "hd.yaml"))).get("pins") or []:
+                r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", f"{T.remote}/{pin}"], capture_output=True, text=True)
+                if r.returncode:
+                    git(wt, "merge", "--abort", check=False)
+                    store.alert(db, "pin-conflict", pin, r.stdout[-300:])
+                    return
+    r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", head], capture_output=True, text=True)
+    if r.returncode:
+        files = " ".join(l.split()[-1] for l in r.stdout.splitlines() if l.startswith("CONFLICT"))
+        git(wt, "merge", "--abort", check=False)
+        event(db, "merge-conflict", ch.slug, None, f"{head[:7]} {files}")
+        return
+    git(wt, "push", "-q", T.remote, "staging")
+    event(db, "merged", ch.slug, None, f"{head[:7]} into staging {git(wt, 'rev-parse', '--short', 'HEAD')}")
+
+
 def seed(db, ch, T):
     """INSERT OR IGNORE the track's seed criteria (tracks/<t>/track.md '## Seed criteria': `- rid | text | script: cmd`)."""
     path = os.path.join(ROOT, "tracks", T.name, "track.md")
@@ -97,18 +123,24 @@ def seed(db, ch, T):
     for line in section[1].splitlines():
         if not line.startswith("- "):
             continue
-        rid, text, how = (p.strip() for p in line[2:].split("|", 2))
-        kind, cmd = ("script", how.split(":", 1)[1].strip()) if how.startswith("script:") else ("judge", None)
-        db.execute("INSERT OR IGNORE INTO criterion(change, rid, kind, text, cmd, source, created_at) VALUES (?,?,?,?,?,'seed',?)",
-                   (ch.slug, rid, kind, text, cmd, now()))
+        rid, text, how, *flags = (p.strip() for p in line[2:].split("|"))
+        kind, _, cmd = how.partition(":")
+        if kind == "judge" and not cmd.strip():
+            cmd = None
+        if "upstream" in flags and not (T.upstream and ch.upstream):
+            continue
+        db.execute("INSERT OR IGNORE INTO criterion(change, rid, kind, text, cmd, source, upstream_only, created_at) VALUES (?,?,?,?,?,'seed',?,?)",
+                   (ch.slug, rid, kind, text, cmd.strip() if cmd else None, int("upstream" in flags), now()))
 
 
 def clone(T, ch) -> str:
     """The change's worktree <repo>/.worktrees/<slug> on its dev branch, created from base when missing."""
     path = os.path.join(T.path, ".worktrees", ch.slug)
     if not os.path.isdir(path):
-        branch = T.dev_ref(ch).removeprefix("refs/heads/")
+        branch = f"{T.prefix}/{ch.slug}"
         if subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", T.dev_ref(ch)]).returncode == 0:
+            git(T.path, "worktree", "add", "-B", branch, path, T.dev_ref(ch))
+        elif subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", f"refs/heads/{branch}"]).returncode == 0:
             git(T.path, "worktree", "add", path, branch)
         else:
             git(T.path, "worktree", "add", "-b", branch, path, T.base)
@@ -139,7 +171,7 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
         else:
             m = marks.get(c["id"])
             res = "not judged" if m is None else (m["result"] + (f": {m['note']}" if m["note"] else "") + f" @{t[:7]}")
-        out.append(f"{c['rid']:<12} {c['kind']:<8} {res}" + (f"   cmd: {c['cmd']}" if c["cmd"] else ""))
+        out.append(f"{c['rid']:<12} {c['kind']:<8} {res}" + (f"   {'cmd' if c['kind'] == 'script' else 'skill'}: {c['cmd']}" if c["cmd"] else ""))
     since = s["at"] if s else ""
     out += ["", "## since your last submission" if s else "## answers and findings"]
     for a in db.execute("SELECT n.*, a.text, a.options_json FROM answer n JOIN ask a ON a.id=n.ask WHERE a.change=? AND n.at>?", (ch.slug, since)):
@@ -176,20 +208,36 @@ def db_path(db) -> str:
     return db.execute("PRAGMA database_list").fetchone()[2]
 
 
+def job_env(db, ch, T, s, **more) -> dict:
+    """The environment of a job and of every scripted criterion: HD_* and the short names the scripts read."""
+    base = git(T.path, "rev-parse", T.base)
+    env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"],
+               HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=T.path if ch.slug == "staging" else clone(T, ch),
+               HD_BUILDS=str(cfg().builds),
+               SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=T.path if ch.slug == "staging" else clone(T, ch),
+               BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
+               PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
+    env.update(more)
+    return env
+
+
 def start(db, step: Step, ch, T) -> None:
     """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<t>/track.sh <verb> <slug> <key>;
     the job row holds pid, pid_start, scope and log. The script's last act is `hd job <kind> <key> ok|fail <detail>`
     (a gate: `hd gate`); the wrapper writes its exit to state/<slug>/<kind>-<key12>.rc."""
     L = store.Ledger(db)
-    s = L.submission(ch.slug, L.ref(T.name, T.dev_ref(ch)))
+    if ch.slug == "staging":
+        sha = L.ref(T.name, decide.STAGING)
+        s = {"tree": L.ref_tree(T.name, decide.STAGING), "tcommit": sha, "head": sha}
+    else:
+        s = L.submission(ch.slug, L.ref(T.name, T.dev_ref(ch)))
     k12 = step.key.replace(":", "-")[:12] if step.kind != "ship" else step.key.split(":")[-1][:12]
     unit = f"hd-{ch.slug}-{step.kind}-{k12}"
+    unit = unit.replace("/", "-")
     d = os.path.join(STATE, ch.slug)
     os.makedirs(d, exist_ok=True)
     log, rc = os.path.join(d, f"{step.kind}-{k12}.log"), os.path.join(d, f"{step.kind}-{k12}.rc")
-    env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_KIND=step.kind, HD_KEY=step.key,
-               HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"], HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path,
-               HD_CLONE=clone(T, ch), HD_LOG=log, HD_RC=rc)
+    env = job_env(db, ch, T, s, HD_KIND=step.kind, HD_KEY=step.key, HD_LOG=log, HD_RC=rc)
     script = os.path.join(ROOT, "tracks", T.name, "track.sh")
     cmd = ["systemd-run", "--user", "--scope", "--quiet", "--collect", "--unit", unit, "--", "bash", "-c",
            '"$@"; r=$?; echo $r > "$HD_RC"; exit $r', "bash", script, step.kind, ch.slug, step.key]
@@ -257,17 +305,34 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         return actions
     draining = (L.live_session() or {"drain_at": None})["drain_at"]
     for a in actions:
-        ch, s = next(x for x in defs if x.slug == a.change), a.step
-        T = c.tracks[ch.track]
+        s = a.step
+        if a.change.endswith(":staging"):
+            T = c.tracks[a.change.split(":")[0]]
+            ch = Change("staging", T.name, upstream=False)
+        else:
+            ch = next(x for x in defs if x.slug == a.change)
+            T = c.tracks[ch.track]
         if s.kind == "run" and not draining:
             brief(db, ch, T, s)
-        elif s.kind in ("build", "gate", "ship"):
+        elif s.kind in ("build", "gate", "ship", "deploy"):
             start(db, s, ch, T)
+        elif s.kind == "merge":
+            stage(db, ch, T, s.key.split(":")[1])
         last = L.last_event(ch.slug, "state")
         if not last or last["detail"] != f"{s.kind}: {s.why}":
             event(db, "state", ch.slug, None, f"{s.kind}: {s.why}")
     wake(db)
     return actions
+
+
+def stop_scope(run_id) -> None:
+    """End a run's processes: its scope, and the Windows programs its scripts recorded under state/winpids/<scope>/."""
+    unit = f"hd-run-{run_id}.scope"
+    d = os.path.join(STATE, "winpids", unit)
+    for pid in os.listdir(d) if os.path.isdir(d) else []:
+        subprocess.run(["/mnt/c/Windows/System32/taskkill.exe", "/F", "/T", "/PID", pid], capture_output=True)
+        os.remove(os.path.join(d, pid))
+    subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
 
 
 def tick_later() -> None:

@@ -52,10 +52,6 @@ def run_of(db, agent_id):
     return db.execute("SELECT * FROM run WHERE agent_id=? AND ended_at IS NULL", (agent_id,)).fetchone()
 
 
-def stop_scope(run_id):
-    subprocess.run(["systemctl", "--user", "stop", f"hd-run-{run_id}.scope"], capture_output=True)
-
-
 def session_start(e):
     """The orchestrator binds: a session row with the claude pid and the definition it loaded."""
     if e.get("agent_type") != "orchestrator":
@@ -164,7 +160,7 @@ def subagent_stop(e):
     else:
         db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
         event(db, "ended", r["change"], r["id"], f"no hand-back line: {line[:120]}")
-    stop_scope(r["id"])
+    act.stop_scope(r["id"])
     act.tick_later()
     return {}
 

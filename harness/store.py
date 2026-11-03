@@ -138,8 +138,10 @@ CREATE TABLE alert (
 );
 """
 
+SCHEMA_2 = "ALTER TABLE ref ADD COLUMN tree TEXT;"   # a ref's tree: the key of a deploy of staging, read without git
+
 # One function per schema version; migrate() applies those above PRAGMA user_version in order, each in a transaction.
-MIGRATIONS = [SCHEMA_1]
+MIGRATIONS = [SCHEMA_1, SCHEMA_2]
 
 
 def now() -> str:
@@ -205,6 +207,10 @@ class Ledger:
     def ref(self, repo, name):
         row = self.one("SELECT sha FROM ref WHERE repo=? AND name=?", repo, name)
         return row["sha"] if row else None
+
+    def ref_tree(self, repo, name):
+        row = self.one("SELECT tree FROM ref WHERE repo=? AND name=?", repo, name)
+        return row["tree"] if row else None
 
     def landed(self, slug, target):
         return self.one("SELECT sha FROM landed WHERE change=? AND target=?", slug, target)

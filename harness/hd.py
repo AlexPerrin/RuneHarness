@@ -169,6 +169,12 @@ def cmd_submit(a):
     cfg, ch = act.cfg(), change(a.slug)
     T = track(ch, cfg)
     ref = T.dev_ref(ch)
+    if T.remote:   # a pushed track: the fork holds the head the harness builds; the local branch must be pushed
+        subprocess.run(["git", "-C", T.path, "fetch", "-q", T.remote, f"+refs/heads/{T.prefix}/{a.slug}:{ref}"], capture_output=True)
+        local = act.git(T.path, "rev-parse", "--verify", "-q", f"refs/heads/{T.prefix}/{a.slug}", check=False)
+        pushed = act.git(T.path, "rev-parse", "--verify", "-q", ref, check=False)
+        if local and local != pushed:
+            sys.exit(f"hd submit: {T.prefix}/{a.slug} is at {local[:7]} locally and {pushed[:7] or 'absent'} on {T.remote}: git push {T.remote} {T.prefix}/{a.slug} first")
     head = act.git(T.path, "rev-parse", "--verify", "-q", ref, check=False)
     if not head:
         sys.exit(f"hd submit: no commit on {ref}")
@@ -281,7 +287,7 @@ def cmd_close(a):
     r = live_run(db, a.slug)
     if r:
         db.execute("UPDATE run SET ended_at=?, end_kind='close' WHERE id=?", (now(), r["id"]))
-        stop_scope(r["id"])
+        act.stop_scope(r["id"])
     event(db, "closed", a.slug, None, a.words)
     act.tick_later()
 
@@ -300,12 +306,20 @@ def cmd_gate(a):
     then the gate job's result."""
     db = store.connect()
     tree = a.key.split(":")[0]
+    ch = change(a.slug)
+    T = track(ch)
+    s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY id DESC LIMIT 1", (a.slug, tree)).fetchone() \
+        or {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
+    env = act.job_env(db, ch, T, s, BUILD=a.dir)
     fails = []
     for c in Ledger(db).criteria(a.slug, "script"):
         print(f"== {c['rid']}: {c['cmd']}", flush=True)
-        r = subprocess.run(c["cmd"], shell=True, cwd=a.dir, capture_output=True, text=True)
+        r = subprocess.run(c["cmd"], shell=True, cwd=a.dir, capture_output=True, text=True, env=env)
         sys.stdout.write(r.stdout + r.stderr)
         note = (r.stderr.strip().splitlines() or r.stdout.strip().splitlines() or [""])[-1][:200]
+        if r.returncode == 75:   # the criterion's source is down: no result, the pass starts the gate again
+            print(f"== {c['rid']}: no result ({note})")
+            sys.exit(75)
         db.execute("INSERT OR REPLACE INTO check_result(criterion_id, tree, ok, note, at) VALUES (?,?,?,?,?)",
                    (c["id"], tree, int(r.returncode == 0), note if r.returncode else None, now()))
         if r.returncode:
@@ -321,11 +335,25 @@ def cmd_gate(a):
 def cmd_candidate(a):
     cfg, ch = act.cfg(), change(a.slug)
     T = track(ch, cfg)
-    head = act.git(T.path, "rev-parse", T.dev_ref(ch))
+    head = act.git(T.path, "rev-parse", a.head or T.dev_ref(ch))
     try:
         print(*act.candidate(T.path, a.base or act.git(T.path, "rev-parse", T.base), [head]))
     except act.Conflict as c:
         sys.exit(f"conflict: {' '.join(c.args[0])}")
+
+
+def cmd_stack(a):
+    """The change's running stack, mirrored from the track script's record (up.json) so the pass can recover it."""
+    db = store.connect()
+    if a.clear:
+        db.execute("DELETE FROM stack WHERE change=?", (a.slug,))
+        return
+    d = json.load(open(a.file))
+    db.execute("""INSERT INTO stack(change, script, containers_json, desktops_json, token, modulus, started_at) VALUES (?,?,?,?,?,?,?)
+                  ON CONFLICT(change) DO UPDATE SET script=excluded.script, containers_json=excluded.containers_json,
+                  desktops_json=excluded.desktops_json, token=excluded.token, modulus=excluded.modulus, started_at=excluded.started_at""",
+               (a.slug, d.get("script"), json.dumps(d.get("containers", "").split()), json.dumps(d.get("desktops", "").split()),
+                d.get("token"), d.get("modulus"), d.get("started")))
 
 
 def cmd_step(a):
@@ -349,15 +377,11 @@ def cmd_dismiss(a):
     db.execute("UPDATE alert SET disposition='dismissed', why=?, by='orchestrator', at=? WHERE id=?", (a.why, now(), a.id))
 
 
-def stop_scope(run_id):
-    subprocess.run(["systemctl", "--user", "stop", f"hd-run-{run_id}.scope"], capture_output=True)
-
-
 def cmd_stop(a):
     db = store.connect()
     db.execute("UPDATE run SET ended_at=?, end_kind='stop' WHERE id=? AND ended_at IS NULL", (now(), a.run))
     r = db.execute("SELECT change FROM run WHERE id=?", (a.run,)).fetchone()
-    stop_scope(a.run)
+    act.stop_scope(a.run)
     event(db, "ended", r["change"] if r else None, a.run, "stopped by the orchestrator")
     act.tick_later()
 
@@ -446,7 +470,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("close"); s.add_argument("slug"); s.add_argument("words")
     s = sub.add_parser("job"); s.add_argument("kind"); s.add_argument("key"); s.add_argument("result", choices=("ok", "fail")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")
-    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base")
+    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head")
+    s = sub.add_parser("stack"); s.add_argument("slug"); s.add_argument("file", nargs="?"); s.add_argument("--clear", action="store_true")
     s = sub.add_parser("step"); s.add_argument("slug"); s.add_argument("script"); s.add_argument("step"); s.add_argument("state", choices=("start", "done")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("fault"); s.add_argument("run", type=int); s.add_argument("what")
     s = sub.add_parser("dismiss"); s.add_argument("id", type=int); s.add_argument("why")

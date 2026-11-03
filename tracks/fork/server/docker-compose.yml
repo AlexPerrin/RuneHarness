@@ -1,0 +1,39 @@
+# The live test server: the game from the deployed image (its game.yml's token-login block holds the issuer's secret), the
+# sidecars that serve jav_config.ws and slr.ws to the Android app (http) and to desktop clients (http-desktop), and issuer.py,
+# the APK's sign-in and tokens over http. `track.sh ship` runs it with switch.env, SIDECAR_DATA and ISSUER_DIR (the issuer's
+# DIR, which also holds the APK's jav_config.ws.template: this directory's, params 11, 20, 22 and 28 naming the issuer); the
+# image tag osrs-openrune:241 is moved by ship, never built here. Every host the sidecars serve is local (javcheck.py checks).
+name: osrs-openrune
+services:
+  openrune:
+    image: osrs-openrune:241
+    container_name: osrs-openrune
+    restart: unless-stopped
+    ports: ["${OPENRUNE_GAME_PORT:-40255}:43594"]
+    volumes: [openrune-pgdata:/app/.data/postgres]
+    environment: {JAVA_OPTS: "-Xmx2g"}
+  http:
+    image: osrs-rsps-test:241
+    container_name: osrs-openrune-http
+    restart: unless-stopped
+    ports: ["${OPENRUNE_HTTP_PORT:-8081}:8080"]
+    volumes: ["${SIDECAR_DATA}:/data:ro", "${ISSUER_DIR}/jav_config.ws.template:/app/protocol/jav_config.ws.template:ro"]
+    environment: {WORLD_HOST: "10.0.2.2", HTTP_PUBLIC_PORT: "${OPENRUNE_HTTP_PORT:-8081}", WORLD_ID: "255", SAVE_DIR: /tmp/saves,
+                  JAV_CONFIG_TEMPLATE: /app/protocol/jav_config.ws.template, LOCAL_AUTH: "false", PROOF_OF_WORK: "false", VALIDATE_CRCS: "false"}
+  http-desktop:
+    image: osrs-rsps-test:241
+    container_name: osrs-openrune-http-desktop
+    restart: unless-stopped
+    ports: ["${OPENRUNE_DESKTOP_HTTP_PORT:-8082}:8080"]
+    volumes: ["${SIDECAR_DATA}:/data:ro", "./jav_config.ws.template:/app/protocol/jav_config.ws.template:ro"]
+    environment: {WORLD_HOST: "127.0.0.1", HTTP_PUBLIC_PORT: "${OPENRUNE_DESKTOP_HTTP_PORT:-8082}", WORLD_ID: "255", SAVE_DIR: /tmp/saves,
+                  JAV_CONFIG_TEMPLATE: /app/protocol/jav_config.ws.template, LOCAL_AUTH: "false", PROOF_OF_WORK: "false", VALIDATE_CRCS: "false"}
+  issuer:
+    image: python:3.13-alpine
+    container_name: osrs-openrune-issuer
+    restart: unless-stopped
+    ports: ["${OPENRUNE_ISSUER_PORT:-8083}:8081"]
+    volumes: ["./issuer.py:/issuer.py:ro", "${ISSUER_DIR}:/t:ro"]
+    command: [python3, /issuer.py, serve, /t]
+volumes:
+  openrune-pgdata:

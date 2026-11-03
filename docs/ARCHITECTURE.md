@@ -391,7 +391,8 @@ def wake(db):
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order.
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
-merges records `ship fail`, the dev's step.
+merges records `ship fail`, the dev's step. The harness ship and `hd commit` both hold `state/ship.lock`: no commit moves
+the live tip between a ship's candidate and its push (the engineer's commits go through `hd commit`).
 
 ## 7 publish.py: the card and the publish
 

@@ -21,6 +21,8 @@ case "$verb" in
   gate) exec $hd gate "$slug" "$key" "$(unpack "$HD_TCOMMIT" "$HD_TREE")" ;;
   ship)
     # The candidate on the live tip: the gated one, or a new merge gated here; then the live branch fast-forwards.
+    # Under state/ship.lock, which `hd commit` takes too: no commit moves the tip between the candidate and the push.
+    [ "${SHIP_LOCK:-}" = 1 ] || { mkdir -p "$HD_ROOT/state"; SHIP_LOCK=1 exec flock "$HD_ROOT/state/ship.lock" bash "$0" "$@"; }
     if ! read -r tree tcommit < <($hd candidate "$slug"); then
       $hd job ship "$key" fail "the head no longer merges with ${HD_BASE#refs/heads/}"; exit 1
     fi

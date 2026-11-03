@@ -519,12 +519,18 @@ def cmd_kpi(a):
 
 
 def cmd_commit(a):
+    """A pathspec commit on the live branch, pushed; under state/ship.lock so no ship's candidate is computed on a tip
+    this commit then moves."""
+    import fcntl
     cfg = act.cfg()
     T = cfg.tracks["harness"]
-    act.git(ROOT, "add", "--", *a.paths)
-    act.git(ROOT, "commit", "-q", "--author", act.AUTHOR, "-m", a.message + "\n\n" + act.TRAILER, "--", *a.paths)
-    print(act.git(ROOT, "log", "-1", "--format=%h %s"))
-    act.git(ROOT, "push", "-q", "origin", f"HEAD:{T.base}")
+    os.makedirs(STATE, exist_ok=True)
+    with open(os.path.join(STATE, "ship.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        act.git(ROOT, "add", "--", *a.paths)
+        act.git(ROOT, "commit", "-q", "--author", act.AUTHOR, "-m", a.message + "\n\n" + act.TRAILER, "--", *a.paths)
+        print(act.git(ROOT, "log", "-1", "--format=%h %s"))
+        act.git(ROOT, "push", "-q", "origin", f"HEAD:{T.base}")
 
 
 def cmd_restart(a):

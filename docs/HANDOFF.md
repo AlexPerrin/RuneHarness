@@ -119,7 +119,8 @@ as a change.
 - Decide on facts, never on elapsed time. A run ends only by its own hand-back, a stop, a close or its console's
   death.
 - Run `python3 -m unittest discover -s tests` before every commit; check a touched doc's diagrams with
-  `tests/mermaid_parse.mjs`.
+  `tests/mermaid_parse.mjs`. Commit with `hd commit <paths> -m "<message>"`: it holds `state/ship.lock`, so a ship's
+  candidate is never computed on a tip your commit then moves (a bare `git push` raced three ships).
 
 ## Only the user decides
 

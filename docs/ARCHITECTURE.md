@@ -677,6 +677,9 @@ while :; do
 done
 ```
 
+- **Two panes**: the user's terminal holds the orchestrator's pane (`harness/orchestrator.sh`), whose agent panel opens the
+  transcript of every run it spawned and shows it coordinating, and the driver's pane (`claude --agent driver`), the one the
+  user types in. Nothing else runs a session.
 - **Bind**: the SessionStart hook writes the `session` row with the claude pid, the role (agent_type `orchestrator`;
   any other top-level session in the checkout is the `driver`) and the digest of `orchestrator.md` and `.mcp.json` it
   loaded (Claude Code reads both once, at start). `hd` finds its session by the calling pid's ancestry. A driver is

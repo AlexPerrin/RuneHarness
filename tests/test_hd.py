@@ -41,6 +41,14 @@ class Hd(unittest.TestCase):
         rows = store.connect().execute("SELECT rid, kind, cmd, source FROM criterion ORDER BY id").fetchall()
         self.assertEqual([tuple(r) for r in rows], [("acc-1", "judge", "accuracy", "accuracy"), ("lint", "script", "make lint", "seed")])
 
+    def test_a_deploy_ok_marks_the_staged_changes_live(self):
+        import argparse, os
+        db = store.connect()
+        db.execute("INSERT INTO job(kind, key, started_at) VALUES ('deploy', 'tr1:fork-1', '2026-01-01T00:00:00')")
+        db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-a', 'refs/heads/staging', 's', '2025-12-31T00:00:00'), ('s-b', 'refs/heads/staging', 's', '2026-01-02T00:00:00')")
+        hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))
+        self.assertEqual([r[0] for r in store.connect().execute("SELECT change FROM landed WHERE target='live'")], ["s-a"])   # s-b landed after the deploy began
+
     def test_a_malformed_ask_is_refused_before_any_row(self):   # alert 20: options split on a ':' inside the text left an unanswerable question
         import argparse, sqlite3
         hd.store.connect().execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('x', 'dev', 'code', 'i', 'b', 't')")

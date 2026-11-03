@@ -266,7 +266,8 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
     deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate;
-                       # a dep on another track (a harness fix, a library) must land or close
+                       # a dep on another track (a harness fix, a library) must land or close; a client change's server dep
+                       # must be live (landed 'live': the test server runs it, the only server a mobile reaches)
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
@@ -461,7 +462,7 @@ sequenceDiagram
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command; the hook denies agents) | approval; change_state.closed_at |
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
-| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log |
+| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
 | `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |

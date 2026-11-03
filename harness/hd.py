@@ -393,6 +393,12 @@ def cmd_job(a):
                   ON CONFLICT(kind, key) DO UPDATE SET ok=excluded.ok, detail=excluded.detail, ended_at=excluded.ended_at""",
                (a.kind, a.key, os.environ.get("HD_SLUG"), int(a.result == "ok"), a.detail, now()))
     event(db, "job", os.environ.get("HD_SLUG"), None, f"{a.kind} {decide.short(a.key)} {a.result} {a.detail or ''}")
+    if a.kind == "deploy" and a.result == "ok":   # the test server now runs staging as it was when the deploy began: those heads are live
+        j = db.execute("SELECT started_at FROM job WHERE kind='deploy' AND key=?", (a.key,)).fetchone()
+        for r in db.execute("""SELECT change FROM landed WHERE target=? AND at<=? AND change NOT IN (SELECT change FROM landed WHERE target='live')""",
+                            (decide.STAGING, j["started_at"] or now())).fetchall():
+            db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
+            event(db, "landed", r["change"], None, "live: the test server runs it")
     act.tick_later()
 
 

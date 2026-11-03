@@ -72,6 +72,15 @@ class Tempo(Base):  # T1, T3, T4
         self.assertEqual(steps["c-fix"].kind, "done")
         self.assertNotIn("dep c-fix", steps["s-one"].why)      # its dependent is not held by it
 
+    def test_a_client_changes_server_dep_must_be_live_on_the_test_server(self):   # the mobile reaches only the live stack
+        cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
+        srv = Change("s-fix", "fork", upstream=False); ch = Change("c-one", "client", deps=("s-fix",))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('s-fix', 'h1', 't1', 'h1', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't')")
+        self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].why, "dep s-fix not live on the test server")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].kind, "run")
+
     def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
         dep = Change("h-fix", "harness")
         ch = Change("c-one", "client", deps=("h-fix",))

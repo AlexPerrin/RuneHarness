@@ -167,6 +167,10 @@ def deps_live(C, ch):
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
+        if ch.track == "client" and d.track in ("fork", "central", "filestore"):   # the mobile reaches only the live test server
+            if not (C.L.closed(dep) or C.L.landed(dep, "live")):
+                return Step("wait", f"dep {dep} not live on the test server")
+            continue
         if done(C, d):
             continue
         if d.track != ch.track and d.track not in ("central", "filestore"):

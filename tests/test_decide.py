@@ -204,6 +204,21 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('deploy', 'tr1:fork-1', 1, 't')")
         self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
 
+    def test_a_track_without_deploy_skips_staging_and_its_conflict(self):   # staging exists only to deploy
+        lab = Track("lab", "AlexPerrin/lab", "/nowhere", "refs/remotes/origin/main", "Up/lab", "dev", {"gate": "lab-1"}, "fork")
+        cfg = Cfg(agents=2, hold="P2", tracks={**CFG.tracks, "lab": lab})
+        ch = Change("hello", "lab")
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('hello','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('lab', 'refs/remotes/fork/dev/hello', ?)", (TIP,))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('hello', ?, ?, ?, 't1')", (TIP, TREE, TC))
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:lab-1",))
+        self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'hello', ?)", (TIP[:7] + " README.md",))
+        step = lambda: {a.change: a.step for a in decide.plan(self.L, [ch], cfg)}["hello"]
+        self.assertEqual(step().why, "texts: pr-title.txt, pr-body.md, pr-comment.md")
+        for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
+            self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('hello', ?, 'x', 'text')", (n,))
+        self.assertEqual(step().kind, "card")
+
 
 class Goals(Base):  # T8
     def test_measure_when_the_target_tree_moves_then_a_plan_run_when_below_target(self):

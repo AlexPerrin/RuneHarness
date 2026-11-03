@@ -653,9 +653,13 @@ stateDiagram-v2
 ```bash
 # harness/orchestrator.sh — run once by the user in their terminal, so the session and its agents are visible
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+systemctl --user is-active -q hd-loop.timer || systemd-run --user --unit hd-loop --on-calendar='*:*:00' python3 "$PWD/harness/hd.py" tick
+n=0
 while :; do
-  claude --agent orchestrator "drive"
-  python3 harness/hd.py session-ended $$ || break
+  n=$((n + 1)); unit=hd-orchestrator-$$-$n
+  systemd-run --user --scope --quiet --collect --unit "$unit" -- claude --agent orchestrator "drive"
+  systemctl --user stop "$unit.scope"      # what the session left behind (MCP servers, a watch) ends with it
+  python3 harness/hd.py session-ended || break
 done
 ```
 

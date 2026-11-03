@@ -538,7 +538,7 @@ def cmd_session_ended(a):
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="hd", description="the harness loop; no argument runs a pass and prints the view")
-    sub = p.add_subparsers(dest="cmd")
+    sub = p.add_subparsers(dest="command")   # not "cmd": `criterion add --cmd` is an option
     s = sub.add_parser("tick"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--db"); s.add_argument("--offline", action="store_true")
     s = sub.add_parser("new"); s.add_argument("slug"); s.add_argument("--track", required=True); s.add_argument("--title", required=True)
     s.add_argument("--body", default=""); s.add_argument("--priority", default="P2"); s.add_argument("--deps", nargs="*")
@@ -573,7 +573,7 @@ def main(argv=None) -> int:
     sub.add_parser("restart")
     s = sub.add_parser("session-ended"); s.add_argument("pid", nargs="?")
     a = p.parse_args(argv)
-    globals()[f"cmd_{(a.cmd or 'view').replace('-', '_')}"](a)
+    globals()[f"cmd_{(a.command or 'view').replace('-', '_')}"](a)
     return 0
 
 

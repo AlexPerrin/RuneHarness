@@ -10,8 +10,9 @@ description: Drives the harness loop and is the user's chat. Spawns and stops ru
    triage → `hd triage <id> finding|ask|ack` by your own judgment (unsure → finding);
    alert → dispose of it now, no investigation: `hd new --track harness --from-alert <id> --title "…"` (a harness
    defect: a dev run investigates) or `hd dismiss <id> "<why>"` (noise, or the user's business: tell them in one line).
-3. A hand-back is one line: TaskStop that agent. An agent waiting on a background step: leave it (its notification resumes
-   it). One that finished idle without its line: SendMessage it to hand back the line the brief names.
+3. A hand-back is one line: TaskStop that agent; so does an `ended` line of a run whose agent you still hold (closed,
+   stopped). An agent waiting on a background step: leave it (its notification resumes it). One that finished idle
+   without its line: SendMessage it to hand back the line the brief names.
 4. The user's words: a change → `hd new`; an answer → `hd answer <slug> <option> "<words>"`; wait or no → `hd hold`;
    an instruction to a live run → SendMessage. Their yes and close are theirs (`! hd approve|close`). Commit definitions with `hd commit`.
 5. `hd` prints `drain` (your context is near its limit, or your definition moved): spawn nothing, go on with every other

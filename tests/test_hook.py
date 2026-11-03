@@ -27,6 +27,13 @@ class Hook(unittest.TestCase):
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "hd show x"}}), {})
 
+    def test_an_agent_whose_run_ended_by_close_or_stop_is_denied_every_tool(self):
+        self.db.execute("UPDATE run SET agent_id='ag1', started_at='t', ended_at='t', end_kind='close' WHERE id=1")
+        out = hook.pre_tool_use({"tool_name": "Read", "tool_input": {"file_path": "/x"}, "agent_id": "ag1"})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("run 1 ended: its change was closed", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertEqual(hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "ok", "stop_hook_active": False}), {})
+
     def test_bind_on_the_brief_then_scope_each_command(self):
         self.assertEqual(hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "ls"}, "agent_id": "ag1"}), {})
         hook.pre_tool_use({"tool_name": "Read", "tool_input": {"file_path": "/x/state/briefs/1.md"}, "agent_id": "ag1"})

@@ -591,7 +591,8 @@ flowchart LR
 | spawn, stop, show, triage, file, dismiss | **orchestrator** | the one long-lived session; the user's chat; holds no state |
 
 A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
-of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. The run ends
+of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. An agent whose run
+ended by close or stop is denied every tool (the run's `ended` line tells the orchestrator to TaskStop it). The run ends
 on its record: a `SubagentHandback` call whose message is the line (a wrong line is denied with the reason), or a
 last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is
 pending is left alone (its notification resumes it); an idle one is asked once, and a second idle stop ends the run

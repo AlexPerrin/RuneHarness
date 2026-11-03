@@ -112,6 +112,11 @@ def pre_tool_use(e):
     db = store.connect()
     r = run_of(db, agent)
     if not r:
+        gone = db.execute("SELECT * FROM run WHERE agent_id=? AND end_kind IN ('close','stop') ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+        if gone:   # the run ended under the agent: nothing it does counts
+            why = "its change was closed by the user" if gone["end_kind"] == "close" else "the orchestrator stopped it"
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": f"run {gone['id']} ended: {why}. Stop now, with no hand-back and nothing else."}}
         m = BRIEF.search(text)
         r = bind(db, agent, int(m.group(1))) if m else None
         if not r:

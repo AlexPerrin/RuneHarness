@@ -365,6 +365,7 @@ def cmd_close(a):
     if r:
         db.execute("UPDATE run SET ended_at=?, end_kind='close' WHERE id=?", (now(), r["id"]))
         act.stop_scope(r["id"])
+        event(db, "ended", a.slug, r["id"], f"run {r['id']}: closed with its change")
     for j in db.execute("SELECT * FROM job WHERE change=? AND pid IS NOT NULL AND ended_at IS NULL", (a.slug,)).fetchall():
         subprocess.run(["systemctl", "--user", "stop", j["scope"] + ".scope"], capture_output=True)
         db.execute("UPDATE job SET ended_at=?, pid=NULL, exit=-1, detail='closed' WHERE kind=? AND key=?", (now(), j["kind"], j["key"]))

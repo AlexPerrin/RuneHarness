@@ -248,7 +248,7 @@ def db_path(db) -> str:
 def job_env(db, ch, T, s, **more) -> dict:
     """The environment of a job and of every scripted criterion: HD_* and the short names the scripts read."""
     base = git(T.path, "rev-parse", T.base)
-    cl = T.path if ch.slug == "staging" else clone(T, ch)
+    cl = T.path if ch.slug == "staging" or ch.kind == "goal" else clone(T, ch)   # a job of staging or a goal has no dev clone
     env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"],
                HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=cl, HD_BUILDS=str(cfg().builds),
                SLUG=ch.slug, HEAD=s["head"], T=s["tree"], TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
@@ -334,8 +334,9 @@ def tick(path=None, dry_run=False, offline=False) -> list:
     c, defs = cfg(), changes()
     L = store.Ledger(db)
     open_ = [ch for ch in defs if not L.closed(ch.slug) and ch.track in c.tracks]
+    gs = goals()
     if not offline:
-        for T in {ch.track for ch in open_}:
+        for T in {ch.track for ch in open_} | {g.track for g in gs if g.track in c.tracks}:   # a goal's repo moves without a change
             T = c.tracks[T]
             moved = observe.fetch(db, T)
             targets = {T.done_ref(ch) for ch in open_ if ch.track == T.name} | ({decide.STAGING} if T.upstream else set())
@@ -354,7 +355,6 @@ def tick(path=None, dry_run=False, offline=False) -> list:
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
             seed(db, ch, c.tracks[ch.track])
-    gs = goals()
     actions = decide.plan(L, defs, c, gs)
     if dry_run:
         return actions
@@ -367,7 +367,7 @@ def tick(path=None, dry_run=False, offline=False) -> list:
         elif a.change.startswith("goal:"):
             g = next(x for x in gs if x.slug == a.change[5:])
             T = c.tracks[g.track]
-            ch = Change(g.slug, g.track, upstream=False, body=g.body)
+            ch = Change(g.slug, g.track, kind="goal", upstream=False, body=g.body)
             if s.kind == "measure" and g.measure == "query":
                 measure_query(db, g, T, s.key.split(":")[0])
                 continue

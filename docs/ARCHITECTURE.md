@@ -495,15 +495,16 @@ flowchart LR
   H --> G["gate on the candidate = merge-tree(live tip, head)"]
   subgraph GR["scripted criteria"]
     G --> T1["tests: unittest on the candidate"]
-    G --> T2["replay: sqlite3 .backup of state/hd.db;<br/>candidate hd tick --dry-run --db snap --offline<br/>versus the live hd; diff"]
+    G --> T2["replay: sqlite3 .backup of state/hd.db;<br/>candidate hd tick --dry-run --db snap --offline<br/>versus its merge base's hd; diff"]
   end
   T2 --> J{"diff empty, or named by a<br/>criterion 'replay: &lt;expected&gt;'"}
   J -- no --> DEV["the dev's step: the unexplained diff"]
   J -- yes --> S["ship: fast-forward the live branch"]
 ```
-The harness track's seed criteria are `tests` and `replay` (`tracks/harness/replay.sh`, run with the candidate's files
-as cwd). A candidate that must plan differently writes `evidence/<slug>/replay.md`, read from the live checkout, saying
-what differs and why. A dev's out-of-scope limit is `hd new … --blocks <own slug>`; a duplicate is folded by the orchestrator.
+The harness track's seed criteria are `tests`, `replay` (`tracks/harness/replay.sh`, run with the candidate's files as
+cwd: the candidate's plan against its merge base's, with the live definitions on both sides, so only the change's own
+effect shows), `fork-tools` and `client-tools` (the track scripts' suites). A candidate that must plan differently
+writes `evidence/<slug>/replay.md`, read from the live checkout, saying what differs and why. A dev's out-of-scope limit is `hd new … --blocks <own slug>`; a duplicate is folded by the orchestrator.
 
 ## 10 Tests
 

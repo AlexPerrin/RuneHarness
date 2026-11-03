@@ -5,9 +5,10 @@ branch; the dev ref stays local. A test per requirement touched; decide.py is te
 fakes. Run `python3 -m unittest discover -s tests` yourself, commit, then `hd submit <slug>`: the pass gates the
 candidate (tests, replay) and ships it by fast-forward of the live branch.
 
-The replay runs the candidate's `hd tick --dry-run --offline` over a snapshot of the live ledger against the live
-one. A change that must plan differently (a new guard, a changed reason text) writes `evidence/<slug>/replay.md`
-saying what differs and why; the replay then passes with that note.
+The replay runs the candidate's `hd tick --dry-run --offline` over a snapshot of the live ledger against its base's
+(the candidate's merge base with the live branch, with the live definitions on both sides), so only the change's own
+effect shows. A change that must plan differently (a new guard, a changed reason text) writes
+`evidence/<slug>/replay.md` saying what differs and why; the replay then passes with that note.
 
 ## Seed criteria
 - tests  | the suite passes at the candidate | script: python3 -m unittest discover -s tests

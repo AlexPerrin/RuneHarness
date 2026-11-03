@@ -3,7 +3,7 @@ import re, os, shutil, subprocess, tempfile, time, unittest
 from pathlib import Path
 SUITE_TMP = tempfile.TemporaryDirectory(prefix="tools-suite-", ignore_cleanup_errors=True)   # every temp dir of these tests and of each process they
 tempfile.tempdir = os.environ["TMPDIR"] = SUITE_TMP.name                          # start (mktemp) is under it, removed at the end, a failed test's too
-for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", "TCOMMIT", "BASE", "CLONE", "BUILD", "EVIDENCE"]:
+for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", "TCOMMIT", "BASE", "CLONE", "BUILD", "EVIDENCE", "PR", "PUBLIC_BRANCH", "CENTRAL", "FILESTORE"]:
     os.environ.pop(k, None)   # hd's env of the gate that runs these tests is not the tests': its TCOMMIT named the candidate in a fixture repo
 
 TRACK = Path(__file__).resolve().parent / "track.sh"

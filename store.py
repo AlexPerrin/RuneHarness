@@ -33,7 +33,7 @@ CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;
 
 CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
-  tree TEXT NOT NULL, tcommit TEXT NOT NULL, central TEXT, tools_json TEXT,
+  tree TEXT NOT NULL, tcommit TEXT NOT NULL, composite_json TEXT, tools_json TEXT,
   limits_json TEXT NOT NULL, run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );

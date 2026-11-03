@@ -1,19 +1,12 @@
 # Harness track
 
-Changes to this repo (hd.py, hook.py, tools/, roles, the drive skill, docs, tests). Branch `harness/<slug>` from the live checkout's branch (the brief's Base) in
-the worktree `.worktrees/<slug>`; one test per requirement touched (`tests/test_hd.py`, one class per R); run the tests through the track's runner, never a piped `python3 -m unittest`: `HD_ROOT=~/osrs-harness tools/track.sh test <slug> tests.test_hd.<Class>` in the worktree keeps each failing test's whole report in `state/<slug>/tests.txt`; a game client is named mobile or desktop, by that word alone (a new slug about one is `harness-mobile-*` or `harness-desktop-*`); docs state current
-truth only, one fact per line (`python3 tools/docfmt.py docs/PROBLEM.md docs/PRD.md docs/ARCHITECTURE.md` writes it: a break after each '; ' and sentence, never re-wrapped; a blank line between requirements and paragraphs; a new fact on its own line beside the fact it refines, a new test beside the test it refines), so siblings merge and only the same fact changed two ways conflicts; CLAUDE.md and README.md are the only root docs. Hooks live in `.claude/settings.json`. A change to an
-upstream-acting step is dry-run against the live PRs before it merges (`hd tick --dry-run` must plan nothing main's
-pass does not). The dev ref stays local, as does each carried tools ref: hd reads the local ref and ship pushes only
-the live branch and the tools branches it moves, so rebase it onto the base at will and never push it. A gate failure that is not your change's (a flaky test elsewhere) is filed as its mechanism's limit; a hand-over at the same head gates it again. Commit, then `hd handover <slug> Limits: none` (or `Limits: limit:<slug> ...`): it runs the whole suite at T (`tests` is a check row) and refuses while it fails.
-
-A fix to a product repo's tools (the fork's `local/harness`, the client's `client/harness-v8`) is committed on branch
-`harness/<slug>` of that repo, from its tools branch, in a worktree `<repo>/.worktrees/<slug>`; the dev ref
-`harness/<slug>` of this repo exists too (at the live branch when nothing here changes). The hand-over records each carried
-head; the gate runs that repo's `tools/**/test_*.py` at it; ship fast-forwards the tools branch to it and pushes it to that repo's own remote (the fork's `fork`, never `origin`).
+Changes to this repo. Branch `harness/<slug>` from the live branch in the worktree `.worktrees/<slug>`; the dev ref
+stays local. A test per requirement touched; decide.py is tested over recorded ledger snapshots, never fakes.
+Docs hold one fact per line (`tools/docfmt.py`), so parallel doc edits merge. Commit, then
+`hd handover <slug> Limits: none` (or `Limits: limit:<slug> ...`, each a change filed with `hd new --blocks`).
 
 ## Seed rows
-- tests | the suite passes at T | check: tools/track.sh check-tests
-- dry-run | hd tick --dry-run at T plans no upstream action main's pass does not | gate: tools/track.sh check-dry-run
-- docs | every requirement has its test class and acceptance row, and the source docs hold one fact per line | gate: tools/track.sh check-docs
-- tools | every carried tools head is a fast-forward of its branch and its tests pass | gate: tools/track.sh check-tools
+- tests  | the suite passes at T                                              | check: tools/track.sh test
+- replay | the candidate pass over a snapshot of the live ledger plans what the live pass plans, or a row names the difference | gate: tools/track.sh gate replay
+- docs   | the source docs hold one fact per line                              | gate: python3 tools/docfmt.py --check docs/*.md
+- tools  | every carried tools head fast-forwards its branch and its tests pass | gate: tools/track.sh gate tools

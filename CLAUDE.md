@@ -7,8 +7,8 @@ AlexPerrin/OpenRune-FileStore, contributed upstream to OpenRune/OpenRune-Server,
 OpenRune/OpenRune-FileStore). It is neither product's code.
 
 **New session: read docs/V9-PROPOSAL.md (the v9 design: PROBLEM, PRD, ARCHITECTURE with schema, state machine and
-module skeletons), then docs/V9-BRIEF.md (what v8 did, measured). docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md
-describe v8 until the v9 build rewrites them; docs/ISSUES.md is the open ledger.** Every session and agent runs from this repo.
+module skeletons), then docs/V9-BRIEF.md (what v8 did, measured). v8 as built, its docs and its 421 change definitions
+are on branch `v8` (merged into `main`), context only.** Every session and agent runs from this repo.
 
 ```
 hd.py          the commands (thin): hd | tick | new | fold | show | row | handover | verdict | ask | answer | triage | hold | approve | close | ship | artefact | step | fault | dismiss | stop | scope | regate | kpi | commit | restart
@@ -23,8 +23,8 @@ hd.yaml        the repos, the agent count, the context limit, the held band, the
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
 .claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, reader (a run's read-only lookup); product repos hold the judgment skills
-harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
-docs/          V9-PROPOSAL.md, V9-BRIEF.md, PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
+harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover); state/ and evidence/ at the root are git-ignored
+docs/          V9-PROPOSAL.md (the design), V9-BRIEF.md (v8 measured); PROBLEM.md, PRD.md and ARCHITECTURE.md are rewritten from the proposal as the build lands
 tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, carry, hook small)
 ```
 
@@ -34,7 +34,7 @@ the user chats with it directly. A write to OpenRune and a client release is sho
 `! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
 
 ## Iteration protocol
-docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,
+docs/V9-PROPOSAL.md is the source of truth until docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are rewritten from it; then they are. Every iteration reads them first,
 reduces the work surface (fewer concepts, steps, special cases, files, knobs), and updates them last, each fact in the
 one document that owns it. PROBLEM and PRD state the workflow in its simplest terms (agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR), so ARCHITECTURE can change
 without brittleness: every fix finds its root cause against that workflow and fixes it there, rewriting the mechanism

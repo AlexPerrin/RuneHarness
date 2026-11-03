@@ -65,7 +65,8 @@ Principles, reduced to seven:
 Goals: unchanged (client probe 100%; server inventory 100%, client never blocked; harness measured by `hd kpi`, §5).
 
 Process in its simplest terms: agents build a complete PR → the user reads it as text in the console and says yes →
-it is carried upstream → maintainer feedback becomes rows on the PR's one open change.
+it is carried upstream → maintainer feedback becomes rows on the PR's one open change. Three loops run it: client, server
+(three repos: the fork, Central, FileStore, §3.14) and harness.
 
 ---
 
@@ -80,7 +81,7 @@ it is carried upstream → maintainer feedback becomes rows on the PR's one open
 | R5 Recovery | every failure repaired by the next pass from the ledger; a cause outside the head records no result and re-runs; the same cause 3× → one alert; nothing from elapsed time | `attempt`, `artefact.ok IS NULL` |
 | R6 Economy | nothing checked twice per tree; one agent count; P0–P4 with a held band; harness first, PR rounds before new content; one dev + one qa per head move; events on edges; context-limit hand-off lists a successor at once | `decide.plan()`, `event` |
 | R7 Visibility | `hd` prints spawns, cards, questions, triage, runs, goals; `hd kpi` prints the harness numbers; every run is an agent of the visible session | `hd.view()` |
-| R8 Trees | T = merge-tree(base, deps closure, head), one deterministic commit, built once; the fork branch `integration` is the test server's tree, gated heads merged in by the pass; harness and client ship serially by fast-forward; an upstream PR is self-contained (`no-stack` gate row) | `tree.py` in act, §3.6 |
+| R8 Trees | T = merge-tree(base, deps closure, head), one deterministic commit, built once, Central and FileStore deps built in as a composite (§3.14); the fork branch `integration` is the test server's tree, gated heads merged in by the pass; harness and client ship serially by fast-forward; an upstream PR is self-contained (`no-stack` gate row) | `tree.py` in act, §3.6 |
 
 Acceptance: docs/ACCEPTANCE.json, one test class per R over recorded ledger snapshots (§3.10).
 
@@ -141,7 +142,9 @@ CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;   -- at most
 
 CREATE TABLE handover (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
-  tree TEXT NOT NULL, tcommit TEXT NOT NULL, central TEXT, tools_json TEXT,   -- {repo: head} carried tools heads
+  tree TEXT NOT NULL, tcommit TEXT NOT NULL,
+  composite_json TEXT,                                 -- {central: tree, filestore: tree} built in by composite build (§3.14)
+  tools_json TEXT,                                     -- {repo: head} carried tools heads
   limits_json TEXT NOT NULL, run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );
@@ -423,7 +426,9 @@ def tree(repo: Repo, base: str, heads: list[str]) -> tuple[str, str]:
     """T: fold `git merge-tree --write-tree` over base + each dep head (closure, deps first) + head; then
     `git commit-tree <tree> -p ...` with GIT_COMMITTER_DATE = max parent committer date → (tree, tcommit).
     Deterministic: same inputs, same tcommit, so the CI child of T is the same sha and its green answers again.
-    A conflict → raises Conflict(files) → Step(run dev, why=files)."""
+    A conflict → raises Conflict(files) → Step(run dev, why=files).
+    A dep in Central or FileStore adds no commit to T: its own T is built into the server build as a Gradle
+    composite (§3.14) and joins the key as +c<tree12> / +f<tree12>."""
 
 def key(kind: str, tree: str, repo: Repo) -> str:
     """f"{tree}:{recipe}" where recipe = `tools/track.sh recipe <kind>` of the repo's tools copy (a string the
@@ -704,6 +709,78 @@ What the v8 monitor taught, and the property that answers it:
 | the orchestrator restarted the sweep every session | nothing to restart |
 
 `hd kpi` (kpi.py) is the harness's measurement: one SQL query per §5 row; the `kpi` alert is its daily roll-up.
+
+### 3.14 Tracks and repos
+
+Three loops, five repos. The server loop spans the fork and the two OpenRune libraries it depends on; each is a repo
+in hd.yaml with its upstream, a track with its own tools branch, base and head, and its own PRs.
+
+| repo (hd.yaml key) | upstream | base → head | delivers | serves |
+|---|---|---|---|---|
+| `client` AlexPerrin/osrs-plugins-reverse | — | `main` → `client/<slug>` | RuneLite plugins in the official Android app, APK releases | goal client-api |
+| `fork` AlexPerrin/OpenRune-Server | OpenRune/OpenRune-Server | upstream `main` → `dev/<slug>` | game content and behaviour; the test server | goal server-content; unblocks the client |
+| `central` AlexPerrin/OpenRune-Central-Server | OpenRune/OpenRune-Central-Server | upstream `main` → `dev/<slug>` | accounts, sessions, world-link auth, `jav_config.ws`, `worldslist.ws` (`central-app`, `central-common`, `central-worldlink`) | the login path the client needs (token login, whitelist binds: `dev/central-token-login-op`, `dev/central-login-whitelist-binds` already on the fork); replaces the sidecars (below) |
+| `filestore` AlexPerrin/OpenRune-FileStore | OpenRune/OpenRune-FileStore | upstream `main` → `dev/<slug>` | the cache library (`dev.or2:filestore`, `definition`, `filesystem`, `tools`, `all`): cache I/O, every config codec (`DBRowCodec`, `DBTableCodec`, …), gameval references, packing, a JS5 server | goal server-content: the inventory and packing read the cache through it; replaces `server-content.py` (below) |
+| `harness` AlexPerrin/osrs-harness | — | live branch → `harness/<slug>` | this repo | — |
+
+How the server consumes the libraries, and therefore how a change in them reaches the test server and upstream:
+
+```mermaid
+flowchart LR
+  subgraph libs["published artefacts (Maven dev.or2, OpenRune/hosting)"]
+    FS["filestore 3.0.4<br/>definition, filesystem, all"]
+    CE["central-common 2.0.2<br/>central-worldlink 2.0.2"]
+  end
+  FORK["OpenRune-Server<br/>gradle/libs.versions.toml"] -->|"or2 = 3.0.4"| FS
+  FORK -->|"openruneCentral = 2.0.2"| CE
+  FSD["filestore change dev/<slug><br/>(FileStore main is 3.0.7)"] -. "composite build: includeBuild + substitute dev.or2:* → project" .-> FORK
+  CED["central change dev/<slug>"] -. "composite build: settings.gradle.kts openrune.central.includeBuild" .-> FORK
+  FSD -->|"PR after the yes"| FSU["OpenRune/OpenRune-FileStore main → release"]
+  CED -->|"PR after the yes"| CEU["OpenRune/OpenRune-Central-Server main → release"]
+  FSU -->|"a server change bumps or2 in libs.versions.toml"| FORK
+  CEU -->|"a server change bumps openruneCentral"| FORK
+```
+
+- **A server change that depends on a library change** names it in `deps`. Its T is the fork tree alone; the
+  library dep's own T is built in by a Gradle composite build (Central: the fork's `openrune.central.includeBuild`
+  property; FileStore: an init script substituting `dev.or2:filestore|definition|filesystem|tools|all` with the
+  project, as v8's `central.init.gradle` does for Central), recorded in `handover.composite_json`, and joins the build
+  key as `+c<tree12>` / `+f<tree12>`. The test server image carries the composite, so a Central or FileStore change is
+  live on the test server as soon as a server tree built with it deploys.
+- **Upstream** each library change is its own PR on its own repo, carried after the user's yes like any other. A
+  server change built on a library head is not self-contained upstream until the published version holds it: it waits
+  (`upstream_dep_wait`) for the library PR's merge and release, then a server change bumps the version in
+  `libs.versions.toml` (`dev_due` lists it with that reason).
+- **Gate and judge** per library: `gradle test` at T (FileStore's tests against the fork's live cache `data/cache`),
+  the text rows, fork CI; judge rows from the gated build and the diff (nothing comes up for FileStore; a Central
+  change is judged from a server `up` built with it).
+- **Central upstream hold** (the user's standing word): Central PRs stay fork-only until the login work clears, then
+  the auth PRs are bundled. In v9 that is a `hold` row with `head NULL` on each Central change, lifted by the user's
+  word: cards are recorded but not shown.
+
+**FileStore replaces `harness/goals/server-content.py`.** That script (140 lines of Python) reimplements the cache:
+it reads `main_file_cache.dat2`/`.idx*` sector by sector, decodes the reference table and bzip2/gzip containers,
+parses dbrow definitions (config group 38) by opcode to find each row's dbtable, and reads names out of
+`gamevals.dat`, to emit `server-content.json` (one unit per quest, skill, minigame and boss dbrow). Every one of
+those steps is FileStore's job (`filestore` for the store, `definition/osrs` `DBRowCodec` and `DBTableCodec` for the
+rows, `tools/gameval` for the names), and a second decoder drifts from the first at every cache revision. In v9 the
+inventory is a FileStore-based task on the fork's tools branch, run by `tools/track.sh measure` in the build
+container (where Gradle already is), writing the same JSON; `server-content.py` is deleted and osrs-mcp reads the
+task's dumps. The harness itself stays stdlib Python (A9): the JVM work lives in the server track's tools.
+
+**Central replaces the sidecars.** The live stack today is the game image plus three v7 containers: `http` and
+`http-desktop` (image `osrs-rsps-test:241`, data from v7's `SIDECAR_DATA`) serving `jav_config.ws` and `slr.ws` to
+the mobile and the desktops, and `issuer.py` (the APK's OIDC sign-in, the game-session API `sessions`/`accounts`/
+`tokens`, and the HMAC token the game's `token-login` block verifies). Central already serves `/jav_config.ws` (a
+remote template with `javConfig.configProps` overrides), `/worldslist.ws`, `/worlds.js`, accounts, sessions and
+world-link auth, and the fork's `dev/central-token-login-op` and `dev/central-login-whitelist-binds` carry the token
+login. Two gaps remain, each a Central change (fork first, upstream when the hold lifts): a local `jav_config.ws`
+template source (today `remoteUrlTemplate` fetches `client.blurite.io`; the privacy rule needs a file or the fork's
+own copy), and the official client's sign-in and game-session endpoints that `issuer.py` emulates (the AppAuth
+authorization and token endpoints behind params 11 and 22, `POST sessions`, `GET accounts`, `tokens`), minting the
+token the game verifies. When both land the stack is game + Central + Postgres, `issuer.py`, `osrs-rsps-test:241` and
+`SIDECAR_DATA` go, and docs/ISSUES.md's "sidecar data and image come from v7" entry closes. Until then the compose
+keeps the sidecars beside Central, behind the same `track.sh ship`.
 
 ---
 

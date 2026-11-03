@@ -134,22 +134,24 @@ A3 a maintainer finding answered (needs a login that is not AlexPerrin, or #450'
   once per carried change with an existing dev tip, and the first re-judge of each open server change.
 - The Central upstream hold, the P3 band hold (`hold: P2` in hd.yaml), and every card.
 
-## The cutover (the user's call; the steps once decided)
+## The cutover (started 2026-11-03 15:00Z on the user's word)
 
-1. Stop v8: `systemctl --user disable --now hd-tick.timer` and `/exit` its orchestrator; `rm ~/.config/systemd/user/hd-tick.*`.
-2. Make the live checkout v9: `git -C ~/osrs-harness merge --ff-only v9`, then in hd.yaml `harness.base: refs/heads/main`
-   (commit, push) and `git worktree remove ~/osrs-harness/.worktrees/v9`. v8's `state/` stays (git-ignored); v9 writes
-   `state/hd.db` beside it and reads `state/live/key` and `state/live/tree.json` as they are.
-3. Definitions: for each open v8 change kept (`git ls-tree v8 harness/changes`), rewrite its front matter to v9's keys
-   (`track: server` → `fork`; `pr`, `public` the PR branch; drop deps on obsolete harness changes); commit them.
-4. Start `harness/orchestrator.sh` from `~/osrs-harness` (it starts `hd-loop.timer`). The first pass seeds every open
-   change's criteria and lists criteria runs for the upstream ones; for a change whose dev tip already exists on the
-   fork, run `hd submit <slug>` once (it records the tip and its candidate, checking nothing) before that pass, or
-   right after it.
-5. The first checked server head creates `staging` from upstream main plus the pins; a pin that no longer merges
-   is alert `pin-conflict` naming it: rebase that pin branch on the fork and the next pass creates staging whole.
-6. The deploy of staging replaces the live test server (`osrs-openrune`) with staging's image, keyed on the live
-   pair; the first deploy is the moment the test server moves from v8's integration tree to staging.
+Done: v8's `hd-tick.timer` disabled (its orchestrator was already gone); ten v8 changes carried as v9 definitions and
+submitted at their v8 heads (server-token-auth, cannon #354, hunter #408, goblin #367, server-cache-clientscript-name-hash;
+fork-only world-entities, npc-examine-without-overlay, levelup-guide-messages; friends-chat and clan-channels under the
+social hold); the three PR branches left the pins; v8's quest heads noted on the P4 quest changes. Their criteria runs and
+re-judges proceed through the loop.
+
+Left, in order:
+1. **The live key, once server-token-auth is on staging.** Copy `~/osrs-harness/state/live/` (`key/`, `tree.json`) into
+   this checkout's `state/live/`. Not before: staging without the token verifier would drop token login (desktop
+   `up token`, Android) from the live server. The next pass then deploys staging, which marks its changes `live`;
+   `client-probe-no-stop` and the Android check on live follow.
+2. **The runtime move, at the user's desk** (it restarts the orchestrator in their pane): stop `harness/orchestrator.sh`
+   (the session's `/exit`) and `hd-loop.timer`; `sqlite3 .backup` this `state/hd.db` into `~/osrs-harness/state/hd.db`;
+   `git -C ~/osrs-harness merge --ff-only v9` (main is v9's ancestor), hd.yaml `harness.base: refs/heads/main`, commit,
+   push; copy `state/<slug>/`, `state/briefs/`, `state/live/` across; start `harness/orchestrator.sh` from
+   `~/osrs-harness`; then `git worktree remove` this worktree.
 
 ## Known gaps
 

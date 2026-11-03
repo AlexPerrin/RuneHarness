@@ -5,7 +5,7 @@ kind: change
 title: 'Client session, settings and menu state: 35 ClientStub throws and 6 setters
   that do not take'
 priority: P2
-deps: []
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

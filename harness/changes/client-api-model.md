@@ -4,8 +4,8 @@ track: client
 kind: change
 title: Model, ModelData and Mesh backed by the game's models instead of ModelBag/InertModelData
   (61 inert rows, unblocks AABB)
-priority: P1
-deps: []
+priority: P2
+deps: [harness-device-network-block]
 created: '2026-10-25T15:48:53Z'
 goal: client-api
 ---

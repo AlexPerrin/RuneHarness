@@ -1,0 +1,34 @@
+---
+slug: harness-build-gate-keyed-process
+track: harness
+title: 'A build, gate or deploy is a process of its key: keyed on what it runs, run
+  from that key''s files, replaced when the key moves, failed only by the head'
+kind: change
+priority: P0
+mechanism: build-gate
+deps: []
+created: '2026-11-01T23:59:46Z'
+limit-of:
+- goblin-367-rsprox-dump
+---
+Planner merge (planner-17) of harness-build-key-and-stale-gates, harness-tools-pinned-per-process and gate-ci-external-fetch-failure, which patch one mechanism. Root cause against PRD's workflow (a complete PR is gated, then carried): a build, gate or deploy is not a function of its key. Its key hashes files it never runs (tools/gate/gate.sh holds build and gate-ci code: a gate-ci edit rebuilt all 10 server changes at 23:24:49 and 23:30:57; server-world-entities has 33 build logs for tree 1fc56bf); it executes from the tools worktree a ship mutates (deploy attempt 2, ee13b4c, failed 'open Dockerfile: no such file' at 22:35:22 after a 22:27 tools ship moved the file); a process whose key moved keeps running because ctx.start (hd.py:825) matches on name alone (10 gate-ci pollers on the old loop after 23:30:28; pid 1045784 ran 17+ min while its new build pid 1219113 waited on build.lock), and the state names a key other than the running one (hd.py:1319); its result is read as the head's even when the failing step is outside the head (openrs2 HTTP 500 on :or-cache:freshCache, CI runs 41357682052 and 41357793032; 'HTTP 403: API rate limit exceeded' on genie-355-bank-lamp at 22:55:53Z); a carried tools head that stopped fast-forwarding sends the change to a dev run that only rebases (harness-tools-pinned-per-process took four); hd handover does not run the carried tools heads' tests (fork e981c3d0e failed BuildAttempts and ShipFailure only at the batch gate, 23:35).
+
+One mechanism replaces those rules: a build/gate/deploy process is keyed on exactly the files it runs, runs from a read-only checkout of those files at its key, is the only process holding proc-<role> for its scope and is replaced when its key moves, and records a failure as the head's only when the failing step reads the head.
+
+Acceptance (each with a test):
+- build and gate code are separate files with separate keys; a gate-ci or gradle-volume edit never rekeys a build.
+- each build/gate/deploy runs from a per-key read-only checkout of the tools (worktree or archive); a tools ship while a fake deploy runs leaves its files unchanged.
+- a running build/gate/ship whose key is no longer current is stopped (its scope) and the current one started; the state names the key of the process actually holding proc-<role>, so a multi-member batch gates the batch it names.
+- the fork CI does not fetch the cache from archive.openrs2.org at gate time (actions/cache keyed by cache id, the copy live builds already share); a failure in a step the head does not touch (cache/gameval generation, checkout, setup) or a GitHub quota refusal records no result and re-runs on the observed fact (the source answering, the quota reset), never a timed retry and never a FAIL of the head.
+- gate_ci reads run status conditionally through hd's GitHub cache (state/gh, If-None-Match, quota.json).
+- a carried tools head that is not a fast-forward is rebased by the pass in the change's tools worktree (no dev run) and the hand-over's tools head re-recorded; a stopped rebase makes a dev step naming the conflicting files; the batch ship merges every member's tools heads at once.
+- hd handover runs each carried tools repo's tests (env -i, as check-tools) and refuses on a failure.
+
+Also (goblin-367-rsprox-dump): gate-ci: every gate branch restores the fork CI's game cache
+goblin-367-rsprox-dump's gate failed again at a correct head (T 1061da2cd, gate sha 0f62c07d1): CI run 41364734674 on gate/goblin-367-rsprox-dump was cancelled by ci.yml's timeout-minutes 30 at 72% of the 213 MB openrs2 download in 'Generate cache and gameval sources' (run 41362166155 before it likewise), while gates started in the same minutes passed in ~15 min. Root cause: actions/cache entries are readable only from the ref that saved them, a PR base, or the default branch. Every game-cache-v2-03bcedaa... entry on the fork is saved on some gate/<slug> ref, none on main (the default branch), so a gate branch that never completed a run (a new slug, or one whose runs all failed or were cancelled, which save nothing) misses the cache and downloads fresh each time, and a slow or failing archive keeps failing that gate forever. Acceptance: a gate branch's CI restores the game cache whenever any run has fetched it for that game.example.yml (e.g. the entry saved on the fork's default branch by a run there on each revision, a workflow_dispatch on main, not a push), so no gate depends on the openrs2 download; a cancelled or timed-out cache step is the infrastructure's, re-run, never the head's FAIL.
+
+Also (filed): A gate CI run cancelled or failed outside the head sends no dev run; the change waits on the gate fix
+Planner-19 (monitor). Repeats twice on goblin-367-rsprox-dump: gate failed: dev on a CI failure/cancel in the cache download (22:37:40Z run 41357682052; 00:30:39Z 'CI cancelled/completed', timeout-minutes 30 at 72% of the openrs2 download); dev runs goblin-367-rsprox-dump-4 (ended 22:47:17Z, 23 turns) and -5 (ended 00:51:27Z, 30 turns) each re-handed over the same head ea08bce28 (events 22:47:04Z, 00:51:10Z) with nothing to fix, and the step stayed due on the same input, so planner-19 was listed (00:51:42Z). server-cache-clientscript-name-hash now has the same 'FAIL: ci ... CI cancelled/completed' at 00:52:37Z; its next dev run would be the third. Root cause against PRD (a complete PR is gated, then carried): the gate records an infrastructure fact as the head's FAIL, and the pass's only answer to a FAIL is a dev run, which cannot change that fact. Acceptance (with this mechanism's rows): a gate whose failing CI step does not read the head (cancelled, timed out, cache/gameval generation, checkout, setup) records no result for the head and lists no dev run; the change shows waiting on the build-gate change until the cause is gone, then re-gates the same head; a test drives a cancelled CI run on a correct head and asserts no dev step and no planner step. goblin-367-rsprox-dump and server-cache-clientscript-name-hash depend on this change until it lands.
+
+Also (filed): suite fixture output shows in gate details as false FAILs
+sweep-14 B6: state/ship-harness/.rows/check_tests.out holds 'FAIL: lint/bad/evil: false # refused: rm -rf / ...' with rc 0; those lines were pasted into the failing gate's detail at 00:33:05Z beside the real failures. A gate detail names only the failed tests. evidence/monitor/sweep-14.md

@@ -4,8 +4,8 @@ track: client
 kind: change
 title: Devtools menu actions do nothing on current builds (item_action, select_option,
   widget ops time out in the host's DevMenu)
-priority: P1
-deps: []
+priority: P2
+deps: [harness-device-network-block]
 created: '2026-10-25T22:12:13Z'
 ---
 ## Change

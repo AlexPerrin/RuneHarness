@@ -1,13 +1,27 @@
 ---
 slug: cannon-review-354
+pr: 354
+finding:
+- 4345861694
 track: server
 kind: change
 title: 'Cannon #354: address maintainer review'
-priority: P0
+priority: P1
 created: '2026-10-24T19:31:52Z'
 branch: content/cannon
 network: true
-deps: []
+quest-mode: assume-completed
+deps:
+- harness-subject-row-range
+- harness-dupe-tests-row-scope
+- harness-build-volume-perms
+- harness-server-build-tree
+- harness-no-powershell
+- harness-server-build-musicrepository
+- harness-desktop-first-login
+- harness-public-finds-existing-pr
+superseded: cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq
+closed: 'answer-3: superseded by cannon-354-reset-mcannonmulti-cickwdoqbbpt88aaaabeelgiq'
 ---
 ## Change
 Upstream #354 is CHANGES_REQUESTED (Mark7625 2026-10-22 07:57, eaglepurerocketgrape 11:42). Head content/cannon 9c08b42ca. Supersedes the BR-C1 fold decision on `cannon`: the fix goes on the PR head itself.
@@ -25,3 +39,6 @@ Upstream #354 is CHANGES_REQUESTED (Mark7625 2026-10-22 07:57, eaglepurerocketgr
 - 2026-10-31T01:34:39Z The user: allow it. The guard now lets a forced push of dev/cannon-review-354 through when the new head keeps the live tip's tree (a message reword). Force-push 7a8b2331a and hand over.
 - 2026-10-31T01:37:15Z console: the guard's reword check was broken (fixed in 88a6355's follow-up); the force-push of 7a8b2331a to dev/cannon-review-354 now passes the guard. Push it and hand over.
 - 2026-10-31T03:59:09Z console: the dev fixed both findings in the texts at the same head 7a8b2331a (Nulodion worded as a LostCity reconstruction; quest refusal run in game, ingame/37; not-run lists replaced). Review the texts again at this head.
+
+The user's word (2026-11-01): "Skip cannon-review-354 upstream contribute, until the third comment work is complete." The ship waits on cannon-354-reset-ammo-varp (the reply to finding 4433251631).
+Orchestrator note (2026-11-01): the ammo-varp reply is posted (comment 4436984075), so the hold above is met; its dep is removed, since cannon-354-reset-ammo-varp depends on this change and the two deadlocked.

@@ -106,7 +106,7 @@ changes it depends on. Its **criteria** are agreed before code: scripted ones a 
 checks in game. A dev **submits** one head; its **candidate** tree is base plus dependencies plus head, built once.
 The scripts check the candidate; qa judges the head; the test server runs **staging**, every checked server head
 merged into one branch. A change that is public upstream or a release becomes a **card**; the user's **approval**
-is the only thing that lets the harness **publish**, and it publishes exactly the card. A maintainer's word becomes
+is the only thing that lets the harness **publish**, and it publishes exactly the card. A client or harness change needs no card: once checked it **ships**, a fast-forward of its live branch. A maintainer's word becomes
 a criterion on the PR's open change, and the loop runs again from the dev.
 
 ## 5. Constraints of the world

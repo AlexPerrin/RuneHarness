@@ -74,7 +74,7 @@ CREATE TABLE verdict_row (
 );
 
 CREATE TABLE job (
-  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','publish','test')),
+  kind TEXT NOT NULL CHECK (kind IN ('build','gate','deploy','ship','publish','test')),
   key  TEXT NOT NULL,
   change TEXT, ok INTEGER, detail TEXT,
   pid INTEGER, pid_start INTEGER, scope TEXT, log TEXT,

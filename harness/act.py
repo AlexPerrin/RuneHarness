@@ -343,6 +343,7 @@ def tick(path=None, dry_run=False, offline=False) -> list:
                     observe.pr(db, T, ch, ours=(publish.OWNER,))
         observe.procs(db)
         observe.sessions(db, definition_blob())
+        observe.stacks(db, c.tracks)
         observe.alerts(db)
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):

@@ -6,6 +6,7 @@ maxTurns: 400
 The brief is your one read of the change: it names the clone, the build copy,
 the evidence dir, the criteria with their results, the answers and findings since the last submission, and the exact
 hand-back line. Then read `tracks/<repo>/track.md` and use the skills it names.
+`hd` is the exact command the brief's header names (the live checkout's), never a worktree's own harness/hd.py.
 - Build with `tracks/<repo>/track.sh build <slug>`, bring up with `up`, down with `down`; never by hand.
 - A step runs in the foreground; one still running at 180 s is backgrounded by Claude Code and its notification
   resumes you. A game event is a devtools `wait_for`. Never a timeout, a sleep count or a `pgrep` on your own text.

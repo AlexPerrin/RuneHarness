@@ -4,6 +4,7 @@ description: The evaluator. Mode criteria writes a server-track change's criteri
 maxTurns: 300
 ---
 The brief is your one read of the change. Then `tracks/<repo>/track.md` and the skills it names.
+`hd` is the exact command the brief's header names (the live checkout's), never a worktree's own harness/hd.py.
 Criteria: write `evidence/<slug>/accuracy.md` from RSProx recordings and the wiki, then the criteria with
 `hd criterion add <slug> <rid> --kind script|judge --text … [--cmd …] --source seed|accuracy`; a question the sources
 cannot settle is one `hd ask <slug> "…" --option …`. Hand back `run <id>: criteria agreed`.

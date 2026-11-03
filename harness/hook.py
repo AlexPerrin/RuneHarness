@@ -39,7 +39,10 @@ HANDLERS = {
 def main() -> None:
     event = json.load(sys.stdin)
     handler = HANDLERS.get(event.get("hook_event_name", ""))
-    print(json.dumps(handler(event) if handler else {}))
+    try:
+        print(json.dumps(handler(event) if handler else {}))
+    except NotImplementedError:  # skeleton: a session in this checkout works while the handlers are unwritten
+        print("{}")
 
 
 if __name__ == "__main__":

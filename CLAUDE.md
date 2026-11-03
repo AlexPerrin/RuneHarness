@@ -6,9 +6,10 @@ AlexPerrin/OpenRune-Server, its Central AlexPerrin/OpenRune-Central-Server and i
 AlexPerrin/OpenRune-FileStore, contributed upstream to OpenRune/OpenRune-Server, OpenRune/OpenRune-Central-Server and
 OpenRune/OpenRune-FileStore). It is neither product's code.
 
-**New session: read docs/PROBLEM.md (what the harness is for, the workflow, the goals), docs/PRD.md (M, H, G, A, T
-requirements) and docs/ARCHITECTURE.md (the ledger, the state machine, the modules); docs/V9-PROPOSAL.md records the
-change from v8 and the build plan, docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`.** Every session and agent runs from this repo.
+**New session: read docs/HANDOFF.md first (where things are, what exists, what to build), then docs/PROBLEM.md
+(what the harness is for, the workflow, the goals), docs/PRD.md (M, H, G, A, T requirements) and docs/ARCHITECTURE.md
+(the ledger, the state machine, the modules); docs/V9-PROPOSAL.md records the change from v8 and the build plan,
+docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`, live from `main`.** Every session and agent runs from this repo.
 
 ```
 harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
@@ -24,7 +25,7 @@ mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobil
 tracks/        one directory per repo: track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md (rules, seed criteria), scripts; the product repos hold product code only
 .claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, reader (a run's read-only lookup); skills/ the judgment skills of every track
 harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover) beside the modules above; state/ and evidence/ at the root are git-ignored
-docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md (the source of truth); V9-PROPOSAL.md (the change from v8, the plan); V9-BRIEF.md (v8 measured)
+docs/          HANDOFF.md (the dev's brief); PROBLEM.md, PRD.md, ARCHITECTURE.md (the source of truth); V9-PROPOSAL.md (the change from v8, the plan); V9-BRIEF.md (v8 measured)
 tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, publish, hook small)
 ```
 

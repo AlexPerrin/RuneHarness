@@ -6,19 +6,26 @@ AlexPerrin/OpenRune-Server, its Central AlexPerrin/OpenRune-Central-Server and i
 AlexPerrin/OpenRune-FileStore, contributed upstream to OpenRune/OpenRune-Server, OpenRune/OpenRune-Central-Server and
 OpenRune/OpenRune-FileStore). It is neither product's code.
 
-**New session: read docs/PROBLEM.md (first principles), docs/PRD.md (R1–R8), docs/ARCHITECTURE.md (how it is built),
-docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.
+**New session: read docs/V9-PROPOSAL.md (the v9 design: PROBLEM, PRD, ARCHITECTURE with schema, state machine and
+module skeletons), then docs/V9-BRIEF.md (what v8 did, measured). docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md
+describe v8 until the v9 build rewrites them; docs/ISSUES.md is the open ledger.** Every session and agent runs from this repo.
 
 ```
-hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | rows | verdict | ask | answer | triage | stop | close | approve | ship | tree | tick | restart)
-hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the context limit)
-hd.yaml        the repos, the agent count, the context limit, the permanent pins
+hd.py          the commands (thin): hd | tick | new | fold | show | row | handover | verdict | ask | answer | triage | hold | approve | close | ship | artefact | step | fault | dismiss | stop | scope | regate | kpi | commit | restart
+store.py       the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
+observe.py     world → ledger: fetch, refs, landed, GitHub (ETag), procs, docker, alerts
+decide.py      ledger → Step: next(change) over the ordered guards, plan() for the pass; pure, no subprocess
+act.py         Step → world: trees, keys, scripts in systemd scopes, integration merges, briefs, the wake
+carry.py       the card (recorded acts and texts) and the carry (logged steps, resume)
+kpi.py         hd kpi: one query per harness metric
+hook.py        SubagentStart/Stop, PreToolUse (approve/close denied, the scope line), PostToolUse (the context limit)
+hd.yaml        the repos, the agent count, the context limit, the held band, the pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
 tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
-.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner, reader (a run's read-only lookup); product repos hold the judgment skills
+.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, reader (a run's read-only lookup); product repos hold the judgment skills
 harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
-docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
-tests/         python3 -m unittest discover -s tests   (one class per requirement)
+docs/          V9-PROPOSAL.md, V9-BRIEF.md, PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
+tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, carry, hook small)
 ```
 
 Runs are spawned by the orchestrator session only (`tools/orchestrator.sh`, which runs `claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);

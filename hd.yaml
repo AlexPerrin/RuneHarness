@@ -7,20 +7,7 @@ repos:
   central:  {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, tools: local/harness, upstream: OpenRune/OpenRune-Central-Server}
   filestore: {name: AlexPerrin/OpenRune-FileStore,       path: ~/src/OpenRune-FileStore,       tools: local/harness, upstream: OpenRune/OpenRune-FileStore}
   harness:  {name: AlexPerrin/osrs-harness,          path: ~/osrs-harness}
-mechanisms:               # the harness's components (docs/ARCHITECTURE.md): every harness change names the one it fixes, one open change each
-  - loop          # next(change), the pass, facts, records, events
-  - runs          # briefs, run records, spawn, bind and end, the hook
-  - orchestrator  # the driver session: the view, the wake, its steps
-  - goals         # goals, measure, the planner
-  - roles         # the dev and qa role files, the tracks' rules and skills
-  - contract      # contract.md, hand-over, verdict, answers, hd new
-  - tree          # T, T_int, merge refs, pins, build keys
-  - build-gate    # the track scripts' build, gate and rows, the carried tools branches
-  - carry         # the card, approval, hold, hd ship, ship of the harness track, upstream findings
-  - server        # the test server: up, accounts, deploy, issuer, Central
-  - desktop       # desktop clients: up, login, down
-  - mobile        # the mobile: emulator, APK install, launch, network
-  - devtools      # the devtools front and the clients' devtools API
+
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
 agents: 7                 # runs alive at once (raised from 3, then 6->7 for the P0 qa login fix: the user's word)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)

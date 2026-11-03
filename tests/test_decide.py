@@ -51,12 +51,14 @@ class Tempo(Base):  # T1, T3, T4
         self.run_row("x")
         self.assertIn("run 1 dev", self.step().why)
 
-    def test_successor_after_console_death_or_handoff(self):
+    def test_successor_after_console_death_or_handoff(self):   # for every run kind: the rule is the plan's, not a guard's
         s = self.step()
         self.run_row(s.input, ended_at="t", end_kind="handoff")
-        s2 = self.step()
-        self.assertEqual(s2.kind, "run")
-        self.assertNotEqual(s.input, s2.input)
+        self.assertEqual(self.step().kind, "run")
+        self.run_row(s.input, ended_at="t", end_kind="console", role="qa", mode="criteria")
+        self.assertEqual(self.step().kind, "run")
+        self.run_row(s.input, ended_at="t", end_kind="handback", record="run 3: submitted x")
+        self.assertIn("ended (handback) with this input", self.step().why)
 
     def test_agent_count_and_held_band(self):
         other = [Change(f"h-{i}", "harness") for i in range(3)]

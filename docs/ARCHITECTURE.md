@@ -269,8 +269,7 @@ GUARDS = [
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate, or a merge conflict / CI failure / missing text
-                       # → run dev/code; the input digests the tip, the reasons, the answers since the submission and a
-                       # predecessor that ended by handoff or console (its successor is listed once)
+                       # → run dev/code; the input digests the tip, the reasons and the answers since the submission
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
@@ -289,8 +288,8 @@ GUARDS = [
 def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     """next() per open change in priority order (harness, then PR rounds, then new content; each at the best
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
-    and no run exists for (change, input) (a run with that input that ended by stop or hand-back parks the change: a
-    new fact makes a new input); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
+    and no run with that input parks it (one that ended by stop or hand-back does: a new fact makes a new input; one
+    that died with its console or handed off gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
     only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
     tree of each server track whose script has a deploy recipe (Action change "<track>:staging")."""
 ```

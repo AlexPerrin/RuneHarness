@@ -197,10 +197,8 @@ def dev_due(C, ch):
             why.append(f"CI failed at {t[:7]}: {e['detail'][8:]}")
     if not why:
         return None
-    last = C.L.last_run(ch.slug)
-    successor = last["id"] if last and last["end_kind"] in ("console", "handoff") else None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
-    return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers, successor))
+    return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers))
 
 
 def build_due(C, ch):
@@ -380,10 +378,17 @@ def priority(ch, blocked: dict) -> str:
     return min(best, "P1", key=TIERS.index) if ch.track == "harness" else best
 
 
+def parked(L: Ledger, slug, input):
+    """The run with this input that parks the step: one that ended by its own hand-back or a stop (a new fact makes a new
+    input). One that died with its console or handed off gets a successor: None."""
+    p = L.run_for(slug, input)
+    return p if p and p["end_kind"] not in ("console", "handoff") else None
+
+
 def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
     """The pass's action list: next() per open change in priority order (harness, then PR rounds, then new content;
-    below cfg.hold skipped); a run Step listed only while live runs < cfg.agents and no run exists for (change,
-    input); a job Step only while no job of its key (a ship: of its branch) is in flight."""
+    below cfg.hold skipped); a run Step listed only while live runs < cfg.agents and no run with this input parks it
+    (parked); a job Step only while no job of its key (a ship: of its branch) is in flight."""
     C = Ctx(L, cfg, {c.slug: c for c in changes})
     open_ = [c for c in changes if not L.closed(c.slug) and c.track in cfg.tracks]
     blocked = {}
@@ -402,7 +407,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             s = guard(C, g)
             if s:
                 break
-        if s and s.kind == "run" and (live >= cfg.agents or L.run_for(g.slug, s.input) or L.live_run(g.slug)):
+        if s and s.kind == "run" and (live >= cfg.agents or parked(L, g.slug, s.input) or L.live_run(g.slug)):
             continue
         if s:
             actions.append(Action(f"goal:{g.slug}", s))
@@ -424,7 +429,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             actions.append(Action(c.slug, Step("wait", f"run {r['id']} {r['role']} {'live' if r['started_at'] else 'listed'}")))
             continue
         if s.kind == "run":
-            prior = L.run_for(c.slug, s.input)
+            prior = parked(L, c.slug, s.input)
             if prior:
                 s = Step("wait", f"run {prior['id']} ended ({prior['end_kind']}) with this input: {s.why}")
             elif live >= cfg.agents:

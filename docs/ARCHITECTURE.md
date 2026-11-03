@@ -582,9 +582,11 @@ flowchart LR
 | spawn, stop, show, triage, file, dismiss | **orchestrator** | the one long-lived session; the user's chat; holds no state |
 
 A run is bound by the hook on its first Read or Bash naming `state/briefs/<id>.md` (or, failing that, on the run id
-of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`, and its
-SubagentStop ends the run when the last line is its record (a missing line is asked for once; a second refusal ends
-the run without a record). `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
+of its hand-back line); from then on every Bash command of the run is prefixed with `hd scope <id>`. The run ends
+on its record: a `SubagentHandback` call whose message is the line (a wrong line is denied with the reason), or a
+last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is
+pending is left alone (its notification resumes it); an idle one is asked once, and a second idle stop ends the run
+without a record. `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
 wake, a hand-back, the user's words or the watch's expiry run `hd` and do what each line says; TaskStop an agent at
 its one-line hand-back; record the user's words with `hd new`, `hd answer`, `hd hold`, `hd commit`; on `drain`
 spawn nothing and run `hd restart` once no run of yours is live. It never approves, closes, writes code or waits on

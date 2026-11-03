@@ -60,6 +60,18 @@ class Tempo(Base):  # T1, T3, T4
         self.run_row(s.input, ended_at="t", end_kind="handback", record="run 3: submitted x")
         self.assertIn("ended (handback) with this input", self.step().why)
 
+    def test_a_fork_only_change_on_a_track_without_staging_is_done_by_its_verdict(self):   # central-rights-test-mod: nothing to land on
+        C = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")
+        cfg = Cfg(agents=2, tracks={"fork": F, "central": C})
+        lib = Change("c-fix", "central", upstream=False); ch = Change("s-one", "fork", deps=("c-fix",))
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('central', 'refs/remotes/fork/dev/c-fix', 'h1')")
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-fix', 'h1', 't1', 'h1', 't')")
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't')")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('c-fix', 'h1', 1, 1, 'd', 't')")
+        steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
+        self.assertEqual(steps["c-fix"].kind, "done")
+        self.assertNotIn("dep c-fix", steps["s-one"].why)      # its dependent is not held by it
+
     def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
         dep = Change("h-fix", "harness")
         ch = Change("c-one", "client", deps=("h-fix",))

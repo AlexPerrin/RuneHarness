@@ -139,9 +139,22 @@ def job_due(C, kind, k):
 
 # --- guards: each returns a Step or None; first non-None wins ---------------------------------------------------
 
+def done(C, ch) -> bool:
+    """A change is done when closed, landed where its track says done, or, fork-only on a track that does not stage
+    (nothing to land on), when its head's verdict is ok."""
+    T = C.cfg.tracks[ch.track]
+    if C.L.closed(ch.slug) or C.L.landed(ch.slug, T.done_ref(ch)):
+        return True
+    if T.upstream and not ch.upstream and not stages(C, ch):
+        t = tip(C, ch)
+        v = C.L.last_verdict(ch.slug, t) if t else None
+        return bool(v and v["ok"])
+    return False
+
+
 def closed(C, ch):
     """Closed, folded, or landed where it is done → done, whatever is added later."""
-    if C.L.closed(ch.slug) or C.L.landed(ch.slug, C.cfg.tracks[ch.track].done_ref(ch)):
+    if done(C, ch):
         return DONE
     return None
 
@@ -154,7 +167,7 @@ def deps_live(C, ch):
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if C.L.closed(dep) or C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
+        if done(C, d):
             continue
         if d.track != ch.track and d.track not in ("central", "filestore"):
             return Step("wait", f"dep {dep} ({d.track}) not landed")
@@ -206,7 +219,7 @@ def dev_due(C, ch):
     if not why:
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
-    landed = [d for d in ch.deps if d in C.defs and C.L.landed(d, C.cfg.tracks[C.defs[d].track].done_ref(C.defs[d]))]
+    landed = [d for d in ch.deps if d in C.defs and done(C, C.defs[d])]
     return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers, landed))   # a dep landing is a new fact: the dev runs again
 
 
@@ -255,7 +268,7 @@ def upstream_dep_wait(C, ch):
     """A public act or a ship waits until every dep is landed where it is done (G4: a PR holds no other PR's commits)."""
     for dep in ch.deps:
         d = C.defs.get(dep)
-        if d and not C.L.closed(dep) and not C.L.landed(dep, C.cfg.tracks[d.track].done_ref(d)):
+        if d and not done(C, d):
             return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
     return None
 
@@ -356,7 +369,7 @@ def plan_due(C, g):
     if not m or m["value"] >= g.target:
         return None
     for ch in C.defs.values():
-        if ch.goal == g.slug and not C.L.closed(ch.slug) and not C.L.landed(ch.slug, C.cfg.tracks[ch.track].done_ref(ch)):
+        if ch.goal == g.slug and not done(C, ch):
             return None
     return Step("run", f"{g.slug} at {m['value']:g}% of {g.target:g}, nothing open", role="dev", mode="plan", input=digest(g.slug, m["tree"]))
 

@@ -243,6 +243,7 @@ stateDiagram-v2
   Published --> Done : landed(change, upstream main)
   Ship --> Done : landed(change, live branch)
   TestServer --> Done : upstream false and verdict ok
+  Judge --> Done : upstream false on a track without staging (nothing to land on), verdict ok
   Done --> [*]
   Closed --> [*]
 ```

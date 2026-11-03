@@ -14,41 +14,15 @@ builds: 3                 # builds and container steps at once (an N-slot flock 
 agents: 7                 # runs alive at once (raised from 3, then 6->7 for the P0 qa login fix: the user's word)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 pins:                     # fork branches every integration tree carries besides the changes, in merge order: the user's list
-  - fix/06-varrock-single-juliet
-  - fix/07-juliet-house-stairs
-  - fix/69-blue-moon-inn-stairs
-  - fix/10-login-welcome-message
-  - fix/11-dense-clientscript-ids
-  - fix/22-music-tab-play
-  - fix/25-ice-mountain-music-area
-  - fix/31-friend-add-update
-  - fix/36-giant-mole-kill-count
-  - fix/37-kitten-growth-and-wording
-  - fix/54-ernest-stage-2
-  - fix/56-misthalin-mystery-mandy-guards
-  - fix/59-gertrudes-cat-fluffs
-  - fix/63-gertrudes-cat-shilop-line
-  - fix/70-missing-mesanims
-  - fix/71-item-config-tradeable
-  - fix/73-heldu-dispatch-order
-  - fix/74-bankside-view-op
-  - fix/75-coal-bag-messages
-  - content/dragon-specials
-  - content/reconnect-login
   - content/goblin-diplomacy
   - content/cannon
   - feat/hunter
-  - content/pirates-treasure
-  - content/looting-bag
-  - content/fletching
   - local/quest-test-fixture
-  - local/romeo-juliet
   - local/android
   - local/local-auth
   - local/test-commands
   - local/world-settings
   - local/skip-cs2-packs
   - local/op-overrides
-  - local/treasure-trails
   - local/spotless-241
 hold: P2                  # P3 (new quests, stretch goals) held: the user's word (2026-11-01) "Work on P2s. Exclude P3s"

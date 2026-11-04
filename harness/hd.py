@@ -135,8 +135,8 @@ def cmd_new(a):
         fm["goal"] = a.goal
     if a.units:
         fm["units"] = a.units
-    if a.deps:
-        fm["deps"] = a.deps
+    if [d for d in a.deps or [] if d]:
+        fm["deps"] = [d for d in a.deps if d]
     if a.pr:
         fm["pr"] = a.pr
     if a.upstream is False:

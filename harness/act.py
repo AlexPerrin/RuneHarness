@@ -351,7 +351,7 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
     L = store.Ledger(db)
     open_ = [ch for ch in defs if not L.closed(ch.slug) and ch.track in c.tracks]
     gs = goals()
-    if not offline:
+    if not offline and not dry_run:   # a dry run writes nothing: it plans over the ledger as observed
         for T in {ch.track for ch in open_} | {g.track for g in gs if g.track in c.tracks}:   # a goal's repo moves without a change
             T = c.tracks[T]
             moved = observe.fetch(db, T)

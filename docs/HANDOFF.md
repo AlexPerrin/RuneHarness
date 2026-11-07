@@ -1,13 +1,14 @@
 # Hand-off to the v9 harness dev
 
-Current state as of 2026-11-07 18:05 UTC. The goal: a harness implemented and tested end to end against the workflow,
+Current state as of 2026-11-07 19:45 UTC. The goal: a harness implemented and tested end to end against the workflow,
 with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
 ## Do first
 
-1. **`server-reconnect` needs `hd regate server-reconnect`.** Its gate at 601c10ed72ef recorded `ok=0` on the old token's 401; gh has
-   answered since 17:53 UTC and run 162 resubmitted the same head at the same tree, so the failed row parks it. It is the head Android
-   login needs. The classifier denied `hd regate` to the harness dev on 2026-11-07, so it waits on the user's word.
+1. **Question 8 on `server-reconnect` is the user's.** `mobile-10` needs a mobile on a stack carrying the head, a mobile reaches only
+   live, and a head reaches live only after a passing verdict, so `not-judged` fails every round. The proof was added to
+   `h-mobile-login-page-9`, judged after the deploy; answer `a` waives it here. `stays-mobile` on `live-session-drops-after-login`
+   has the same trap. Root cause open: no criterion can say it is proved after the deploy.
 2. **Watch run 163** (`client-host-raw-gamestate`), the successor of wedged run 159; `h-mobile-login-start-error` and
    `client-probe-no-stop` follow it. Run 159's emulator on port 5560 was left running.
 3. **Check the orchestrator supervises.** Session 18 started 17:19 UTC on the new definition (521aa15) and has been tested on
@@ -125,7 +126,7 @@ At the user's desk, on their word, once Android logs in reliably: the session's 
 
 ## Awaiting the user
 
-the word on step 1; Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; PRs AlexPerrin/pr-lab#3 and #4 (open lab PRs, merge or close: the changes `lab-publish-resume` and `lab-publish-resume-2` wait on them).
+questions 7 and 8; card 9 (`goblin-367-rsprox-dump`, #367); Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; PRs AlexPerrin/pr-lab#3 and #4 (open lab PRs, merge or close: the changes `lab-publish-resume` and `lab-publish-resume-2` wait on them).
 
 ## Known gaps
 

@@ -570,7 +570,7 @@ class DesktopInstance(unittest.TestCase):
         trap = "\n".join(l for l in SRC.split("\nup() {")[1].split("\n}")[0].split("\n") if "' ERR" in l or "' EXIT" in l)
         for step, sig in (("[ -n \"\" ]", "f() { [ -n \"\" ]; echo never; }; "), ("sleep 5", "(sleep 0.5; kill -TERM $$) & ")):
             d = Path(tempfile.mkdtemp()) / "downed"
-            p = subprocess.run(["bash", "-c", f"set -euo pipefail; down() {{ touch {d}; }}\n{trap}\n{sig}{'f' if sig.startswith('f') else step}; echo never"], capture_output=True, text=True, timeout=30)
+            p = subprocess.run(["bash", "-c", f"set -euo pipefail; state={d.parent}; slug=x; down() {{ touch {d}; }}\n{trap}\n{sig}{'f' if sig.startswith('f') else step}; echo never"], capture_output=True, text=True, timeout=30)
             s.assertNotIn("never", p.stdout); s.assertIn(f"up ended before it was up, at: {step}", p.stderr); s.assertTrue(d.exists())   # and down ran
 
     def test_up_records_each_desktop_before_its_login(s):  # a failed login aborts up under set -e; restart and the tools read up.json
@@ -1466,7 +1466,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
         s.assertIn('-v "$tpl:/app/protocol/jav_config.ws.template:ro"', up)
-        s.assertIn('cs="server-$slug"; [ -n "${CENTRAL_JAV:-}" ] || cs+=" http-$slug"; cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
@@ -1477,11 +1477,35 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
         for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
             s.assertIn(line + "\n", out)
-        s.assertIn('jav=(-p "$http:8080" -v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)', up)
-        s.assertIn('-p "$game:43594" "${jav[@]}"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}" ] || docker run -d --name "http-$slug"', up)
-        s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
+        s.assertIn('sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")', up)
+        s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http${sic:+s}://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
         central = (HERE.parent.parent / "central/track.sh").read_text()
         s.assertIn('git -C "$repo" grep -q OPENRUNE_JAV_CONFIG_URL_TEMPLATE "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without it keeps the sidecar
+
+    def test_up_token_with_central_sign_in_starts_the_server_alone_and_a_real_session(s):  # h-central-up-sign-in: Central serves jav_config, the sign-in and game-session
+        import javcheck, ssl, http.server, zlib, issuer as t
+        up = SRC.split("\nup() {")[1].split("\n}")[0]
+        s.assertIn('[ "${SIGN_IN:-}" != central ] || sic=1', up); s.assertIn('[ -n "$sic" ] || cs+=', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        for e in ("OPENRUNE_SIGN_IN_TOKEN_SECRET", "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)", "OPENRUNE_HTTP_TLS_PORT=8443", "OPENRUNE_HTTP_TLS_KEYSTORE=", "OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://"):
+            s.assertIn(e, up)
+        s.assertIn('ep=http${sic:+s}://127.0.0.1:$http', SRC); s.assertIn("JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1}", SRC)
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "token").mkdir()
+        render = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        subprocess.run(["bash", "-c", render], check=True, env={**os.environ, "sic": "1", "http": "20001", "tpl": str(HERE / "jav_config.ws.template"), "state": str(d)})
+        j = (d / "jav_config.ws").read_text(encoding="utf-8"); params = dict(l[6:].split("=", 1) for l in j.splitlines() if l.startswith("param="))
+        s.assertNotIn("{{", j); s.assertEqual(javcheck.foreign(j), []); s.assertEqual(params["17"], "https://127.0.0.1:20001/worldslist.ws"); s.assertEqual(params["11"], "https://127.0.0.1:20001/")
+        t.key(d / "token"); (d / "token" / "account").write_text("hab12\n"); t.GameSession.dir = d / "token"; t.GameSession.sessions = {}
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); tls.load_cert_chain(d / "token/tls.pem", d / "token/tls.key")
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+        threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
+        fn = "sign_in() {" + SRC.split("\nsign_in() {")[1].split("\n}")[0] + "\n}"
+        out = subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "state": str(d)})
+        s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
+        s.assertEqual(t.GameSession.sessions.get(sid), "hab12"); s.assertEqual(int(cid), zlib.crc32(b"hab12") & 0x7FFFFFFF)   # a session the sign-in opened, for its account
+
+    def test_a_desktop_home_starts_past_the_terms_page(s):  # 2c957da: the Accept click went; a fresh home's terms page took no key and the login failed
+        s.assertIn('jagexcache/oldschool/LIVE/preferences.dat"', SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
 
     def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
         import javcheck

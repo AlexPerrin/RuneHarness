@@ -9,6 +9,8 @@
 #   gate <slug> <key> the build copy at the candidate, then `hd gate`: every scripted criterion
 #   up <slug> [N]     a test server built from the fork's base with this head as its Central, N desktops (the fork's up); a head
 #                     whose embedded Central reads OPENRUNE_JAV_CONFIG_URL_TEMPLATE serves jav_config itself (CENTRAL_JAV: no http-<slug>)
+#   up <slug> token   the server's token login (dev/server-token-auth: staging's local-auth spike maps every token to one account) with this head as its Central, one desktop signed in through
+#                     Central's own sign-in (the fork's up token with SIGN_IN=central): no issuer, no http sidecar
 #   down | log        the fork's, for that server
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}
@@ -44,6 +46,7 @@ case "$verb" in
   test) copy=${BUILD:-$copy}; gradle test ;;
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:central-1" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse origin/main); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}
+      [ "$arg" != token ] || { tc=$(git -C "$fork" rev-parse dev/server-token-auth); export SIGN_IN=central; }
       ! git -C "$repo" grep -q OPENRUNE_JAV_CONFIG_URL_TEMPLATE "$h" -- central-app/src/main || export CENTRAL_JAV=1   # a head whose embedded Central reads a local jav_config serves the desktops itself
       CENTRAL="$repo:$h" TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
       HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;

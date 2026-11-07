@@ -12,7 +12,10 @@
 #                     up takes down what it started; one up, restart or down of a slug at a time (a second waits)
 #   up token          up 1, the desktop's login a token login (auth type 7) for its account: token-<slug> (server/issuer.py) is the
 #                     issuer of compact signed tokens whose secret game.yml's token-login block holds and jav_config param 11
-#                     names (https: the client takes no other)
+#                     names (https: the client takes no other); with SIGN_IN=central (tracks/central/track.sh up <slug> token) the head's
+#                     Central signs in instead: server-<slug> alone, its Central serving jav_config (its file the template, rendered),
+#                     OIDC and game-session over https on the http port (the issuer's secret and certificate) and http on a docker
+#                     port, the desktop's JX_SESSION_ID a real session of account 1 (sign_in); restart refused (sessions are in memory)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
 #                     ones (--exp -5), another account's, and forged ones (another key DIR)
 #   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), logged in as this slug's own account; prints LIVE_DESKTOP <devtools port> <instance dir>
@@ -111,10 +114,11 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   done
   # the disk cache is the one the server serves: a login then fetches no group over JS5, which its interfaces' onLoad scripts would run before
   mkdir -p "$d/home/.rlcustom/jagexcache/oldschool/LIVE" && docker exec "${srv:-server-$slug}" tar -c -C /app/.data/cache/LIVE . | tar -x -C "$d/home/.rlcustom/jagexcache/oldschool/LIVE"   # docker cp fails writing the dat2 to a Windows drive in one piece
+  printf '\x0d\x00\x00\x01\x00\x00\x00\x50\x7f\x7f\x7f\x00\x00\x00\x00\x00\x00\x19\x00\x00\x00\x00\x00' > "$d/home/.rlcustom/jagexcache/oldschool/LIVE/preferences.dat"   # the client's preferences once a fresh home's terms page is accepted: no desktop shows it (a click there may open a Jagex page)
   sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties $(ls "$d"/home/.rlcustom/profiles2/*.properties 2>/dev/null)   # a fresh template has no profile yet: RuneLite imports settings.properties
   mkdir -p "$d/home/.rlcustom/sideloaded-plugins" && cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"
   for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start
-  ep=http://127.0.0.1:$http   # OPENRUNE_ENDPOINT: the launcher takes jav_config from it alone, and jav_config names every other endpoint
+  ep=http${sic:+s}://127.0.0.1:$http   # OPENRUNE_ENDPOINT: the launcher takes jav_config from it alone, and jav_config names every other endpoint
   printf '%s\n' "- name: OpenRune Test - $slug" "  jav_config_url: $ep/jav_config.ws" "  modulus: $modulus" "  revision: 241.1" \
     "  game_server_port: $game" "  runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "  binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
   t=$(wslpath -w "$desk"); l=launcher-$(sha1sum < "$self/server/OsrsTestLauncher.java" | cut -c1-12)   # this tools tree's launcher, compiled once into the template
@@ -148,7 +152,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     fi
     if [ -z "$pid" ]; then
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
-        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=harness JX_CHARACTER_ID=1 JX_DISPLAY_NAME="$(account 1)" \
+        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="$(account 1)" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
         "-Dosrstest.token=${tok:-false}" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!
@@ -187,41 +191,56 @@ keys() {  # the change's key pair in $state/key, made by up alone: whichever cha
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out "$k/game.key" 2>/dev/null   # PKCS#8, as the server's generateRsa writes
   printf 'Exponent: 10001\nModulus: %s' "$(modulus_of < "$k/game.key")" > "$k/client.key"
 }
+sign_in() {  # sets sid cid: a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account
+  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$state/token/tls.pem") code idt
+  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "$b/oauth2/auth?redirect_uri=http://127.0.0.1/cb&state=up&client_id=harness" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
+  idt=$("${c[@]}" -d grant_type=authorization_code -d "code=$code" -d client_id=harness "$b/oauth2/token" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id_token"])')
+  sid=$("${c[@]}" -H 'Content-Type: application/json' -d "{\"idToken\":\"$idt\"}" "$b/game-session/v1/sessions" | python3 -c 'import json,sys;print(json.load(sys.stdin)["sessionId"])')
+  cid=$("${c[@]}" -H "Authorization: Bearer $sid" "$b/game-session/v1/accounts" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["accountId"])')
+}
 up() {
-  tok=; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  tok=; sic=; sid=; cid=; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
   docker image inspect "or:$T" >/dev/null 2>&1 || { echo "no image or:$T: build first"; return 1; }
   devtools_jar   # the jar every desktop of this up loads
   game=$(port 0); http=$(port 1)
   down >/dev/null   # a previous up's desktops and containers
   set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # the step set -e ends at, in the function it failed in (it may print nothing)
-  trap 'echo "up ended before it was up, at: ${why:-$BASH_COMMAND}" >&2; down >/dev/null 2>&1' EXIT   # a failed or stopped up names the step it ended at, then leaves no half-up instance: its desktops and containers go
+  trap 'echo "up ended before it was up, at: ${why:-$BASH_COMMAND} (the server log: $state/failed-up.log)" >&2; { docker logs "server-$slug" > "$state/failed-up.log" 2>&1; [ -z "${inst:-}" ] || cp "$desk/run/${inst#desktop}/home/.runelite/logs/client.log" "$state/failed-up-client.log"; } 2>/dev/null || true; down >/dev/null 2>&1' EXIT   # a failed or stopped up names the step it ended at and keeps the server's log, then leaves no half-up instance: its desktops and containers go
   docker run --rm --entrypoint cat "or:$T" /app/game.yml | quests "$(quest_mode)" | idle_off > "$state/game.yml"   # upstream's default assume-completed skips every quest check
   keys   # never a missing mount source: docker would make it a directory
   modulus=$(modulus_of < "$state/key/game.key"); devtoken=$(openssl rand -hex 16)   # the up's devtools token: its desktops' endpoints answer no other caller
   staff=$(for i in $(tr , ' ' <<< "${STAFF:-}"); do account "$i"; done | paste -sd' ')   # STAFF=1,2: those desktops' accounts administrators
-  cs="server-$slug"; [ -n "${CENTRAL_JAV:-}" ] || cs+=" http-$slug"; cs+="${tok:+ token-$slug}"
-  stack started="$(date -u +%FT%TZ)" script="$self/track.sh" repo="$repo" containers="$cs" \
+  cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"
+  stack started="$(date -u +%FT%TZ)" script="$self/track.sh" repo="$repo" containers="$cs" signin="${sic:+central}" \
     modulus="$modulus" game:="$game" http:="$http" desktops= accounts= staff="$staff" token="$devtoken"   # before its first container: down and hd's repair act on what it names
   tpl=$self/server/jav_config.ws.template
-  if [ -n "$tok" ]; then  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
+  sopt=()   # server-<slug>'s own mounts, ports and environment
+  if [ -n "$sic" ]; then  # Central's sign-in: game.yml trusts the issuer's secret; Central signs with it and serves https with its certificate
+    python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"
+    openssl pkcs12 -export -in "$state/token/tls.pem" -inkey "$state/token/tls.key" -passout pass:changeit -out "$state/token/tls.p12"
+    sopt=(-p "$http:8443" -p 8080 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
+      -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
+      -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit)
+  elif [ -n "$tok" ]; then  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
     python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"; token >/dev/null
     docker run -d --name "token-$slug" -p 8080 -v "$self/server/issuer.py:/issuer.py:ro" -v "$state/token:/t:ro" python:3.13-alpine python3 /issuer.py serve /t >/dev/null
     sed -E "s#^param=(11|22)=.*#param=\1=https://127.0.0.1:$(docker port "token-$slug" 8080 | head -1 | cut -d: -f2)/#" "$tpl" > "$state/jav_config.ws.template"; tpl=$state/jav_config.ws.template   # 11 Jagex auth, 22 RuneScape auth: the client casts both to https
   fi
-  jav=(); if [ -n "${CENTRAL_JAV:-}" ]; then   # the game's own Central serves /jav_config.ws on its http port (8080), the template filled as the sidecar fills it
-    sed -E "s#\{\{HTTP_BASE\}\}#http://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"
-    jav=(-p "$http:8080" -v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)
+  if [ -n "${CENTRAL_JAV:-}$sic" ]; then   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
+    sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"
+    sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
   fi
   [ -n "${RESUME:-}" ] || rm -rf "$state/postgres"; mkdir -p -m 700 "$state/postgres"   # fresh, or RESUME: the last down's (owner uid 1000, the server's)
-  docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" "${jav[@]}" -v "$state/postgres:/app/.data/postgres" \
-    -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "or:$T" >/dev/null
-  [ -n "${CENTRAL_JAV:-}" ] || docker run -d --name "http-$slug" -p "$http:8080" -v "$sidecar_data:/data:ro" -v "$tpl:/app/protocol/jav_config.ws.template:ro" \
+  docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" -v "$state/postgres:/app/.data/postgres" \
+    -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
+  [ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug" -p "$http:8080" -v "$sidecar_data:/data:ro" -v "$tpl:/app/protocol/jav_config.ws.template:ro" \
     -e WORLD_HOST=127.0.0.1 -e HTTP_PUBLIC_PORT="$http" -e WORLD_ID=255 -e SAVE_DIR=/tmp/saves -e JAV_CONFIG_TEMPLATE=/app/protocol/jav_config.ws.template \
     -e LOCAL_AUTH=false -e PROOF_OF_WORK=false -e VALIDATE_CRCS=false osrs-rsps-test:241 >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
   if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
-  python3 "$self/server/javcheck.py" "http://127.0.0.1:$http/jav_config.ws"   # no desktop is pointed at a foreign host
+  if [ -z "$sic" ]; then python3 "$self/server/javcheck.py" "http://127.0.0.1:$http/jav_config.ws"   # no desktop is pointed at a foreign host
+  else python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 8080 | head -1 | cut -d: -f2)/jav_config.ws"; sign_in; fi   # Central's, over its http port; the session after the realm's restart (Central keeps sessions in memory)
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
     desktop_start
@@ -241,7 +260,9 @@ up() {
   trap - EXIT; echo "up: game $game http $http desktops ${desktops[*]}${staff:+ administrators $staff}"
 }
 restart() {  # the server container restarted with its game.yml and database; the desktops of up logged out first (a server dropping a client leaves the disconnected dialog, which no key closes) and logged in again
-  d=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["desktops"], "|", d["accounts"])' "$state/up.json")
+  d=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["desktops"], "|", d["accounts"], "|", d.get("signin", ""))' "$state/up.json")
+  [ -z "$(cut -d'|' -f3 <<< "$d" | tr -d ' ')" ] || { echo "restart: Central keeps the desktop's sign-in session in memory, which a restart loses: down and up again" >&2; return 1; }
+  d=${d%|*}
   tok=$(docker ps -q -f "name=^token-$slug\$"); read -ra ds <<< "${d%%|*}"; read -ra as <<< "${d#*|}"
   unkeep; for c in "${ds[@]}"; do python3 "$self/server/desktop_login.py" "$(cut -d: -f2 <<< "$c")" logout; done; offline
   since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"

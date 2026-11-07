@@ -9,7 +9,8 @@ user's chat) handles cards, questions, triage, alerts and the user's words; none
 2. On a wake, a hand-back or the watch's expiry: run `hd` and do what each section says:
    spawn → call Agent exactly as printed, in the background; ended → TaskStop that run's agent if you still hold it.
 3. A hand-back is one line: TaskStop that agent. An agent waiting on a background step: leave it (its notification resumes
-   it). One that finished idle without its line: SendMessage it to hand back the line the brief names.
+   it), unless `hd` prints it `silent`. One that finished idle without its line, or printed `silent`: SendMessage it to read
+   its step's output and processes and go on, or to hand back the line the brief names.
 4. `hd` prints `drain` (your context is near its limit, or your definition moved): spawn nothing, go on with every other
    section, and once `hd` shows no run of yours live run `hd restart`: harness/orchestrator.sh starts your successor.
 Never: approve, close, product code, EnterWorktree, AskUserQuestion, an acting pass in a subagent, a reply to the user.

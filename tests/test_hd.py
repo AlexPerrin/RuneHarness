@@ -35,6 +35,21 @@ class Hd(unittest.TestCase):
             hd.view(db, hd.act.cfg())
         self.assertNotIn("card", out.getvalue()); self.assertIn("ended    c", out.getvalue()); self.assertNotIn("goals", out.getvalue())
 
+    def test_a_run_with_no_transcript_write_for_a_watch_period_prints_silent(self):  # H3
+        import contextlib, io, os
+        db = store.connect()
+        t = Path(self.dir.name) / "agent.jsonl"; t.write_text("{}")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'orchestrator')", (os.getpid(),))
+        db.execute("INSERT INTO run(id, change, role, mode, input, brief, agent_id, listed_at, started_at, transcript) VALUES (7, 'c', 'dev', 'code', 'i', 'b', 'a1', 't', 't', ?)", (str(t),))
+        def lines():
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                hd.view(db, hd.act.cfg())
+            return out.getvalue()
+        self.assertNotIn("silent", lines())
+        os.utime(t, (1, os.path.getmtime(t) - hd.SILENT))
+        self.assertIn("silent   c", lines()); self.assertIn("agent a1", lines())
+
     def test_criterion_add_with_a_cmd_option(self):
         hd.main(["criterion", "add", "x", "acc-1", "--kind", "judge", "--text", "the rule", "--cmd", "accuracy", "--source", "accuracy"])
         hd.main(["criterion", "add", "x", "lint", "--kind", "script", "--text", "lint passes", "--cmd", "make lint", "--source", "seed"])

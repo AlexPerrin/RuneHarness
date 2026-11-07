@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -68,6 +69,7 @@ def read_change(slug):
 
 # --- the view --------------------------------------------------------------------------------------------------
 
+SILENT = 1800   # the orchestrator's watch period: a run with no transcript write for one whole period; healthy runs stayed under it (longest 26.5 min of 58)
 DRIVER_KINDS = ('card', 'question', 'triage', 'alert', 'state', 'landed', 'attempt', 'ended')
 
 
@@ -91,6 +93,10 @@ def view(db, cfg):
         out.append(f"{e['kind']:<9}{e['change'] or '':<24} {e['detail']}")
     live = db.execute("SELECT * FROM run WHERE ended_at IS NULL AND started_at IS NOT NULL ORDER BY id").fetchall()
     out.append(f"runs     {len(live)}/{cfg.agents} live: " + ", ".join(f"{r['id']} {r['role']} {r['change']}" for r in live))
+    for r in live:   # an agent waiting on a step is resumed by its notification; a step that never ends sends none
+        idle = time.time() - os.path.getmtime(r["transcript"]) if r["transcript"] and os.path.exists(r["transcript"]) else 0
+        if idle >= SILENT:
+            out.append(f"silent   {r['change']:<24} run {r['id']}: no transcript write for {idle // 60:.0f} min: SendMessage agent {r['agent_id']}")
     if role == "driver":
         goals = [(g, Ledger(db).measure(g.slug)) for g in act.goals()]
         out.append("goals    " + "   ".join(f"{g.slug} {m['value']:g}% @{m['tree'][:12]}" if m else f"{g.slug} unmeasured" for g, m in goals))

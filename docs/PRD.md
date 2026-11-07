@@ -47,7 +47,8 @@ publish → maintainers' findings become criteria.
   release workflow's Gradle steps and bundle, `java -jar server.jar` beside `game.yml` and `.data/`), Central embedded
   (`central.same-instance`) on upstream's ports serving the clients' config and sign-in, the cache from OpenRune-FileStore,
   and desktops connecting through RSProx as upstream's README sets out. A harness stand-in for what these tools do
-  goes. Each remaining deviation is named with its reason in docs/ARCHITECTURE.md; Privacy outranks the reference.
+  goes. Login works for any client: every desktop and the APK sign in by that one path, each proved on the live stack. Each
+  remaining deviation is named with its reason in docs/ARCHITECTURE.md; Privacy outranks the reference.
 
 ## G. Gate
 

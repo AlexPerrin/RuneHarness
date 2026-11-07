@@ -4,13 +4,14 @@ Each step acts once on the screen it reads (the host's GameStateChanged and Logi
 labels), then waits for the next screen; a screen it does not know, a refused login or the app's death is FAILED.
 """
 import os, re, subprocess, sys, time
+from pathlib import Path
 
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
 PKG = "com.jagex.oldscape.android"
 CANVAS = {0: ("Existing User", 1370, 625), 12: ("Accept", 1027, 668), 10: ("Play Now", 1197, 540)}   # LoginIndex: the button that leaves it, on the AVD's 2400x1080 landscape canvas
 LAUNCHER = "com.google.android.apps.nexuslauncher"
 WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to the world: the next screen comes from the app, the browser or the server
-REFUSED = 9           # the server's refusal ("Unexpected server response", Try again)
+REFUSED = 9           # "Unexpected server response", Try again: a login response without a page of its own, or a failed reconnect after a lost connection
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
 LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
 
@@ -60,7 +61,7 @@ def step(st, ix, pkg, lab, raw=None):
     if st != "LOGIN_SCREEN":
         return ("wait",)   # starting, LOGGING_IN, LOADING: the next state comes from the app or the server
     if ix == REFUSED:
-        return ("fail", "the server refused the login (LoginIndex 9)")
+        return ("fail", "the server answered the login or its reconnect unexpectedly (LoginIndex 9)")
     if ix in CANVAS:
         return ("tap", *CANVAS[ix])
     return ("wait",) if ix in WAIT else ("fail", f"an unknown login screen (LoginIndex {ix})")
@@ -90,5 +91,8 @@ def main():
 
 if __name__ == "__main__":
     r = main()
+    if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it
+        d = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parents[2]) / "state" / sys.argv[1]
+        d.mkdir(parents=True, exist_ok=True); (d / "login-failed.logcat.txt").write_text(adb("logcat", "-d", "-v", "threadtime"))
     print(r)
     sys.exit(0 if r == "LOGGED_IN" else 1)

@@ -73,7 +73,7 @@ id>.md` (the reply alone: the finding quoted with `> `, @ only its author). Run 
 
 The desktops are Windows programs run from bash through WSL interop (`WINDOWS_SYSTEM32`, default
 `/mnt/c/Windows/System32`; `DESKTOP_DIR`, default `/mnt/c/osrs-test`: the template, its JDK, RSProx launcher and
-staged home). Each up creates the desktops it needs (instance N is `DESKTOP_DIR/run/N`, devtools port 7779+N, owned
+staged home), rebuilt by `server/desktop_template.sh` when an up finds it gone. Each up creates the desktops it needs (instance N is `DESKTOP_DIR/run/N`, devtools port 7779+N, owned
 by the up's slug); only a JVM carrying `-Dosrstest.marker=osrs-test-runN` is ever stopped, never the user's own
 RuneLite. The stack's record is `state/<slug>/up.json`, mirrored into the ledger's `stack` row; `down` removes what
 it names. Each desktop's devtools endpoint answers only a request carrying the up's bearer token. Windows processes a

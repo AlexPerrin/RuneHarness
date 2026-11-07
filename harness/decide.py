@@ -160,6 +160,20 @@ def closed(C, ch):
     return None
 
 
+SERVER = ("fork", "central", "filestore")
+
+
+def server_deps(C, ch) -> list:
+    """ch's deps on the server tracks, with theirs, transitively."""
+    out, todo = [], list(ch.deps)
+    while todo:
+        d = C.defs.get(todo.pop())
+        if d and d.track in SERVER and d.slug not in out:
+            out.append(d.slug)
+            todo += d.deps
+    return out
+
+
 def deps_live(C, ch):
     """A dep with nothing to build on → wait. A submitted dep of the same track joins the candidate (its landing is
     waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a
@@ -168,9 +182,10 @@ def deps_live(C, ch):
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if ch.track == "client" and d.track in ("fork", "central", "filestore"):   # the mobile reaches only the live test server
-            if not (C.L.closed(dep) or C.L.landed(dep, "live")):
-                return Step("wait", f"dep {dep} not live on the test server")
+        if ch.track == "client" and d.track in SERVER:   # the mobile reaches only the live test server
+            for x in [dep] + server_deps(C, d):   # a server dep works there only with its own deps
+                if not (C.L.closed(x) or C.L.landed(x, "live")):
+                    return Step("wait", f"dep {x} not live on the test server")
             continue
         if done(C, d):
             continue
@@ -233,6 +248,8 @@ def dev_due(C, ch):
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
     landed = [d for d in ch.deps if d in C.defs and done(C, C.defs[d])]
+    if ch.track == "client":
+        landed += [d for d in server_deps(C, ch) if C.L.landed(d, "live")]   # a server dep live on the test server is the client's new fact
     return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers, landed))   # a dep landing is a new fact: the dev runs again
 
 
@@ -274,6 +291,10 @@ def stage_due(C, ch):
     """Tracks with a deploy recipe: a checked head not yet on staging → merge (act.stage); a recorded conflict of this head is dev_due's."""
     if not stages(C, ch) or C.L.landed(ch.slug, STAGING):
         return None
+    for dep in ch.deps:   # staging runs the head alone, not its candidate: a dep merges first, so the test server never runs a change without it
+        d = C.defs.get(dep)
+        if d and stages(C, d) and not done(C, d) and not C.L.landed(dep, STAGING):
+            return Step("wait", f"dep {dep} not yet on staging")
     t = tip(C, ch)
     return Step("merge", f"merge {t[:7]} into staging", key=f"staging:{t}")
 

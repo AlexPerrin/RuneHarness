@@ -100,6 +100,19 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
         self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].kind, "run")
 
+    def test_a_client_change_waits_for_its_server_deps_own_deps_live(self):   # run 185: its dep ran live without the dep's dep
+        cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
+        base = Change("s-base", "fork", upstream=False); srv = Change("s-fix", "fork", upstream=False, deps=("s-base",))
+        ch = Change("c-one", "client", deps=("s-fix",))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        step = lambda: {a.change: a.step for a in decide.plan(self.L, [ch, srv, base], cfg)}["c-one"]
+        self.assertEqual(step().why, "dep s-base not live on the test server")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-base', 'live', 'tr', 't')")
+        s1 = step()
+        self.assertEqual(s1.kind, "run")
+        self.db.execute("DELETE FROM landed WHERE change='s-base'")
+        self.assertNotEqual(decide.dev_due(decide.Ctx(self.L, cfg, {c.slug: c for c in (ch, srv, base)}), ch).input, s1.input)   # the dep's dep landing re-runs a parked dev
+
     def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
         dep = Change("h-fix", "harness")
         ch = Change("c-one", "client", deps=("h-fix",))
@@ -226,6 +239,19 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual(self.step().why, "maintainers")
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/remotes/origin/main', 'm', 't')")
         self.assertEqual(self.step().kind, "done")
+
+    def test_a_head_merges_into_staging_after_its_deps(self):   # staging runs the head, not the candidate that carried the dep
+        dep = Change("base", "fork")
+        self.ch = Change("genie", "fork", deps=("base",))
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.submit()
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{TREE}:fork-1"))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('base', 'd1', 'td', 'd1', 't')")
+        step = lambda: {a.change: a.step for a in decide.plan(self.L, [self.ch, dep], CFG)}["genie"]
+        self.assertEqual(step().why, "dep base not yet on staging")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('base', 'refs/heads/staging', 's', 't')")
+        self.assertEqual(step().kind, "merge")
 
     def test_a_finding_needs_a_reply_before_a_new_card(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

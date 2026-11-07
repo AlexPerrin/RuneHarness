@@ -206,7 +206,7 @@ def cmd_submit(a):
     if act.is_ancestor(T.path, head, base):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
     heads, composite = [], {}
-    for dep in ch.deps:
+    for dep in decide.candidate_deps(change, ch):
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
         if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, track(d, cfg).done_ref(d))).fetchone():

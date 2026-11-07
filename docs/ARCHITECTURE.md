@@ -273,7 +273,7 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate;
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps);
                        # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a client
                        # change's any, else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not

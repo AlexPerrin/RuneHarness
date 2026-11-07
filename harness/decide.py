@@ -174,6 +174,22 @@ def server_deps(C, ch) -> list:
     return out
 
 
+def candidate_deps(get, ch) -> list:
+    """ch's deps for its candidate, each after its own: a same-track dep's deps build with it, transitively (a fix two
+    deps down is in the candidate too)."""
+    out = []
+    def walk(c):
+        for dep in c.deps:
+            if dep not in out:
+                d = get(dep)
+                if d.track == ch.track:
+                    walk(d)
+                if dep not in out:
+                    out.append(dep)
+    walk(ch)
+    return out
+
+
 def deps_live(C, ch):
     """A dep with nothing to build on → wait. A submitted dep of the same track joins the candidate (its landing is
     waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a

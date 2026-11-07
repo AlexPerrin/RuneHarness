@@ -113,6 +113,11 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("DELETE FROM landed WHERE change='s-base'")
         self.assertNotEqual(decide.dev_due(decide.Ctx(self.L, cfg, {c.slug: c for c in (ch, srv, base)}), ch).input, s1.input)   # the dep's dep landing re-runs a parked dev
 
+    def test_a_candidate_carries_its_same_track_deps_transitively(self):   # question 10: central-game-session lacked its dep's dep
+        defs = {c.slug: c for c in (Change("c-fix", "central", upstream=False), Change("c-op", "central", deps=("c-fix", "h-x")),
+                                    Change("h-x", "harness"), Change("c-one", "central", deps=("c-op",)))}
+        self.assertEqual(decide.candidate_deps(defs.get, defs["c-one"]), ["c-fix", "h-x", "c-op"])
+
     def test_a_server_fix_live_frees_its_dependents_while_its_pr_holds(self):   # h-mobile-login-page-9 sat behind card 10 and a maintainer
         srv, ch = Change("s-fix", "fork"), Change("h-one", "harness", deps=("s-fix",))
         nxt = Change("s-next", "fork", deps=("s-fix",))

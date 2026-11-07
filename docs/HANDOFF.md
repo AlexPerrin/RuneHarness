@@ -134,6 +134,15 @@ A3 a maintainer finding answered (needs a login that is not AlexPerrin, or #450'
   once per carried change with an existing dev tip, and the first re-judge of each open server change.
 - The Central upstream hold, the P3 band hold (`hold: P2` in hd.yaml), and every card.
 
+## Since the last state (2026-11-07 01:45Z)
+
+`h-retention` shipped (PRD H7): owner rows, release in the pass, a disk level. One Gradle home per build slot, not one
+shared volume. The pre-existing worktrees were adopted once; the rest of the host's artifacts carry owners from their next
+build. `C:\\osrs-test` was deleted by the hand disk cleanup and is rebuilt by `tracks/fork/server/desktop_template.sh`; a
+fresh template's first desktop downloads RuneLite and has no profile, which no run has exercised yet. A run ends with its
+orchestrator session (a usage limit ended one and left four runs live for three days). Pending the user: Hunter's question
+4, the triage of 15 maintainer comments on #354 and #367.
+
 ## The cutover (started 2026-11-03 15:00Z on the user's word)
 
 Done: v8's `hd-tick.timer` disabled (its orchestrator was already gone); ten v8 changes carried as v9 definitions and

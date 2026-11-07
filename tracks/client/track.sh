@@ -62,7 +62,7 @@ up() {
   [ -n "$live" ] && [ "$mine" = "$live" ] || { l=${live:0:8}; echo "refused: $T.apk carries modulus ${mine:0:8}, the live stack (state/live/tree.json) ${l:-none, deployed before its key pair}: its login would be refused 'Invalid RSA check'"; return 1; }
   boot
   ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug"   # its command line names the change: down stops it when up's caller died
-  date -u +%FT%T.000 > "$state/log-mark"
+  date +%s.000 > "$state/log-mark"   # epoch: logcat -T reads a date-time as the device's local time
   echo "LOGGED_IN $(serial) 7780"
 }
 udp53() { "$sys32/netstat.exe" -anop UDP | tr -d '\r' | awk '$1=="UDP" && $2 ~ /:53$/ {print $2, $NF}'; }   # each Windows udp 53 bind: address:53 pid

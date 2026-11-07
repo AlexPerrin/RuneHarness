@@ -220,6 +220,8 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
         s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
+        s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
+        s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")

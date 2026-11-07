@@ -11,6 +11,7 @@ CANVAS = {0: ("Existing User", 1370, 625), 12: ("Accept", 1027, 668), 10: ("Play
 LAUNCHER = "com.google.android.apps.nexuslauncher"
 WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to the world: the next screen comes from the app, the browser or the server
 REFUSED = 9           # the server's refusal ("Unexpected server response", Try again)
+START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
 LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
 
 
@@ -31,18 +32,21 @@ def labels():
 
 
 def screen():
-    """(game state, LoginIndex, focused package, the labels of a window not the app's)."""
+    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state)."""
     log = adb("logcat", "-d", "-s", "osrsrl-host:I")
-    st = re.findall(r"GameStateChanged (\w+)", log); ix = re.findall(r"LoginIndex (\d+)", log)
+    st = re.findall(r"GameStateChanged (\w+)(?: \(raw (-?\d+))?", log); ix = re.findall(r"LoginIndex (\d+)", log)
     focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
     pkg = focus.group(1) if focus else ""
-    return st[-1] if st else "", int(ix[-1]) if ix else -1, pkg, ({} if pkg in (PKG, "") else labels())
+    return (st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, ({} if pkg in (PKG, "") else labels()),
+            int(st[-1][1]) if st and st[-1][1] else None)
 
 
-def step(st, ix, pkg, lab):
+def step(st, ix, pkg, lab, raw=None):
     """The action on one screen: ('done',), ('wait',), ('tap', name, x, y) or ('fail', why)."""
     if st == "LOGGED_IN":
         return ("done",)
+    if raw == START_ERROR:
+        return ("fail", "the app's start error page 'Error connecting to server' (gameState 1000)")
     if pkg == "com.android.chrome":
         err = next((t for t in lab if re.search(r"ERR_[A-Z_]+", t)), None)
         if err:
@@ -67,12 +71,12 @@ def main():
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
     started, acted = False, None
     while True:
-        st, ix, pkg, lab = screen()
+        st, ix, pkg, lab, raw = screen()
         alive = bool(adb("shell", "pidof", PKG).strip())
         if started and not alive:
             return "FAILED: the app died"
         started |= alive   # monkey returns before the process exists
-        act = step(st, ix, pkg, lab)
+        act = step(st, ix, pkg, lab, raw)
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":

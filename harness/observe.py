@@ -74,8 +74,15 @@ def procs(db) -> None:
 
 
 def runs(db) -> None:
-    """A live run whose agent was interrupted in its console (its transcript's last line is the interruption) ended as a
-    console death: nothing else ever fires for it; the pass lists its successor."""
+    """A started run outlived by its console (no orchestrator alive, or one that started after the run: agents die with
+    their session) or whose agent was interrupted there (its transcript's last line) ended as a console death: nothing
+    else ever fires for it; the pass lists its successor."""
+    import act
+    s = db.execute("SELECT started_at FROM session WHERE role='orchestrator' AND ended_at IS NULL").fetchone()
+    for r in db.execute("SELECT id, change FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL AND started_at < ?", (s["started_at"] if s else "9",)).fetchall():
+        db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
+        event(db, "ended", r["change"], r["id"], f"run {r['id']}: its orchestrator session is gone")
+        act.stop_scope(r["id"])
     for r in db.execute("SELECT * FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL AND transcript != ''").fetchall():
         if not os.path.exists(r["transcript"]):
             continue
@@ -93,19 +100,14 @@ def runs(db) -> None:
         if last.get("type") == "user" and text.startswith("[Request interrupted"):
             db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
             event(db, "ended", r["change"], r["id"], f"run {r['id']}: its agent was interrupted in the orchestrator's console")
-            import act
             act.stop_scope(r["id"])
 
 
 def sessions(db, definition: str) -> None:
-    """A live session whose pid is gone ended by a crash, with its started runs (they die with their console);
-    a live session whose definition differs from HEAD's is drained."""
+    """A live session whose pid is gone ended by a crash; a live session whose definition differs from HEAD's is drained."""
     for s in db.execute("SELECT * FROM session WHERE ended_at IS NULL").fetchall():
         if not alive(s["pid"], s["pid_start"]):
-            db.execute("UPDATE session SET ended_at=?, end_kind='crash' WHERE id=?", (now(), s["id"]))
-            for r in db.execute("SELECT id, change FROM run WHERE started_at IS NOT NULL AND ended_at IS NULL").fetchall():
-                db.execute("UPDATE run SET ended_at=?, end_kind='console' WHERE id=?", (now(), r["id"]))
-                event(db, "ended", r["change"], r["id"], "console died")
+            db.execute("UPDATE session SET ended_at=?, end_kind='crash' WHERE id=?", (now(), s["id"]))   # its runs: observe.runs
         elif s["role"] == "orchestrator" and s["definition"] != definition and not s["drain_at"]:
             db.execute("UPDATE session SET drain_at=?, drain_why='definition moved' WHERE id=?", (now(), s["id"]))
             event(db, "drain", None, None, "the orchestrator's definition moved: spawn nothing, hd restart once no run is live")

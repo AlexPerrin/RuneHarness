@@ -91,6 +91,7 @@ class Observe(unittest.TestCase):
         t = Path(self.dir.name) / "agent-a1.jsonl"
         t.write_text(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "working"}]}}) + "\n")
         db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, started_at, agent_id, transcript) VALUES ('c', 'dev', 'code', 'i', 'b', 't', 't', 'a1', ?)", (str(t),))
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (1, 1, 'd', 't', 'orchestrator')")
         observe.runs(db)
         self.assertIsNone(db.execute("SELECT ended_at FROM run WHERE id=1").fetchone()[0])   # a working agent is left alone
         with t.open("a") as f:
@@ -100,6 +101,21 @@ class Observe(unittest.TestCase):
         r = db.execute("SELECT ended_at, end_kind FROM run WHERE id=1").fetchone()
         self.assertEqual(r["end_kind"], "console"); self.assertIsNotNone(r["ended_at"])
         self.assertIn("interrupted", db.execute("SELECT detail FROM event WHERE kind='ended'").fetchone()[0])
+
+    def test_a_run_ends_with_its_orchestrator_session_not_with_a_driver(self):   # a usage limit ended the session: four runs held their slots for three days
+        db = store.connect(str(Path(self.dir.name) / "hd.db"))
+        self.addCleanup(setattr, act, "stop_scope", act.stop_scope); act.stop_scope = lambda r: None
+        db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, started_at) VALUES ('c', 'dev', 'code', 'i', 'b', 't', '2026-01-02')")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (999999, 1, 'd', '2026-01-01', 'driver')")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (1, 1, 'd', '2026-01-01', 'orchestrator')")
+        self.addCleanup(setattr, observe, "alive", observe.alive); observe.alive = lambda pid, start: pid != 999999
+        observe.sessions(db, "d")   # the driver's pid is gone
+        observe.runs(db)
+        self.assertIsNone(db.execute("SELECT ended_at FROM run").fetchone()[0])
+        db.execute("UPDATE session SET ended_at='x' WHERE role='orchestrator'")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (2, 1, 'd', '2026-01-03', 'orchestrator')")   # its successor
+        observe.runs(db)
+        self.assertEqual(db.execute("SELECT end_kind FROM run").fetchone()[0], "console")
 
     def test_dead_job_without_result_is_an_attempt(self):
         log = os.path.join(self.dir.name, "gate-x.log")

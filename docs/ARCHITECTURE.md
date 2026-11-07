@@ -621,7 +621,7 @@ flowchart LR
   not bridge code.
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
-  non-java command holding a URL, are refused and logged as `[osrs-test] refused URL` in the desktop log).
+  non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).
 
 ## 12 Roles and alerts
 

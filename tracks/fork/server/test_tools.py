@@ -597,6 +597,9 @@ public class Open { public static void main(String[] a) throws Exception {   // 
         r = subprocess.run(["java", "-cp", str(t / "app"), "Open"], capture_output=True, text=True, timeout=60, env={**os.environ, "JAVA_TOOL_OPTIONS": f"-javaagent:{t / 'o.jar'}"})
         s.assertEqual(r.stdout.splitlines(), ["[osrs-test] refused URL: https://secure.runescape.com/m=account-appeals/", "[osrs-test] refused URL: mailto:",
             "[osrs-test] refused URL: page.html", "[osrs-test] refused URL: xdg-open https://secure.runescape.com/m=weblogin/", "no process: a test desktop opens no URL", "exit 4"], r.stderr)   # a command with no URL still runs
+        r = subprocess.run(["java", "-cp", str(t / "app"), "Open"], capture_output=True, text=True, timeout=60, env={**os.environ, "JAVA_TOOL_OPTIONS": f"-javaagent:{t / 'o.jar'} -Dosrstest.refusals={t / 'refused.log'}"})
+        s.assertEqual((t / "refused.log").read_text().splitlines()[0], "[osrs-test] refused URL: https://secure.runescape.com/m=account-appeals/")   # track.sh's log: the client JVM's stdout reaches no log
+        s.assertEqual(r.stdout.splitlines(), ["no process: a test desktop opens no URL", "exit 4"], r.stderr)
 
     def test_the_endpoint_answers_only_its_ups_token(s):  # sweep-43: a run's helper with a default port drove another run's desktop on 7780
         import socket, urllib.error, urllib.request

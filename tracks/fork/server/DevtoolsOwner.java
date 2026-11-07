@@ -21,7 +21,9 @@
 // RuneLite's LinkBrowser through xdg-open (Linux) or Desktop.browse. premain rewrites java.awt.Desktop's browse, open, edit,
 // print, mail and browseFileDirectory to log the refused target and return, and ProcessBuilder's start (Runtime.exec's too) to
 // refuse any non-java command holding a URL (rundll32 url.dll, cmd start, xdg-open): each refusal is a "[osrs-test] refused URL"
-// line on stdout, the desktop log. Returning, not throwing: LinkBrowser answers a failed browse with a modal dialog.
+// line appended to the file -Dosrstest.refusals names (track.sh: state/<slug>/refused-urls.log; the RuneLite client is a
+// grandchild JVM whose stdout no log keeps), else on stdout. Returning, not throwing: LinkBrowser answers a failed browse
+// with a modal dialog.
 
 import com.sun.net.httpserver.Filter;
 import com.sun.net.httpserver.HttpContext;
@@ -93,10 +95,28 @@ public final class DevtoolsOwner extends HttpServerProvider
 			{
 				return;
 			}
-			System.out.println("[osrs-test] refused URL: " + String.join(" ", c.stream().map(String::valueOf).toArray(String[]::new)));
+			log(String.join(" ", c.stream().map(String::valueOf).toArray(String[]::new)));
 			DevtoolsOwner.<RuntimeException>sneak(new IOException("a test desktop opens no URL"));
 		}
-		System.out.println("[osrs-test] refused URL: " + target);
+		log(String.valueOf(target));
+	}
+
+	static synchronized void log(String target)
+	{
+		String line = "[osrs-test] refused URL: " + target, f = System.getProperty("osrstest.refusals");
+		try
+		{
+			if (f != null)
+			{
+				Files.writeString(Path.of(f), line + System.lineSeparator(), StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+				return;
+			}
+		}
+		catch (IOException | RuntimeException e)
+		{
+			line += " (not written to " + f + ": " + e + ")";
+		}
+		System.out.println(line);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -107,6 +127,26 @@ public final class DevtoolsOwner extends HttpServerProvider
 
 	static final class NoBrowser implements ClassFileTransformer
 	{
+		static final int API = api();   // the newest ASM API of this JDK's ASM (JDK 11 has ASM6; a JDK 21 class's NestMembers needs ASM7)
+
+		static int api()
+		{
+			for (int n = 9; ; n--)
+			{
+				try
+				{
+					return Opcodes.class.getField("ASM" + n).getInt(null);
+				}
+				catch (ReflectiveOperationException e)
+				{
+					if (n == 6)
+					{
+						throw new IllegalStateException("no ASM6 or newer in this JDK", e);
+					}
+				}
+			}
+		}
+
 		static final Set<String> DESKTOP = Set.of("browse", "open", "edit", "print", "mail", "browseFileDirectory");
 		static final String START = "([Ljava/lang/ProcessBuilder$Redirect;)Ljava/lang/Process;";   // every start, Runtime.exec's and startPipeline's, passes here
 
@@ -122,7 +162,7 @@ public final class DevtoolsOwner extends HttpServerProvider
 			{
 				ClassReader r = new ClassReader(b);
 				ClassWriter w = new ClassWriter(r, ClassWriter.COMPUTE_MAXS);   // no frames computed: the inserted code has no branch
-				r.accept(new ClassVisitor(Opcodes.ASM6, w)
+				r.accept(new ClassVisitor(API, w)
 				{
 					@Override
 					public MethodVisitor visitMethod(int acc, String n, String desc, String sig, String[] ex)
@@ -139,7 +179,7 @@ public final class DevtoolsOwner extends HttpServerProvider
 						}
 						if (!desk && n.equals("start") && desc.equals(START))
 						{
-							return new MethodVisitor(Opcodes.ASM6, v)
+							return new MethodVisitor(API, v)
 							{
 								@Override
 								public void visitCode()

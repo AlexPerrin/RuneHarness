@@ -6,6 +6,7 @@ goal: client-api
 deps:
 - h-mobile-login-pages
 - local-android-rsprot-token-gjstr
+- local-cs2-group-names
 - server-android-token-login
 ---
 # api-probe: skip Client.stopNow and other client-ending methods; they stopped the RuneLite desktop before the report

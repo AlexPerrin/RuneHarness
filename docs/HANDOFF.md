@@ -1,16 +1,15 @@
 # Hand-off to the v9 harness dev
 
-Current state as of 2026-11-07 18:00 UTC. The goal: a harness implemented and tested end to end against the workflow,
+Current state as of 2026-11-07 18:05 UTC. The goal: a harness implemented and tested end to end against the workflow,
 with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
 ## Do first
 
-1. **The user runs `gh auth login -h github.com`.** The token in `~/.config/gh/hosts.yml` is invalid, so `track.sh gate` fails
-   at `ci (remote:)`: `server-reconnect` (the head Android login needs) stopped there at 17:19 UTC, and brief 156 (goblin) is
-   held on it. Nothing on the fork gets past its gate until this is done. It is the user's: ask, never work around it.
-2. **After the login, runs 156 and 162 must not go to a dev.** Both gates recorded `ok=0` on the 401 before gate-ci held on one
-   (52ae415), so `hd` still lists them. The fix is `hd stop 156`, `hd stop 162`, `hd regate goblin-367-rsprox-dump`, `hd regate
-   server-reconnect`; the classifier denied these to the harness dev on 2026-11-07, so they wait on the user's word.
+1. **`server-reconnect` needs `hd regate server-reconnect`.** Its gate at 601c10ed72ef recorded `ok=0` on the old token's 401; gh has
+   answered since 17:53 UTC and run 162 resubmitted the same head at the same tree, so the failed row parks it. It is the head Android
+   login needs. The classifier denied `hd regate` to the harness dev on 2026-11-07, so it waits on the user's word.
+2. **Watch run 163** (`client-host-raw-gamestate`), the successor of wedged run 159; `h-mobile-login-start-error` and
+   `client-probe-no-stop` follow it. Run 159's emulator on port 5560 was left running.
 3. **Check the orchestrator supervises.** Session 18 started 17:19 UTC on the new definition (521aa15) and has been tested on
    no real case. Read what it does with brief 162, brief 156 and the open alerts (38, 41, 44, 45, 46, 48).
 
@@ -44,7 +43,7 @@ and `local-cs2-group-names` are live. `state/live/` here is what the running sta
 |---|---|---|
 | "the app died" 16 s after start | 15 clientscript groups with name hash 0: the app's by-name read of `version.dat` reads null | fixed, live: `local-cs2-group-names`. Dropped by the cutover when the server version moved to FileStore; drop this carry when `filestore-cs2-group-name-hash` lands |
 | unknown window: the launcher | the process runs before its window takes focus | fixed, 59f25f6 |
-| LoginIndex 9 | the connection drops as a first LOADING ends, the client reconnects, `ConnectionHandler.onReconnect` is a TODO answering ConnectFail (run 155, its own finding, unverified) | `server-reconnect` submitted abb8662, gate failing on the token |
+| LoginIndex 9 | the connection drops as a first LOADING ends, the client reconnects, `ConnectionHandler.onReconnect` is a TODO answering ConnectFail (run 155, its own finding, unverified) | `server-reconnect` submitted abb8662, gate failed on the old token (step 1) |
 | LoginIndex 39 | the client's error page, default text "Connection failed during login request"; run 154: the issuer closing after the body | 40e9fe3 live on the issuer since 17:49 UTC, not yet measured on a start. All issuer requests logged 200 on the failure |
 | the start error page (raw game state 1000, logged as UNKNOWN) | filed by run 157 | `client-host-raw-gamestate` (listed; run 159 wedged and was stopped), then `h-mobile-login-start-error` (submitted 7303903, dep) |
 | measure: "System UI isn't responding" | not traced; it dialogs on the mobile as an unknown window | open |
@@ -126,7 +125,7 @@ At the user's desk, on their word, once Android logs in reliably: the session's 
 
 ## Awaiting the user
 
-`gh auth login`; the word on step 2; Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; lab cards 2 and 3.
+the word on step 1; Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; lab cards 2 and 3.
 
 ## Known gaps
 

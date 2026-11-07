@@ -145,6 +145,7 @@ except ssl.SSLWantReadError: sys.stdout.buffer.write(o.read())' "$h" > "$state/h
 }
 down() {  # judges what the harness put on the mobile (the default plugins, the debug props) against its baseline; the
   # app's own writes (settings.properties, cache) are not checked: they differ after any login and the read-only AVD drops them
+  local p v w s bad   # measure calls down between its value and its report: a global v here emptied it
   for p in $(pgrep -f "mobile_login\.py $slug\$" || true); do kill $p $(pgrep -P "$p") 2>/dev/null || true; done   # every login of the change's ups, with its adb children; never another change's
   if w=$(cat "$state/allow-relay.winpid" 2>/dev/null); then   # the mobile's DNS relay, by its pid and image (a reused pid is left alone)
     "$sys32/taskkill.exe" /F /PID "$w" /FI "IMAGENAME eq ${ps##*/}" >/dev/null 2>&1 || true; rm -f "$root"/state/winpids/*/"$w" "$state/allow-relay.winpid"

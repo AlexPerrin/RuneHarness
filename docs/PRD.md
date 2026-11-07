@@ -32,7 +32,8 @@ publish → maintainers' findings become criteria.
 - **H3** A script logs each step it completes, so an interrupted one resumes and a hung one names its step; a step
   that fails for a cause outside the tree (host, quota, a source down) records no result and runs again.
 - **H4** The test server runs staging: one branch holding the base, the permanent local branches and every checked
-  server head, merged once each; a conflict is the dev's step; a closed change is reverted out.
+  server head, merged once each; a conflict is the dev's step; a closed change is reverted out, and so is a local
+  branch the merging change supersedes.
 - **H5** Every process a run starts is the run's: stopped with it, bounded by one count of builds and one of agents,
   named after its change or run. No mobile or desktop contacts Jagex, checked by its bring-up.
 - **H6** Harness and client changes ship one at a time by fast-forward of the live branch to a checked candidate.

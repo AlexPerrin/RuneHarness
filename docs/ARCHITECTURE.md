@@ -20,7 +20,7 @@ harness/kpi.py         hd kpi: one query per harness goal metric
 harness/hook.py        SessionStart/End (the orchestrator's session), PreToolUse/PostToolUse (bind a run on its brief, two
                        denials, the scope line, the context limit), SubagentStop (the hand-back line)
 harness/orchestrator.sh  the supervisor (§13)
-hd.yaml                repos {name, path, base, prefix?, upstream?, remote?, pins?}, builds, free, agents, context_limit, hold
+hd.yaml                repos {name, path, base, prefix?, upstream?, remote?, pins? (branch or {branch: superseding slug})}, builds, free, agents, context_limit, hold
 tracks/<repo>/         track.sh (recipe | build | up | down | gate | ship | measure | log | test), track.md (rules, seed
                        criteria), the repo's scripts (the harness: replay.sh); the product repos hold product code only
 .claude/agents/        driver.md, orchestrator.md, dev.md, qa.md, reader.md
@@ -393,7 +393,8 @@ def clone(T, ch) -> path:
 
 def stage(db, ch, T, head):
     """In <fork>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
-    merges is alert('pin-conflict')): git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
+    merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
+    is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <files>'), which dev_due reads. The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
     live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
@@ -418,7 +419,8 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 (the job). The image context is removed as soon as its image is built, the build cache (`docker builder prune`) when
 no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
 each (Gradle's file locks do not reach across containers).
-Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order.
+Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order; a pin leaves
+it only by the revert of the change that supersedes it.
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
 merges records `ship fail`, the dev's step. The harness ship and `hd commit` both hold `state/ship.lock`: no commit moves

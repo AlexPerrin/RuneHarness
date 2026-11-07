@@ -53,7 +53,8 @@ def cfg() -> Cfg:
             out = subprocess.run([script, "recipe"], capture_output=True, text=True).stdout
             recipes = dict(line.split(None, 1) for line in out.splitlines() if " " in line)
         path = os.path.normpath(os.path.join(ROOT, os.path.expanduser(r["path"])))
-        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""), tuple(r.get("pins") or ()))
+        tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""),
+                             tuple(next(iter(p.items())) if isinstance(p, dict) else (p, "") for p in r.get("pins") or ()))
     return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3), free=y.get("free", 0))
 
 
@@ -132,14 +133,15 @@ def candidate(path, base: str, heads: list) -> tuple:
 def stage(db, ch, T, head: str) -> None:
     """Merge a checked head into the track's staging (worktree <repo>/.worktrees/staging, created from base plus the track's pins
     once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <files>'), the dev's step
-    (dev_due); a pin that no longer merges → alert('pin-conflict')."""
+    (dev_due); a pin that no longer merges → alert('pin-conflict'). A pin `{branch: slug}` is the one that change
+    supersedes: its merge is reverted out of staging before that change's head merges."""
     wt = os.path.join(T.path, ".worktrees", "staging")
     if not os.path.isdir(wt):
         if subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", decide.STAGING]).returncode == 0:
             git(T.path, "worktree", "add", wt, "staging")
         else:
             git(T.path, "worktree", "add", "-b", "staging", wt, T.base)
-            for pin in T.pins:
+            for pin, _ in T.pins:
                 r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", f"{T.remote}/{pin}"], capture_output=True, text=True)
                 if r.returncode:   # all or nothing: the next pass starts again once the pin merges (the user's rebase of it)
                     git(wt, "merge", "--abort", check=False)
@@ -147,6 +149,16 @@ def stage(db, ch, T, head: str) -> None:
                     git(T.path, "branch", "-D", "staging", check=False)
                     store.alert(db, "pin-conflict", pin, r.stdout[-300:])
                     return
+    log = dict(l.split("\t", 1)[::-1] for l in git(wt, "log", "--first-parent", "--format=%H\t%s").splitlines())   # subject → commit
+    for pin, until in T.pins:
+        m = f"Merge remote-tracking branch '{T.remote}/{pin}' into staging"   # git's own subject for the pin's merge at creation
+        if until == ch.slug and m in log and f'Revert "{m}"' not in log:
+            r = subprocess.run(["git", "-C", wt, "revert", "--no-edit", "-m", "1", log[m]], capture_output=True, text=True)
+            if r.returncode:   # later staging commits touch the pin's lines: the user's rebase, as for a pin that no longer merges
+                git(wt, "revert", "--abort", check=False)
+                store.alert(db, "pin-conflict", pin, r.stdout[-300:])
+                return
+            event(db, "unpinned", ch.slug, None, f"{pin} reverted out of staging for {head[:7]}")
     r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", head], capture_output=True, text=True)
     if r.returncode:
         files = " ".join(l.split()[-1] for l in r.stdout.splitlines() if l.startswith("CONFLICT"))

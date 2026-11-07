@@ -19,6 +19,12 @@ QUERIES = [
      "SELECT count(*) FROM approval a WHERE a.spent_at IS NULL AND EXISTS (SELECT 1 FROM publish_step p WHERE p.card=a.card AND p.done_at IS NULL) AND NOT EXISTS (SELECT 1 FROM job j WHERE j.kind='publish' AND j.key=CAST(a.card AS TEXT) AND j.pid IS NOT NULL AND j.ended_at IS NULL)"),
     ("wrong hook denials (dismissed)", "0", "SELECT count(*) FROM alert WHERE kind='denied' AND disposition='dismissed'"),
     ("open alerts", "0", "SELECT count(*) FROM alert WHERE disposition IS NULL"),
+    ("artifacts of closed changes", "0",
+     "SELECT count(*) FROM artifact WHERE substr(owner, 1, instr(owner || '@', '@') - 1) IN (SELECT slug FROM change_state WHERE closed_at IS NOT NULL)"),
+    ("images recorded", "≤ open heads + staging",
+     "SELECT count(DISTINCT key) FROM artifact WHERE kind='image'"),
+    ("free space (GB)", "≥ hd.yaml free",
+     "SELECT group_concat(path || ' ' || (free / 1000000000), ', ') FROM disk"),
     ("peak context p90 (tokens)", "≤200k",
      "SELECT coalesce(json_extract(usage_json,'$.context_tokens'),0) FROM run WHERE usage_json IS NOT NULL ORDER BY 1 LIMIT 1 OFFSET (SELECT max(0, count(*)*9/10-1) FROM run WHERE usage_json IS NOT NULL)"),
 ]

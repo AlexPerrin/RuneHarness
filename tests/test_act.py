@@ -16,7 +16,7 @@ class Act(unittest.TestCase):
         self.addCleanup(setattr, act, "STATE", act.STATE); self.addCleanup(setattr, store, "DB", store.DB)
         store.DB = str(Path(d.name) / "hd.db"); act.STATE = d.name   # the ledger and the tick lock of this test alone
         calls = []
-        for name in ("start", "brief", "stage", "wake"):
+        for name in ("start", "brief", "stage", "wake", "release"):
             self.addCleanup(setattr, act, name, getattr(act, name))
             setattr(act, name, lambda *a, _n=name, **k: calls.append((_n, a[1].kind if _n == "start" else None)))
         for mod, name, fake in ((act.publish, "card", lambda *a, **k: calls.append(("card", None))), (act, "changes", lambda: [decide.Change("x", "fork")]),
@@ -24,10 +24,10 @@ class Act(unittest.TestCase):
             self.addCleanup(setattr, mod, name, getattr(mod, name))
             if fake:
                 setattr(mod, name, fake)
-        kinds = ["run", "build", "gate", "ship", "deploy", "measure", "publish", "merge", "card", "wait"]
+        kinds = ["run", "build", "gate", "ship", "deploy", "measure", "publish", "merge", "card", "release", "wait"]
         decide.plan = lambda *a, **k: [decide.Action("x", decide.Step(kind=k, why=k, role="dev", mode="code", key="t:r")) for k in kinds]
         act.tick(store.DB, offline=True)
-        self.assertEqual(calls, [("brief", None)] + [("start", k) for k in ("build", "gate", "ship", "deploy", "measure", "publish")] + [("stage", None), ("card", None), ("wake", None)])
+        self.assertEqual(calls, [("brief", None)] + [("start", k) for k in ("build", "gate", "ship", "deploy", "measure", "publish")] + [("stage", None), ("card", None), ("release", None), ("wake", None)])
 
     def test_a_pass_that_raises_leaves_a_fault_alert_not_a_traceback(self):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)

@@ -1,4 +1,4 @@
-"""tracks/central/track.sh build: a Central clone whose gradlew is committed 100644 assembles, and a dev with no key builds its dev ref."""
+"""tracks/central/track.sh build: a Central clone whose gradlew is committed 100644 assembles, and a dev with no key builds its dev ref, its build copy recorded as the change's."""
 import os, subprocess, tempfile, unittest
 from pathlib import Path
 
@@ -10,6 +10,7 @@ class Build(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d); root, repo, bin = d / "root", d / "central", d / "bin"
             (root / "harness/changes").mkdir(parents=True); (root / "harness/changes/x.md").write_text("")
+            (root / "harness/hd.py").write_text("import sys\nopen(sys.argv[0] + '.calls', 'a').write(' '.join(sys.argv[1:]) + '\\n')\n")   # a fake hd: the calls
             git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True)
             repo.mkdir(); git("init", "-q"); git("config", "user.email", "t@t"); git("config", "user.name", "t")
             (repo / "gradlew").write_text("echo assembled \"$@\" > out\n"); os.chmod(repo / "gradlew", 0o644)   # upstream's mode
@@ -23,6 +24,7 @@ class Build(unittest.TestCase):
             r = subprocess.run(["bash", str(TRACK), "build", "x"], env=env, capture_output=True, text=True)
             s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             s.assertIn("assembled", (repo / ".worktrees/x-build/out").read_text())
+            s.assertIn(f"own worktree {repo}/.worktrees/x-build x", (root / "harness/hd.py.calls").read_text())   # the change owns its build copy
 
 
 if __name__ == "__main__":

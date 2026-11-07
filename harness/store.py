@@ -151,7 +151,24 @@ INSERT INTO job_4 SELECT * FROM job; DROP TABLE job; ALTER TABLE job_4 RENAME TO
 # One function per schema version; migrate() applies those above PRAGMA user_version in order, each in a transaction.
 SCHEMA_5 = "ALTER TABLE session ADD COLUMN role TEXT NOT NULL DEFAULT 'orchestrator' CHECK (role IN ('orchestrator','driver'));"   # the user's chat is the driver (§12)
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5]
+SCHEMA_6 = """  -- retention (docs/ARCHITECTURE.md §2): every build artifact's owners; the free space of the build disks; alert kind disk
+CREATE TABLE artifact (
+  kind  TEXT NOT NULL CHECK (kind IN ('image','volume','container','worktree','dir')),
+  key   TEXT NOT NULL,    -- the docker name or the absolute path
+  owner TEXT NOT NULL,    -- <slug> | <slug>@<T> | job:<kind>:<key> | run:<id>: released once no owner of (kind, key) is live
+  at    TEXT NOT NULL,
+  PRIMARY KEY (kind, key, owner));
+CREATE TABLE disk (path TEXT PRIMARY KEY, free INTEGER NOT NULL, at TEXT NOT NULL);
+CREATE TABLE alert_6 (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('attempts','run-lost','runs-per-head','ask-stale','denied','fault','ci-runner','kpi','pin-conflict','quota','disk')),
+  subject TEXT NOT NULL, detail TEXT NOT NULL,
+  first_at TEXT NOT NULL, last_at TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1,
+  disposition TEXT CHECK (disposition IN ('filed','dismissed')), change TEXT, why TEXT, by TEXT, at TEXT,
+  UNIQUE (kind, subject));
+INSERT INTO alert_6 SELECT * FROM alert; DROP TABLE alert; ALTER TABLE alert_6 RENAME TO alert;"""
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6]
 
 
 def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
@@ -165,6 +182,14 @@ def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
                   composite_json=excluded.composite_json, run=excluded.run, at=excluded.at""",
                (slug, head, tree, tcommit, composite, run, now()))
     return True
+
+
+def own(db, kind: str, key: str, owner: str) -> None:
+    """An artifact's owner row (the track scripts through `hd own`, act for the clones it makes). A path is refused
+    outside the places builds write (a worktree under .worktrees/, a dir there or under state/): a release removes it."""
+    if kind in ("worktree", "dir") and not (os.path.isabs(key) and os.path.normpath(key) == key and ("/.worktrees/" in key or (kind == "dir" and key.startswith(STATE + "/")))):
+        raise ValueError(f"{kind} {key}: not under a .worktrees/ or state/ directory")
+    db.execute("INSERT OR IGNORE INTO artifact(kind, key, owner, at) VALUES (?,?,?,?)", (kind, key, owner, now()))
 
 
 def now() -> str:
@@ -328,6 +353,14 @@ class Ledger:
     def last_event(self, slug, kind=None):
         sql = "SELECT * FROM event WHERE change=?" + (" AND kind=?" if kind else "") + " ORDER BY id DESC LIMIT 1"
         return self.one(sql, slug, *([kind] if kind else []))
+
+    def artifacts(self):
+        """(kind, key, [owners]) of every recorded artifact."""
+        return [(r["kind"], r["key"], r["owners"].split("\n")) for r in
+                self.all("SELECT kind, key, group_concat(owner, char(10)) owners FROM artifact GROUP BY kind, key ORDER BY kind, key")]
+
+    def disk_below(self, gb):
+        return self.all("SELECT * FROM disk WHERE free < ? ORDER BY path", gb * 10**9)
 
     def live_session(self):
         return self.one("SELECT * FROM session WHERE ended_at IS NULL ORDER BY id DESC LIMIT 1")

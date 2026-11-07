@@ -299,6 +299,63 @@ class Snapshots(unittest.TestCase):  # the recorded ledger with the definitions 
                 self.assertEqual(out.stdout, Path(f[:-3] + ".plan").read_text(), out.stderr)
 
 
+class Retention(Base):  # H7: an artifact lives while an owner fact holds; the step that falsifies it releases it
+    def released(self, ch=None, cfg=CFG):
+        return [a.step.key for a in decide.plan(self.L, [ch or self.ch], cfg) if a.step.kind == "release"]
+
+    def own(self, kind, key, owner):
+        store.own(self.db, kind, key, owner)
+
+    def test_a_new_head_releases_the_old_trees_artifacts_unless_a_run_or_card_names_them(self):
+        self.submit()
+        self.own("image", f"or:{TREE}", f"h-one@{TREE}")
+        self.assertEqual(self.released(), [])   # the current head's
+        self.db.execute("UPDATE ref SET sha='e' WHERE repo='harness'")
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-one', 'e', 'f', 'e', 't2')")
+        self.run_row("x")
+        self.assertEqual(self.released(), [])   # a live run of the change may still use it
+        self.db.execute("UPDATE run SET ended_at='t', end_kind='handback'")
+        self.db.execute("INSERT INTO card(change, head, steps_json, texts_json, digest) VALUES ('h-one', ?, '[]', '{}', 'd')", (TIP,))
+        self.assertEqual(self.released(), [])   # the latest card names it
+        self.db.execute("DELETE FROM card")
+        self.assertEqual(self.released(), [f"image:or:{TREE}"])
+
+    def test_close_merge_and_withdraw_release_the_changes_clones(self):
+        self.own("worktree", "/r/.worktrees/h-one", "h-one")
+        self.assertEqual(self.released(), [])
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")   # merged: done
+        self.assertEqual(self.released(), ["worktree:/r/.worktrees/h-one"])
+        self.db.execute("DELETE FROM landed"); self.db.execute("INSERT INTO change_state(slug, closed_at) VALUES ('h-one', 't')")
+        self.assertEqual(self.released(), ["worktree:/r/.worktrees/h-one"])
+        self.db.execute("DELETE FROM change_state")
+        self.assertEqual([a.step.key for a in decide.plan(self.L, [], CFG)], ["worktree:/r/.worktrees/h-one"])   # its definition withdrawn
+
+    def test_a_jobs_container_goes_when_the_job_ends_a_kill_included(self):
+        self.own("container", "build-h-one", "job:build:k")
+        self.db.execute("INSERT INTO job(kind, key, pid, pid_start, started_at) VALUES ('build', 'k', 1, 1, 't')")
+        self.assertEqual(self.released(), [])
+        self.db.execute("UPDATE job SET pid=NULL, ended_at='t'")   # observe.procs: the pid gone
+        self.assertEqual(self.released(), ["container:build-h-one"])
+
+    def test_an_artifact_goes_only_when_every_owner_is_gone(self):
+        self.submit()
+        self.own("image", f"or:{TREE}", "other@x"); self.own("image", f"or:{TREE}", f"h-one@{TREE}")
+        self.assertEqual(self.released(), [])
+        self.own("image", "osrs-openrune:s1", "staging@s1")
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 'x', 's1')")
+        self.assertEqual(self.released(), [])   # staging's tree
+        self.db.execute("UPDATE ref SET tree='s2' WHERE name='refs/heads/staging'")
+        self.assertEqual(self.released(), ["image:osrs-openrune:s1"])
+
+    def test_below_the_disk_level_no_build_starts(self):
+        self.submit()
+        self.db.execute("INSERT INTO disk(path, free, at) VALUES ('/mnt/c', ?, 't')", (40 * 10**9,))
+        self.assertEqual(self.step().kind, "gate")   # no level set
+        cfg = Cfg(agents=2, hold="P2", tracks=CFG.tracks, free=50)
+        s = {a.change: a.step for a in decide.plan(self.L, [self.ch], cfg)}["h-one"]
+        self.assertEqual(s.kind, "wait"); self.assertIn("disk: /mnt/c 40 GB free, below 50 GB", s.why)
+
+
 class Authority(Base):  # A2 (close), A4 (ask)
     def test_closed_is_done_and_open_ask_waits(self):
         self.db.execute("INSERT INTO change_state(slug, closed_at) VALUES ('h-one', 't')")

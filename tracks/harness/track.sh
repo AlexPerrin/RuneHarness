@@ -9,8 +9,9 @@ verb=${1:?usage: track.sh recipe|test|gate|ship <slug> [key]}; slug=${2:-}; key=
 
 unpack() {  # $1 tcommit $2 tree → the candidate's files under state/<slug>/cand-<tree12>, extracted once
   local dir="$HD_ROOT/state/$slug/cand-${2:0:12}"
+  $hd own dir "$dir" "job:${HD_KIND:-gate}:${HD_KEY:-$key}"   # released once the job ends (docs/ARCHITECTURE.md §6)
   if [ ! -d "$dir" ]; then
-    mkdir -p "$dir.tmp"; git -C "$HD_REPO" archive "$1" | tar -x -C "$dir.tmp"; mv "$dir.tmp" "$dir"
+    rm -rf "$dir.tmp"; mkdir -p "$dir.tmp"; git -C "$HD_REPO" archive "$1" | tar -x -C "$dir.tmp"; mv "$dir.tmp" "$dir"
   fi
   echo "$dir"
 }

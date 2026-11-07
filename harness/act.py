@@ -5,6 +5,7 @@ import functools
 import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -52,7 +53,7 @@ def cfg() -> Cfg:
             recipes = dict(line.split(None, 1) for line in out.splitlines() if " " in line)
         path = os.path.normpath(os.path.join(ROOT, os.path.expanduser(r["path"])))
         tracks[name] = Track(name, r["name"], path, r["base"], r.get("upstream", ""), r.get("prefix", "dev"), recipes, r.get("remote", ""), tuple(r.get("pins") or ()))
-    return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3))
+    return Cfg(agents=y["agents"], hold=y.get("hold") or "", tracks=tracks, builds=y.get("builds", 3), free=y.get("free", 0))
 
 
 def tier(p) -> str:
@@ -241,7 +242,7 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
 def brief(db, ch, T, step: Step) -> int:
     """INSERT the run and write state/briefs/<id>.md; returns the run id."""
     if step.mode != "plan":
-        clone(T, ch)   # the run's worktree exists before its brief names it
+        store.own(db, "worktree", clone(T, ch), ch.slug)   # the run's worktree exists before its brief names it; the change owns it
     rid = db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES (?,?,?,?,?,?)",
                      (ch.slug, step.role, step.mode, step.input, "", now())).lastrowid
     path = os.path.join(STATE, "briefs", f"{rid}.md")
@@ -262,6 +263,8 @@ def job_env(db, ch, T, s, **more) -> dict:
     """The environment of a job and of every scripted criterion: HD_* and the short names the scripts read."""
     base = git(T.path, "rev-parse", T.base)
     cl = T.path if ch.slug == "staging" or ch.kind == "goal" else clone(T, ch)   # a job of staging or a goal has no dev clone
+    if cl != T.path:
+        store.own(db, "worktree", cl, ch.slug)
     env = dict(os.environ, HD_ROOT=ROOT, HD_DB=db_path(db), HD_SLUG=ch.slug, HD_TREE=s["tree"], HD_TCOMMIT=s["tcommit"],
                HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=cl, HD_BUILDS=str(cfg().builds),
                SLUG=ch.slug, HEAD=s["head"], T=decide.built(s), TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
@@ -309,6 +312,38 @@ def start(db, step: Step, ch, T) -> None:
                   ON CONFLICT(kind, key) DO UPDATE SET pid=excluded.pid, pid_start=excluded.pid_start, scope=excluded.scope,
                   log=excluded.log, started_at=excluded.started_at, ended_at=NULL, exit=NULL""",
                (step.kind, step.key, ch.slug, p.pid, observe.pid_start(p.pid), unit, log, now()))
+
+
+# --- release ---------------------------------------------------------------------------------------------------
+
+def absent(kind, key) -> bool:
+    """The artifact observed gone; docker's own "no such" answer only (a daemon that does not answer is not absence)."""
+    if kind in ("worktree", "dir"):
+        return not os.path.lexists(key)
+    r = subprocess.run(["docker", kind, "inspect", key], capture_output=True, text=True)
+    return r.returncode != 0 and "no such" in r.stderr.lower()
+
+
+def release(db, kind, key) -> bool:
+    """The release verb of an artifact no live owner names (docker rmi | volume rm | rm -f, git worktree remove, rm -rf),
+    idempotent; its rows go once its absence is observed, else they stay and the next pass releases it again."""
+    if kind == "worktree" and os.path.isdir(key):
+        common = subprocess.run(["git", "-C", key, "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
+        if common:
+            subprocess.run(["git", "--git-dir", common, "worktree", "remove", "--force", "--force", key], capture_output=True)
+        shutil.rmtree(key, ignore_errors=True)
+        if common:
+            subprocess.run(["git", "--git-dir", common, "worktree", "prune"], capture_output=True)
+    elif kind == "dir":
+        shutil.rmtree(key, ignore_errors=True)
+    elif not absent(kind, key):
+        subprocess.run(["docker", *{"image": ["rmi"], "volume": ["volume", "rm"], "container": ["rm", "-f"]}[kind], key], capture_output=True)
+    if not absent(kind, key):   # in use (a container of the image), or docker not answering: the driver sees it
+        store.alert(db, "fault", f"release:{kind}:{key}"[:200], "still present after its release verb; the next pass releases it again")
+        return False
+    db.execute("DELETE FROM artifact WHERE kind=? AND key=?", (kind, key))
+    event(db, "released", None, None, f"{kind} {key}")
+    return True
 
 
 # --- the wake and the pass -------------------------------------------------------------------------------------
@@ -368,6 +403,7 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
         observe.sessions(db, definition_blob())
         observe.runs(db)
         observe.stacks(db)
+        observe.disk(db, c.free)
         observe.alerts(db)
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):
@@ -385,6 +421,12 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
     draining = (L.live_session() or {"drain_at": None})["drain_at"]
     for a in actions:
         s = a.step
+        if s.kind == "release":
+            try:
+                release(db, *s.key.split(":", 1))
+            except OSError as e:   # no docker on the host: the driver sees it, the other acts go on
+                store.alert(db, "fault", f"release:{s.key}"[:200], f"raised {type(e).__name__}: {e}"[:300])
+            continue
         if a.change.endswith(":staging"):
             T = c.tracks[a.change.split(":")[0]]
             ch = Change("staging", T.name, upstream=False)

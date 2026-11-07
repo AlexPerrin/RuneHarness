@@ -147,6 +147,25 @@ class Observe(unittest.TestCase):
             act.ROOT, act.STATE, act.job_env = saved
         os.waitpid(self.db.execute("SELECT pid FROM job").fetchone()[0], 0)
         self.assertEqual(Path(root, "state/h-one", f"measure-{k12}.rc").read_text(), "0\n")
+    def test_disk_free_is_a_fact_and_below_the_level_an_alert_naming_the_compaction(self):
+        observe.disk(self.db, 0, (self.dir.name, "/no/such/path"))
+        self.assertEqual([r["path"] for r in self.db.execute("SELECT path FROM disk")], [self.dir.name])
+        self.assertIsNone(self.db.execute("SELECT 1 FROM alert").fetchone())
+        observe.disk(self.db, 10**9, (self.dir.name,))   # a level no disk has
+        a = self.db.execute("SELECT kind, subject, detail FROM alert").fetchone()
+        self.assertEqual((a["kind"], a["subject"]), ("disk", self.dir.name)); self.assertIn("Optimize-VHD", a["detail"])
+
+    def test_release_removes_a_worktree_and_a_dir_then_drops_their_rows(self):
+        wt = os.path.join(self.repo, ".worktrees", "h-one")
+        sh(self.repo, "worktree", "add", "-q", "--detach", wt)
+        d = os.path.join(self.repo, ".worktrees", "cand"); os.makedirs(d + "/x")
+        store.own(self.db, "worktree", wt, "h-one"); store.own(self.db, "dir", d, "job:gate:k")
+        for kind, key in (("worktree", wt), ("dir", d), ("dir", d)):   # idempotent: a second release of a gone dir ends at once
+            self.assertTrue(act.release(self.db, kind, key))
+        self.assertFalse(os.path.exists(wt) or os.path.exists(d))
+        self.assertNotIn(wt, sh(self.repo, "worktree", "list"))
+        self.assertIsNone(self.db.execute("SELECT 1 FROM artifact").fetchone())
+
 
 if __name__ == "__main__":
     unittest.main()

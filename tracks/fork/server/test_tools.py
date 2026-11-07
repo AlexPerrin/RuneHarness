@@ -198,11 +198,15 @@ class BuildAttempts(unittest.TestCase):
         s.assertEqual(c[-1], "rm -f build-x")                                     # and the build removes its container as it ends
 
     def test_an_image_holds_the_game_yml_of_its_tree(s):  # server-token-auth-17: or:2cdbf708b held an older tree's game.yml, kept by clean in the build copy
-        (s.root / "bin/docker").write_text('#!/bin/bash\ncase "$*" in "image inspect"*) exit 1;; *"--name build-x"*) while [ "$1" != -w ]; do shift; done; mkdir -p "$2/server/app/build/install/app" "$2/.data";; esac\n')
+        (s.root / "bin/docker").write_text(f'#!/bin/bash\necho "$*" >> {s.root}/calls\n' + 'case "$*" in "image inspect"*) exit 1;; *"--name build-x"*) while [ "$1" != -w ]; do shift; done; mkdir -p "$2/server/app/build/install/app" "$2/.data";;'
+                                           f' "build "*) cp "${{@: -1}}/game.yml" {s.root}/image-game.yml;; esac\n')   # the image's context, as docker build reads it
         (s.repo / ".gitignore").write_text("game.yml\n"); git(s.repo, "add", "-A"); git(s.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i"); s.tc = git(s.repo, "rev-parse", "HEAD")   # upstream ignores game.yml
         s.build(); (s.root / "repo/.worktrees/x-build/game.yml").write_text("old: tree\n")
         r = s.build(); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        s.assertEqual((s.root / "repo/.worktrees/x-build/.image/game.yml").read_text(), "game: {}\n")
+        s.assertEqual((s.root / "image-game.yml").read_text(), "game: {}\n")
+        s.assertFalse((s.root / "repo/.worktrees/x-build/.image").exists())   # the context is the image's once built: none kept (V9-RETENTION)
+        calls = (s.root / "calls").read_text().splitlines()   # no build container live once the image is built: the build cache goes with the last build
+        s.assertLess(max(i for i, c in enumerate(calls) if c.startswith("build ")), max(i for i, c in enumerate(calls) if c == "builder prune -f"))
 
     def test_two_attempts_keep_two_logs_each_named_in_the_output(s):  # a deploy's retry overwrote the first attempt's log: its failure was gone
         outs = [s.build(), s.build()]
@@ -1045,7 +1049,7 @@ mkdir -p {copy}/mod/build/test-results/test; echo '<testsuite name="ATest" tests
         # a fake gradle in docker: spotlessCheck of a module whose file holds the double space fails, as the ratchet does on a touched file;
         # the slug was never built: its volume is docker's new root-owned one until the verb chowns it to the run's user
         (root / "bin/docker").write_text(f"""#!/bin/bash
-case " $* " in *" -v gradle-s1:/gradle "*" chown 1000:1000 /gradle "*) touch {root}/owned; exit 0 ;; esac
+case " $* " in *" -v gradle:/gradle "*" chown 1000:1000 /gradle "*) touch {root}/owned; exit 0 ;; esac
 [ -e {root}/owned ] || {{ echo "/gradle: Permission denied"; exit 1; }}
 while [ "$1" != _ ]; do shift; done; shift; echo "$@" > {root}/tasks
 for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 2>/dev/null || {{ echo "> Task :$m:spotlessCheck FAILED: format violations"; exit 1; }}; done
@@ -1054,7 +1058,7 @@ for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 
         src = SRC
         fn = lambda name: f"{name}() {{" + src.split(f"\n{name}() {{")[1].split("\n}")[0] + "\n}"
         line = lambda pre: next(l for l in src.splitlines() if l.startswith(pre))
-        script = "\n".join(["set -euo pipefail", f"slug=s1; repo={s.repo}; copy={copy}; state={root}/st; root={root}; T=t1",
+        script = "\n".join(["set -euo pipefail", f"slug=s1; repo={s.repo}; copy={copy}; state={root}/st; root={root}; T=t1; hd=:",
                             line("atomic()"), line("record()"), line("size="), line("fault="), line("ooms()"), fn("hosted"), fn("slot"), line("box()"), line("projects()"), line("projdir()"), "build() { echo build >&2; exit 9; }",
                             f"tree() {{ tc={tc}; }}", fn("central"), fn("filestore"), fn("gradle_check"), fn("spotless"), "spotless"])
         run = lambda: subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PATH": f"{root}/bin:{os.environ['PATH']}"})

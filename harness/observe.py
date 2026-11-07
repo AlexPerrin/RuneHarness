@@ -235,6 +235,23 @@ def stacks(db) -> None:
             event(db, "down", s["change"], None, "its run ended with the stack up: track.sh down started")
 
 
+DISKS = (os.path.expanduser("~/src"), "/mnt/c")   # the volume that holds the clones and docker's builds, and the Windows host drive holding the .vhdx files
+COMPACT = ("compaction is due: close every WSL program and Docker Desktop, then in an admin PowerShell `wsl --shutdown` and "
+           "`Optimize-VHD -Path <the .vhdx> -Mode Full` for docker_data.vhdx and ext4.vhdx (docs/V9-RETENTION.md §2)")
+
+
+def disk(db, free_gb: int, paths=DISKS) -> None:
+    """Free space of each build disk → a disk row; below hd.yaml's free level → alert('disk') naming the compaction."""
+    for p in paths:
+        if not os.path.exists(p):
+            continue
+        st = os.statvfs(p)
+        free = st.f_bavail * st.f_frsize
+        db.execute("INSERT INTO disk(path, free, at) VALUES (?,?,?) ON CONFLICT(path) DO UPDATE SET free=excluded.free, at=excluded.at", (p, free, now()))
+        if free_gb and free < free_gb * 10**9:
+            alert(db, "disk", p, f"{free // 10**9} GB free, below {free_gb} GB: no build starts; {COMPACT}")
+
+
 def tracks_script(db, slug):
     row = db.execute("SELECT script FROM stack WHERE change=?", (slug,)).fetchone()
     return row["script"] if row and row["script"] and os.path.exists(row["script"]) else None

@@ -53,6 +53,15 @@ class Store(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO answer(ask, option, by, at) VALUES (99, 'a', 'user', 't')")  # no such ask
 
+    def test_an_artifact_row_is_refused_outside_the_build_places(self):   # a release removes it: never a path the builds do not write
+        store.own(self.db, "worktree", "/r/.worktrees/x-build", "x"); store.own(self.db, "worktree", "/r/.worktrees/x-build", "x")
+        store.own(self.db, "dir", store.STATE + "/x/cand-1", "job:gate:k")
+        for kind, key in (("worktree", "/home/alex"), ("dir", "/r/.worktrees/../../etc"), ("dir", "rel/.worktrees/x"), ("dir", "/home/x")):
+            with self.assertRaises(ValueError):
+                store.own(self.db, kind, key, "x")
+        self.assertEqual(self.db.execute("SELECT count(*) FROM artifact").fetchone()[0], 2)
+        store.alert(self.db, "disk", "/mnt/c", "low")   # the alert kind of the disk fact
+
 
 if __name__ == "__main__":
     unittest.main()

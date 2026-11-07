@@ -68,12 +68,13 @@ class Cfg:
     agents: int = 7
     builds: int = 3
     hold: str = ""          # the held band, e.g. "P2": tiers below it do not run
+    free: int = 0           # GB: below it on a build disk, no build starts (observe.disk alerts)
     tracks: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class Step:
-    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure
+    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure|release
     why: str                # printed by `hd`; the event detail
     role: str = ""          # dev|qa for kind == run
     mode: str = ""          # code|criteria|judge|plan
@@ -381,6 +382,40 @@ def plan_due(C, g):
 GOAL_GUARDS = [measure_due, plan_due]
 
 
+def owner_live(C, owner) -> bool:
+    """An artifact owner is live while its fact holds: a job running, a run not ended, a change open (<slug>), or a
+    tree the change still names (<slug>@<T>: its current head's, its latest card's, a running job's or a live run's;
+    staging@<T>: the staging tree)."""
+    kind, _, rest = owner.partition(":")
+    if kind == "job":
+        k, _, key = rest.partition(":")
+        j = C.L.job(k, key)
+        return bool(j and j["pid"] and not j["ended_at"])
+    if kind == "run":
+        return bool(C.L.one("SELECT 1 FROM run WHERE id=? AND ended_at IS NULL", rest))
+    slug, at, t = owner.partition("@")
+    if at and C.L.one("SELECT 1 FROM job WHERE key LIKE ? AND pid IS NOT NULL AND ended_at IS NULL", t + ":%"):
+        return True
+    if slug in ("staging", "live"):
+        return not at or bool(C.L.one("SELECT 1 FROM ref WHERE name=? AND tree=?", STAGING, t))
+    if C.L.live_run(slug):
+        return True
+    ch = C.defs.get(slug)
+    if ch is None or ch.track not in C.cfg.tracks or done(C, ch):
+        return False
+    if not at:
+        return True
+    s, c = sub(C, ch), C.L.latest_card(slug)
+    cs = C.L.submission(slug, c["head"]) if c else None
+    return any(x and built(x) == t for x in (s, cs))
+
+
+def release_due(C) -> list:
+    """Every recorded artifact no live owner names → a release step (act.release: the verb, then its absence observed)."""
+    return [Action("release", Step("release", f"release {kind} {key}: {', '.join(owners)} no longer live", key=f"{kind}:{key}"))
+            for kind, key, owners in C.L.artifacts() if not any(owner_live(C, o) for o in owners)]
+
+
 GUARDS = [
     closed, deps_live, ask_open, criteria_due, dev_due, build_due, gate_due, judge_due, stage_due,
     upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due,
@@ -429,6 +464,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
     tier = {c.slug: priority(c, blocked) for c in open_}
     open_.sort(key=lambda c: (0 if c.track == "harness" else 1 if c.pr else 2, TIERS.index(tier[c.slug]), c.slug))
     live = len(L.live_runs())
+    low = L.disk_below(cfg.free) if cfg.free else []   # below the level no new build starts (a gate builds)
     actions = []
     for g in goals:
         if g.track not in cfg.tracks:
@@ -449,6 +485,8 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             s = job_due(C, "deploy", f"{tree}:{T.recipes['deploy']}")
             if s and s.kind == "deploy" and L.jobs_in_flight("deploy"):
                 s = Step("wait", "a deploy is running")
+            if s and s.kind == "deploy" and low:
+                s = None   # a deploy builds: none below the disk level
             if s and s.kind != "wait":
                 actions.append(Action(f"{T.name}:staging", s))
     for c in open_:
@@ -467,7 +505,9 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
                 s = Step("wait", f"{cfg.agents} runs live: {s.why}")
             else:
                 live += 1
+        elif s.kind in ("build", "gate") and low:
+            s = Step("wait", f"disk: {low[0]['path']} {low[0]['free'] // 10**9} GB free, below {cfg.free} GB: {s.why}")
         elif s.kind in ("build", "gate", "ship", "publish") and L.jobs_in_flight(s.kind, s.key.split(":")[0] + ":" if s.kind == "ship" else s.key):
             s = Step("wait", f"a {s.kind} of this {'branch' if s.kind == 'ship' else 'key'} is running")
         actions.append(Action(c.slug, s))
-    return actions
+    return actions + release_due(C)

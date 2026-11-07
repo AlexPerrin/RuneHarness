@@ -273,8 +273,11 @@ FROM or:$T
 COPY --chown=1000:1000 key/game.key key/client.key /app/.data/
 COPY --chown=1000:1000 game.yml /app/game.yml
 EOF
+  $hd own image "osrs-openrune:$T" "staging@$T"   # released once staging moves on (the live tag keeps the running one)
   docker build -q -f "$state/Dockerfile" -t "osrs-openrune:$T" "$state" >/dev/null
+  [ -n "$(docker ps -q -f name=^build-)" ] || docker builder prune -f >/dev/null 2>&1 || true   # no build live: the build cache goes
   image_key "osrs-openrune:$T"   # before its boot and before the live tag moves
+  owner=staging@$T; [ -z "${HD_KEY:-}" ] || owner=job:deploy:$HD_KEY; $hd own container "boot-$T" "$owner"   # the boot check's container goes with the deploy, a kill included
   docker rm -f "boot-$T" >/dev/null 2>&1 || true
   docker run -d --name "boot-$T" --tmpfs /app/.data/postgres:uid=1000,gid=1000,mode=0700 "osrs-openrune:$T" >/dev/null
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
@@ -282,7 +285,7 @@ EOF
   # the sidecars and the issuer first, so a stack that cannot start leaves the game server as it was
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate http http-desktop issuer) >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
-  docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
+  $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
   since=$(date -u +%FT%TZ)
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate openrune) >/dev/null
   if ready osrs-openrune "$since"; then  # the record names the stack's containers: hd deploys again while one is not running

@@ -15,8 +15,6 @@ LOGOUT_BUTTON = 11927560  # component.logout:logout
 INVENTORY_ITEMS = 9764864  # component.inventory:items, one dynamic child per slot of container 93
 FRAMES = 10  # state reads after Enter: the client takes a key on its next frame, the rest a margin on a loaded host
 CONNECT = 30  # seconds a connect may take: a starting client may not accept yet, and an unsent call is sent again
-ACCEPT_X, ACCEPT_Y = -80, 311  # the terms page's Accept, from the canvas's centre (read on a fresh template's desktop)
-EXISTING_X, EXISTING_Y = 80, 290  # the welcome page's Existing User: a key right after Accept is not taken
 TRY_AGAIN_Y = 277  # canvas y of the refused login dialog's Try again button (read on a desktop in that state)
 TICKS = 10  # game ticks a logged-in client waits for the inventory widget's slots: the server sends the interface and container 93 on the login tick
 
@@ -178,47 +176,26 @@ def attempt(port, leave=(lambda port: call(port, "press_key", key="ESCAPE"), try
     return attempt(port, leave[1:])
 
 
-def accept_terms(port):  # a fresh home's first page takes no key, only a click. Called only once Enter has left the page where it stands:
-    # the same spot on the welcome page is New User, which opens a Jagex page
-    call(port, "click", x=state(port)["canvasWidth"] // 2 + ACCEPT_X, y=ACCEPT_Y)
-    for _ in range(FRAMES):
-        state(port)
-    return state(port)["canvasWidth"] // 2 + EXISTING_X
-
-
-def login(port, user, password, accepted=False):
+def login(port, user, password):
     s = wait(port, ("LOGIN_SCREEN", "LOGGED_IN"))
     if s["gameState"] == "LOGGED_IN":
         return inventory(port)
-    if accepted:
-        call(port, "click", x=accepted, y=EXISTING_Y)
-        for _ in range(FRAMES):   # the page has switched before the first key: keys sent during the switch are lost
-            state(port)
-    else:
-        call(port, "press_key", key="ESCAPE")  # any login screen page back to the welcome page
-        state(port), state(port)  # each read runs on a client frame: the page has changed before the next key (one frame took both)
-        call(port, "press_key", key="ENTER")   # Existing User: the form, its login field focused
-        clear(port)
-    call(port, "type_chat", text=user, send=False)   # after Accept the form is empty, and clearing it wiped what followed
+    call(port, "press_key", key="ESCAPE")  # any login screen page back to the welcome page
+    state(port), state(port)  # each read runs on a client frame: the page has changed before the next key (one frame took both)
+    call(port, "press_key", key="ENTER")   # Existing User: the form, its login field focused
+    clear(port)
+    call(port, "type_chat", text=user, send=False)
     call(port, "press_key", key="TAB")
-    if not accepted:
-        clear(port)
+    clear(port)
     call(port, "type_chat", text=password, send=False)
-    g = attempt(port, leave=())
-    if g is None and not accepted:
-        return login(port, user, password, accept_terms(port))
-    return result(port, g, "the server refused the login")
+    return result(port, attempt(port, leave=()), "the server refused the login")
 
 
 def token(port):
     s = wait(port, ("LOGIN_SCREEN", "LOGGED_IN"))
     if s["gameState"] == "LOGGED_IN":
         return inventory(port)
-    g = attempt(port)   # the session's login page: Enter plays; the client fetches its token from param 11
-    if g is None:
-        accept_terms(port)
-        g = attempt(port)
-    return result(port, g, "the server refused the token")
+    return result(port, attempt(port), "the server refused the token")   # the session's login page: Enter plays; the client fetches its token from param 11
 
 
 def result(port, g, refused):

@@ -39,7 +39,7 @@ publish → maintainers' findings become criteria.
 - **H7** A build artifact (image, volume, container, clone, build copy, context) exists only while a fact names it:
   each is recorded with its owners (a change, a tree a change still names, a job, a run), and the pass releases it
   once none holds (a new head, close, merge, withdrawal, a job's or run's end, a kill included), ending on its observed
-  absence. Content-addressed caches are shared (one Gradle home; one cache store per game revision); the build cache
+  absence. Content-addressed caches are shared (one Gradle home per build slot; one cache store per game revision); the build cache
   goes when the last build ends. The free space of the build disks is a fact: below a set level no build starts and
   the user is told compaction is due, with its commands.
 

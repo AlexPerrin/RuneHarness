@@ -45,9 +45,9 @@ gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cann
   local tasks=(); for d in "${mods[@]}"; do rm -rf "$copy/$(projdir "$d")"/build/test-results/{test,integration}   # the report is this run's
     if [ "$kind" = test ]; then tasks+=("$d:test"); if grep -qs '"integration-test-suite"' "$copy/$(projdir "$d")/build.gradle.kts"; then tasks+=("$d:integration"); fi; fi   # upstream CI runs integration too, where the plugin registers it (a src/integration alone registers nothing)
     tasks+=("$d:spotlessCheck"); done
-  docker run --rm -v gradle:/gradle eclipse-temurin:21 chown 1000:1000 /gradle   # creates or reuses the one Gradle home: one docker makes is root's, the run is 1000 (spotless may run before any build)
+  local i; for i in $(seq 1 "${HD_BUILDS:-3}"); do docker run --rm -v "gradle-$i:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle; done   # one Gradle home per build slot: a volume docker makes is root's, the run is 1000 (spotless runs on a slug never built)
   : > "$out/$kind.log"; central; filestore; box "$out/$kind.log" --rm --name "$kind-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CDIR="$cdir" -e FDIR="$fdir" \
-    -v gradle:/gradle "${cvols[@]}" "${fvols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$g:$g:ro" -v "$copy:$copy" -v "$state/$kind.gitfile:$copy/.git:ro" -w "$copy" \
+    -v "gradle-@SLOT@:/gradle" "${cvols[@]}" "${fvols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$g:$g:ro" -v "$copy:$copy" -v "$state/$kind.gitfile:$copy/.git:ro" -w "$copy" \
     eclipse-temurin:21 bash -c './gradlew --console=plain --build-cache --no-configuration-cache --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m${CDIR:+ --init-script /central.init.gradle}${FDIR:+ --init-script /filestore.init.gradle} --continue "$@"' _ \
     "${tasks[@]}" && ok=true || ok=false
   for d in "${mods[@]}"; do cat "$copy/$(projdir "$d")"/build/test-results/{test,integration}/*.xml 2>/dev/null | grep -o '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' || true; done >> "$out/$kind.log"

@@ -416,7 +416,8 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 (`<slug>@<T>`, `staging@<T>`), the build copy and the Central and FileStore copies (the change), the cache store
 `or-cache-store-<revision>` (`<slug>@<T>`), `build-<slug>` and `boot-<T>` (the job), a harness or lab candidate dir
 (the job). The image context is removed as soon as its image is built, the build cache (`docker builder prune`) when
-no `build-*` container is live, and every Gradle run mounts the one volume `gradle`.
+no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
+each (Gradle's file locks do not reach across containers).
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order.
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer

@@ -15,6 +15,7 @@ LOGOUT_BUTTON = 11927560  # component.logout:logout
 INVENTORY_ITEMS = 9764864  # component.inventory:items, one dynamic child per slot of container 93
 FRAMES = 10  # state reads after Enter: the client takes a key on its next frame, the rest a margin on a loaded host
 CONNECT = 30  # seconds a connect may take: a starting client may not accept yet, and an unsent call is sent again
+ACCEPT_X, ACCEPT_Y = -80, 311  # the terms page's Accept, from the canvas's centre (read on a fresh template's desktop)
 TRY_AGAIN_Y = 277  # canvas y of the refused login dialog's Try again button (read on a desktop in that state)
 TICKS = 10  # game ticks a logged-in client waits for the inventory widget's slots: the server sends the interface and container 93 on the login tick
 
@@ -176,7 +177,13 @@ def attempt(port, leave=(lambda port: call(port, "press_key", key="ESCAPE"), try
     return attempt(port, leave[1:])
 
 
-def login(port, user, password):
+def accept_terms(port):  # a fresh home's first page takes no key, only a click. Called only once Enter has left the page where it stands:
+    # the same spot on the welcome page is New User, which opens a Jagex page
+    call(port, "click", x=state(port)["canvasWidth"] // 2 + ACCEPT_X, y=ACCEPT_Y)
+    state(port), state(port)
+
+
+def login(port, user, password, accepted=False):
     s = wait(port, ("LOGIN_SCREEN", "LOGGED_IN"))
     if s["gameState"] == "LOGGED_IN":
         return inventory(port)
@@ -188,14 +195,22 @@ def login(port, user, password):
     call(port, "press_key", key="TAB")
     clear(port)
     call(port, "type_chat", text=password, send=False)
-    return result(port, attempt(port, leave=()), "the server refused the login")
+    g = attempt(port, leave=())
+    if g is None and not accepted:
+        accept_terms(port)
+        return login(port, user, password, True)
+    return result(port, g, "the server refused the login")
 
 
 def token(port):
     s = wait(port, ("LOGIN_SCREEN", "LOGGED_IN"))
     if s["gameState"] == "LOGGED_IN":
         return inventory(port)
-    return result(port, attempt(port), "the server refused the token")   # the session's login page: Enter plays; the client fetches its token from param 11
+    g = attempt(port)   # the session's login page: Enter plays; the client fetches its token from param 11
+    if g is None:
+        accept_terms(port)
+        g = attempt(port)
+    return result(port, g, "the server refused the token")
 
 
 def result(port, g, refused):

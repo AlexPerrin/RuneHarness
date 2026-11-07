@@ -2,6 +2,8 @@
 slug: filestore-cs2-group-name-hash
 track: filestore
 priority: P2
+deps:
+- h-filestore-build
 ---
 # FileStore: name each packed clientscript group in the cache reference table (moved from OpenRune-Server #448)
 

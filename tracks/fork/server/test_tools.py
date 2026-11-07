@@ -770,10 +770,26 @@ class DesktopLogin(unittest.TestCase):
         s.assertEqual(d.call(srv.server_address[1], "press_key", key="ENTER"), "{}")
         s.assertEqual(got, ["press_key"])   # sent once, answered in its turn, never given up on
 
+    def test_a_fresh_homes_terms_page_is_accepted_only_after_enter_did_nothing(s):  # a rebuilt template: no key leaves it, and the spot is New User on the welcome page
+        import desktop_login as d
+        calls, on_terms = [], [True]
+        def call(port, name, **a):
+            calls.append((name, a))
+            if name == "click" and a["y"] == d.ACCEPT_Y: on_terms[0] = False
+            if name == "get_client_state":
+                return json.dumps({"gameState": "LOGIN_SCREEN" if on_terms[0] or not any(c[0] == "press_key" and c[1]["key"] == "ENTER" for c in calls[-3:]) else "LOGGED_IN", "canvasWidth": 765})
+            return "[]"
+        s.addCleanup(setattr, d, "call", d.call); s.addCleanup(setattr, d, "inventory", d.inventory); s.addCleanup(setattr, d.time, "sleep", d.time.sleep)
+        d.call, d.inventory, d.time.sleep = call, lambda p: "LOGGED_IN", lambda _: None
+        s.assertEqual(d.login(1, "u", "p"), "LOGGED_IN")
+        clicks = [i for i, c in enumerate(calls) if c[0] == "click"]
+        s.assertEqual([calls[i][1] for i in clicks], [{"x": 302, "y": 311}])
+        s.assertTrue(any(c[0] == "press_key" and c[1]["key"] == "ENTER" for c in calls[:clicks[0]]))   # Enter first: never on the welcome page
+
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever
         d, sent = s.fake(["LOGIN_SCREEN"])   # Enter, Enter after Escape and Enter after Try again start no attempt
         s.assertTrue(d.token(1).startswith("FAILED: Enter started no login"))
-        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER", (502, d.TRY_AGAIN_Y), "ENTER"])   # Try again centred on the canvas
+        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER", (502, d.TRY_AGAIN_Y), "ENTER", (422, d.ACCEPT_Y), "ENTER", "ESCAPE", "ENTER", (502, d.TRY_AGAIN_Y), "ENTER"])   # Try again centred on the canvas
         d, sent = s.fake(["LOGIN_SCREEN"] * (1 + d.FRAMES + 2 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # Escape left the response page: the Play page's Enter logs in
         s.assertEqual(d.token(1), "LOGGED_IN")
         d, sent = s.fake(["LOGIN_SCREEN"] * (1 + 2 * (d.FRAMES + 2) + 1 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # fault 62: Escape did not leave 'Incorrect username or password', Try again did

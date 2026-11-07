@@ -326,7 +326,7 @@ live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
   devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
   desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
-  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)"); echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
+  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)") || true; echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
   [[ $login_live == *LOGGED_IN* ]] || return 1
   trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }

@@ -372,7 +372,7 @@ def candidate(repo, base, heads) -> (tree, tcommit):
     """Fold `git merge-tree --write-tree` over base, each dependency head (closure, deps first) and the head; then
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's date, so the same inputs give the same commit
     and the fork CI's child commit keeps its result. A conflict raises Conflict(files): the dev's step.
-    A Central or FileStore dependency adds no commit: its candidate is built in as a Gradle composite (§11) and
+    A Central or FileStore dependency adds no commit: its candidate is built in (§11) and
     joins the key as _c<tree12> / _f<tree12> (decide.built: the T of the jobs and the image or:<T>)."""
 
 def key(C, ch, kind, submission) -> str:
@@ -576,7 +576,7 @@ flowchart LR
   end
   FORK["OpenRune-Server<br/>gradle/libs.versions.toml"] -->|"or2 = x.y.z"| FS
   FORK -->|"openruneCentral = x.y.z"| CE
-  FSD["filestore change dev/slug"] -. "composite build: substitute dev.or2:* → project" .-> FORK
+  FSD["filestore change dev/slug"] -. "published Maven directory: dev.or2:* resolved from it alone" .-> FORK
   CED["central change dev/slug"] -. "composite build: openrune.central.includeBuild" .-> FORK
   FSD -->|"PR after the yes"| FSU["OpenRune/OpenRune-FileStore main → release"]
   CED -->|"PR after the yes"| CEU["OpenRune/OpenRune-Central-Server main → release"]
@@ -589,11 +589,12 @@ flowchart LR
   it in `deps`; `hd submit` records the library head and tree in `submission.composite_json`, the job env carries
   `CENTRAL=<clone>:<head>` / `FILESTORE=<clone>:<head>`, the fork build includes that tree (Central through
   `build/central.init.gradle`, substituting the three artefacts explicitly; FileStore through
-  `build/filestore.init.gradle`, whose included build substitutes every `dev.or2` module by name, transitively
-  through the `all` POM), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
+  `build/filestore.init.gradle`: the head is not included (its Gradle 7 build and its `filestore` project clash with the
+  fork's type-safe accessors) but published by `tracks/filestore/track.sh publish` to a Maven directory, from which alone
+  every `dev.or2` module it holds resolves, the `all` POM included), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
   the composite, so a library change is live on the test server with the first server tree built on it.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
-  Gradle home), `test`, `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
+  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits

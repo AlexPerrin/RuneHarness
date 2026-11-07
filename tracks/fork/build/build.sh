@@ -46,11 +46,12 @@ tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the work
 composite_suffix() {  # the image of a composite build is its own: _c<central tree12>, _f<filestore tree12> (decide.built; docker refuses '+' in a tag)
   local p c; for v in CENTRAL FILESTORE; do [ -n "${!v:-}" ] || continue; IFS=: read -r p c <<< "${!v}"; printf '_%s%s' "${v:0:1}" "$(git -C "$p" rev-parse "$c^{tree}" | cut -c1-12)" | tr CF cf; done; echo
 }
-filestore() {  # the change's FileStore dependency, built in (build/filestore.init.gradle): fdir and fvols for build and tests
+filestore() {  # the change's FileStore head, published by its own track to a Maven directory (Gradle 9 cannot configure its build, nor include it):
+  # every dev.or2 module it holds resolves from there alone (build/filestore.init.gradle); fdir (that directory) and fvols for build and tests
   fdir= fvols=(); [ -n "${FILESTORE:-}" ] || return 0
-  IFS=: read -r fpath fcommit <<< "$FILESTORE"; fdir=$fpath/.worktrees/$slug-filestore
-  if [ -d "$fdir" ]; then git -C "$fdir" reset -q --hard "$fcommit" && git -C "$fdir" clean -fdq; else git -C "$fpath" worktree add -q --detach "$fdir" "$fcommit"; fi; $hd own worktree "$fdir" "$slug"
-  fvols=(-v "$fpath/.git:$fpath/.git:ro" -v "$fdir:$fdir" -v "$self/filestore.init.gradle:/filestore.init.gradle:ro")
+  IFS=: read -r fpath fcommit <<< "$FILESTORE"; fdir=$fpath/.worktrees/$slug-filestore/.m2
+  TCOMMIT=$fcommit HD_REPO=$fpath HD_KEY= bash "$self/../../filestore/track.sh" publish "$slug" "$fcommit"
+  fvols=(-v "$fdir:$fdir:ro" -v "$self/filestore.init.gradle:/filestore.init.gradle:ro")
 }
 central() {  # the change's Central dependencies, merged by hd, built in (gate/central.init.gradle): cdir and cvols for build and tests
   cdir= cvols=(); [ -n "${CENTRAL:-}" ] || return 0
@@ -72,7 +73,8 @@ build_locked() {
   ck=$(git -C "$copy" ls-tree -r "$tc" | grep -E 'or-cache/|/pack/|gamevals|raw-cache' | sha1sum | cut -c1-12)   # the cache's inputs
   gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12 || true)   # the game data's: the revision (game.example.yml), as the gate's release asset
   cs=or-cache-store-${gk:-none}; $hd own volume "$cs" "$slug@$T"   # one store per revision, kept while a head builds from it
-  central; filestore; vols=(-v gradle:/gradle -v "$cs:/store" "${cvols[@]}" "${fvols[@]}")   # one Gradle home for every slug: its caches are content-addressed
+  central; filestore >> "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "FileStore publish"; return 1; }
+  vols=(-v gradle:/gradle -v "$cs:/store" "${cvols[@]}" "${fvols[@]}")   # one Gradle home for every slug: its caches are content-addressed
   docker run --rm "${vols[@]}" eclipse-temurin:21 chown 1000:1000 /gradle /store   # docker makes a new volume root's; the build runs as 1000
   gd=$state/.game-data-$gk.tgz; rm -f "$gd"   # the revision missing from the store: the gate's release asset of it (seeded from an image), so a build needs openrs2 only for a revision no image holds yet
   if [ -n "$gk" ] && ! docker run --rm -v "$cs:/store" eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then

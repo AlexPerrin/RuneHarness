@@ -1,6 +1,12 @@
-// A server build with FILESTORE (tracks/fork/track.sh build): every dev.or2 FileStore module (filesystem, definition, opcode,
-// filestore, tools, …) is the FileStore tree's at $FDIR; each project is named as its artefact, so the included build
-// substitutes them, transitively through the dev.or2:all aggregate POM.
+// A server build with FILESTORE (tracks/fork/build/build.sh): $FDIR is the FileStore head published as a Maven directory
+// (tracks/filestore/track.sh publish); every dev.or2 module it holds (the all POM, filestore, definition, tools, …)
+// resolves from it alone, never from upstream's hosting, so the pinned or2 version is the head's.
 settingsEvaluated { settings ->
-    settings.includeBuild(System.getenv('FDIR'))
+    def repo = new File(System.getenv('FDIR'))
+    settings.dependencyResolutionManagement.repositories {
+        exclusiveContent {
+            forRepository { maven { url = repo.toURI() } }
+            filter { new File(repo, 'dev/or2').eachDir { includeModule('dev.or2', it.name) } }
+        }
+    }
 }

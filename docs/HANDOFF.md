@@ -1,18 +1,19 @@
 # Hand-off to the v9 harness dev
 
-Current state as of 2026-11-07 19:45 UTC. The goal: a harness implemented and tested end to end against the workflow,
+Current state as of 2026-11-07 21:55 UTC. The goal: a harness implemented and tested end to end against the workflow,
 with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
 ## Do first
 
-1. **Question 8 on `server-reconnect` is the user's.** `mobile-10` needs a mobile on a stack carrying the head, a mobile reaches only
-   live, and a head reaches live only after a passing verdict, so `not-judged` fails every round. The proof was added to
-   `h-mobile-login-page-9`, judged after the deploy; answer `a` waives it here. `stays-mobile` on `live-session-drops-after-login`
-   has the same trap. Root cause open: no criterion can say it is proved after the deploy.
-2. **Watch run 163** (`client-host-raw-gamestate`), the successor of wedged run 159; `h-mobile-login-start-error` and
-   `client-probe-no-stop` follow it. Run 159's emulator on port 5560 was left running.
-3. **Check the orchestrator supervises.** Session 18 started 17:19 UTC on the new definition (521aa15) and has been tested on
-   no real case. Read what it does with brief 162, brief 156 and the open alerts (38, 41, 44, 45, 46, 48).
+1. **The mobile proofs wait on a maintainer merge.** `server-reconnect` passed qa (run 184) and is live since 21:01 UTC;
+   its upstream PR is card 10, the user's. `h-mobile-login-page-9` (harness) holds the live proofs `mobile-10`,
+   `stays-mobile` and `desktop-10` and depends on `server-reconnect`, but a fork dep counts for a harness change only once
+   landed on upstream main (`done()`); only a client change counts its server deps once live (cc8dbc0). So the proofs that
+   need nothing but live wait on card 10 and a maintainer. Root cause open, the user's design choice: no criterion or dep
+   can say "proved once live".
+2. **Watch run 187** (`client-host-raw-gamestate`, started 21:50 UTC on live with both server fixes);
+   `h-mobile-login-start-error` follows it.
+3. **Watch run 188** (`h-merge-conflict-retry`, filed from alert 45): a staging conflict is retried when staging moves.
 
 ## Where things are
 
@@ -32,7 +33,8 @@ with the PRD validated. Check every fact here against `hd` and the ledger before
 
 ## The test server
 
-Live is `9bb231f632e1_cc6e461efc74e` (staging, deployed 07:39 UTC), ports 43594 and the sidecars issuer, http and http-desktop.
+Live is `3b74775d88e7_cc6e461efc74e` (staging, deployed 21:01 UTC: `server-reconnect` and `live-session-drops-after-login`
+on it), ports 43594 and the sidecars issuer, http and http-desktop.
 The cutover's part 1 is done: the key pair and `tree.json` are in `state/live/`, and `server-token-auth`, `local-android-rsprot-token-gjstr`
 and `local-cs2-group-names` are live. `state/live/` here is what the running stack uses.
 
@@ -44,9 +46,9 @@ and `local-cs2-group-names` are live. `state/live/` here is what the running sta
 |---|---|---|
 | "the app died" 16 s after start | 15 clientscript groups with name hash 0: the app's by-name read of `version.dat` reads null | fixed, live: `local-cs2-group-names`. Dropped by the cutover when the server version moved to FileStore; drop this carry when `filestore-cs2-group-name-hash` lands |
 | unknown window: the launcher | the process runs before its window takes focus | fixed, 59f25f6 |
-| LoginIndex 9 | the connection drops as a first LOADING ends, the client reconnects, `ConnectionHandler.onReconnect` is a TODO answering ConnectFail (run 155, its own finding, unverified) | `server-reconnect` submitted abb8662, gate failed on the old token (step 1) |
+| LoginIndex 9 | the connection drops as a first LOADING ends, the client reconnects, `ConnectionHandler.onReconnect` is a TODO answering ConnectFail (run 155, its own finding, unverified) | `server-reconnect` qa PASS at d0ae1c1, live since 21:01 UTC, not yet measured on a start; card 10 |
 | LoginIndex 39 | the client's error page, default text "Connection failed during login request"; run 154: the issuer closing after the body | 40e9fe3 live on the issuer since 17:49 UTC, not yet measured on a start. All issuer requests logged 200 on the failure |
-| the start error page (raw game state 1000, logged as UNKNOWN) | filed by run 157 | `client-host-raw-gamestate` (listed; run 159 wedged and was stopped), then `h-mobile-login-start-error` (submitted 7303903, dep) |
+| the start error page (raw game state 1000, logged as UNKNOWN) | filed by run 157 | `client-host-raw-gamestate` (run 187), then `h-mobile-login-start-error` (submitted 7303903, dep) |
 | measure: "System UI isn't responding" | not traced; it dialogs on the mobile as an unknown window | open |
 | three of my starts ended at 222 s with no result | not traced | open |
 
@@ -64,7 +66,7 @@ on a throwaway account (client text "locked due to suspicious activity"), unconf
   `filestore-cs2-group-name-hash`) waits on token login.
 - `server-token-auth` is live on staging; its upstream path waits on `central-token-login-op` landing on main (card 4 held).
 - **Priority** (the user): client first with the server work it needs, then overlapping upstream work, then content for its
-  own sake (17 quest changes held at P4). Agents limited to 5.
+  own sake (14 open quest changes, each a 1:1 audit of a quest upstream already has, held by `hold: P2`). Agents limited to 5.
 
 ## ACCEPTANCE
 
@@ -126,7 +128,9 @@ At the user's desk, on their word, once Android logs in reliably: the session's 
 
 ## Awaiting the user
 
-questions 7 and 8; card 9 (`goblin-367-rsprox-dump`, #367); Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; PRs AlexPerrin/pr-lab#3 and #4 (open lab PRs, merge or close: the changes `lab-publish-resume` and `lab-publish-resume-2` wait on them).
+card 10 (`server-reconnect`, new PR); card 9 (`goblin-367-rsprox-dump`, #367); question 10 (`central-game-session`: add
+`central-rights-test-mod` as a dep); Hunter #408 question 4; the triage of comments on #354 and #367; the Central and
+social holds; the `hd park` proposal; the design choice in "Do first" 1.
 
 ## Known gaps
 

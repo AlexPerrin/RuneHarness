@@ -3,6 +3,7 @@ slug: live-session-drops-after-login
 track: fork
 priority: P1
 deps:
+- h-fork-up-login-page
 - server-reconnect
 ---
 # The live server drops every session seconds after login (mobile on LoginIndex 9, desktop logged out), so no client probe completes

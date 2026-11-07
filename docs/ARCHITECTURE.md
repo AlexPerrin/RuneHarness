@@ -279,7 +279,7 @@ GUARDS = [
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
-                       # or a build/gate/ship job ok 0 at the candidate, or a merge conflict / CI failure / missing text
+                       # or a build/gate/ship job ok 0 at the candidate, or a merge conflict at the staging tip / CI failure / missing text
                        # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
                        # deps that have landed, for a client change its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict older than a dep's landing goes to judge_due first
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
@@ -397,7 +397,8 @@ def stage(db, ch, T, head):
     """In <fork>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
     merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
     is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
-    merge --abort and event('merge-conflict', '<head7> <files>'), which dev_due reads. The pass then lists one deploy
+    merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
+    that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
     live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
 

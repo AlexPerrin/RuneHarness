@@ -132,8 +132,8 @@ def candidate(path, base: str, heads: list) -> tuple:
 
 def stage(db, ch, T, head: str) -> None:
     """Merge a checked head into the track's staging (worktree <repo>/.worktrees/staging, created from base plus the track's pins
-    once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <files>'), the dev's step
-    (dev_due); a pin that no longer merges → alert('pin-conflict'). A pin `{branch: slug}` is the one that change
+    once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), the dev's
+    step (dev_due) while staging stays at that tip; a pin that no longer merges → alert('pin-conflict'). A pin `{branch: slug}` is the one that change
     supersedes: its merge is reverted out of staging before that change's head merges."""
     wt = os.path.join(T.path, ".worktrees", "staging")
     if not os.path.isdir(wt):
@@ -163,7 +163,7 @@ def stage(db, ch, T, head: str) -> None:
     if r.returncode:
         files = " ".join(l.split()[-1] for l in r.stdout.splitlines() if l.startswith("CONFLICT"))
         git(wt, "merge", "--abort", check=False)
-        event(db, "merge-conflict", ch.slug, None, f"{head[:7]} {files}")
+        event(db, "merge-conflict", ch.slug, None, f"{head[:7]} {git(wt, 'rev-parse', '--short=7', 'HEAD')} {files}")
         return
     git(wt, "push", "-q", T.remote, "staging")
     event(db, "merged", ch.slug, None, f"{head[:7]} into staging {git(wt, 'rev-parse', '--short', 'HEAD')}")

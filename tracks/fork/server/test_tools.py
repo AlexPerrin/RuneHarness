@@ -1049,7 +1049,7 @@ mkdir -p {copy}/mod/build/test-results/test; echo '<testsuite name="ATest" tests
         # a fake gradle in docker: spotlessCheck of a module whose file holds the double space fails, as the ratchet does on a touched file;
         # the slug was never built: its volume is docker's new root-owned one until the verb chowns it to the run's user
         (root / "bin/docker").write_text(f"""#!/bin/bash
-case " $* " in *" -v gradle:/gradle "*" chown 1000:1000 /gradle "*) touch {root}/owned; exit 0 ;; esac
+case " $* " in *" -v gradle-"?":/gradle "*" chown 1000:1000 /gradle "*) touch {root}/owned; exit 0 ;; esac
 [ -e {root}/owned ] || {{ echo "/gradle: Permission denied"; exit 1; }}
 while [ "$1" != _ ]; do shift; done; shift; echo "$@" > {root}/tasks
 for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 2>/dev/null || {{ echo "> Task :$m:spotlessCheck FAILED: format violations"; exit 1; }}; done

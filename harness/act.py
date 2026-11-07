@@ -329,6 +329,11 @@ def release(db, kind, key) -> bool:
     idempotent; its rows go once its absence is observed, else they stay and the next pass releases it again."""
     if kind == "worktree" and os.path.isdir(key):
         common = subprocess.run(["git", "-C", key, "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
+        name = os.path.basename(key)
+        diff = subprocess.run(["git", "-C", key, "diff", "HEAD", "--", ".", ":!.data"], capture_output=True, text=True).stdout
+        if diff and not name.endswith("-build"):   # a dev clone's uncommitted work outlives it (a build copy holds none)
+            os.makedirs(os.path.join(ROOT, "evidence", name), exist_ok=True)
+            open(os.path.join(ROOT, "evidence", name, "clone.diff"), "w").write(diff)
         if common:
             subprocess.run(["git", "--git-dir", common, "worktree", "remove", "--force", "--force", key], capture_output=True)
         shutil.rmtree(key, ignore_errors=True)

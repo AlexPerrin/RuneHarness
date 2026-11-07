@@ -22,7 +22,7 @@ slot() {  # slot <command...>: the command under one of the HD_BUILDS build slot
   local n=${HD_BUILDS:-3} i fd rc; mkdir -p "$root/state"
   for i in $(seq 1 "$n") 1; do exec {fd}> "$root/state/build.$i.lock"
     if [ "$i" = 1 ] && [ -n "${tried:-}" ]; then flock "$fd"; else flock -n "$fd" || { exec {fd}>&-; tried=1; continue; }; fi
-    "$@"; rc=$?; exec {fd}>&-; return $rc
+    "${@//@SLOT@/$i}"; rc=$?; exec {fd}>&-; return $rc
   done
 }
 fault='cannot allocate memory|no space left on device|Cannot connect to the Docker daemon|error during connect|is already in use by container'   # the host refusing the step (memory, disk, the daemon, a container left by a killed run), never the tree
@@ -74,8 +74,9 @@ build_locked() {
   gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12 || true)   # the game data's: the revision (game.example.yml), as the gate's release asset
   cs=or-cache-store-${gk:-none}; $hd own volume "$cs" "$slug@$T"   # one store per revision, kept while a head builds from it
   central; filestore >> "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "FileStore publish"; return 1; }
-  vols=(-v gradle:/gradle -v "$cs:/store" "${cvols[@]}" "${fvols[@]}")   # one Gradle home for every slug: its caches are content-addressed
-  docker run --rm "${vols[@]}" eclipse-temurin:21 chown 1000:1000 /gradle /store   # docker makes a new volume root's; the build runs as 1000
+  vols=(-v "gradle-@SLOT@:/gradle" -v "$cs:/store" "${cvols[@]}" "${fvols[@]}")   # one Gradle home per build slot: shared across slugs, one writer each (Gradle's locks do not reach across containers)
+  local i; for i in $(seq 1 "${HD_BUILDS:-3}"); do docker run --rm -v "gradle-$i:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle; done
+  docker run --rm -v "$cs:/store" eclipse-temurin:21 chown 1000:1000 /store   # docker makes a new volume root's; the build runs as 1000
   gd=$state/.game-data-$gk.tgz; rm -f "$gd"   # the revision missing from the store: the gate's release asset of it (seeded from an image), so a build needs openrs2 only for a revision no image holds yet
   if [ -n "$gk" ] && ! docker run --rm -v "$cs:/store" eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
     R=$(git -C "$repo" remote get-url fork 2>/dev/null | sed -E 's#.*github.com[:/]##; s#\.git$##' || true)

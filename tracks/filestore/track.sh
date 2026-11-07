@@ -26,15 +26,15 @@ slot() {  # slot <command...>: the command under one of the HD_BUILDS build slot
   local n=${HD_BUILDS:-3} i fd rc tried=; mkdir -p "$root/state"
   for i in $(seq 1 "$n") 1; do exec {fd}> "$root/state/build.$i.lock"
     if [ "$i" = 1 ] && [ -n "$tried" ]; then flock "$fd"; else flock -n "$fd" || { exec {fd}>&-; tried=1; continue; }; fi
-    "$@"; rc=$?; exec {fd}>&-; return $rc
+    "${@//@SLOT@/$i}"; rc=$?; exec {fd}>&-; return $rc
   done
 }
-gradle() {  # gradle <tasks...>: in the build copy, in a container, the one Gradle home every slug shares (content-addressed);
+gradle() {  # gradle <tasks...>: in the build copy, in a container, the build slot's Gradle home;
   # JDK 17: the head's own wrapper (Gradle 7.4.2) runs on none newer; gradlew is committed 100644, so bash runs it;
   # the build script resolves HOSTING_DIRECTORY (the publish target) at configuration, its default a Windows path no URI takes
-  docker run --rm -v gradle:/gradle eclipse-temurin:21 chown 1000:1000 /gradle
+  local i; for i in $(seq 1 "${HD_BUILDS:-3}"); do docker run --rm -v "gradle-$i:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle; done
   slot docker run --rm --init "${size[@]}" --name "filestore-$slug-$$" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle \
-    -e HOSTING_DIRECTORY="${HOSTING_DIRECTORY:-$copy/.m2}" -v gradle:/gradle -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
+    -e HOSTING_DIRECTORY="${HOSTING_DIRECTORY:-$copy/.m2}" -v "gradle-@SLOT@:/gradle" -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
     eclipse-temurin:17 bash ./gradlew --console=plain --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m "$@"
 }
 checkout() {  # the build copy at the candidate commit

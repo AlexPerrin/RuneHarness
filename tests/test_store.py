@@ -36,7 +36,9 @@ class Store(unittest.TestCase):
 
     def test_the_same_head_with_a_new_candidate_replaces_its_submission(self):   # a dep's head moved: the candidate follows
         self.assertTrue(store.submit(self.db, "c", "h1", "t1", "c1", None, None))
+        self.db.execute("UPDATE submission SET at='old'")
         self.assertFalse(store.submit(self.db, "c", "h1", "t1", "c1", None, None))
+        self.assertNotEqual(self.db.execute("SELECT at FROM submission").fetchone()[0], "old")   # criteria added before it no longer park the change
         self.assertTrue(store.submit(self.db, "c", "h1", "t2", "c2", None, None))
         rows = self.db.execute("SELECT tree, tcommit FROM submission WHERE change='c'").fetchall()
         self.assertEqual([(r["tree"], r["tcommit"]) for r in rows], [("t2", "c2")])

@@ -1,4 +1,5 @@
 """act's dispatch over a temporary ledger: every Step kind the pass lists is acted on (the publish job once was not)."""
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -43,6 +44,19 @@ class Act(unittest.TestCase):
         self.assertEqual(act.tick(store.DB, offline=True), [])
         a = store.connect(store.DB).execute("SELECT kind, subject, detail FROM alert").fetchone()
         self.assertEqual((a["kind"], a["subject"]), ("fault", "pass")); self.assertIn("ValueError", a["detail"])
+
+    def test_a_released_clone_leaves_its_uncommitted_work_as_evidence(self):
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        self.addCleanup(setattr, act, "ROOT", act.ROOT); act.ROOT = d.name
+        db = store.connect(str(Path(d.name) / "hd.db"))
+        repo = Path(d.name, "r"); wt = repo / ".worktrees" / "s"
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True, capture_output=True)
+        repo.mkdir(); g("init", "-q"); (repo / "f").write_text("a\n"); g("add", "-A"); g("commit", "-qm", "c"); g("worktree", "add", "-q", "--detach", str(wt))
+        (wt / "f").write_text("b\n")
+        store.own(db, "worktree", str(wt), "s")
+        act.release(db, "worktree", str(wt))
+        self.assertFalse(wt.exists())
+        self.assertIn("+b", Path(d.name, "evidence/s/clone.diff").read_text())
 
 
 if __name__ == "__main__":

@@ -97,7 +97,7 @@ marked() { "$desk/jdk/bin/jps.exe" -v | tr -d '\r' | awk -v m="-Dosrstest.marker
 # nothing without it is ever stopped (the user's own RuneLite). down stops and removes the instances its slug owns.
 desktop_start() {  # sets inst dt (desktopN, its devtools port)
   local i d dp w t l o busy ex base ep p b pid
-  need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/netsh.exe" WINDOWS_SYSTEM32; need "$sys32/robocopy.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; need "$desk/jdk/bin/java.exe" DESKTOP_DIR; need "$desk/jdk/bin/jps.exe" DESKTOP_DIR; [ -f "$desk/home/.rlcustom/settings.properties" ] || { echo "no staged home in $desk/home" >&2; return 1; }
+  need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/netsh.exe" WINDOWS_SYSTEM32; need "$sys32/robocopy.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; [ -x "$desk/jdk/bin/java.exe" ] || "$self/server/desktop_template.sh" "$desk" >&2; need "$desk/jdk/bin/java.exe" DESKTOP_DIR; need "$desk/jdk/bin/jps.exe" DESKTOP_DIR; [ -f "$desk/home/.rlcustom/settings.properties" ] || { echo "no staged home in $desk/home" >&2; return 1; }
   mkdir -p "$desk/run"; until busy=$(tcp); do sleep 1; done; busy=$(cut -d' ' -f1 <<< "$busy")
   until ex=$(timeout 20 "$sys32/netsh.exe" interface ipv4 show excludedportrange protocol=tcp); do sleep 1; done
   base=$({ cat /proc/sys/net/ipv4/ip_local_port_range; tr -d '\r' <<< "$ex" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {print $1, $2}'; } | skip_base) || { echo "no RSProx ports outside the reserved ranges" >&2; return 1; }
@@ -111,7 +111,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   done
   # the disk cache is the one the server serves: a login then fetches no group over JS5, which its interfaces' onLoad scripts would run before
   mkdir -p "$d/home/.rlcustom/jagexcache/oldschool/LIVE" && docker exec "${srv:-server-$slug}" tar -c -C /app/.data/cache/LIVE . | tar -x -C "$d/home/.rlcustom/jagexcache/oldschool/LIVE"   # docker cp fails writing the dat2 to a Windows drive in one piece
-  sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties "$d"/home/.rlcustom/profiles2/*.properties
+  sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties $(ls "$d"/home/.rlcustom/profiles2/*.properties 2>/dev/null)   # a fresh template has no profile yet: RuneLite imports settings.properties
   mkdir -p "$d/home/.rlcustom/sideloaded-plugins" && cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"
   for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start
   ep=http://127.0.0.1:$http   # OPENRUNE_ENDPOINT: the launcher takes jav_config from it alone, and jav_config names every other endpoint

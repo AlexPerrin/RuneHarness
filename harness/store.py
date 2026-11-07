@@ -175,7 +175,8 @@ def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
     """Record a head's candidate; the same head submitted again with another candidate (a dep's head moved, the base
     moved under it) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
     old = db.execute("SELECT tree FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
-    if old and old["tree"] == tree:
+    if old and old["tree"] == tree:   # the dev stands by this head: criteria added since are for this submission to answer
+        db.execute("UPDATE submission SET at=?, run=coalesce(?, run) WHERE change=? AND head=?", (now(), run, slug, head))
         return False
     db.execute("""INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at) VALUES (?,?,?,?,?,?,?)
                   ON CONFLICT(change, head) DO UPDATE SET tree=excluded.tree, tcommit=excluded.tcommit,

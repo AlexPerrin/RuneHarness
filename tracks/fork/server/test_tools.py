@@ -368,7 +368,7 @@ class DesktopInstance(unittest.TestCase):
         (d / "home/.rlcustom/jagexcache/oldschool/LIVE").mkdir(parents=True); (d / "home/.rlcustom/jagexcache/oldschool/LIVE/main_file_cache.dat2").write_text("template")
         (d / "home/.rlcustom/settings.properties").write_text("a=1\n"); (d / "home/.rlcustom/profiles2/p.properties").write_text("openrunedevtools.port=7780\n")
         exe(d / "jdk/bin/java.exe", f'echo "$$ OsrsTestLauncher $*" > {t}/win/$$.jvm; echo "$JAVA_TOOL_OPTIONS" > {t}/win/$$.opts; echo $((7779 + ${{1##*run}})) > {t}/win/$$.port; pwd > {t}/win/$$.dir; mkdir held; touch held/f; chmod 555 held; exec sleep 30\n')   # a live JVM holds its files
-        exe(d / "jdk/bin/javac.exe", f'echo "$*" >> {t}/javac; touch "${{5//\\\\//}}/OsrsTestLauncher.class"\n')
+        exe(d / "jdk/bin/javac.exe", f'echo "$*" >> {t}/javac; while [ "$1" != -d ]; do shift; done; touch "${{2//\\\\//}}/OsrsTestLauncher.class"\n')
         exe(d / "jdk/bin/jar.exe", f'echo "$*" >> {t}/jar; touch "${{2//\\\\//}}"\n')
         exe(d / "jdk/bin/jps.exe", f'for f in {t}/win/*.jvm; do [ -e "$f" ] || continue; if [ -e "${{f%.jvm}}.flaky" ]; then rm "${{f%.jvm}}.flaky"; echo "${{f##*/}} -- process information unavailable"; else cat "$f"; fi; done\n')
         (t / "devtools.jar").write_text("jar")
@@ -577,7 +577,30 @@ class OwnProcesses(unittest.TestCase):
         s.assertEqual([str(f) for f in HERE.parent.glob("**/test_*.py") if kill.search(f.read_text())], [])
 
 
+def owner_jar(t):  # t/o.jar: server/DevtoolsOwner.java built as track.sh desktop_start builds it
+    (t / "c").mkdir(exist_ok=True)
+    subprocess.run(["javac", "-nowarn", "--add-exports", "jdk.httpserver/sun.net.httpserver=ALL-UNNAMED", "--add-exports", "java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED", "-d", str(t / "c"), str(HERE / "DevtoolsOwner.java")], check=True)
+    (t / "m").write_text("Premain-Class: DevtoolsOwner\nCan-Retransform-Classes: true\n"); subprocess.run(["jar", "cfm", str(t / "o.jar"), str(t / "m"), "-C", str(t / "c"), "."], check=True)
+
+
 class DevtoolsOwner(unittest.TestCase):
+    def test_a_desktop_opens_no_url(s):  # runs 123 and 144: Recover Account on a locked account's page opened secure.runescape.com in the user's browser
+        t = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, t, True); (t / "app").mkdir(); owner_jar(t)
+        (t / "Open.java").write_text("""import java.awt.Desktop; import java.io.*; import java.lang.reflect.Field; import java.net.URI;
+public class Open { public static void main(String[] a) throws Exception {   // as the game client and LinkBrowser hand a URL to the OS
+  Field f = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe"); f.setAccessible(true);
+  Desktop d = (Desktop) ((sun.misc.Unsafe) f.get(null)).allocateInstance(Desktop.class);   // a headless JVM has no Desktop to get
+  d.browse(new URI("https://secure.runescape.com/m=account-appeals/")); d.mail(); d.open(new File("page.html"));
+  try { Runtime.getRuntime().exec(new String[] {"xdg-open", "https://secure.runescape.com/m=weblogin/"}); System.out.println("started"); } catch (IOException e) { System.out.println("no process: " + e.getMessage()); }
+  System.out.println("exit " + new ProcessBuilder("sh", "-c", "exit 4").start().waitFor()); } }""")
+        subprocess.run(["javac", "-d", str(t / "app"), str(t / "Open.java")], check=True, stderr=subprocess.DEVNULL)
+        r = subprocess.run(["java", "-cp", str(t / "app"), "Open"], capture_output=True, text=True, timeout=60, env={**os.environ, "JAVA_TOOL_OPTIONS": f"-javaagent:{t / 'o.jar'}"})
+        s.assertEqual(r.stdout.splitlines(), ["[osrs-test] refused URL: https://secure.runescape.com/m=account-appeals/", "[osrs-test] refused URL: mailto:",
+            "[osrs-test] refused URL: page.html", "[osrs-test] refused URL: xdg-open https://secure.runescape.com/m=weblogin/", "no process: a test desktop opens no URL", "exit 4"], r.stderr)   # a command with no URL still runs
+        r = subprocess.run(["java", "-cp", str(t / "app"), "Open"], capture_output=True, text=True, timeout=60, env={**os.environ, "JAVA_TOOL_OPTIONS": f"-javaagent:{t / 'o.jar'} -Dosrstest.refusals={t / 'refused.log'}"})
+        s.assertEqual((t / "refused.log").read_text().splitlines()[0], "[osrs-test] refused URL: https://secure.runescape.com/m=account-appeals/")   # track.sh's log: the client JVM's stdout reaches no log
+        s.assertEqual(r.stdout.splitlines(), ["no process: a test desktop opens no URL", "exit 4"], r.stderr)
+
     def test_the_endpoint_answers_only_its_ups_token(s):  # sweep-43: a run's helper with a default port drove another run's desktop on 7780
         import socket, urllib.error, urllib.request
         t = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, t, True); (t / "c").mkdir(); (t / "app").mkdir()
@@ -586,9 +609,8 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
   for (String p : a) { HttpServer s = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), Integer.parseInt(p)), 0);
     s.createContext("/mcp", x -> { byte[] b = "{}".getBytes(); x.sendResponseHeaders(200, b.length); x.getResponseBody().write(b); x.close(); }); s.start(); }
   System.out.println("up"); System.out.flush(); Thread.sleep(60000); System.exit(0); } }""")
-        subprocess.run(["javac", "-nowarn", "--add-exports", "jdk.httpserver/sun.net.httpserver=ALL-UNNAMED", "-d", str(t / "c"), str(HERE / "DevtoolsOwner.java")], check=True)
+        owner_jar(t)
         subprocess.run(["javac", "-d", str(t / "app"), str(t / "Plug.java")], check=True)
-        (t / "m").write_text("Premain-Class: DevtoolsOwner\n"); subprocess.run(["jar", "cfm", str(t / "o.jar"), str(t / "m"), "-C", str(t / "c"), "."], check=True)
         ports = []
         for _ in range(2):
             with socket.socket() as k: k.bind(("127.0.0.1", 0)); ports.append(k.getsockname()[1])
@@ -621,9 +643,8 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
     catch (InterruptedException e) { n = -1; }
     byte[] r = String.valueOf(n).getBytes(); x.sendResponseHeaders(200, r.length); x.getResponseBody().write(r); x.close(); }); s.start();
   System.out.println("up"); System.out.flush(); Thread.sleep(60000); System.exit(0); } }""")
-        subprocess.run(["javac", "-nowarn", "--add-exports", "jdk.httpserver/sun.net.httpserver=ALL-UNNAMED", "-d", str(t / "c"), str(HERE / "DevtoolsOwner.java")], check=True)
+        owner_jar(t)
         subprocess.run(["javac", "-d", str(t / "app"), str(t / "Plug.java")], check=True)
-        (t / "m").write_text("Premain-Class: DevtoolsOwner\n"); subprocess.run(["jar", "cfm", str(t / "o.jar"), str(t / "m"), "-C", str(t / "c"), "."], check=True)
         with socket.socket() as k: k.bind(("127.0.0.1", 0)); port = k.getsockname()[1]
         opts = f"-javaagent:{t / 'o.jar'} -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools={port}:{t / 'guard'}"
         (t / "guard").write_text("tk")
@@ -649,9 +670,8 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
     if (b.contains("hang")) { System.out.println("hung"); System.out.flush(); x.getResponseHeaders().set("Content-Type", "text/event-stream"); x.sendResponseHeaders(200, 0); while (true) { x.getResponseBody().write(": ping\\n".getBytes()); x.getResponseBody().flush(); try { Thread.sleep(500); } catch (InterruptedException e) { return; } } }
     byte[] r = "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":2,\\"result\\":{}}".getBytes(); x.sendResponseHeaders(200, r.length); x.getResponseBody().write(r); x.close(); }); s.start();
   System.out.println("up"); System.out.flush(); Thread.sleep(120000); System.exit(0); } }""")
-        subprocess.run(["javac", "-nowarn", "--add-exports", "jdk.httpserver/sun.net.httpserver=ALL-UNNAMED", "-d", str(t / "c"), str(HERE / "DevtoolsOwner.java")], check=True)
+        owner_jar(t)
         subprocess.run(["javac", "-d", str(t / "app"), str(t / "Plug.java")], check=True)
-        (t / "m").write_text("Premain-Class: DevtoolsOwner\n"); subprocess.run(["jar", "cfm", str(t / "o.jar"), str(t / "m"), "-C", str(t / "c"), "."], check=True)
         with socket.socket() as k: k.bind(("127.0.0.1", 0)); port = k.getsockname()[1]
         (t / "guard").write_text("")   # as while a stale session's bridge lives: no token
         opts = f"-javaagent:{t / 'o.jar'} -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools={port}:{t / 'guard'}"

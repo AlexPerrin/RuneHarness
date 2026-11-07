@@ -23,7 +23,7 @@
 #   deploy TCOMMIT    staging's tree to the live test server: build, the deploy image with the live stack's key pair (state/live/key, the
 #                     modulus every APK carries) and the issuer's secret, its key checked, boot check, deploy, or roll back; state/live/tree.json
 #                     records the live stack; the job's result by `hd job deploy`
-#   recipe            one version per verb the pass keys a job by (build, gate, deploy): bump a verb's when its output changes
+#   recipe            one version per verb the pass keys a job by (build, gate, deploy): bump a verb's when its output changes; deploy's carries the digest of the files the live stack runs from this checkout
 #   log <slug> PATTERN  the lines of the change's server container matching PATTERN (slug `live`: the live server)
 #   recordings <slug> REGEX  the RSProx transcripts holding a packet type or text (any case: CLANSETTINGS finds clansettings_delta)
 #   transcribe <slug> [ID...]  rewrites those recordings' transcripts (none: every one) with every RSProx filter on (its defaults
@@ -36,7 +36,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-1\n'; exit 0 ;; esac
+case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-1-%s\n' "$(cd "$self/server" && cat issuer.py docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"

@@ -249,6 +249,15 @@ class ShipFailure(unittest.TestCase):
         r = subprocess.run(["bash", "-c", f"set -euo pipefail\n{f}ready c"], capture_output=True, text=True, env={**os.environ, "BIG": "1", "PATH": f"{root}:{os.environ['PATH']}"})
         s.assertEqual((r.returncode, r.stdout), (0, ""))                          # sweep-80 P5-a: logs past 64 KB after the line: grep -q's SIGPIPE read as not ready
 
+    def test_a_file_the_live_stack_runs_from_the_checkout_moves_the_deploy_key(s):  # alert 48: a shipped issuer.py stayed unserved until someone restarted the container
+        recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True).stdout
+        import hashlib
+        files = b"".join((HERE / f).read_bytes() for f in ("issuer.py", "docker-compose.yml", "switch.env", "jav_config.ws.template"))
+        s.assertIn(f"deploy fork-1-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+
+    def test_a_refused_login_holds_the_ci_read(s):  # a cause outside the tree records no result (PRD H3): two heads went back to dev on a 401
+        s.assertIn('""|000|401|5??) sleep 30', SRC)
+
     def test_ship_recreates_the_stack_and_records_its_containers(s):  # harness-live-http-mount: compose restarted the exited http, whose file mount a WSL restart had turned into a directory
         f = SRC.split("\ndeploy() {")[1].split("\n}")[0]
         side, game = f.index("--force-recreate http http-desktop issuer"), f.index("--force-recreate openrune)")

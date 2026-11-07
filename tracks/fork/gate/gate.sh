@@ -186,7 +186,7 @@ else:
 ')
     case $code in 200) etag=$tag runs=$body; return ;; 304) return ;;
       quota) echo "GitHub refused $q on quota: held until its reset $(date -ud "@$reset" +%TZ)"; s=$((reset - $(date +%s))); if [ $s -gt 0 ]; then sleep $s; fi ;;
-      ""|000|5??) sleep 30 ;;   # GitHub did not answer: read again
+      ""|000|401|5??) sleep 30 ;;   # GitHub did not answer, or refused gh's login (the pass alerts it): a cause outside the tree holds the row, read again
       *) echo "$q: HTTP $code"; return 1 ;; esac
   done
 }

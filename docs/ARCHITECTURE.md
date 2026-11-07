@@ -352,7 +352,7 @@ def sessions(db, definition):           # a live session whose pid is gone → c
 def texts(db, slug)                     # evidence/<slug>/pr-title.txt, pr-body.md, pr-comment.md, pr-reply-<id>.md → text rows by sha
 def transport(method, url, data, headers)  # one `gh api -i` call → (status, headers, body); tests replace it
 def gh(db, url) -> dict | list | None:  # GET with If-None-Match from the stored ETag; 304 → stored body (no quota);
-                                        # 200 → UPSERT; quota refused → alert('quota'); None when unknown (the step holds)
+                                        # 200 → UPSERT; quota or the login refused → alert('quota'); None when unknown (the step holds)
 def pr(db, T, ch, ours)                 # the PR's gh row (Ledger.pr reads state, draft, head, title, body, merged_at); issue and
                                         # review comments not by a bot or us → INSERT OR IGNORE finding (+ a triage event);
                                         # merged_at → landed(change, upstream main) (a squash or rebase merge is seen only here)
@@ -377,8 +377,10 @@ def candidate(repo, base, heads) -> (tree, tcommit):
 
 def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
-    `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. A track
-    without a `build` line has no build step. A fixed checker re-runs by `hd regate`, never by a moved key."""
+    `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. The fork's
+    deploy version carries the digest of the files the live stack runs from this checkout (issuer.py, the compose, switch.env,
+    the jav_config template), so a shipped one deploys. A track without a `build` line has no build step. A fixed checker
+    re-runs by `hd regate`, never by a moved key."""
 
 def start(db, step, ch, T):
     """systemd-run --user --scope --unit hd-<slug>-<kind>-<key12> -- tracks/<repo>/track.sh <verb> <slug> <key>, with
@@ -685,7 +687,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `ci-runner` | gate key | fork CI failed three times at a step the head does not touch |
 | `kpi` | metric | a metric past its target at the day's roll-up |
 | `pin-conflict` | pin | upstream main no longer merges with staging |
-| `quota` | api | GitHub refused on quota |
+| `quota` | api | GitHub refused on quota, or refused gh's login; a gate's CI read holds on either |
 | `disk` | path | free space on a build disk below hd.yaml `free`: no build starts; the detail names the compaction |
 
 `hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the

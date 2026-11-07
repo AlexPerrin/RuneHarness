@@ -171,7 +171,7 @@ def wait(seconds):
 
 def gh(db, url: str):
     """GET with If-None-Match from the stored ETag: 304 → the stored body (no quota spent); 200 → UPSERT; a quota
-    refusal → alert('quota') and None; any other answer → None (unknown: the step holds)."""
+    refusal or a refused login → alert('quota') and None; any other answer → None (unknown: the step holds)."""
     row = db.execute("SELECT etag, body FROM gh WHERE url=?", (url,)).fetchone()
     status, h, body = transport("GET", url, headers=(f"If-None-Match: {row['etag']}",) if row and row["etag"] else ())
     if status == 304 and row:
@@ -182,6 +182,8 @@ def gh(db, url: str):
         return json.loads(body)
     if status in (403, 429) and (h.get("x-ratelimit-remaining") == "0" or "rate limit" in body.lower()):
         alert(db, "quota", "github", f"refused {url}; reset {h.get('x-ratelimit-reset', '?')}")
+    if status == 401:   # the user's: no gate or publish gets past GitHub until it is done
+        alert(db, "quota", "github-login", f"GitHub refused gh's token on {url}: run gh auth login -h github.com")
     return None
 
 

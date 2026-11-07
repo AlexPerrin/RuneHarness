@@ -177,6 +177,11 @@ class Observe(unittest.TestCase):
         self.assertIn("Docker daemon", self.db.execute("SELECT detail FROM alert").fetchone()[0])
         self.assertTrue(self.db.execute("SELECT 1 FROM artifact").fetchone())   # the row stays until absence is observed
 
+    def test_a_refused_login_alerts_the_user_and_leaves_the_read_unknown(self):
+        with mock.patch.object(observe, "transport", return_value=(401, {}, '{"message":"Bad credentials"}')):
+            self.assertIsNone(observe.gh(self.db, "repos/o/r/pulls/1"))
+        self.assertIn("gh auth login", self.db.execute("SELECT detail FROM alert WHERE kind='quota' AND subject='github-login'").fetchone()[0])
+
 
 if __name__ == "__main__":
     unittest.main()

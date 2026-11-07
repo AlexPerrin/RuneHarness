@@ -112,3 +112,5 @@ Scripted criteria run with SLUG, HEAD, T, TCOMMIT, BASE, CLONE, BUILD, EVIDENCE,
 - dupe-tests | every module whose main sources gain an item-moving call has a test source added or changed | script: python3 $HD_ROOT/tracks/fork/server/text.py dupes
 - spotless | spotlessCheck passes on every module the head changes from main | script: bash $HD_ROOT/tracks/fork/track.sh spotless
 - ci | fork CI and Formatting green on gate/<slug> at the candidate | script: bash $HD_ROOT/tracks/fork/track.sh gate-ci | upstream
+
+Login refusal pages: never click or press Enter on a ban or lock page's top button (View Appeal Options, Recover Account). It opens runescape.com in the user's browser. Leave by Back, read from the screenshot, and prove a refusal from the server's log and the page text.

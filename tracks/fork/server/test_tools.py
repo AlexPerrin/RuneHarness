@@ -778,14 +778,11 @@ class DesktopLogin(unittest.TestCase):
         s.assertEqual(got, ["press_key"])   # sent once, answered in its turn, never given up on
 
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever
-        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter, Enter after Escape and Enter after Try again start no attempt
+        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter and Enter after Escape start no attempt
         s.assertTrue(d.token(1).startswith("FAILED: Enter started no login"))
-        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER", (502, d.TRY_AGAIN_Y), "ENTER"])   # Try again centred on the canvas
+        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER"])   # never a click: a ban page's top button opens the user's browser
         d, sent = s.fake(["LOGIN_SCREEN"] * (1 + d.FRAMES + 2 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # Escape left the response page: the Play page's Enter logs in
         s.assertEqual(d.token(1), "LOGGED_IN")
-        d, sent = s.fake(["LOGIN_SCREEN"] * (1 + 2 * (d.FRAMES + 2) + 1 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # fault 62: Escape did not leave 'Incorrect username or password', Try again did
-        s.assertEqual(d.token(1), "LOGGED_IN")
-        s.assertEqual([n for n, _ in sent if n == "click"], ["click"])
         d, _ = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGIN_SCREEN"])   # a refusal: back at the login screen
         s.assertEqual(d.token(1), "FAILED: back at the login screen: the server refused the token")
         d, _ = s.fake(["LOGIN_SCREEN"])   # the form's Enter started no attempt

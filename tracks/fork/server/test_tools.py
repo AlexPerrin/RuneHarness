@@ -536,6 +536,13 @@ class DesktopInstance(unittest.TestCase):
         src = (HERE / "OsrsTestLauncher.java").read_text()
         s.assertIn('System.getenv("OPENRUNE_ENDPOINT")', src); s.assertIn('getJavConfigUrl().equals(endpoint + "/jav_config.ws")', src)
 
+    def test_a_fresh_home_opens_on_the_welcome_page_and_existing_user_on_the_form(s):  # run 136: the terms page took no key and the Jagex Account prompt ate the typed login; a fixed-coordinate click opened a Jagex page
+        src = (HERE / "OsrsTestLauncher.java").read_text()
+        s.assertIn("if (!Files.exists(prefs))", src)   # a home that has run keeps its own
+        s.assertIn("new ClientPreferences(false, false, 1, Map.of(), null, false, 0.8, 127, 127, 127, 1, false, 25, 0, false,", src)   # acceptedTOSVersion 1
+        s.assertIn("toEpochDay() - 11745", src)   # lastJagexAccountPromptRuneDay today
+        s.assertNotIn('"click"', (HERE / "desktop_login.py").read_text().split("def try_again")[0])   # no login step clicks a fixed spot but Try again
+
     def test_a_home_copy_interop_ended_is_copied_again_and_a_failed_one_fails_up(s):  # genie-review-355-134: a WSL interop error left instance 6 with no home, up half-up
         rc = s.t / "sys32/robocopy.exe"
         rc.write_text(f'#!/bin/bash\n[ -e {s.t}/interop-fails ] && {{ rm {s.t}/interop-fails; echo "<3>WSL ERROR: UtilAcceptVsock:273: accept4 failed 110" >&2; exit 1; }}; cp -r "$1" "${{2//\\\\//}}"; exit 1\n')
@@ -1424,8 +1431,22 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
         s.assertIn('-v "$tpl:/app/protocol/jav_config.ws.template:ro"', up)
-        s.assertIn('containers="server-$slug http-$slug${tok:+ token-$slug}"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('cs="server-$slug"; [ -n "${CENTRAL_JAV:-}" ] || cs+=" http-$slug"; cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
+
+    def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
+        import javcheck
+        up = SRC.split("\nup() {")[1].split("\n}")[0]
+        fill = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
+        for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
+            s.assertIn(line + "\n", out)
+        s.assertIn('jav=(-p "$http:8080" -v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)', up)
+        s.assertIn('-p "$game:43594" "${jav[@]}"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
+        central = (HERE.parent.parent / "central/track.sh").read_text()
+        s.assertIn('git -C "$repo" grep -q OPENRUNE_JAV_CONFIG_URL_TEMPLATE "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without it keeps the sidecar
 
     def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
         import javcheck
@@ -1461,7 +1482,7 @@ class StackRecord(unittest.TestCase):  # each step re-derived the stack: down lo
         rec = s.up.index("  stack started=")
         for c in ('docker run -d --name "token-$slug"', 'docker run -d --name "server-$slug"', 'docker run -d --name "http-$slug"', "desktop_start"):
             s.assertLess(rec, s.up.index(c))
-        for f in ('script="$self/track.sh"', 'containers="server-$slug http-$slug${tok:+ token-$slug}"', 'modulus="$modulus"', 'staff="$staff"', 'token="$devtoken"'):
+        for f in ('script="$self/track.sh"', 'containers="$cs"', 'modulus="$modulus"', 'staff="$staff"', 'token="$devtoken"'):
             s.assertIn(f, s.up[rec:s.up.index("\n", s.up.index("\n", rec) + 1)])
         st = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, st)
         run = lambda *a: subprocess.run(["bash", "-c", f"set -euo pipefail\nhd=:; slug=x\nstate={st}\n{s.line('atomic()')}\n{s.fn('stack')}\nstack \"$@\"", "-", *a], capture_output=True, text=True)

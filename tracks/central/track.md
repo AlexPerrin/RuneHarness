@@ -22,7 +22,8 @@ upstream until the user lifts the hold (hd.yaml, ARCHITECTURE §11).
 The brief names your clone (`~/src/OpenRune-Central-Server/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
 `tracks/central/track.sh build <slug>` compiles your candidate in the build copy; `test <slug>` runs every module's
 tests there; `up <slug> [N]` builds the fork's base with your head as its Central and starts that server with N
-logged-in desktops (the fork's `up`); `log`, `down` as the fork's. A server change that needs your head names your
+logged-in desktops (the fork's `up`; a head whose embedded Central reads `OPENRUNE_JAV_CONFIG_URL_TEMPLATE` serves the
+desktops' `jav_config.ws` itself on the up's http port, with no `http-<slug>`); `log`, `down` as the fork's. A server change that needs your head names your
 change in its `deps`: its candidate is then built with your head (composite), and its PR waits for yours to merge and
 release. Write `pr-title.txt`, `pr-body.md`, `pr-comment.md` and `pr-reply-<id>.md` as the server track does. Push
 `dev/<slug>` to `fork`, then `hd submit <slug>`.

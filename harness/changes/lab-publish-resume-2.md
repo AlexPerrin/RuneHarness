@@ -3,6 +3,7 @@ slug: lab-publish-resume-2
 track: lab
 priority: P1
 public: content/lab-publish-resume-2
+pr: 4
 ---
 # lab: a publish whose whole scope is killed after its push resumes from the first step not done (PRD A2's live proof)
 

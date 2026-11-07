@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
@@ -59,6 +60,19 @@ class Tempo(Base):  # T1, T3, T4
         self.assertEqual(self.step().kind, "run")
         self.run_row(s.input, ended_at="t", end_kind="handback", record="run 3: submitted x")
         self.assertIn("ended (handback) with this input", self.step().why)
+
+    def test_a_dep_landing_after_a_failed_verdict_rejudges_the_same_head_once(self):   # the failure was the dep's: a dev can only resubmit it
+        ch = Change("h-one", "harness", priority="P2", deps=["h-dep"])
+        self.submit()
+        self.run_row("i1", ended_at="t", end_kind="stop"); self.run_row("i2", ended_at="t", end_kind="stop")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, 'd', '2')", (TIP,))
+        C = mock.Mock(L=self.L)
+        v = self.L.last_verdict("h-one", TIP)
+        self.assertFalse(decide.outdated(C, ch, v))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 's', '3')")
+        self.assertTrue(decide.outdated(C, ch, v))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, 'd', '4')", (TIP,))
+        self.assertFalse(decide.outdated(C, ch, self.L.last_verdict("h-one", TIP)))   # judged again and failed: a dev's now
 
     def test_a_fork_only_change_on_a_track_without_staging_is_done_by_its_verdict(self):   # central-rights-test-mod: nothing to land on
         C = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")

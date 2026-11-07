@@ -86,7 +86,7 @@
     "test_hook.Hook.test_approve_and_close_denied_to_every_agent",
     "live: card 1 approved by the user (05:49Z) → publish job: push, draft PR OpenRune/OpenRune-Server#450, CI green, comment 6596558303, ready, 05:52–05:54Z; approval spent 'published'",
     "live: lab-ci-red card 2: publish stopped at CI red (event ci-failed), approval kept, dev listed (run 75), 2026-11-03T14:39Z",
-    "pending: a publish killed after its push step resuming live"
+    "live: lab-publish-resume-2 card 8 approved by the user (18:15:17Z); its systemd scope SIGKILLed right after the push step (18:15:30Z, pr step undone, no .rc); the pass recorded attempt 84 and started a new job (pid 2380332 → 2383071, 18:16:12Z), which skipped the push and did pr, ci, comment and ready with the card's texts: one PR AlexPerrin/pr-lab#4, one comment 6711201946, approval spent 'published', 2026-11-07"
   ],
   "A3": [
     "test_decide.Server.test_a_finding_needs_a_reply_before_a_new_card",

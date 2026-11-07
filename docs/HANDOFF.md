@@ -67,7 +67,7 @@ on a throwaway account (client text "locked due to suspicious activity"), unconf
 
 ## ACCEPTANCE
 
-31 requirements, 3 with a `pending:` proof: **H8** (above), **A2** (a killed publish resuming: test on a lab card), **A3** (a maintainer
+31 requirements, 2 with a `pending:` proof: **H8** (above), **A3** (a maintainer
 finding answered through the loop). Replace each `pending:` with the observed fact; recount before quoting a figure.
 
 ## This session's lessons
@@ -125,7 +125,7 @@ At the user's desk, on their word, once Android logs in reliably: the session's 
 
 ## Awaiting the user
 
-the word on step 1; Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; lab cards 2 and 3.
+the word on step 1; Hunter #408 question 4; the triage of comments on #354 and #367; the `hd park` proposal; PRs AlexPerrin/pr-lab#3 and #4 (open lab PRs, merge or close: the changes `lab-publish-resume` and `lab-publish-resume-2` wait on them).
 
 ## Known gaps
 

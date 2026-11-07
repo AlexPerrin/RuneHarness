@@ -35,20 +35,18 @@ class Hd(unittest.TestCase):
             hd.view(db, hd.act.cfg())
         self.assertNotIn("card", out.getvalue()); self.assertIn("ended    c", out.getvalue()); self.assertNotIn("goals", out.getvalue())
 
-    def test_a_run_with_no_transcript_write_for_a_watch_period_prints_silent(self):  # H3
+    def test_the_orchestrator_sees_each_live_run_and_the_alerts(self):  # T5
         import contextlib, io, os
         db = store.connect()
         t = Path(self.dir.name) / "agent.jsonl"; t.write_text("{}")
+        os.utime(t, (1, os.path.getmtime(t) - 1800))
         db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'orchestrator')", (os.getpid(),))
         db.execute("INSERT INTO run(id, change, role, mode, input, brief, agent_id, listed_at, started_at, transcript) VALUES (7, 'c', 'dev', 'code', 'i', 'b', 'a1', 't', 't', ?)", (str(t),))
-        def lines():
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                hd.view(db, hd.act.cfg())
-            return out.getvalue()
-        self.assertNotIn("silent", lines())
-        os.utime(t, (1, os.path.getmtime(t) - hd.SILENT))
-        self.assertIn("silent   c", lines()); self.assertIn("agent a1", lines())
+        db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'alert', 'c', 'alert 1 fault')")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hd.view(db, hd.act.cfg())
+        self.assertIn("alert    c", out.getvalue()); self.assertIn("agent a1: last moved 30 min ago, " + str(t), out.getvalue())
 
     def test_criterion_add_with_a_cmd_option(self):
         hd.main(["criterion", "add", "x", "acc-1", "--kind", "judge", "--text", "the rule", "--cmd", "accuracy", "--source", "accuracy"])

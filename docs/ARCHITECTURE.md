@@ -644,8 +644,8 @@ on its record: a `SubagentHandback` call whose message is the line (a wrong line
 last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is
 pending is left alone (its notification resumes it); an idle one is asked once, and a second idle stop ends the run
 without a record. `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
-wake, a hand-back or the watch's expiry run `hd` and do what each line says: spawn as printed, TaskStop an agent at its
-one-line hand-back or its run's `ended` line; SendMessage a run printed `silent` (no transcript write for a whole watch period, the only clock the view reads: a step that never ends sends no notification); on `drain` spawn nothing and run `hd restart` once no run of yours is live.
+wake, a hand-back or the watch's expiry run `hd` and act on each line: spawn as printed, TaskStop an agent at its
+one-line hand-back or its run's `ended` line, act on an alert; for each `live` line (the run, its agent, how long since its transcript moved, the transcript's path) judge whether the agent is moving its change toward its brief, inspecting transcript, processes and stack, and SendMessage or `hd stop` one that is not: a step that never ends sends no notification, so the judgment is the orchestrator's and no threshold stands in for it; on `drain` spawn nothing and run `hd restart` once no run of yours is live.
 It never approves, closes, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's console
 (`claude --agent driver` in the checkout, the pane beside the orchestrator's): it shows each card, question, triage line
 and alert as `hd` prints it, records the user's words (`hd new`, `hd answer`, `hd hold`, `hd triage`, `hd dismiss`,

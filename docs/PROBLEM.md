@@ -24,7 +24,8 @@ The actors:
   stacking, no deferral, few tests, rules revised at any time. We have no write access to their repos.
 - **agents**: Claude Code sessions. A **dev** builds a change (the generator); a **qa** writes what "done" means
   before the code and judges the result after (the evaluator); a **reader** looks things up for them; the
-  **orchestrator** is the one long-lived autonomous session that spawns the others and does nothing else; the
+  **orchestrator** is the one long-lived autonomous session, the meta level over every track: it spawns the others
+  and, seeing all of them, detects and corrects an agent that misbehaves; the
   **driver** is the console the user chats with: it shows what needs the user and does what the user says, one-off
   changes included, and nothing on its own. Both are panes of the user's terminal; every run's transcript is open in
   the orchestrator's.

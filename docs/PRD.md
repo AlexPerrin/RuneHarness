@@ -99,7 +99,8 @@ publish → maintainers' findings become criteria.
   per head move.
 - **T5** The orchestrator is a visible session with the lifecycle of a run: bound when it starts, shown only what is
   new since its last view, drained when its context nears the limit or its definition moved, ended by its own exit,
-  replaced by a supervisor; it holds no state, spawns exactly what `hd` lists and never chats or waits on the user. The
+  replaced by a supervisor; it holds no state, spawns what `hd` lists, inspects every run's transcript, processes and
+  stack, corrects or stops an agent not moving its change toward its brief, and never chats or waits on the user. The
   driver is the console the user chats with: it shows cards, questions and alerts and does what the user says, nothing
   on its own.
 - **T6** Harness defects are facts the pass computes into alerts with a dedup key, not findings an agent searches

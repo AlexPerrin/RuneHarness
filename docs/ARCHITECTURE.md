@@ -484,7 +484,7 @@ sequenceDiagram
 | `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--touches p…] [--pr n] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
-| `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion |
+| `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion (an existing rid corrected in place, its check results dropped) |
 | `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |

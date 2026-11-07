@@ -179,8 +179,12 @@ def cmd_show(a):
 
 def cmd_criterion(a):
     db = store.connect()
-    db.execute("INSERT INTO criterion(change, rid, kind, text, cmd, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-               (a.slug, a.rid, a.kind, a.text, a.cmd, a.source, a.source_id, now()))
+    # an existing rid is corrected in place (same id); its check results were of the old command, so they go
+    cid = db.execute("INSERT INTO criterion(change, rid, kind, text, cmd, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?) "
+                     "ON CONFLICT(change, rid) DO UPDATE SET kind=excluded.kind, text=excluded.text, cmd=excluded.cmd, "
+                     "source=excluded.source, source_id=excluded.source_id RETURNING id",
+                     (a.slug, a.rid, a.kind, a.text, a.cmd, a.source, a.source_id, now())).fetchone()[0]
+    db.execute("DELETE FROM check_result WHERE criterion_id=?", (cid,))
     print(f"criterion {a.slug}/{a.rid} ({a.kind})")
 
 

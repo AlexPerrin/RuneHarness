@@ -71,6 +71,15 @@ class Hd(unittest.TestCase):
             hd.cmd_ask(argparse.Namespace(slug="x", text="q?", option=["a:wait on it:dep", "b:close it:close"]))
         self.assertEqual(hd.store.connect().execute("SELECT count(*) FROM ask").fetchone()[0], 0)
 
+    def test_criterion_add_on_an_existing_rid_corrects_it_and_drops_its_results(self):  # G1
+        hd.main(["criterion", "add", "x", "stays", "--kind", "judge", "--text", "t", "--cmd", "playable", "--source", "accuracy"])
+        db = store.connect()
+        cid = db.execute("SELECT id FROM criterion").fetchone()[0]
+        db.execute("INSERT INTO check_result(criterion_id, tree, ok, at) VALUES (?, 'tree', 1, 't')", (cid,))
+        hd.main(["criterion", "add", "x", "stays", "--kind", "judge", "--text", "t2", "--cmd", "qa-server", "--source", "accuracy"])
+        self.assertEqual([tuple(r) for r in db.execute("SELECT id, text, cmd FROM criterion")], [(cid, "t2", "qa-server")])
+        self.assertEqual(db.execute("SELECT count(*) FROM check_result").fetchone()[0], 0)
+
     def test_ask_then_answer_waives_a_criterion(self):
         hd.main(["criterion", "add", "x", "dupes-3", "--kind", "judge", "--text", "t", "--source", "seed"])
         hd.main(["ask", "x", "shop sell path?", "--option", "a:dep server-shop:dep server-shop", "--option", "b:waive dupes-3:waive dupes-3"])

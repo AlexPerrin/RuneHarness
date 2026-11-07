@@ -276,8 +276,16 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
     def test_merge_conflict_lists_the_dev(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
         self.submit()
-        self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'genie', ?)", (TIP[:7] + " content/x.kt",))
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/heads/staging', 'aaaaaaa1')")
+        self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'genie', ?)", (TIP[:7] + " aaaaaaa content/x.kt",))
         self.assertIn("merge conflict", self.step().why)
+
+    def test_a_conflict_is_merged_again_once_staging_moves(self):   # alert 45: a reverted pin let the head merge
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.submit()
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/heads/staging', 'bbbbbbb2')")
+        self.db.execute("INSERT INTO event(at, kind, change, detail) VALUES ('t', 'merge-conflict', 'genie', ?)", (TIP[:7] + " aaaaaaa content/x.kt",))
+        self.assertNotEqual(self.step().role, "dev")
 
     def test_a_job_that_failed_is_not_relaunched(self):
         self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")

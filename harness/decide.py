@@ -239,7 +239,7 @@ def dev_due(C, ch):
         if j and j["ok"] == 0:
             why.append(f"ship failed: {j['detail']}")
         e = C.L.last_event(ch.slug, "merge-conflict") if stages(C, ch) else None
-        if e and e["detail"].startswith(t[:7]):
+        if e and e["detail"].split()[:2] == [t[:7], (C.L.ref(C.cfg.tracks[ch.track].name, STAGING) or "")[:7]]:   # a moved staging is merged again first
             why.append(f"merge conflict on staging: {e['detail']}")
         e = C.L.last_event(ch.slug, "ci-failed")
         if e and e["detail"].startswith(t[:7]):
@@ -288,7 +288,7 @@ def stages(C, ch):
 
 
 def stage_due(C, ch):
-    """Tracks with a deploy recipe: a checked head not yet on staging → merge (act.stage); a recorded conflict of this head is dev_due's."""
+    """Tracks with a deploy recipe: a checked head not yet on staging → merge (act.stage); a conflict of this head with the staging tip it names is dev_due's."""
     if not stages(C, ch) or C.L.landed(ch.slug, STAGING):
         return None
     for dep in ch.deps:   # staging runs the head alone, not its candidate: a dep merges first, so the test server never runs a change without it

@@ -279,10 +279,11 @@ def stage_due(C, ch):
 
 
 def upstream_dep_wait(C, ch):
-    """A public act or a ship waits until every dep is landed where it is done (G4: a PR holds no other PR's commits)."""
+    """A public act or a ship waits until every dep is landed where it is done (G4: a PR holds no other PR's commits).
+    A library dep holds only a public act: a ship opens no PR, and its candidate was built on the library's head."""
     for dep in ch.deps:
         d = C.defs.get(dep)
-        if d and not done(C, d):
+        if d and not done(C, d) and (is_public(C, ch) or d.track not in ("central", "filestore")):
             return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
     return None
 

@@ -286,7 +286,7 @@ GUARDS = [
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
     stage_due,         # tracks with a deploy recipe: no landed(change, staging) → merge (act.stage); a recorded conflict is dev_due's
-    upstream_dep_wait, # a dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
+    upstream_dep_wait, # a dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it; a library dep holds a card only
     texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
     card_due,          # no card at the head, or its approval spent by a refusal, or texts observed since it was shown → card
     approval_wait,     # card and no approval → wait (the user); a hold → wait (hidden)

@@ -393,6 +393,13 @@ class Authority(Base):  # A2 (close), A4 (ask)
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}
         self.assertEqual(steps["h-one"].kind, "run")
 
+    def test_a_library_dep_holds_a_card_never_a_ship(self):   # G4: h-central-up-sign-in sat gated behind an upstream merge
+        lib, ship = Change("c-lib", "central"), Change("h-one", "harness", deps=("c-lib",))
+        cfg = Cfg(agents=2, hold="P2", tracks={**CFG.tracks, "central": Track("central", "o/c", "/c", "refs/remotes/origin/main", "o/c")})
+        C = decide.Ctx(self.L, cfg, {c.slug: c for c in (lib, ship)})
+        self.assertIsNone(decide.upstream_dep_wait(C, ship))
+        self.assertIn("not yet landed", decide.upstream_dep_wait(C, Change("c-two", "central", deps=("c-lib",))).why)
+
 
 if __name__ == "__main__":
     unittest.main()

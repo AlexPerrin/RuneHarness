@@ -8,6 +8,7 @@ import os, re, subprocess, sys, time
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
 PKG = "com.jagex.oldscape.android"
 CANVAS = {0: ("Existing User", 1370, 625), 12: ("Accept", 1027, 668), 10: ("Play Now", 1197, 540)}   # LoginIndex: the button that leaves it, on the AVD's 2400x1080 landscape canvas
+LAUNCHER = "com.google.android.apps.nexuslauncher"
 WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to the world: the next screen comes from the app, the browser or the server
 REFUSED = 9           # the server's refusal ("Unexpected server response", Try again)
 LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
@@ -48,6 +49,8 @@ def step(st, ix, pkg, lab):
             return ("fail", f"the browser's sign-in: {err}")
         hit = next((l for l in LABELS if l in lab), None)
         return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
+    if pkg == LAUNCHER and st in ("", "UNKNOWN"):
+        return ("wait",)   # the process runs before its window takes focus from the launcher; main() fails a death
     if pkg not in (PKG, ""):
         return ("fail", f"an unknown window {pkg}: {', '.join(lab) or 'no labels'}")
     if st != "LOGIN_SCREEN":

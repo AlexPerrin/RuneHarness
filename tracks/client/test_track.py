@@ -217,6 +217,8 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 9, app, {})[0], "fail")                                      # the server's refusal
         s.assertEqual(m.step("LOGIN_SCREEN", 4, app, {})[0], "fail")                                      # a login screen it does not know
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
+        s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
+        s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
 
     def test_concurrent_boots_take_distinct_ports(s):

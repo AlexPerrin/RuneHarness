@@ -783,7 +783,7 @@ class DesktopLogin(unittest.TestCase):
         d.call, d.inventory, d.time.sleep = call, lambda p: "LOGGED_IN", lambda _: None
         s.assertEqual(d.login(1, "u", "p"), "LOGGED_IN")
         clicks = [i for i, c in enumerate(calls) if c[0] == "click"]
-        s.assertEqual([calls[i][1] for i in clicks], [{"x": 302, "y": 311}])
+        s.assertEqual([calls[i][1] for i in clicks], [{"x": 302, "y": 311}, {"x": 462, "y": 290}])   # Accept, then Existing User by its button
         s.assertTrue(any(c[0] == "press_key" and c[1]["key"] == "ENTER" for c in calls[:clicks[0]]))   # Enter first: never on the welcome page
 
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever

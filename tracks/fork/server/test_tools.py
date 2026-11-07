@@ -1417,6 +1417,15 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         (d / "token").write_text("a.b.c\n"); s.assertEqual(get(), {"token": "a.b.c"})
         (d / "token").write_text("x.y.z\n"); s.assertEqual(get(), {"token": "x.y.z"})
 
+    def test_the_issuer_keeps_the_connection_for_the_client_to_close(s):  # a close right after the body cut the APK's character list short (curl 18, page 39)
+        import http.client, http.server, threading, issuer as t
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.GameSession.dir = d; (d / "token").write_text("a.b.c\n")
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
+        c = http.client.HTTPConnection("127.0.0.1", srv.server_port); s.addCleanup(c.close)
+        for _ in range(2):   # one connection, two answers whole: the server did not close it
+            c.request("POST", "/game-session/v1/tokens", b""); r = c.getresponse()
+            s.assertEqual((r.version, json.load(r)), (11, {"token": "a.b.c"})); s.assertFalse(r.will_close)
+
     def test_the_apk_signs_in_and_gets_the_official_game_session_shapes(s):
         import base64, http.server, threading, urllib.error, urllib.parse, urllib.request, issuer as t
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.key(d); (d / "account").write_text("hab12\n"); t.GameSession.dir = d

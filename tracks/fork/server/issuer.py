@@ -55,6 +55,7 @@ def id_account(d, tok):  # the id_token's account when its signature and expiry 
 class GameSession(http.server.BaseHTTPRequestHandler):
     dir = Path(".")  # serve's DIR
     codes, sessions = {}, {}  # code -> nonce; sessionId -> account
+    protocol_version = "HTTP/1.1"  # the client closes: a server close right after the body reached the APK's curl cut short through the emulator's relay (curl 18, page 39)
 
     def send(self, status, body=b"", ctype="application/json", location=None):
         if not isinstance(body, bytes):

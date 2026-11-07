@@ -307,7 +307,7 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     `free` on a disk row, a build or gate waits and no deploy is listed. Last, one release per artifact none of whose
     owners is live (Action change "release", key "<kind>:<key>"): owner_live() holds for a job running, a run not
     ended, an open change not done (<slug>), and for <slug>@<T> while a job of T runs, a run of the change is live, or
-    T is the built tree of its current head or of its latest card's head; staging@<T> while staging's tree is T.
+    T is the built tree of its current head or of its latest card's head; staging@<T> while staging's tree is T less its composite suffix.
     A change closed, merged (done) or withdrawn (its definition gone) owns nothing."""
 ```
 

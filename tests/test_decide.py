@@ -356,10 +356,11 @@ class Retention(Base):  # H7: an artifact lives while an owner fact holds; the s
         self.own("image", f"or:{TREE}", "other@x"); self.own("image", f"or:{TREE}", f"h-one@{TREE}")
         self.assertEqual(self.released(), [])
         self.own("image", "osrs-openrune:s1", "staging@s1")
+        self.own("image", "or:s1_cabc", "staging@s1_cabc")   # a deploy's T with a Central built in: the job key and the ref name the plain tree
         self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 'x', 's1')")
         self.assertEqual(self.released(), [])   # staging's tree
         self.db.execute("UPDATE ref SET tree='s2' WHERE name='refs/heads/staging'")
-        self.assertEqual(self.released(), ["image:osrs-openrune:s1"])
+        self.assertEqual(sorted(self.released()), ["image:or:s1_cabc", "image:osrs-openrune:s1"])
 
     def test_below_the_disk_level_no_build_starts(self):
         self.submit()

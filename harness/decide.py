@@ -403,6 +403,8 @@ def owner_live(C, owner) -> bool:
     if kind == "run":
         return bool(C.L.one("SELECT 1 FROM run WHERE id=? AND ended_at IS NULL", rest))
     slug, at, t = owner.partition("@")
+    if slug in ("staging", "live"):
+        t = t.partition("_")[0]   # a deploy's T carries the composite suffix; its job key and the staging ref name the plain tree
     if at and C.L.one("SELECT 1 FROM job WHERE key LIKE ? AND pid IS NOT NULL AND ended_at IS NULL", t + ":%"):
         return True
     if slug in ("staging", "live"):

@@ -55,6 +55,18 @@ class Store(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO answer(ask, option, by, at) VALUES (99, 'a', 'user', 't')")  # no such ask
 
+    def test_staging_builds_with_the_library_heads_of_its_changes_and_refuses_two(self):
+        L, st = store.Ledger(self.db), "refs/heads/staging"
+        def add(slug, head):
+            self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?, ?, 's', 't')", (slug, st))
+            self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES (?, 'h', 't', 'c', ?, 't')",
+                            (slug, f'{{"central": {{"head": "{head}", "tree": "x"}}}}' if head else None))
+        add("a", None); self.assertIsNone(L.staging_composite(st))
+        add("b", "c1"); self.assertIn("c1", L.staging_composite(st))
+        add("c", "c2")
+        with self.assertRaises(ValueError):
+            L.staging_composite(st)
+
     def test_an_artifact_row_is_refused_outside_the_build_places(self):   # a release removes it: never a path the builds do not write
         store.own(self.db, "worktree", "/r/.worktrees/x-build", "x"); store.own(self.db, "worktree", "/r/.worktrees/x-build", "x")
         store.own(self.db, "dir", store.STATE + "/x/cand-1", "job:gate:k")

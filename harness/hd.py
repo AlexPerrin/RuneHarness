@@ -523,6 +523,11 @@ def cmd_scope(a):
 
 def cmd_regate(a):
     db = store.connect()
+    if a.slug == "staging":   # a deploy that failed on a cause since fixed: its key has a result, so nothing restarts it
+        db.execute("DELETE FROM job WHERE kind='deploy' AND ok=0")
+        db.execute("DELETE FROM attempt WHERE kind='deploy'")
+        event(db, "regate", "staging", None, "deploy")
+        return act.tick_later()
     s = db.execute("SELECT tree FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (a.slug,)).fetchone()
     if not s:
         sys.exit("hd regate: no submission")

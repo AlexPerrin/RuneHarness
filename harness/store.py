@@ -283,6 +283,19 @@ class Ledger:
     def check_results(self, tree):
         return {r["criterion_id"]: r for r in self.all("SELECT * FROM check_result WHERE tree=?", tree)}
 
+    def staging_composite(self, staging) -> str | None:
+        """The library heads staging's server changes were built with: a staging build has no dependency on its own, and
+        a head that needs an unpublished Central builds only with it. Two heads of one library are a conflict to merge first."""
+        comp = {}
+        for r in self.all("SELECT change FROM landed WHERE target=?", staging):
+            s = self.one("SELECT composite_json FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", r["change"])
+            if self.closed(r["change"]) or not s or not s["composite_json"]:
+                continue
+            for lib, v in json.loads(s["composite_json"]).items():
+                if comp.setdefault(lib, v)["head"] != v["head"]:
+                    raise ValueError(f"staging holds two {lib} heads, {comp[lib]['head'][:7]} and {v['head'][:7]}: its deploy needs them merged")
+        return json.dumps(comp) if comp else None
+
     def last_verdict(self, slug, head):
         return self.one("SELECT * FROM verdict WHERE change=? AND head=? ORDER BY id DESC LIMIT 1", slug, head)
 

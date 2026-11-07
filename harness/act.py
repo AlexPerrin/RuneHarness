@@ -300,6 +300,8 @@ def start(db, step: Step, ch, T) -> None:
         ref = decide.STAGING if T.upstream else T.base
         sha = L.ref(T.name, ref)
         s = {"tree": L.ref_tree(T.name, ref), "tcommit": sha, "head": sha}
+        if ch.slug == "staging":
+            s["composite_json"] = L.staging_composite(decide.STAGING)
     elif step.kind == "publish":
         s = L.submission(ch.slug, L.latest_card(ch.slug)["head"])
     else:

@@ -25,7 +25,7 @@ projects() { local f d; for f; do d=$(dirname "$f"); while [ "$d" != . ] && [ ! 
 projdir() { local d=${1#:}; d=${d//://}; [ "${d##*/}" = "$(basename "$(dirname "$d")")-pack" ] && d=$(dirname "$d")/pack; echo "$d"; }   # a project's directory
 tests() { build; gradle_check test "$@"; }
 spotless() {  # the check row: spotlessCheck on every module T changes from origin/main, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)
-  tree; [ -d "$copy" ] || git -C "$repo" worktree add -q --detach "$copy" "$tc"; gradle_check spotless
+  tree; [ -d "$copy" ] || { git -C "$repo" worktree add -q --detach "$copy" "$tc"; $hd own worktree "$copy" "$slug"; }; gradle_check spotless
 }
 gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cannot open a linked worktree: the container sees the copy's .git as a plain repo of T, its objects borrowed
   local kind=$1; shift; git -C "$copy" reset -q --hard "$tc"; git -C "$copy" clean -fdq   # apart: a failed reset in an && list would not stop the verb
@@ -45,16 +45,16 @@ gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cann
   local tasks=(); for d in "${mods[@]}"; do rm -rf "$copy/$(projdir "$d")"/build/test-results/{test,integration}   # the report is this run's
     if [ "$kind" = test ]; then tasks+=("$d:test"); if grep -qs '"integration-test-suite"' "$copy/$(projdir "$d")/build.gradle.kts"; then tasks+=("$d:integration"); fi; fi   # upstream CI runs integration too, where the plugin registers it (a src/integration alone registers nothing)
     tasks+=("$d:spotlessCheck"); done
-  docker run --rm -v "gradle-$slug:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle   # creates or reuses the slug's volume: one docker makes is root's, the run is 1000 (spotless runs on a slug never built)
+  docker run --rm -v gradle:/gradle eclipse-temurin:21 chown 1000:1000 /gradle   # creates or reuses the one Gradle home: one docker makes is root's, the run is 1000 (spotless may run before any build)
   : > "$out/$kind.log"; central; filestore; box "$out/$kind.log" --rm --name "$kind-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CDIR="$cdir" -e FDIR="$fdir" \
-    -v "gradle-$slug:/gradle" "${cvols[@]}" "${fvols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$g:$g:ro" -v "$copy:$copy" -v "$state/$kind.gitfile:$copy/.git:ro" -w "$copy" \
+    -v gradle:/gradle "${cvols[@]}" "${fvols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$g:$g:ro" -v "$copy:$copy" -v "$state/$kind.gitfile:$copy/.git:ro" -w "$copy" \
     eclipse-temurin:21 bash -c './gradlew --console=plain --build-cache --no-configuration-cache --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m${CDIR:+ --init-script /central.init.gradle}${FDIR:+ --init-script /filestore.init.gradle} --continue "$@"' _ \
     "${tasks[@]}" && ok=true || ok=false
   for d in "${mods[@]}"; do cat "$copy/$(projdir "$d")"/build/test-results/{test,integration}/*.xml 2>/dev/null | grep -o '<testsuite name="[^"]*" tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' || true; done >> "$out/$kind.log"
   record "$ok" "$kind" < "$out/$kind.log"; grep -E -A1 '^<testsuite|went wrong|violations|FAILED|BUILD' "$out/$kind.log" | grep -v '^--$' || true; [ "$ok" = true ]
 }
 gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in the build copy; a criterion exiting 75 (its source down) leaves no result and the pass starts the gate again
-  tc=${TCOMMIT:-$arg}; HD_KEY= build; git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq   # the build records no job under the gate's key
+  tc=${TCOMMIT:-$arg}; OWNER=${HD_KEY:+job:gate:$HD_KEY} HD_KEY= build; git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq   # the build records no job under the gate's key
   BUILD=$copy exec $hd gate "$slug" "$T:fork-1" "$copy"
 }
 gate_sha() {  # a child of TCOMMIT whose workflows move the ephemeral ports off the game port, and with CENTRAL hold that Central tree at .central/ built in

@@ -38,7 +38,7 @@ box() { local log=$1; shift; hosted "$log" slot docker run --init "${size[@]}" "
 tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the working copy and asks hd
   tc=${TCOMMIT:-${arg:-}}   # the pass's TCOMMIT (its argument is the job key), or a dev's argument
   if [ -n "$tc" ]; then git -C "$repo" rev-parse -q --verify "$tc^{commit}" >/dev/null || { echo "$tc is not a commit: TCOMMIT is the commit of T" >&2; exit 2; }; T=${T:-$(git -C "$repo" rev-parse "$tc^{tree}")$(composite_suffix)}; return; fi
-  [ -d "$dev" ] || git -C "$repo" worktree add -q "$dev" -B "dev/$slug" "$(git -C "$repo" rev-parse -q --verify "fork/dev/$slug" || echo origin/main)"
+  [ -d "$dev" ] || { git -C "$repo" worktree add -q "$dev" -B "dev/$slug" "$(git -C "$repo" rev-parse -q --verify "fork/dev/$slug" || echo origin/main)"; $hd own worktree "$dev" "$slug"; }
   idx=$(git -C "$dev" rev-parse --git-path snapshot-index); rm -f "$idx"   # from HEAD: add -A alone drops tracked files under ignored paths
   GIT_INDEX_FILE=$idx git -C "$dev" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dev" add -A . && snap=$(git -C "$dev" commit-tree "$(GIT_INDEX_FILE=$idx git -C "$dev" write-tree)" -p HEAD -m snapshot)
   read -r T tc < <($hd candidate "$slug" --head "$snap"); T=$T$(composite_suffix)
@@ -49,20 +49,21 @@ composite_suffix() {  # the image of a composite build is its own: _c<central tr
 filestore() {  # the change's FileStore dependency, built in (build/filestore.init.gradle): fdir and fvols for build and tests
   fdir= fvols=(); [ -n "${FILESTORE:-}" ] || return 0
   IFS=: read -r fpath fcommit <<< "$FILESTORE"; fdir=$fpath/.worktrees/$slug-filestore
-  if [ -d "$fdir" ]; then git -C "$fdir" reset -q --hard "$fcommit" && git -C "$fdir" clean -fdq; else git -C "$fpath" worktree add -q --detach "$fdir" "$fcommit"; fi
+  if [ -d "$fdir" ]; then git -C "$fdir" reset -q --hard "$fcommit" && git -C "$fdir" clean -fdq; else git -C "$fpath" worktree add -q --detach "$fdir" "$fcommit"; fi; $hd own worktree "$fdir" "$slug"
   fvols=(-v "$fpath/.git:$fpath/.git:ro" -v "$fdir:$fdir" -v "$self/filestore.init.gradle:/filestore.init.gradle:ro")
 }
 central() {  # the change's Central dependencies, merged by hd, built in (gate/central.init.gradle): cdir and cvols for build and tests
   cdir= cvols=(); [ -n "${CENTRAL:-}" ] || return 0
   IFS=: read -r cpath ccommit <<< "$CENTRAL"; cdir=$cpath/.worktrees/$slug-central
-  if [ -d "$cdir" ]; then git -C "$cdir" reset -q --hard "$ccommit" && git -C "$cdir" clean -fdq; else git -C "$cpath" worktree add -q --detach "$cdir" "$ccommit"; fi
+  if [ -d "$cdir" ]; then git -C "$cdir" reset -q --hard "$ccommit" && git -C "$cdir" clean -fdq; else git -C "$cpath" worktree add -q --detach "$cdir" "$ccommit"; fi; $hd own worktree "$cdir" "$slug"
   cvols=(-v "$cpath/.git:$cpath/.git:ro" -v "$cdir:$cdir" -v "$self/central.init.gradle:/central.init.gradle:ro")
 }
 build() { tree; { flock 9; build_locked; } 9> "$state/build.lock"; }   # one build of a slug at a time (the pass's and its dev's): the second waits, then reuses a cached or:<T>; the lock ends with the build, never held by the gate or its rows after it
 build_locked() {
-  if docker image inspect "or:$T" >/dev/null 2>&1; then echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi
+  if docker image inspect "or:$T" >/dev/null 2>&1; then $hd own image "or:$T" "$slug@$T"; echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi
   n=1; while [ -e "$state/build-$T-$n.log" ]; do n=$((n + 1)); done; log=$state/build-$T-$n.log   # each attempt its own log (under the lock)
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
+  $hd own worktree "$copy" "$slug"   # every artifact a row of its owner: hd releases it once no owner is live (docs/ARCHITECTURE.md §6)
   cp "$copy/game.example.yml" "$copy/game.yml"   # every build renders T's config: game.yml is ignored, so clean keeps an older tree's
   if grep -q '\.m2-rsprot' "$copy/settings.gradle.kts"; then  # local/android pins an rsprot published only to the clone's .m2-rsprot
     [ -d "$repo/.m2-rsprot" ] || { echo "no $repo/.m2-rsprot: the tree pins a locally published rsprot" | tee "$log" | record false build; echo "build failed: $log"; return 1; }
@@ -70,14 +71,17 @@ build_locked() {
   fi
   ck=$(git -C "$copy" ls-tree -r "$tc" | grep -E 'or-cache/|/pack/|gamevals|raw-cache' | sha1sum | cut -c1-12)   # the cache's inputs
   gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12 || true)   # the game data's: the revision (game.example.yml), as the gate's release asset
-  central; filestore; vols=(-v "gradle-$slug:/gradle" -v or-cache-store:/store "${cvols[@]}" "${fvols[@]}")
+  cs=or-cache-store-${gk:-none}; $hd own volume "$cs" "$slug@$T"   # one store per revision, kept while a head builds from it
+  central; filestore; vols=(-v gradle:/gradle -v "$cs:/store" "${cvols[@]}" "${fvols[@]}")   # one Gradle home for every slug: its caches are content-addressed
   docker run --rm "${vols[@]}" eclipse-temurin:21 chown 1000:1000 /gradle /store   # docker makes a new volume root's; the build runs as 1000
   gd=$state/.game-data-$gk.tgz; rm -f "$gd"   # the revision missing from the store: the gate's release asset of it (seeded from an image), so a build needs openrs2 only for a revision no image holds yet
-  if [ -n "$gk" ] && ! docker run --rm -v or-cache-store:/store eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
+  if [ -n "$gk" ] && ! docker run --rm -v "$cs:/store" eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
     R=$(git -C "$repo" remote get-url fork 2>/dev/null | sed -E 's#.*github.com[:/]##; s#\.git$##' || true)
     [ -z "$R" ] || gh release download game-data -R "$R" -p "game-data-$gk.tar.gz" -O "$gd" >/dev/null 2>&1 || rm -f "$gd"
   fi
   [ -s "$gd" ] && vols+=(-v "$gd:/game-data.tgz:ro")
+  owner=${OWNER:-$slug}; [ -z "${HD_KEY:-}" ] || owner=job:${HD_KIND:-build}:$HD_KEY   # the job's container goes with the job, a kill included; a dev's with its change
+  $hd own container "build-$slug" "$owner"
   docker rm -f "build-$slug" >/dev/null 2>&1 || true   # a killed build's container, still running: the slug's build lock is held, it is no one else's
   trap 'docker rm -f "build-$slug" >/dev/null 2>&1 || true' EXIT; trap 'exit 143' TERM INT   # a stopped build's container ends with it
   box "$log" --rm --name "build-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CK="$ck" -e GK="$gk" -e CDIR="$cdir" -e FDIR="$fdir" \
@@ -101,7 +105,10 @@ build_locked() {
   st=$copy/.image; rm -rf "$st"; mkdir -p "$st/data"
   cp -a "$copy/server/app/build/install/app" "$st/server"; cp "$copy/game.yml" "$st/"
   cp -a "$copy/.data/." "$st/data/"; rm -rf "$st/data/client.key" "$st/data/game.key" "$st/data/postgres"
-  hosted "$log" docker build -q -f "$self/Dockerfile" -t "or:$T" "$st" || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "docker build"; return 1; }
+  $hd own image "or:$T" "$slug@$T"
+  hosted "$log" docker build -q -f "$self/Dockerfile" -t "or:$T" "$st" || { rm -rf "$st"; record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "docker build"; return 1; }
+  rm -rf "$st"   # the context is the image's now
+  [ -n "$(docker ps -q -f name=^build-)" ] || docker builder prune -f >/dev/null 2>&1 || true   # the last build ended: its build cache goes with it
   record true build < "$log"; echo "built or:$T"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "or:$T"
 }
 [ "${BASH_SOURCE[0]}" = "$0" ] || return 0   # sourced by gate.sh: its functions alone

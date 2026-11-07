@@ -12,6 +12,7 @@ repos:
   lab:       {name: AlexPerrin/pr-lab,                 path: ~/src/pr-lab,                  base: refs/remotes/origin/main,   upstream: AlexPerrin/pr-lab,                remote: origin}   # the PR lab: our own repo as its own upstream, the loop's GitHub paths tested against it
 
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
+free: 100                 # GB free on ~/src's volume and /mnt/c below which no build starts and the driver is told compaction is due
 builds: 3                 # builds and container steps at once (an N-slot flock semaphore)
 agents: 5                 # runs alive at once: the user's word (2026-11-03)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)

@@ -27,15 +27,16 @@ slot() {  # slot <command...>: the command under one of the HD_BUILDS build slot
     "$@"; rc=$?; exec {fd}>&-; return $rc
   done
 }
-gradle() {  # gradle <tasks...>: in the build copy, in a container, the slug's own gradle home
-  docker run --rm -v "gradle-filestore-$slug:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle
+gradle() {  # gradle <tasks...>: in the build copy, in a container, the one Gradle home every slug shares (content-addressed)
+  docker run --rm -v gradle:/gradle eclipse-temurin:21 chown 1000:1000 /gradle
   slot docker run --rm --init "${size[@]}" --name "filestore-$slug-$$" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle \
-    -v "gradle-filestore-$slug:/gradle" -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
+    -v gradle:/gradle -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
     eclipse-temurin:21 ./gradlew --console=plain --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m "$@"
 }
 checkout() {  # the build copy at the candidate commit
   local tc=${TCOMMIT:-$arg}
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
+  $hd own worktree "$copy" "$slug"   # released with the change (docs/ARCHITECTURE.md §6)
 }
 case "$verb" in
   build) checkout; if gradle assemble -x test; then [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "assembled ${T:-}"; else [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "gradle assemble"; exit 1; fi ;;

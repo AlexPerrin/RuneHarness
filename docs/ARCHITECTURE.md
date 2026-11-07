@@ -20,7 +20,7 @@ harness/kpi.py         hd kpi: one query per harness goal metric
 harness/hook.py        SessionStart/End (the orchestrator's session), PreToolUse/PostToolUse (bind a run on its brief, two
                        denials, the scope line, the context limit), SubagentStop (the hand-back line)
 harness/orchestrator.sh  the supervisor (§13)
-hd.yaml                repos {name, path, base, prefix?, upstream?, remote?, pins?}, builds, agents, context_limit, hold
+hd.yaml                repos {name, path, base, prefix?, upstream?, remote?, pins?}, builds, free, agents, context_limit, hold
 tracks/<repo>/         track.sh (recipe | build | up | down | gate | ship | measure | log | test), track.md (rules, seed
                        criteria), the repo's scripts (the harness: replay.sh); the product repos hold product code only
 .claude/agents/        driver.md, orchestrator.md, dev.md, qa.md, reader.md
@@ -169,12 +169,20 @@ CREATE INDEX event_change ON event(change, id);
 
 CREATE TABLE alert (                                   -- a harness anomaly, one row per subject (§12)
   id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('attempts','run-lost','runs-per-head','ask-stale','denied','fault','ci-runner','kpi','pin-conflict','quota')),
+  kind TEXT NOT NULL CHECK (kind IN ('attempts','run-lost','runs-per-head','ask-stale','denied','fault','ci-runner','kpi','pin-conflict','quota','disk')),
   subject TEXT NOT NULL, detail TEXT NOT NULL,
   first_at TEXT NOT NULL, last_at TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1,
   disposition TEXT CHECK (disposition IN ('filed','dismissed')), change TEXT, why TEXT, by TEXT, at TEXT,
   UNIQUE (kind, subject)
 );
+
+CREATE TABLE artifact (                                -- migration 6: a build artifact and its owners (PRD H7)
+  kind  TEXT NOT NULL CHECK (kind IN ('image','volume','container','worktree','dir')),
+  key   TEXT NOT NULL,    -- the docker name, or an absolute path under a .worktrees/ (a dir: or state/) directory
+  owner TEXT NOT NULL,    -- <slug> | <slug>@<T> | job:<kind>:<key> | run:<id>
+  at    TEXT NOT NULL,
+  PRIMARY KEY (kind, key, owner));
+CREATE TABLE disk (path TEXT PRIMARY KEY, free INTEGER NOT NULL, at TEXT NOT NULL);   -- bytes free on a build disk, each pass
 ```
 
 ```mermaid
@@ -295,7 +303,12 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     and no run with that input parks it (one that ended by stop or hand-back does: a new fact makes a new input; one
     that died with its console or handed off gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
     only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
-    tree of each server track whose script has a deploy recipe (Action change "<track>:staging")."""
+    tree of each server track whose script has a deploy recipe (Action change "<track>:staging"). Below hd.yaml
+    `free` on a disk row, a build or gate waits and no deploy is listed. Last, one release per artifact none of whose
+    owners is live (Action change "release", key "<kind>:<key>"): owner_live() holds for a job running, a run not
+    ended, an open change not done (<slug>), and for <slug>@<T> while a job of T runs, a run of the change is live, or
+    T is the built tree of its current head or of its latest card's head; staging@<T> while staging's tree is T.
+    A change closed, merged (done) or withdrawn (its definition gone) owns nothing."""
 ```
 
 ## 4 The pass (`hd tick`: a 60 s timer, after every run end, after every command)
@@ -308,13 +321,14 @@ flowchart TD
     L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → INSERT landed"]
     L -- no --> P
     LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok<br/>sessions: pid gone → crash, started runs → console; definition moved → drain"]
-    P --> GH["public changes: evidence/<slug>/pr-* → text rows;<br/>a change with a pr: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]
+    P --> GH["disk rows: free space of ~/src and /mnt/c<br/>public changes: evidence/<slug>/pr-* → text rows;<br/>a change with a pr: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]
   end
   GH --> D["decide.plan over the parsed definitions and the Ledger"]
   subgraph ACT["act.py"]
     D --> S["start jobs in systemd scopes → INSERT job"]
     D --> B["write a brief per new run Step → INSERT run"]
     D --> M["merge gated server heads into staging"]
+    D --> R["release each artifact no live owner names<br/>(the verb, then its absence observed → DELETE artifact)"]
     D --> E["INSERT event where the Step differs from the change's last;<br/>UPSERT alert rows from the anomaly queries"]
     E --> W["rewrite state/wake.orchestrator when a spawn, ended or drain line is new"]
   end
@@ -344,7 +358,9 @@ def pr(db, T, ch, ours)                 # the PR's gh row (Ledger.pr reads state
                                         # merged_at → landed(change, upstream main) (a squash or rebase merge is seen only here)
 def checks(db, upstream, sha) -> list   # the latest check run per name at sha plus commit statuses; None when unknown
 def stacks(db, tracks)                  # a stack row (mirrored from up.json by `hd stack`) with no live run → `track.sh down`
-                                        # in the scope hd-down-<slug>, once at a time
+                                        # in the scope hd-down-<slug>, once at a time: a run's end releases its containers
+def disk(db, free_gb)                   # statvfs of ~/src and /mnt/c → disk rows; below hd.yaml `free` → alert('disk')
+                                        # naming the compaction (wsl --shutdown, Optimize-VHD -Mode Full: the user's)
 def alerts(db)                          # UPSERT alert rows from the anomaly queries (§12); dedup on (kind, subject)
 ```
 GitHub is read each pass only for public changes with a PR, conditionally (a 304 costs no quota); checks only by a publish.
@@ -389,7 +405,18 @@ def brief(db, ch, step) -> path:
 
 def wake(db):
     """Rewrite state/wake.orchestrator with the lines new since the last wake; unchanged → no write."""
+
+def release(db, kind, key) -> bool:
+    """The verb of an artifact no live owner names: docker rmi | docker volume rm | docker rm -f; git worktree remove
+    --force (then rm -rf, worktree prune); rm -rf. Idempotent; the artifact's rows go only once `docker <kind> inspect`
+    answers "no such" or the path is gone, else alert('fault', 'release:<kind>:<key>') and the next pass tries again."""
 ```
+Artifact rows are written where the artifact is made: the clone by `brief` and `job_env` (owner the change), every other
+by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrune:<T>` and the rollback tag
+(`<slug>@<T>`, `staging@<T>`), the build copy and the Central and FileStore copies (the change), the cache store
+`or-cache-store-<revision>` (`<slug>@<T>`), `build-<slug>` and `boot-<T>` (the job), a harness or lab candidate dir
+(the job). The image context is removed as soon as its image is built, the build cache (`docker builder prune`) when
+no `build-*` container is live, and every Gradle run mounts the one volume `gradle`.
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order.
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
@@ -462,6 +489,7 @@ sequenceDiagram
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
+| `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
 | `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
@@ -564,8 +592,8 @@ flowchart LR
   `build/filestore.init.gradle`, whose included build substitutes every `dev.or2` module by name, transitively
   through the `all` POM), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
   the composite, so a library change is live on the test server with the first server tree built on it.
-- `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the slug's
-  gradle home), `test`, `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
+- `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
+  Gradle home), `test`, `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits
@@ -651,6 +679,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `kpi` | metric | a metric past its target at the day's roll-up |
 | `pin-conflict` | pin | upstream main no longer merges with staging |
 | `quota` | api | GitHub refused on quota |
+| `disk` | path | free space on a build disk below hd.yaml `free`: no build starts; the detail names the compaction |
 
 `hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the
 driver, then `hd dismiss <id> <why>` naming it; a harness change, `hd new --track harness --from-alert <id>` (carrying

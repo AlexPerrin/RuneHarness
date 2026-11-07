@@ -8,7 +8,8 @@ verb=${1:?usage: track.sh recipe|gate <slug> [key]}; slug=${2:-}; key=${3:-}
 case "$verb" in
   recipe) printf 'gate lab-1\n' ;;
   gate) dir="$HD_ROOT/state/$slug/cand-${HD_TREE:0:12}"   # the candidate's files, extracted once
-        [ -d "$dir" ] || { mkdir -p "$dir.tmp"; git -C "$HD_REPO" archive "$HD_TCOMMIT" | tar -x -C "$dir.tmp"; mv "$dir.tmp" "$dir"; }
+        $hd own dir "$dir" "job:gate:$key"   # released once the job ends
+        [ -d "$dir" ] || { rm -rf "$dir.tmp"; mkdir -p "$dir.tmp"; git -C "$HD_REPO" archive "$HD_TCOMMIT" | tar -x -C "$dir.tmp"; mv "$dir.tmp" "$dir"; }
         exec $hd gate "$slug" "$key" "$dir" ;;
   *) echo "track.sh: unknown verb $verb" >&2; exit 64 ;;
 esac

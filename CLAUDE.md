@@ -12,7 +12,7 @@ OpenRune/OpenRune-FileStore). It is neither product's code.
 docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`, live from `main`.** Every session and agent runs from this repo.
 
 ```
-harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | gate | candidate | stack | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
+harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | gate | candidate | stack | own | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
 harness/store.py the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
 harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), processes, docker, alerts
 harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; no subprocess, no clock

@@ -457,6 +457,14 @@ def cmd_stack(a):
                 d.get("token"), d.get("modulus"), d.get("started")))
 
 
+def cmd_own(a):
+    """A track script's artifact and its owner (docs/ARCHITECTURE.md §6 release): the pass releases it once no owner is live."""
+    try:
+        store.own(store.connect(), a.kind, a.key, a.owner)
+    except ValueError as e:
+        sys.exit(f"own: {e}")
+
+
 def cmd_measure(a):
     """A goal script's result (its last act, with `hd job measure <key> ok`)."""
     db = store.connect()
@@ -589,6 +597,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")
     s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head")
     s = sub.add_parser("stack"); s.add_argument("slug"); s.add_argument("file", nargs="?"); s.add_argument("--clear", action="store_true")
+    s = sub.add_parser("own"); s.add_argument("kind", choices=("image", "volume", "container", "worktree", "dir")); s.add_argument("key"); s.add_argument("owner")
     s = sub.add_parser("step"); s.add_argument("slug"); s.add_argument("script"); s.add_argument("step"); s.add_argument("state", choices=("start", "done")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("fault"); s.add_argument("run", type=int); s.add_argument("what")
     s = sub.add_parser("dismiss"); s.add_argument("id", type=int); s.add_argument("why")

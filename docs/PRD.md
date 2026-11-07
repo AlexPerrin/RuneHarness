@@ -36,6 +36,12 @@ publish → maintainers' findings become criteria.
 - **H5** Every process a run starts is the run's: stopped with it, bounded by one count of builds and one of agents,
   named after its change or run. No mobile or desktop contacts Jagex, checked by its bring-up.
 - **H6** Harness and client changes ship one at a time by fast-forward of the live branch to a checked candidate.
+- **H7** A build artifact (image, volume, container, clone, build copy, context) exists only while a fact names it:
+  each is recorded with its owners (a change, a tree a change still names, a job, a run), and the pass releases it
+  once none holds (a new head, close, merge, withdrawal, a job's or run's end, a kill included), ending on its observed
+  absence. Content-addressed caches are shared (one Gradle home; one cache store per game revision); the build cache
+  goes when the last build ends. The free space of the build disks is a fact: below a set level no build starts and
+  the user is told compaction is due, with its commands.
 
 ## G. Gate
 

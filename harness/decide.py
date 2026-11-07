@@ -456,10 +456,11 @@ def priority(ch, blocked: dict) -> str:
 
 
 def parked(L: Ledger, slug, input):
-    """The run with this input that parks the step: one that ended by its own hand-back or a stop (a new fact makes a new
-    input). One that died with its console or handed off gets a successor: None."""
+    """The run with this input that parks the step: one that ended by its own hand-back, or a listing withdrawn by a stop
+    before it started (a new fact makes a new input). One that died with its console, handed off or was stopped once
+    started did not do the work: it gets a successor, None; repeats are the run-lost alert."""
     p = L.run_for(slug, input)
-    return p if p and p["end_kind"] not in ("console", "handoff") else None
+    return p if p and p["end_kind"] not in ("console", "handoff") and not (p["end_kind"] == "stop" and p["started_at"]) else None
 
 
 def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:

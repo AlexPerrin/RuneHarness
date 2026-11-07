@@ -48,6 +48,11 @@ class Tempo(Base):  # T1, T3, T4
         self.run_row(s.input, ended_at="t", end_kind="stop")
         self.assertEqual(self.step().kind, "wait")
 
+    def test_a_run_stopped_once_started_gets_a_successor(self):   # a wedged run did not do the work; a withdrawn listing above stays parked
+        s = self.step()
+        self.run_row(s.input, started_at="t", ended_at="t", end_kind="stop")
+        self.assertEqual(self.step().kind, "run")
+
     def test_a_live_run_blocks_the_change(self):
         self.run_row("x")
         self.assertIn("run 1 dev", self.step().why)

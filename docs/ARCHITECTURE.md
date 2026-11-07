@@ -300,8 +300,8 @@ GUARDS = [
 def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     """next() per open change in priority order (harness, then PR rounds, then new content; each at the best
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
-    and no run with that input parks it (one that ended by stop or hand-back does: a new fact makes a new input; one
-    that died with its console or handed off gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
+    and no run with that input parks it (one that ended by hand-back, or a listing stopped before it started, does: a new
+    fact makes a new input; one that died with its console, handed off or was stopped once started gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
     only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
     tree of each server track whose script has a deploy recipe (Action change "<track>:staging"). Below hd.yaml
     `free` on a disk row, a build or gate waits and no deploy is listed. Last, one release per artifact none of whose

@@ -619,6 +619,9 @@ flowchart LR
   token, a bounded answer, the Windows `netstat` probe) and the client repo's mobile bridge (stdio over `adb shell nc`).
   Long-distance `walk_to`, session state in every answer, and token auth on both platforms are `devtools` changes,
   not bridge code.
+- Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
+  endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
+  non-java command holding a URL, are refused and logged as `[osrs-test] refused URL` in the desktop log).
 
 ## 12 Roles and alerts
 

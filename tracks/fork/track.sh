@@ -122,8 +122,8 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     && "$desk/jdk/bin/javac.exe" -nowarn -cp "$t\\rsprox\\lib\\*" -d "$t\\rsprox\\$l.$$" "$(wslpath -w "$self/server/OsrsTestLauncher.java")" >&2 \
     && { mv -T "$desk/rsprox/$l.$$" "$desk/rsprox/$l" 2>/dev/null || rm -rf "$desk/rsprox/$l.$$"; }; }   # a concurrent up may have placed it first
   o=owner-$(sha1sum < "$self/server/DevtoolsOwner.java" | cut -c1-12)   # the endpoint's owner check, its jar built once into the template
-  [ -f "$desk/rsprox/$o.jar" ] || { rm -rf "$desk/rsprox/$o.$$" && mkdir -p "$desk/rsprox/$o.$$/c" && printf 'Premain-Class: DevtoolsOwner\n' > "$desk/rsprox/$o.$$/m" \
-    && "$desk/jdk/bin/javac.exe" -nowarn --add-exports jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -d "$t\\rsprox\\$o.$$\\c" "$(wslpath -w "$self/server/DevtoolsOwner.java")" >&2 \
+  [ -f "$desk/rsprox/$o.jar" ] || { rm -rf "$desk/rsprox/$o.$$" && mkdir -p "$desk/rsprox/$o.$$/c" && printf 'Premain-Class: DevtoolsOwner\nCan-Retransform-Classes: true\n' > "$desk/rsprox/$o.$$/m" \
+    && "$desk/jdk/bin/javac.exe" -nowarn --add-exports jdk.httpserver/sun.net.httpserver=ALL-UNNAMED --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED -d "$t\\rsprox\\$o.$$\\c" "$(wslpath -w "$self/server/DevtoolsOwner.java")" >&2 \
     && "$desk/jdk/bin/jar.exe" cfm "$t\\rsprox\\$o.$$\\o.jar" "$t\\rsprox\\$o.$$\\m" -C "$t\\rsprox\\$o.$$\\c" . \
     && mv -f "$desk/rsprox/$o.$$/o.jar" "$desk/rsprox/$o.jar"; rm -rf "$desk/rsprox/$o.$$"; }   # a concurrent up may have placed the same jar first
   [ -f "$desk/rsprox/$o.jar" ] || { echo "no devtools owner check $desk/rsprox/$o.jar" >&2; return 1; }

@@ -1,24 +1,19 @@
 # Hand-off to the v9 harness dev
 
-Current state as of 2026-11-07 21:55 UTC. The goal: a harness implemented and tested end to end against the workflow,
+Current state as of 2026-11-07 22:40 UTC. The goal: a harness implemented and tested end to end against the workflow,
 with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
 ## Do first
 
-1. **The mobile proofs wait on a maintainer merge.** `server-reconnect` passed qa (run 184) and is live since 21:01 UTC;
-   its upstream PR is card 10, the user's. `h-mobile-login-page-9` (harness) holds the live proofs `mobile-10`,
-   `stays-mobile` and `desktop-10` and depends on `server-reconnect`, but a fork dep counts for a harness change only once
-   landed on upstream main (`done()`); only a client change counts its server deps once live (cc8dbc0). So the proofs that
-   need nothing but live wait on card 10 and a maintainer. Root cause open, the user's design choice: no criterion or dep
-   can say "proved once live".
-2. **Watch run 187** (`client-host-raw-gamestate`, started 21:50 UTC on live with both server fixes);
-   `h-mobile-login-start-error` follows it.
-3. **Watch run 188** (`h-merge-conflict-retry`, filed from alert 45): a staging conflict is retried when staging moves.
+1. **Watch run 190** (`h-mobile-login-page-9`): the live proofs `mobile-10`, `stays-mobile` and `desktop-10`, on live with
+   `server-reconnect` (since 21:01 UTC). Card 10 (`server-reconnect`'s PR) is held by the user; a server fix live frees its
+   dependents on other tracks while its PR holds (858773d, PRD G4). `client-host-raw-gamestate` shipped at e436464.
+2. `h-mobile-login-start-error` follows `client-host-raw-gamestate`, now shipped.
 
 ## Where things are
 
 - **v9 runs from this worktree**, `~/osrs-harness/.worktrees/v9`, branch `v9`, pushed to `origin/v9`: `harness/orchestrator.sh` in
-  the user's terminal (peer session `v9-09`, Sonnet 5.5; dev and qa on Opus 5.5; `agents: 5`), `hd-loop.timer`, `state/hd.db`.
+  the user's terminal (peer session `v9-f2`, Sonnet 5.5; dev and qa on Opus 5.5; `agents: 5`), `hd-loop.timer`, `state/hd.db`.
   Commit here and push as you go. `~/osrs-harness` (`main`) is idle v8: its timer is off, its state is read-only context.
 - **The user** runs a split terminal: the driver or this engineer session beside the orchestrator. This session is a one-off;
   the design is a manual driver and autonomous agents.
@@ -70,7 +65,7 @@ on a throwaway account (client text "locked due to suspicious activity"), unconf
 
 ## ACCEPTANCE
 
-31 requirements, 2 with a `pending:` proof: **H8** (above), **A3** (a maintainer
+32 requirements, 2 with a `pending:` proof: **H8** (above), **A3** (a maintainer
 finding answered through the loop). Replace each `pending:` with the observed fact; recount before quoting a figure.
 
 ## This session's lessons
@@ -128,9 +123,9 @@ At the user's desk, on their word, once Android logs in reliably: the session's 
 
 ## Awaiting the user
 
-card 10 (`server-reconnect`, new PR); card 9 (`goblin-367-rsprox-dump`, #367); question 10 (`central-game-session`: add
+card 10 (`server-reconnect`, new PR, held by the user); card 9 (`goblin-367-rsprox-dump`, #367); question 10 (`central-game-session`: add
 `central-rights-test-mod` as a dep); Hunter #408 question 4; the triage of comments on #354 and #367; the Central and
-social holds; the `hd park` proposal; the design choice in "Do first" 1.
+social holds; the `hd park` proposal.
 
 ## Known gaps
 

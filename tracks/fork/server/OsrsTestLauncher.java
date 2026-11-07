@@ -13,10 +13,17 @@
 // front: the target's jav_config must be its jav_config.ws, and that jav_config names every other endpoint.
 
 import io.netty.buffer.ByteBufAllocator;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import net.rsprox.cache.api.CacheProvider;
 import net.rsprox.proxy.ProxyService;
+import net.rsprox.proxy.preferences.ClientPreferences;
+import net.rsprox.proxy.preferences.ClientPreferencesFile;
 import net.rsprox.proxy.binary.BinaryHeader;
 import net.rsprox.proxy.target.ProxyTarget;
 import net.rsprox.proxy.target.ProxyTargetConfig;
@@ -78,6 +85,17 @@ public final class OsrsTestLauncher
 			{
 				die("Jagex launcher variable " + v + (token && session ? " is not set for a token login" : " is set"));
 			}
+		}
+
+		// a fresh home's login screen opens on the terms page (a click, no key) and its Existing User on the Jagex Account prompt
+		// (whose other button opens a Jagex page): its preferences hold the terms accepted (acceptedTOSVersion 1, RSProx's own)
+		// and the prompt shown today (lastJagexAccountPromptRuneDay: days since 2002-02-27), as a home that has seen both
+		Path prefs = ClientPreferencesFile.INSTANCE.getDEFAULT_PATH();
+		if (!Files.exists(prefs))
+		{
+			ClientPreferencesFile.INSTANCE.write(new ClientPreferences(false, false, 1, Map.of(), null, false, 0.8, 127, 127, 127, 1, false, 25, 0, false,
+				(int) (LocalDate.now(ZoneOffset.UTC).toEpochDay() - 11745)), 241, prefs);
+			log("terms accepted in " + prefs);
 		}
 
 		ProxyService service = new ProxyService(ByteBufAllocator.DEFAULT);

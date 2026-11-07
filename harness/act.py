@@ -5,6 +5,7 @@ import functools
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -327,6 +328,7 @@ def absent(kind, key) -> bool:
 def release(db, kind, key) -> bool:
     """The release verb of an artifact no live owner names (docker rmi | volume rm | rm -f, git worktree remove, rm -rf),
     idempotent; its rows go once its absence is observed, else they stay and the next pass releases it again."""
+    why = ""
     if kind == "worktree" and os.path.isdir(key):
         common = subprocess.run(["git", "-C", key, "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True).stdout.strip()
         name = os.path.basename(key)
@@ -342,9 +344,11 @@ def release(db, kind, key) -> bool:
     elif kind == "dir":
         shutil.rmtree(key, ignore_errors=True)
     elif not absent(kind, key):
-        subprocess.run(["docker", *{"image": ["rmi"], "volume": ["volume", "rm"], "container": ["rm", "-f"]}[kind], key], capture_output=True)
-    if not absent(kind, key):   # in use (a container of the image), or docker not answering: the driver sees it
-        store.alert(db, "fault", f"release:{kind}:{key}"[:200], "still present after its release verb; the next pass releases it again")
+        why = subprocess.run(["docker", *{"image": ["rmi"], "volume": ["volume", "rm"], "container": ["rm", "-f"]}[kind], key], capture_output=True, text=True).stderr.strip()
+    if not absent(kind, key):
+        if re.search("in use|is using|being used", why):   # a container still holds it, its stack's down usually running: no fault, the next pass releases it
+            return False   # shortcut: a leaked container holds it silently until the disk alert, name it there if that ever happens
+        store.alert(db, "fault", f"release:{kind}:{key}"[:200], f"still present after its release verb ({why or 'no refusal given'}); the next pass releases it again")
         return False
     db.execute("DELETE FROM artifact WHERE kind=? AND key=?", (kind, key))
     event(db, "released", None, None, f"{kind} {key}")

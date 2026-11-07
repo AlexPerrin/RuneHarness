@@ -386,7 +386,7 @@ def start(db, step, ch, T):
     environment; INSERT job(kind, key, change, pid, pid_start, scope, log). The script's last act is `hd job <kind>
     <key> ok|fail <detail>` (a gate: `hd gate <slug> <key> <dir>`, which runs every scripted criterion in the
     candidate's files and records a check_result per criterion); the wrapper writes its exit to
-    state/<slug>/<kind>-<key12>.rc. Builds take one of hd.yaml `builds` slots (flock on state/build.<i>.lock)."""
+    state/<slug>/<kind>-<key12>.rc. Builds take one of hd.yaml `builds` slots (flock on ~/.cache/hd/build.<i>.lock, machine-wide as the gradle-<i> volume is)."""
 
 def clone(T, ch) -> path:
     """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""

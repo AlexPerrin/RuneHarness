@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "harness"))
@@ -165,6 +166,16 @@ class Observe(unittest.TestCase):
         self.assertFalse(os.path.exists(wt) or os.path.exists(d))
         self.assertNotIn(wt, sh(self.repo, "worktree", "list"))
         self.assertIsNone(self.db.execute("SELECT 1 FROM artifact").fetchone())
+
+    def test_a_release_refused_because_a_container_holds_it_waits_and_any_other_refusal_alerts(self):
+        store.own(self.db, "image", "or:t", "h-one")
+        for stderr, alerts in (("conflict: unable to remove repository reference: container abc is using its referenced image", 0), ("Cannot connect to the Docker daemon", 1)):
+            with mock.patch.object(act, "absent", side_effect=[False, False]), \
+                 mock.patch.object(act.subprocess, "run", return_value=mock.Mock(stderr=stderr)):
+                self.assertFalse(act.release(self.db, "image", "or:t"))
+            self.assertEqual(self.db.execute("SELECT count(*) FROM alert").fetchone()[0], alerts)
+        self.assertIn("Docker daemon", self.db.execute("SELECT detail FROM alert").fetchone()[0])
+        self.assertTrue(self.db.execute("SELECT 1 FROM artifact").fetchone())   # the row stays until absence is observed
 
 
 if __name__ == "__main__":

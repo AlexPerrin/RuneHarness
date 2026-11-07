@@ -21,8 +21,8 @@ state=$root/state/$slug; mkdir -p "$state"
 copy=$repo/.worktrees/$slug-build
 size=(--cpus=4 --memory=5g)
 slot() {  # slot <command...>: the command under one of the HD_BUILDS build slots (the first free, else waiting on the first)
-  local n=${HD_BUILDS:-3} i fd rc tried=; mkdir -p "$root/state"
-  for i in $(seq 1 "$n") 1; do exec {fd}> "$root/state/build.$i.lock"
+  local n=${HD_BUILDS:-3} i fd rc tried=; mkdir -p ~/.cache/hd
+  for i in $(seq 1 "$n") 1; do exec {fd}> ~/.cache/hd/build.$i.lock   # machine-wide, as the gradle-<i> volume it guards: every checkout takes the same slots
     if [ "$i" = 1 ] && [ -n "$tried" ]; then flock "$fd"; else flock -n "$fd" || { exec {fd}>&-; tried=1; continue; }; fi
     "${@//@SLOT@/$i}"; rc=$?; exec {fd}>&-; return $rc
   done

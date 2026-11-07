@@ -19,8 +19,8 @@ atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"
 record() { python3 -c 'import json,os,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:],"head":os.environ.get("HEAD","")}))' "$T" "$1" | atomic "$state/$2.json"; }
 size=(--cpus=4 --memory=5g)   # one build or check container's share of the host; hd.yaml builds (HD_BUILDS) bounds how many run at once
 slot() {  # slot <command...>: the command under one of the HD_BUILDS build slots (the first free, else waiting on the first)
-  local n=${HD_BUILDS:-3} i fd rc; mkdir -p "$root/state"
-  for i in $(seq 1 "$n") 1; do exec {fd}> "$root/state/build.$i.lock"
+  local n=${HD_BUILDS:-3} i fd rc; mkdir -p ~/.cache/hd
+  for i in $(seq 1 "$n") 1; do exec {fd}> ~/.cache/hd/build.$i.lock   # machine-wide, as the gradle-<i> volume it guards: every checkout takes the same slots
     if [ "$i" = 1 ] && [ -n "${tried:-}" ]; then flock "$fd"; else flock -n "$fd" || { exec {fd}>&-; tried=1; continue; }; fi
     "${@//@SLOT@/$i}"; rc=$?; exec {fd}>&-; return $rc
   done

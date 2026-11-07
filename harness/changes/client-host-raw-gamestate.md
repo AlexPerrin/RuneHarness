@@ -2,6 +2,8 @@
 slug: client-host-raw-gamestate
 track: client
 priority: P1
+deps:
+- live-session-drops-after-login
 ---
 # The host's GameStateChanged line names the game's raw state (1000, the start error page, logs as UNKNOWN)
 

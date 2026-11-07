@@ -4,6 +4,7 @@ track: filestore
 priority: P2
 deps:
 - h-filestore-build
+- h-filestore-up-login
 ---
 # FileStore: name each packed clientscript group in the cache reference table (moved from OpenRune-Server #448)
 

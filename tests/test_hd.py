@@ -54,6 +54,8 @@ class Hd(unittest.TestCase):
         hd.store.connect().execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('x', 'dev', 'code', 'i', 'b', 't')")
         with self.assertRaises(SystemExit):
             hd.cmd_ask(argparse.Namespace(slug="x", text="q?", option=["a:mark it upstream: false", "b:close it"]))
+        with self.assertRaises(SystemExit):   # a dep with no target would write a blank dep into the definition
+            hd.cmd_ask(argparse.Namespace(slug="x", text="q?", option=["a:wait on it:dep", "b:close it:close"]))
         self.assertEqual(hd.store.connect().execute("SELECT count(*) FROM ask").fetchone()[0], 0)
 
     def test_ask_then_answer_waives_a_criterion(self):

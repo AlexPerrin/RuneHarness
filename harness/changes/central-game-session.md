@@ -4,6 +4,7 @@ track: central
 priority: P1
 deps:
 - central-token-login-op
+- h-central-up-sign-in
 ---
 # Central serves the official client's sign-in: OIDC and game-session endpoints that mint the login token
 

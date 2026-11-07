@@ -264,7 +264,8 @@ def cmd_ask(a):
     if Ledger(db).open_ask(a.slug):
         sys.exit("hd ask: a question of this change is already open")
     opts = [dict(zip(("id", "text", "effect"), (p.strip() for p in o.split(":", 2)))) for o in a.option]
-    bad = [o for o in opts if len(o) < 3 or not all(o.values()) or o["effect"].split()[0] not in EFFECTS]
+    bad = [o for o in opts if len(o) < 3 or not all(o.values()) or o["effect"].split()[0] not in EFFECTS
+           or (o["effect"] in ("dep", "waive", "reply"))]   # these three act on a named target: a bare one wrote a blank dep
     if bad:   # refused before any row: a malformed question would never show and never answer
         sys.exit(f"hd ask: each --option is id:text:effect with the effect one of {', '.join(EFFECTS)}; no ':' in the text. Bad: {bad}")
     r = live_run(db, a.slug)

@@ -177,12 +177,14 @@ def server_deps(C, ch) -> list:
 def deps_live(C, ch):
     """A dep with nothing to build on → wait. A submitted dep of the same track joins the candidate (its landing is
     waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a
-    library the server needs) is nothing to build on until it lands or closes."""
+    library the server needs) is nothing to build on until it lands or closes. A server fix that runs on the test server
+    is there once live: a change on another track builds on it then, its PR held or not (an upstream merge gates only the
+    dep's own track, upstream_dep_wait)."""
     for dep in ch.deps:
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if ch.track == "client" and d.track in SERVER:   # the mobile reaches only the live test server
+        if d.track != ch.track and (stages(C, d) or ch.track == "client" and d.track in SERVER):   # the mobile reaches only the live test server
             for x in [dep] + server_deps(C, d):   # a server dep works there only with its own deps
                 if not (C.L.closed(x) or C.L.landed(x, "live")):
                     return Step("wait", f"dep {x} not live on the test server")
@@ -248,8 +250,8 @@ def dev_due(C, ch):
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
     landed = [d for d in ch.deps if d in C.defs and done(C, C.defs[d])]
-    if ch.track == "client":
-        landed += [d for d in server_deps(C, ch) if C.L.landed(d, "live")]   # a server dep live on the test server is the client's new fact
+    if ch.track not in SERVER:
+        landed += [d for d in server_deps(C, ch) if C.L.landed(d, "live")]   # a server dep live on the test server is its dependent's new fact
     return Step("run", "; ".join(why), role="dev", mode="code", input=digest(t, why, answers, landed))   # a dep landing is a new fact: the dev runs again
 
 
@@ -300,11 +302,12 @@ def stage_due(C, ch):
 
 
 def upstream_dep_wait(C, ch):
-    """A public act or a ship waits until every dep is landed where it is done (G4: a PR holds no other PR's commits).
-    A library dep holds only a public act: a ship opens no PR, and its candidate was built on the library's head."""
+    """A public act or a ship waits until every same-track dep is landed where it is done (G4: a PR holds no other PR's
+    commits); a library dep holds a public act too. A dep on another track holds neither: deps_live already waited for
+    it to land or go live, and its PR may wait in the outbound queue meanwhile."""
     for dep in ch.deps:
         d = C.defs.get(dep)
-        if d and not done(C, d) and (is_public(C, ch) or d.track not in ("central", "filestore")):
+        if d and not done(C, d) and (d.track == ch.track or is_public(C, ch) and d.track in ("central", "filestore")):
             return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
     return None
 

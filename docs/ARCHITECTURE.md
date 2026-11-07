@@ -274,19 +274,21 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
     deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate;
-                       # a dep on another track (a harness fix, a library) must land or close; a client change's server dep
-                       # must be live with its own server deps, transitively (landed 'live': the test server runs it, the only server a mobile reaches)
+                       # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a client
+                       # change's any, else a staged one) must be live with its own server deps, transitively (landed 'live': the test
+                       # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate, or a merge conflict at the staging tip / CI failure / missing text
                        # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
-                       # deps that have landed, for a client change its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict older than a dep's landing goes to judge_due first
+                       # deps that have landed, for a change off the server tracks its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict older than a dep's landing goes to judge_due first
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
     stage_due,         # tracks with a deploy recipe: no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
-    upstream_dep_wait, # a dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it; a library dep holds a card only
+    upstream_dep_wait, # a same-track dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
+                       # (G4); a library dep holds a card too; a dep on another track holds neither (deps_live waited for it)
     texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
     card_due,          # no card at the head, or its approval spent by a refusal, or texts observed since it was shown → card
     approval_wait,     # card and no approval → wait (the user); a hold → wait (hidden)

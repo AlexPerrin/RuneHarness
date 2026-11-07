@@ -113,6 +113,18 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("DELETE FROM landed WHERE change='s-base'")
         self.assertNotEqual(decide.dev_due(decide.Ctx(self.L, cfg, {c.slug: c for c in (ch, srv, base)}), ch).input, s1.input)   # the dep's dep landing re-runs a parked dev
 
+    def test_a_server_fix_live_frees_its_dependents_while_its_pr_holds(self):   # h-mobile-login-page-9 sat behind card 10 and a maintainer
+        srv, ch = Change("s-fix", "fork"), Change("h-one", "harness", deps=("s-fix",))
+        nxt = Change("s-next", "fork", deps=("s-fix",))
+        cfg = Cfg(agents=2, tracks={"harness": T, "fork": F})
+        C = decide.Ctx(self.L, cfg, {c.slug: c for c in (srv, ch, nxt)})
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't')")
+        self.assertEqual(decide.deps_live(C, ch).why, "dep s-fix not live on the test server")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        self.assertIsNone(decide.deps_live(C, ch))
+        self.assertIsNone(decide.upstream_dep_wait(C, ch))   # its ship is not held by the fork PR
+        self.assertIn("not yet landed on main", decide.upstream_dep_wait(C, nxt).why)   # G4: the same repo's PR still waits
+
     def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
         dep = Change("h-fix", "harness")
         ch = Change("c-one", "client", deps=("h-fix",))

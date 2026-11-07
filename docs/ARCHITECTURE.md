@@ -58,7 +58,7 @@ tests/test_hd.py  one class per requirement, over fakes of git, gh, docker and t
   a finding joins or files the PR's round in the next pass, an acknowledgement never files or is answered, and closes a round filed from it alone with no hand-over (the orchestrator commits it);
   ask (a decision of scope only the user makes: a move to another repo, a close) joins or files the round as a finding does and opens it with the word as the round's `ask`, the user's question (R4)
 
-- `hd approve <slug> <head>`, by the user, as a `!` command in the orchestrator's window: at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts}
+- `hd approve <slug> <head>`, by the user, as a `!` command in the orchestrator's window: at the user step only: `state/<slug>/approval.json` {head, texts: the digest of the card's texts, txt: those texts}
 
 - `hd ship <slug> <head>`, by the pass (the public step's script): carries the approved head upstream or publishes the release, re-checking the yes;
   records `ship.json` (R4)
@@ -163,7 +163,7 @@ state/<slug>/ask.json          {text, def}: def keys the definition's kind, deps
                                an edit of them settles the question (`hd.asked`), a deps edit hd writes re-keys it;
                                an ask without def keys on the definition as committed at its ts (`hd.baseline`)
 state/<slug>/hold.json         {head, held}: the user's no at a head
-state/<slug>/approval.json     {head, texts}: the user's yes   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
+state/<slug>/approval.json     {head, texts, txt, carrying}: the user's yes (txt the texts approved, carrying once its carry started)   ship.json {head, ok, fault: head | carry, detail}: the carry's result   opened.json {pr, head}: the PR the carry opened
 state/<goal>/measure.json      {tree, value, report}           state/live/tree.json        {tree, commit, heads, names, modulus, key, containers}
 state/runs/<name>.json         {role, change, step, input, brief, given, console_pid, console_start, agent_id, transcript, started, ended, record, last, usage, handoff_told};
                                runs/by-agent/<id> → name (<id>.idle: the hook's desktop idle count)
@@ -323,6 +323,7 @@ next(change):
     it quotes each finding and @ only their askers, each once (a later mention keeps the bare name), else the change's FAIL;
     an @ on a '>' quote line or in code is no mention;
     ready, and no review request: the account cannot ask reviewers upstream, so maintainers pick a ready PR up;
+    then each moved PR (a change `superseded:` by this one, its PR open on another repo): one comment, pr-close-<superseded>.md quoting its unanswered findings and a last line `Moved to <upstream>#<this PR>` (once per text: its marker), then `gh pr close`; the change is carried only once each such PR is closed;
     each step a ship.log line as it starts and ends, the CI wait naming the checks it waits on and ending on their result or a failed read, a step observed done skipped.
     The checks at a head are the latest run of each check name (a run started again at the head replaces the one before it) and the commit statuses.
     Success: ship.json, approval.json removed (the yes is spent).
@@ -381,7 +382,7 @@ each at the best priority of the open changes it blocks, by a dep or by the conf
 list no run for a change whose priority is below `hold` or below the best priority of a change whose `next` is a dev or qa run it would list and none is listed or alive for it, dropping a listed, unspawned run only below `hold`;
 start the script step of each change whose process is not alive (pid with start time), one ship at a time;
 a process alive under a key no longer its step's is stopped with its systemd scope (`Facts.stop`) and the current one started;
-a carry (no key) alive on an hd.py changed since its start is stopped and started again, so it resumes on the current code;
+a carry (no key) alive is never stopped, on a changed hd.py too: it holds a yes and finishes on the code it started on;
 a build or gate alive on a head its verdict failed is stopped (`Ctx.halt`), its record dropped, since that head is its dev's;
 a gate alive under another key that runs a row whose key still holds is not stopped: it finishes and the next gate runs only the rows it left;
 starting a keyed process also stops the slug's other process alive under a key of another tree (a gate on the old build key when the new build starts);
@@ -472,7 +473,8 @@ the successor, the same role on the same change, is listed in the same pass past
 Three runs of a change past the limit since its last handover are an alert (the change too large for one run, or its brief spending context on reading).
 
 **Authority**: everything runs with the one shared GitHub token.
-The public act is the carry, `hd ship <slug> <head>`, started by the pass only while approval.json holds that head and the digest of the card's current texts, and re-checking both before it acts.
+The public act is the carry, `hd ship <slug> <head>`, started by the pass only while approval.json holds that head and the digest of the card's current texts, and re-checking both before it acts;
+once started (`carrying`) it holds at the head alone and every rerun posts approval.json's txt, each step done skipped.
 The one hook rule: `hd approve` and `hd close` (the user's word, typed by the user as a `!` command, which fires no hook) are denied inside a subagent or the orchestrator session (a hook input with an agent id or type) when a command runs them (at a command's start);
 a command that only quotes them (grep, echo, a heredoc body) runs.
 A Monitor command is a shell command: every Bash rule judges it as one.

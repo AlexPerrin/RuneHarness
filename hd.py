@@ -1440,7 +1440,7 @@ class Ctx:
         one that ended three times without its result (its record, or exit 0 for a script that records none: a host fault, a held row, a crash, a kill), on the same args and key or on the same
         cause (the last line it logged, hashes dropped) across them, is raised once, quoting the last failure lines of its log;
         `since` is when its count last started over;
-        a carry (no key) alive on a script fixed after its start is outdated too;
+        a carry (no key) alive is never stopped, on a fixed script too: it finishes on the code it started on;
         a fixed script and a landed result are each a change of that file's text since the record of the start (its digest), never a file time beside another's;
         one that takes host room (need: a build's) starts only while the host holds it beside every one alive (builds_fit), so each
         further one starts on the observed end of one; while docker is down only a script of this repo (the harness track's, `hd ship`) starts."""
@@ -1450,8 +1450,8 @@ class Ctx:
         ver = lambda f: digest(f.read_text(errors="replace")) if f.is_file() else None
         sv, rv = ver(script), ver(res)
         fixed = p.get("script", sv) != sv  # shortcut: a record written before digests were kept reads as unfixed; drop once none is live
-        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (not fixed if key is None else p.get("key") == key or set(p.get("rows") or []) & set(rows)):
-            return  # a carry (no key) alive on a script fixed after its start is outdated: its rerun resumes on the fixed one
+        if not s.docker and args[0] not in (str(ROOT / "hd.py"), s.script({"track": "harness"})) or st == "alive" and (key is None or p.get("key") == key or set(p.get("rows") or []) & set(rows)):
+            return  # a carry (no key) alive is never stopped: it holds a yes, and a stopped one resumes only from its approved texts
         if st == "alive":
             if not act:
                 return
@@ -1557,13 +1557,26 @@ def group(ctx, ch):
     return [o for o in ctx.changes.values() if (o is ch or not o.get("closed") and not o.get("superseded") and one_pr(o, ch)) and not carried(ctx, o, ctx.head(o))]
 
 
+def moved(ctx, ch):
+    """R4: the changes whose scope the user moved into ch's repo (`superseded: <ch>`, their PR open upstream on another repo):
+    ch's carry closes each PR with one comment answering its findings and linking ch's PR; None unknown."""
+    out = []
+    for o in ctx.changes.values() if upstream(ch) else ():
+        if o.get("superseded") == ch["slug"] and o.get("pr") and upstream(o) and TRACK[o["track"]]["repo"] != TRACK[ch["track"]]["repo"]:
+            if (p := ctx.upstream_pr(o)) is None:
+                return None
+            out += [o] if p else []
+    return out
+
+
 def carried(ctx, ch, head):
     """R4: its head went upstream: its own carry, or that of a same-PR change built on it, succeeded at that head (and
-    GitHub agrees: the open PR at that head, ready), or its upstream PR is at the head, ready, with nothing left to post."""
+    GitHub agrees: the open PR at that head, ready), or its upstream PR is at the head, ready, with nothing left to post;
+    and every PR it moves is closed."""
     def held(o, h):  # a ship record GitHub contradicts (the PR moved, or the user returned it to draft) is not trusted
         p = ctx.upstream_pr(o) if upstream(o) else {"head": h, "draft": False}
         return (r := rec(o["slug"], "ship") or {}).get("head") == h and r.get("ok", True) and bool(p) and (p["head"], p["draft"]) == (h, False)
-    return bool(head) and (any(held(o, h) for o in ctx.changes.values()
+    return bool(head) and moved(ctx, ch) == [] and (any(held(o, h) for o in ctx.changes.values()
                                if (o is ch or not o.get("closed") and one_pr(o, ch) and ch["slug"] in ctx.deps(o)) and (h := head if o is ch else ctx.head(o)))
                            or upstream_at(ctx, ch, head) is True)
 
@@ -1977,7 +1990,7 @@ def public(ctx, ch, head):
     """R4: the complete PR (or release) at head is one card in the console; the user's `hd approve`, bound to its head
     and the digest of its texts, is the yes; the carry does the upstream act and records it."""
     slug = ch["slug"]
-    if upstream(ch) and upstream_at(ctx, ch, head) is None:
+    if upstream(ch) and (upstream_at(ctx, ch, head) is None or moved(ctx, ch) is None):
         return step("upstream PR unknown", "unknown")
     if carried(ctx, ch, head):
         return step(f"carried at {head[:9]}; waiting on the maintainers", "wait")
@@ -1998,7 +2011,7 @@ def public(ctx, ch, head):
         return step(f"gated; the PR waits for {', '.join(out)}", "wait")
     if (first := min(o["slug"] for o in group(ctx, ch) if ctx.head(o) == head and not outside(ctx, o, head))) != slug:
         return step(f"gated; the PR's card is {first}'s", "wait")  # same-head tips of one PR: one card
-    if ctx.proc(slug, "ship") == "alive":  # the carry in flight: its texts were read when it started; start keeps it, or reruns it on a fixed hd.py
+    if ctx.proc(slug, "ship") == "alive":  # the carry in flight: it posts the approved texts; start keeps it
         return step("carrying upstream", "script", act=lambda: ctx.start(slug, "ship", rec(slug, "proc-ship")["args"]))
     again = reopen(ch, head)
     if (sh := rec(slug, "ship") or {}).get("head") == head and sh.get("fault") == "head" and not vouched(slug, head) \
@@ -2028,6 +2041,12 @@ def public(ctx, ch, head):
             return step(f"the comment misses findings {', '.join(map(str, miss))}: dev", "dev", mode="code", input=["findings", head, miss], detail=(
                 f"The round's one comment answers every finding of the PR: quote each of {', '.join(map(str, miss))} with `> ` in "
                 f"{EVID / slug}/pr-reply-<finding>.md (or pr-comment.md) and answer it, a commit on the head where it needs code."))
+        for w, fs, t in public_texts(ctx, ch):  # each moved PR's closing comment answers its findings too
+            o = ctx.changes.get(w[6:]) if w.startswith("close ") else None
+            if o and (miss := unquoted(fs, {c["id"]: c for c in (ctx.comments(o["track"], o["pr"]) or []) + (ctx.talk(o["track"], o["pr"]) or [])}, t)):
+                return step(f"the closing comment of PR {o['pr']} misses findings {', '.join(map(str, miss))}: dev", "dev", mode="code", input=["findings", head, miss], detail=(
+                    f"The carry closes {o['slug']}'s PR {o['pr']} with one comment linking this PR: quote each of {', '.join(map(str, miss))} "
+                    f"with `> ` in {EVID / slug}/pr-close-{o['slug']}.md and answer it."))
         return step("gated; waiting for the user's yes", "user", input=head)
     return step(f"publishing v{ch['version']}" if ch["kind"] == "release" else "carrying upstream", "script",
                 act=lambda: ctx.start(slug, "ship", [str(ROOT / "hd.py"), "ship", slug, head]))
@@ -2063,9 +2082,10 @@ def unnamed(ctx, ch, head):
 
 
 def approved(ctx, ch, head):
-    """R4: the user's yes holds only at its head and the digest of the card's texts."""
+    """R4: the user's yes holds only at its head and the digest of the card's texts; once its carry started, at its head alone:
+    the carry's own writes move the texts recomputed from the live PR, and it posts the approved ones (approval.json txt)."""
     a = rec(ch["slug"], "approval") or {}
-    return (a.get("head"), a.get("texts")) == (head, digest(json.dumps(public_texts(ctx, ch))))
+    return a.get("head") == head and (bool(a.get("carrying")) or a.get("texts") == digest(json.dumps(public_texts(ctx, ch))))
 
 
 def stacked(ctx, ch, head):
@@ -2960,15 +2980,15 @@ def replies(ctx, o):
     return [(f, t) for f in fids(o) if (t := text(o["slug"], f"pr-reply-{f}.md") or rc)]
 
 
-def unanswered(ctx, ch):
-    """R4: the findings of the change's PR round (its group) that no comment of ours answers yet; None unknown."""
+def unanswered(ctx, ch, of=None):
+    """R4: the findings of the change's PR round (its group; of: those changes instead) that no comment of ours answers yet; None unknown."""
     if not ch.get("pr"):
         return []
     cs, talk = ctx.comments(ch["track"], ch["pr"]), ctx.talk(ch["track"], ch["pr"])
     if cs is None or talk is None:
         return None
     by = {c["id"]: c for c in cs + talk}
-    return [f for o in sorted(group(ctx, ch), key=lambda o: o["slug"]) for f in fids(o) if f in by and not replied(by[f], cs, talk, ctx.owner(ch))]
+    return [f for o in sorted(of or group(ctx, ch), key=lambda o: o["slug"]) for f in fids(o) if f in by and not replied(by[f], cs, talk, ctx.owner(ch))]
 
 
 def unquoted(fs, by, body):
@@ -3010,6 +3030,8 @@ def public_texts(ctx, ch):
     fs = list(dict.fromkeys([f for f, _ in rs] + (unanswered(ctx, ch) or [])))  # the one comment answers every finding of the round
     if push or fs:
         out.append(["comment", fs, one_comment([push, *dict.fromkeys(t for _, t in rs)])])
+    for o in sorted(moved(ctx, ch) or [], key=lambda o: o["slug"]):  # then each moved PR's closing comment (the carry adds the link to this PR)
+        out.append([f"close {o['slug']}", unanswered(ctx, o, [o]) or [], text(slug, f"pr-close-{o['slug']}.md")])
     return out
 
 
@@ -3031,9 +3053,11 @@ def card(ctx, ch, head):
                   if reopen(ch, head) and (bad := failed_ci(ctx, ch, head)) else []),
                 *(["wait for every CI check to pass at the head (a failed one stops the carry: the PR stays as it is)"]
                   if pushes(ctx, ch, head) or p.get("draft") else []), *(["post the comment below (once per head)"] if any(w == "comment" for w, _, _ in txt) else []),
-                "mark it ready for review"]
-    by = {c["id"]: c for c in (ctx.comments(ch["track"], ch["pr"]) or []) + (ctx.talk(ch["track"], ch["pr"]) or [])} \
-        if ch.get("pr") and ch["kind"] != "release" else {}
+                "mark it ready for review",
+                *(f"post the comment below on upstream PR {o['pr']} of {ctx.cfg['repos'][TRACK[o['track']]['repo']]['upstream']}, with a last line "
+                  f"'Moved to {up}#<this PR>', then close that PR" for w, _, _ in txt if w.startswith("close ") and (o := ctx.changes[w[6:]]))]
+    by = {c["id"]: c for o in [ch, *(ctx.changes[w[6:]] for w, _, _ in txt if w.startswith("close "))] if o.get("pr") and o["kind"] != "release"
+          for c in (ctx.comments(o["track"], o["pr"]) or []) + (ctx.talk(o["track"], o["pr"]) or [])}
     v = [x for x in verdicts(slug) if x["head"] == head]
     lines = [f"{slug}: {ch.get('title', '')}", f"head {head}  changes {', '.join(sorted(o['slug'] for o in group(ctx, ch)))}",
              *(f"{n}. {a}" for n, a in enumerate(acts, 1))]
@@ -3207,7 +3231,22 @@ def carry(ctx, ch, head, txt):
     if v["draft"]:
         must("gh", "pr", "ready", str(pr), "-R", up)
         log("marked ready")
-    return f"upstream PR {pr} at {head[:9]}, ready for review"
+    closed = []
+    for w, fs, x in txt:  # each moved PR: its closing comment (once per text: its marker) linking this PR, then its close
+        if not w.startswith("close "):
+            continue
+        o = ctx.changes[w[6:]]
+        oup = ctx.cfg["repos"][TRACK[o["track"]]["repo"]]["upstream"]
+        body = (f"{x}\n\n" if x else "") + f"Moved to {up}#{pr}."
+        if fs:
+            answers(ctx, o, oup, o["pr"], fs, body)
+        mk = f"<!-- hd:moved {digest(body)} -->"
+        if not any(mk in c["body"] for c in known(ctx.F.pr_comments(oup, o["pr"]), f"the comments of PR {o['pr']} of {oup}")):
+            must("gh", "pr", "comment", str(o["pr"]), "-R", oup, "--body", body + ATTRIBUTION + f"\n{mk}")
+        if known(ctx.F.pr(oup, o["pr"]), f"PR {o['pr']} of {oup}").get("state") != "closed":
+            must("gh", "pr", "close", str(o["pr"]), "-R", oup)
+        log(f"closed PR {o['pr']} of {oup}, linking PR {pr}"); closed.append(f"{oup}#{o['pr']}")
+    return f"upstream PR {pr} at {head[:9]}, ready for review" + (f"; closed {', '.join(closed)}" if closed else "")
 
 
 # ---------------------------------------------------------------- commands (a refusal lists every reason at once)
@@ -3513,7 +3552,8 @@ def cmd_approve(a):
     st = nxt(ctx, ch)
     if st["actor"] != "user" or st["input"] != a[1]:
         refuse(f"nothing to approve at {a[1]}: {st['state']}")
-    put(ch["slug"], "approval", {"head": a[1], "texts": digest(json.dumps(public_texts(ctx, ch)))})
+    txt = public_texts(ctx, ch)
+    put(ch["slug"], "approval", {"head": a[1], "texts": digest(json.dumps(txt)), "txt": txt})
     event(change=ch["slug"], record="approval", head=a[1])
     print(f"approved {a[1]}")
 
@@ -3527,14 +3567,19 @@ def cmd_ship(a):
         refuse(f"head is {ctx.head(ch)}, not {head}")
     if not approved(ctx, ch, head):
         refuse(f"no yes at {head[:9]} and these texts")
+    yes = rec(ch["slug"], "approval")
+    txt = yes.get("txt") or public_texts(ctx, ch)  # the texts the user approved: a rerun posts them, each step done skipped
+    put(ch["slug"], "approval", {**yes, "txt": txt, "carrying": True})
     try:
-        res = carry(ctx, ch, head, public_texts(ctx, ch))
+        res = carry(ctx, ch, head, txt)
     except Unread as e:
         sys.exit(f"carry held: {e}")   # no result: the pass starts it again once GitHub reads
     except RuntimeError as e:  # every other stop is the carry's result: the change's defect its dev step, any other fault the card again for a new yes
         put(ch["slug"], "ship", {"head": head, "ok": False, "fault": "head" if isinstance(e, Defect) else "carry", "detail": str(e)})
         if not isinstance(e, Defect):
             drop(ch["slug"], "approval")
+        else:  # the head's defect: the yes stays bound to its head and texts, as before its carry
+            put(ch["slug"], "approval", {k: v for k, v in yes.items() if k != "carrying"})
         sys.exit(f"carry failed: {e}")
     put(ch["slug"], "ship", {"head": head, "ok": True, "detail": res})
     drop(ch["slug"], "approval")   # the yes is spent: a carry GitHub later contradicts waits for a new one

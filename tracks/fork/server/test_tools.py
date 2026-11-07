@@ -1504,8 +1504,8 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
         s.assertEqual(t.GameSession.sessions.get(sid), "hab12"); s.assertEqual(int(cid), zlib.crc32(b"hab12") & 0x7FFFFFFF)   # a session the sign-in opened, for its account
 
-    def test_a_desktop_home_starts_past_the_terms_page(s):  # 2c957da: the Accept click went; a fresh home's terms page took no key and the login failed
-        s.assertIn('jagexcache/oldschool/LIVE/preferences.dat"', SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
+    def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
+        s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
 
     def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
         import javcheck

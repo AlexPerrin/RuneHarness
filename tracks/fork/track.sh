@@ -114,7 +114,6 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   done
   # the disk cache is the one the server serves: a login then fetches no group over JS5, which its interfaces' onLoad scripts would run before
   mkdir -p "$d/home/.rlcustom/jagexcache/oldschool/LIVE" && docker exec "${srv:-server-$slug}" tar -c -C /app/.data/cache/LIVE . | tar -x -C "$d/home/.rlcustom/jagexcache/oldschool/LIVE"   # docker cp fails writing the dat2 to a Windows drive in one piece
-  printf '\x0d\x00\x00\x01\x00\x00\x00\x50\x7f\x7f\x7f\x00\x00\x00\x00\x00\x00\x19\x00\x00\x00\x00\x00' > "$d/home/.rlcustom/jagexcache/oldschool/LIVE/preferences.dat"   # the client's preferences once a fresh home's terms page is accepted: no desktop shows it (a click there may open a Jagex page)
   sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties $(ls "$d"/home/.rlcustom/profiles2/*.properties 2>/dev/null)   # a fresh template has no profile yet: RuneLite imports settings.properties
   mkdir -p "$d/home/.rlcustom/sideloaded-plugins" && cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"
   for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start

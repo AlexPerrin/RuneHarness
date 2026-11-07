@@ -42,6 +42,11 @@ publish → maintainers' findings become criteria.
   absence. Content-addressed caches are shared (one Gradle home per build slot; one cache store per game revision); the build cache
   goes when the last build ends. The free space of the build disks is a fact: below a set level no build starts and
   the user is told compaction is due, with its commands.
+- **H8** The local stack is a reference OpenRune deployment: the server built and run as upstream's release is (the
+  release workflow's Gradle steps and bundle, `java -jar server.jar` beside `game.yml` and `.data/`), Central embedded
+  (`central.same-instance`) on upstream's ports serving the clients' config and sign-in, the cache from OpenRune-FileStore,
+  and desktops connecting through RSProx as upstream's README sets out. A harness stand-in for what these tools do
+  goes. Each remaining deviation is named with its reason in docs/ARCHITECTURE.md; Privacy outranks the reference.
 
 ## G. Gate
 

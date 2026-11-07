@@ -49,6 +49,12 @@
     "test_decide.Hands.test_one_ship_per_branch",
     "live: h-kpi-track, h-test-warnings, h-agent-hd shipped by fast-forward of v9"
   ],
+  "H7": [
+    "tests/test_decide.py Retention, tests/test_observe.py release; live: the ledger's released events (fork worktrees 76 to 28, Linux disk 102 to 76 GB)"
+  ],
+  "H8": [
+    "pending: a fresh desktop and the APK reach LOGGED_IN on a stack built by upstream's release steps, with embedded Central serving jav_config and sign-in and no issuer or http sidecar (h-reference-deployment)"
+  ],
   "G1": [
     "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
     "test_decide.Gate.test_criteria_added_after_submission_list_the_dev",

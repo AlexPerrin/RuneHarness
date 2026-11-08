@@ -3,6 +3,7 @@ slug: central-game-session
 track: central
 priority: P1
 deps:
+- central-embedded-jav-config
 - central-rights-test-mod
 - central-token-login-op
 - h-candidate-fork-only-dep

@@ -297,6 +297,7 @@ image_key() {  # image_key IMAGE: its game.key and client.key carry the live pai
   [ "$g" = "$modulus" ] && [ "$c" = "$modulus" ] || { echo "key: $1 carries game.key ${g:0:8} and client.key ${c:0:8}, not the live pair's ${modulus:0:8}"; return 4; }
   echo "key: the live pair's ${modulus:0:8}"
 }
+# deploy runs holding state/live/stack.lock (act.start's, inherited): a flock of its own on that file would wait on itself
 deploy() {  # staging's tree → the live test server; a failing step names itself and records the job failed
   set -E; trap 'echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $?)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND"' ERR
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
@@ -372,7 +373,8 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; sic=1; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
-  devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
+  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
+  flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
   login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1

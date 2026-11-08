@@ -162,7 +162,7 @@ CREATE TABLE text   (change TEXT, name TEXT, sha TEXT NOT NULL, body TEXT NOT NU
 CREATE TABLE landed (change TEXT, target TEXT, sha TEXT, at TEXT, PRIMARY KEY (change, target));   -- void once the change has a newer submission (M1): Ledger.landed reads only rows at or after it; a newer head lands again (INSERT OR REPLACE)
 CREATE TABLE gh     (url TEXT PRIMARY KEY, etag TEXT, status INTEGER, body TEXT, at TEXT);
 CREATE TABLE stack  (change TEXT PRIMARY KEY, script TEXT, containers_json TEXT, desktops_json TEXT,
-                     token TEXT, modulus TEXT, started_at TEXT);          -- a change's running server and clients
+                     token TEXT, modulus TEXT, started_at TEXT, live INTEGER NOT NULL DEFAULT 0);   -- a change's running server and clients; live (migration 7): a mobile or live-desktop playing on the test server
 CREATE TABLE measure (goal TEXT, tree TEXT, value REAL, report TEXT, at TEXT, PRIMARY KEY (goal, tree));
 
 CREATE TABLE event (id INTEGER PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, change TEXT, run INTEGER, detail TEXT);
@@ -306,7 +306,8 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     and no run with that input parks it (one that ended by hand-back, or a listing stopped before it started, does: a new
     fact makes a new input; one that died with its console, handed off or was stopped once started gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
     only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
-    tree of each server track whose script has a deploy recipe (Action change "<track>:staging"). Below hd.yaml
+    tree of each server track whose script has a deploy recipe (Action change "<track>:staging"), waiting while a stack
+    row marked live has a live run or job (Ledger.live_users: a deploy recreates the stack under it). Below hd.yaml
     `free` on a disk row, a build or gate waits and no deploy is listed. Last, one release per artifact none of whose
     owners is live (Action change "release", key "<kind>:<key>"): owner_live() holds for a job running, a run not
     ended, an open change not done (<slug>), and for <slug>@<T> while a job of T runs, a run of the change is live, or
@@ -499,7 +500,7 @@ sequenceDiagram
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
-| `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
+| `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`, `live-desktop`) | the stack row: the change's running containers, desktops, token, modulus, live; a live row is written under state/tick.lock, between passes, and its up then waits on state/live/stack.lock shared, which act.start holds for a deploy from inside its pass to the deploy's exit |
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live`, and each library change whose head is in the library head it built in |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate); a candidate on staging also gives its criteria `PR_TCOMMIT`, the head with its deps on base alone (or `conflict: <files>`), where the fork CI runs the PR |

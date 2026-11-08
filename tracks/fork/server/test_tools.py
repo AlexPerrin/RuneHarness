@@ -10,6 +10,7 @@ for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 SRC = "\n".join((HERE.parent / f).read_text() for f in ("track.sh", "build/build.sh", "gate/gate.sh"))   # the track script and the code a build and a gate run
+JAV = "central_jav() {" + SRC.split("\ncentral_jav() {")[1].split(" }\n")[0] + " }"   # up's and deploy's fill of Central's jav_config
 
 
 def git(repo, *a, env=None):
@@ -1472,7 +1473,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck
         up = SRC.split("\nup() {")[1].split("\n}")[0]
-        fill = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        fill = JAV + "\ncentral_jav"; s.assertIn("\n    central_jav\n", up)
         out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
         for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
@@ -1491,7 +1492,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
             s.assertIn(e, up)
         s.assertIn('ep=http${sic:+s}://127.0.0.1:$http', SRC); s.assertIn("JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1}", SRC)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "token").mkdir()
-        render = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        render = JAV + "\ncentral_jav"
         subprocess.run(["bash", "-c", render], check=True, env={**os.environ, "sic": "1", "http": "20001", "tpl": str(HERE / "jav_config.ws.template"), "state": str(d)})
         j = (d / "jav_config.ws").read_text(encoding="utf-8"); params = dict(l[6:].split("=", 1) for l in j.splitlines() if l.startswith("param="))
         s.assertNotIn("{{", j); s.assertEqual(javcheck.foreign(j), []); s.assertEqual(params["17"], "https://127.0.0.1:20001/worldslist.ws"); s.assertEqual(params["11"], "https://127.0.0.1:20001/")
@@ -1522,6 +1523,24 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8083/"))
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
+
+    def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
+        import javcheck
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
+        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:8080", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
+        s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
+        s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
+        s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
+        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
+                  "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
+            s.assertIn(e, ship)
+        s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
+        s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
+        s.assertLess(ship.index("central_jav"), ship.index("docker build"))
+        out = subprocess.run(["bash", "-c", f"sic=1 http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
+        for line in ("param=11=https://127.0.0.1:8443/", "param=22=https://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):
+            s.assertIn(line + "\n", out)
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):
         src = (HERE / "OsrsTestLauncher.java").read_text()

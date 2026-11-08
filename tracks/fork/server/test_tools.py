@@ -276,9 +276,10 @@ class DesktopDevtools(unittest.TestCase):
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
         s.assertLess(start.index('cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"'), start.index("exec setsid"))
         s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
-        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
-        for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
-        s.assertNotIn("sign_in", live)   # h-live-sign-in-needs-central: no Central sign-in until central-game-session runs live
+        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's Central, game port, cache and modulus; never a stack of the slug's own
+        for k in ("srv=osrs-openrune", "http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}", "tok=true; sic=1; ca=$root/state/live/token/tls.pem", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        s.assertLess(live.index('sign_in "$(account 1)"'), live.index("desktop_start"))   # h-desktops-token-login: the session before the desktop that carries it
+        s.assertIn('desktop_login.py" "$dt" token)', live); s.assertNotIn('"$dt" "$(account 1)"', live)   # Play alone: no form typed
 
 
 class AccountName(unittest.TestCase):
@@ -1583,10 +1584,23 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 
-    def test_the_deploy_serves_no_central_sign_in_its_central_lacks(s):  # h-live-sign-in-needs-central: its checks failed every deploy and live-desktop at sign_in
-        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        for e in ("central-tls.p12", "OPENRUNE_HTTP_TLS_PORT", "OPENRUNE_CENTRAL_HTTPS_PORT", "central_jav"): s.assertNotIn(e, ship)
-        s.assertNotIn("OPENRUNE_CENTRAL", (HERE / "docker-compose.yml").read_text())
+    def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
+        import javcheck
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
+        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:8080", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
+        s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
+        s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
+        s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
+        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
+                  "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
+            s.assertIn(e, ship)
+        s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
+        s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
+        s.assertLess(ship.index("central_jav"), ship.index("docker build"))
+        out = subprocess.run(["bash", "-c", f"sic=1 http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
+        for line in ("param=11=https://127.0.0.1:8443/", "param=22=https://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):
+            s.assertIn(line + "\n", out)
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):
         src = (HERE / "OsrsTestLauncher.java").read_text()

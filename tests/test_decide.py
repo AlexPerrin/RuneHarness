@@ -252,6 +252,14 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', ?, ?, ?, 't1')", (TIP, TREE, TC))
 
+    def test_the_same_head_after_a_failed_gate_is_gated_again(self):  # G5: replay.md written after the gate, then resubmitted
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'replay', 't')", (f"{TREE}:fork-1",))
+        self.assertTrue(store.regate_failed(self.db, TREE))
+        self.assertIsNone(self.db.execute("SELECT 1 FROM job WHERE kind='gate'").fetchone())   # no result: gate_due runs it again
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:fork-1",))
+        self.assertFalse(store.regate_failed(self.db, TREE))   # a passed gate stays
+
     def test_a_newer_head_is_merged_into_staging_again(self):  # M1, H4: a landed row older than the last submission is void
         self.submit()
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")

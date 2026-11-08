@@ -3,6 +3,8 @@ slug: local-cs2-names-drop-spawn
 track: fork
 priority: P1
 upstream: false
+deps:
+- h-ref-pins-audit
 ---
 # local: NameCs2Groups removes the spawn menu's clientscripts from the cache
 

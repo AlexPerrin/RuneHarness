@@ -43,7 +43,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-1-%s\n' "$(cd "$self/server" && cat issuer.py docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
+case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-2-%s\n' "$(cd "$self/server" && cat issuer.py docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
@@ -312,7 +312,8 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
   sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"   # the APK's sign-in: Central's plain http (LOCAL_AUTH takes http; discovery answers the request's Host)
-  # Central's sign-in for desktops, as up's SIGN_IN=central: the issuer's secret and account, https with its certificate, its own jav_config
+  # Central's sign-in for desktops, as up's SIGN_IN=central: the issuer's secret, https with its certificate, its own jav_config; no dev account,
+  # so every sign-in (each run's mobile and desktop as its slug's own account, the user's phone as tester) goes through Central's form
   sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
   openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
   for f in "$ISSUER_DIR/jav_config.ws.template" "$self/server/jav_config.ws.template"; do python3 "$self/server/javcheck.py" "$f" || return 6; done   # the sidecars' templates, before any live container is touched
@@ -323,7 +324,7 @@ FROM or:$T
 COPY --chown=1000:1000 key/game.key key/client.key /app/.data/
 COPY --chown=1000:1000 game.yml /app/game.yml
 COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/
-ENV OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")" OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")" OPENRUNE_HTTP_TLS_PORT=8443 \
+ENV OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")" OPENRUNE_HTTP_TLS_PORT=8443 \
     OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws
 EOF
   $hd own image "osrs-openrune:$T" "staging@$T"   # released once staging moves on (the live tag keeps the running one)

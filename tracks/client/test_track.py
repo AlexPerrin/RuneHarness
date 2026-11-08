@@ -247,6 +247,10 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
+        form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name), ("sign_in",))                 # Central's form: the slug's own account, typed
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {**form, name: (1, 1)}, None, name), ("wait",))  # typed and posted: Central answers next
+        s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")

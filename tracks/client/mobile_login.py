@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""mobile_login.py <slug>: launches the app on $ANDROID_SERIAL and signs in through the stack's issuer; prints LOGGED_IN or FAILED: <why>.
+"""mobile_login.py <slug>: launches the app on $ANDROID_SERIAL and signs in at Central's form as the slug's own account; prints LOGGED_IN or FAILED: <why>.
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
 labels), then waits for the next screen; a screen it does not know, a refused login or the app's death is FAILED.
 """
-import datetime, json, os, re, subprocess, sys, time
+import datetime, hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
@@ -14,6 +14,12 @@ WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to 
 REFUSED = 9           # "Unexpected server response", Try again: a login response without a page of its own, or a failed reconnect after a lost connection
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
 LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
+FORM = ("Username", "Password", "Sign in")   # Central's sign-in form (no dev account): each mobile its slug's own account, never one shared (a second login of one account is refused Duplicate)
+
+
+def account(slug):
+    """The slug's mobile account, name and password: the fork track's account() names with 'm' for the desktops' N (a run's mobile and live desktop differ)."""
+    return "h" + hashlib.sha1(slug.encode()).hexdigest()[:9] + "m"
 
 
 def adb(*a, retries=5):
@@ -28,7 +34,7 @@ def adb(*a, retries=5):
 def labels():
     adb("shell", "uiautomator", "dump", "/sdcard/ui.xml")
     xml = adb("exec-out", "cat", "/sdcard/ui.xml")
-    return {m[0]: ((int(m[1]) + int(m[3])) // 2, (int(m[2]) + int(m[4])) // 2)
+    return {m[0].strip(): ((int(m[1]) + int(m[3])) // 2, (int(m[2]) + int(m[4])) // 2)
             for m in re.findall(r'text="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)}
 
 
@@ -42,8 +48,8 @@ def screen():
             int(st[-1][1]) if st and st[-1][1] else None)
 
 
-def step(st, ix, pkg, lab, raw=None):
-    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y) or ('fail', why)."""
+def step(st, ix, pkg, lab, raw=None, name=""):
+    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('sign_in',) or ('fail', why)."""
     if st == "LOGGED_IN":
         return ("done",)
     if raw == START_ERROR:
@@ -52,6 +58,8 @@ def step(st, ix, pkg, lab, raw=None):
         err = next((t for t in lab if re.search(r"ERR_[A-Z_]+", t)), None)
         if err:
             return ("fail", f"the browser's sign-in: {err}")
+        if all(l in lab for l in FORM):
+            return ("wait",) if name in lab else ("sign_in",)   # the name typed: the form posts, its answer comes next
         hit = next((l for l in LABELS if l in lab), None)
         return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
     if pkg == LAUNCHER and st in ("", "UNKNOWN"):
@@ -69,7 +77,15 @@ def step(st, ix, pkg, lab, raw=None):
     return ("wait",) if ix in WAIT else ("fail", f"an unknown login screen (LoginIndex {ix})")
 
 
-def main():
+def sign_in(lab, name):
+    """Types the account into Central's form (a label's tap focuses its field) and posts it."""
+    for f in FORM[:2]:
+        adb("shell", "input", "tap", *map(str, lab[f])); adb("shell", "input", "text", name)
+    adb("shell", "input", "tap", *map(str, lab[FORM[2]]))
+
+
+def main(slug):
+    name, signed = account(slug), False
     adb("logcat", "-c")
     adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
     started, acted = False, None
@@ -79,11 +95,16 @@ def main():
         if started and not alive:
             return "FAILED: the app died"
         started |= alive   # monkey returns before the process exists
-        act = step(st, ix, pkg, lab, raw)
+        act = step(st, ix, pkg, lab, raw, name)
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":
             return "FAILED: " + act[1]
+        if act[0] == "sign_in":   # an empty form after the post is Central's refusal (401 answers the form again)
+            if signed:
+                return f"FAILED: Central refused the sign-in of {name}"
+            print(f"Central's sign-in: {name}", file=sys.stderr, flush=True); sign_in(lab, name); signed = True
+            continue
         here = (st, ix, pkg, act[1:2])
         if act[0] == "tap" and here != acted:   # one tap per screen, then the next screen is read: a second tap on one screen toggles panels
             print(f"{st} LoginIndex {ix} {pkg}: {act[1]}", file=sys.stderr, flush=True)
@@ -105,7 +126,7 @@ ROOT = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parents[2])
 
 if __name__ == "__main__":
     since = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    r = main()
+    r = main(sys.argv[1])
     if r != "LOGGED_IN" and (gone := recreated(since)):
         r += f" while a deploy recreated the live stack ({', '.join(gone)})"
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it

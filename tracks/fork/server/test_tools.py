@@ -254,7 +254,7 @@ class ShipFailure(unittest.TestCase):
         recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True).stdout
         import hashlib
         files = b"".join((HERE / f).read_bytes() for f in ("issuer.py", "docker-compose.yml", "switch.env", "jav_config.ws.template"))
-        s.assertIn(f"deploy fork-1-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+        s.assertIn(f"deploy fork-2-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
 
     def test_a_refused_login_holds_the_ci_read(s):  # a cause outside the tree records no result (PRD H3): two heads went back to dev on a 401
         s.assertIn('""|000|401|5??) sleep 30', SRC)
@@ -1616,10 +1616,11 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
         s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
         s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
-        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
+        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', "OPENRUNE_HTTP_TLS_PORT=8443",
                   "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
             s.assertIn(e, ship)
         s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
+        s.assertNotIn("OPENRUNE_SIGN_IN_DEV_ACCOUNT", ship)   # h-mobile-login-page-9: one dev account for every mobile refused parallel mobiles Duplicate; each signs in at Central's form
         s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
         s.assertLess(ship.index("central_jav"), ship.index("docker build"))
         out = subprocess.run(["bash", "-c", f"sic=1 http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout

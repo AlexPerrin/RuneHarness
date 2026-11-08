@@ -195,12 +195,13 @@ def deps_live(C, ch):
     waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a
     library the server needs) is nothing to build on until it lands or closes. A server fix that runs on the test server
     is there once live: a change on another track builds on it then, its PR held or not (an upstream merge gates only the
-    dep's own track, upstream_dep_wait)."""
+    dep's own track, upstream_dep_wait). Off the server tracks a library dep too is there only once live (a client, the
+    live stack and its desktops reach the test server alone)."""
     for dep in ch.deps:
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if d.track != ch.track and (stages(C, d) or ch.track == "client" and d.track in SERVER):   # the mobile reaches only the live test server
+        if d.track != ch.track and (stages(C, d) or ch.track not in SERVER and d.track in SERVER):
             for x in [dep] + server_deps(C, d):   # a server dep works there only with its own deps
                 if not (C.L.closed(x) or C.L.landed(x, "live")):
                     return Step("wait", f"dep {x} not live on the test server")

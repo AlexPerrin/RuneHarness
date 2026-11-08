@@ -61,7 +61,7 @@ log; `restart <slug>` restarts that server, its game.yml and database kept, and 
 starts a fresh database; `RESUME=1 … up` starts from the accounts as the change's last `down` saved them. The realm is
 live's (`dev_mode` off, xp at 1x) and every desktop's account a member at rank 0; `STAFF=<N>[,<M>...]` on one `up`
 makes those desktops' accounts administrators. `up <slug> token` starts one desktop whose login is a token login
-(Play alone). `live-desktop <slug>` signs one desktop in through the live Central as the slug's own account, by token.
+(Play alone). `live-desktop <slug>` logs one desktop in on the live stack as the slug's own account.
 The server `up` starts runs game.yml with `quest-requirements` `mode` from the front matter `quest-mode:`
 (`respect-progress` by default, or `assume-completed`); `QUEST_MODE=<mode>` on one `up` overrides it; PR notes name
 it as the verification setting. Every server run goes through track.sh, never a container by hand. Test through

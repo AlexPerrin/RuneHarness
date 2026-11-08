@@ -416,6 +416,13 @@ def cmd_job(a):
                             (decide.STAGING, j["started_at"] or now())).fetchall():
             db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
             event(db, "landed", r["change"], None, "live: the test server runs it")
+        for lib in ("central", "filestore"):   # a library change is live once its head is in the library head the deploy built in (the job env's CENTRAL)
+            path, _, built = os.environ.get(lib.upper(), "").rpartition(":")
+            for c in [c for c in act.changes() if c.track == lib] if built else []:
+                h = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (c.slug,)).fetchone()
+                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live'", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
+                    db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
+                    event(db, "landed", c.slug, None, f"live: the test server runs it in {lib} {built[:7]}")
     act.tick_later()
 
 

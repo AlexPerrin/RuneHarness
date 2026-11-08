@@ -274,8 +274,8 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
     deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps), unless its head is in its base already (a fork-only dep done on staging always joins);
-                       # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a client
-                       # change's any, else a staged one) must be live with its own server deps, transitively (landed 'live': the test
+                       # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a change
+                       # off the server tracks: any, a library included; else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
@@ -498,7 +498,7 @@ sequenceDiagram
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
-| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |
+| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live`, and each library change whose head is in the library head it built in |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
 | `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base with its same-track deps not yet in their base, as `hd submit` builds it |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
@@ -617,11 +617,7 @@ flowchart LR
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
   template source; the official client's sign-in and game-session endpoints that mint the token the game
-  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
-  deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
-  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its https OIDC discovery. A desktop on
-  the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
-  alone; a fork `up` types the login form until token login is in the fork's base.
+  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer.
 - The game clients are driven through OpenRune-Developer-Tools, built from our fork's gated head into the Android
   jar and the desktop's sideloaded jar. `mcp/` holds transport only: `.mcp.json` names `osrs-mcp.sh`, the desktop
   bridge (a stdio front of about 80 lines: `tools/list` snapshot when no client runs, routing by `port`, the bearer

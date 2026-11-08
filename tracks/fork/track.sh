@@ -284,13 +284,14 @@ image_key() {  # image_key IMAGE: its game.key and client.key carry the live pai
   echo "key: the live pair's ${modulus:0:8}"
 }
 deploy() {  # staging's tree → the live test server; a failing step names itself and records the job failed
-  set -E; trap 'echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $?)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND"' ERR
+  trap 'rc=$?; [ $rc = 0 ] || { echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $rc)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND (exit $rc)${HD_LOG:+: $(grep -v "^deploy of" "$HD_LOG" | tail -1)}"; }' EXIT   # on exit, not ERR: a check's `|| return N` raises no ERR, and a failure without a result is started again
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
   slug=staging; state=$root/state/live; mkdir -p "$state"
   # the issuer (compose's ISSUER_DIR): its secret in the image's game.yml; the APK's sign-in and tokens for the tester account it has always played
   export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
   sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_ISSUER_PORT:-8083}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"
+  for f in "$ISSUER_DIR/jav_config.ws.template" "$self/server/jav_config.ws.template"; do python3 "$self/server/javcheck.py" "$f" || return 6; done   # the sidecars' templates, before any live container is touched
   [ -f "$state/key/game.key" ] && [ -f "$state/key/client.key" ] || { echo "no live key pair in $state/key"; return 4; }
   modulus=$(modulus_of < "$state/key/game.key")   # the live stack's pair, seeded once with the key every APK carries: no image passes its key to the next
   cat > "$state/Dockerfile" <<EOF
@@ -308,6 +309,8 @@ EOF
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
   # recreated, never restarted: a container's file bind mount does not outlive a WSL restart (Docker Desktop remounts it as a directory);
   # the sidecars and the issuer first, so a stack that cannot start leaves the game server as it was
+  # the stack is replaced once no mobile start is mid-login (client track.sh up holds stack.lock shared through its login); turn.lock keeps new logins out meanwhile
+  exec 7> "$state/turn.lock"; flock 7; exec 8> "$state/stack.lock"; flock 8
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate http http-desktop issuer) >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
   $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
@@ -317,7 +320,7 @@ EOF
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
     for c in osrs-openrune-http osrs-openrune-http-desktop; do python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "$c" 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6; done
-    [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" ok "live: $T"
+    exec 8>&- 7>&-; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" ok "live: $T"
   else
     docker tag "osrs-openrune:rollback-${prev:0:12}" "$live_image"; (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps openrune) >/dev/null
     echo "deploy of $T failed: rolled back to ${prev:0:12}"; return 1

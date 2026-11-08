@@ -1507,6 +1507,21 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
     def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
         s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
 
+    def test_a_failed_deploy_records_its_failure_and_checks_the_templates_before_the_live_stack(s):  # h-mobile-login-page-9: a javcheck `|| return 6` raised no ERR, so the pass started the deploy 9 times, each recreating the live stack under a mobile's start (gameState 1000)
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
+        s.assertLess(ship.index('javcheck.py" "$f" || return 6'), ship.index("docker compose"))
+        s.assertLess(ship.index('exec 8> "$state/stack.lock"; flock 8'), ship.index("docker compose"))   # no mobile start mid-login when the stack is replaced
+        up = (HERE.parent.parent / "client/track.sh").read_text().split("\nup() {")[1].split("\n}")[0]
+        s.assertLess(up.index('flock -s 8'), up.index("mobile_login.py")); s.assertLess(up.index("mobile_login.py"), up.index("exec 8>&-\n"))
+        trap = next(l for l in ship.splitlines() if "' EXIT" in l)
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "log").write_text("non-local hosts: auth.jagex.com\n")
+        r = subprocess.run(["bash", "-c", f'set -euo pipefail; hd="echo hd"; arg=x; HD_KEY=k; HD_LOG={d}/log\ndeploy() {{\n{trap}\nfalse || return 6; }}\ndeploy'], capture_output=True, text=True)
+        s.assertEqual(r.returncode, 6); s.assertIn("hd job deploy k fail return 6 (exit 6): non-local hosts: auth.jagex.com", r.stdout)
+        (d / "t").write_text("codebase={{HTTP_BASE}}/\nparam=13=.{{WORLD_HOST}}\n")
+        s.assertEqual(subprocess.run(["python3", str(HERE / "javcheck.py"), str(d / "t")], capture_output=True).returncode, 0)
+        (d / "t").write_text("param=11=https://auth.jagex.com/\n")
+        s.assertEqual(subprocess.run(["python3", str(HERE / "javcheck.py"), str(d / "t")], capture_output=True).returncode, 1)
+
     def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
         import javcheck
         compose = (HERE / "docker-compose.yml").read_text(); ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]

@@ -3,7 +3,7 @@
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
 labels), then waits for the next screen; a screen it does not know, a refused login or the app's death is FAILED.
 """
-import os, re, subprocess, sys, time
+import datetime, json, os, re, subprocess, sys, time
 from pathlib import Path
 
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
@@ -91,10 +91,25 @@ def main():
         time.sleep(1)
 
 
+def recreated(since):
+    """The live stack's containers (state/live/tree.json) started after `since` (UTC ISO): a deploy replaced the server under the start."""
+    try:
+        names = json.loads((ROOT / "state/live/tree.json").read_text()).get("containers", [])
+        out = subprocess.run(["docker", "inspect", "-f", "{{.Name}} {{.State.StartedAt}}", *names], capture_output=True, text=True).stdout
+    except (OSError, ValueError):
+        return []
+    return [l.split()[0].lstrip("/") for l in out.splitlines() if l.split()[-1] > since]
+
+
+ROOT = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parents[2])
+
 if __name__ == "__main__":
+    since = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     r = main()
+    if r != "LOGGED_IN" and (gone := recreated(since)):
+        r += f" while a deploy recreated the live stack ({', '.join(gone)})"
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it
-        d = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parents[2]) / "state" / sys.argv[1]
+        d = ROOT / "state" / sys.argv[1]
         d.mkdir(parents=True, exist_ok=True); (d / "login-failed.logcat.txt").write_text(adb("logcat", "-d", "-v", "threadtime"))
     print(r)
     sys.exit(0 if r == "LOGGED_IN" else 1)

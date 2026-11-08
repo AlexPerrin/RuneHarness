@@ -5,7 +5,8 @@
 # tree are build/build.sh's (the code a build runs); gate and the other check-* criteria but check-blocked gate/gate.sh's. Verbs:
 #   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both; boots the change's emulator (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), installs the APK once no install of the app is pending, logs
-#                     in through the stack's issuer (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#                     in through the stack's issuer (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails; no deploy replaces the live stack meanwhile:
+#                     state/live/stack.lock shared); prints LOGGED_IN <serial> <devtools port>;
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
 #   down              stops every login the change's ups started (mobile_login.py <slug>), removes devtools, clears the debug props, checks the plugins dir (when up made one) is the three defaults;
 #                     stops the emulator and its DNS relay
@@ -61,7 +62,9 @@ up() {
   mine=$(unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aoE '[0-9a-f]{256}' | grep -vE '^(00010203|80818283)' | head -1 || true)   # the patched modulus (the library's other 256-hex runs are byte tables)
   [ -n "$live" ] && [ "$mine" = "$live" ] || { l=${live:0:8}; echo "refused: $T.apk carries modulus ${mine:0:8}, the live stack (state/live/tree.json) ${l:-none, deployed before its key pair}: its login would be refused 'Invalid RSA check'"; return 1; }
   boot
-  ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug"   # its command line names the change: down stops it when up's caller died
+  mkdir -p "$root/state/live"; exec 7> "$root/state/live/turn.lock"; flock 7; exec 8> "$root/state/live/stack.lock"; flock -s 8; exec 7>&-   # a deploy (fork track.sh deploy) waits for this login, and this login for a deploy replacing the stack
+  ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug" 7>&- 8>&-   # its command line names the change: down stops it when up's caller died
+  exec 8>&-
   date +%s.000 > "$state/log-mark"   # epoch: logcat -T reads a date-time as the device's local time
   echo "LOGGED_IN $(serial) 7780"
 }

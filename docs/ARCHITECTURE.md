@@ -402,7 +402,11 @@ def stage(db, ch, T, head):
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
-    live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
+    live key pair in state/live/key or a sidecar jav_config template naming a foreign host, both before any live container
+    is recreated; it recreates the stack holding state/live/stack.lock, which the client's up holds shared through each
+    mobile login, so no start is mid-login when its server is replaced (state/live/turn.lock lets no new login past a
+    waiting deploy); every failed exit records the job failed, so a failed deploy is never started again under the runs on
+    the live stack (only a killed one is). A closed change: git revert -m 1 of its merge commit."""
 
 def brief(db, ch, step) -> path:
     """state/briefs/<run id>.md: the definition; the criteria with their latest results and verdict marks; answers

@@ -605,7 +605,7 @@ flowchart LR
   staging's server changes were built with), so the next deploy carries it and marks it `live`. A server change's
   library deps merge there before it does.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
-  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
+  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's base built with the head; FileStore: the fork's and Central's staging built with the head, one desktop logged in by token;
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits

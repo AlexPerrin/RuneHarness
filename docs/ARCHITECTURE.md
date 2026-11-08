@@ -375,7 +375,7 @@ GitHub is read each pass only for public changes with a PR, conditionally (a 304
 def candidate(repo, base, heads) -> (tree, tcommit):
     """Fold `git merge-tree --write-tree` over base (Track.candidate_base: staging on a track with a deploy recipe, so the
     fork's judge proves the change with the token login and pins the test server runs, else hd.yaml's base), each
-    dependency head not yet in it (closure, deps first) and the head; then
+    dependency head not yet in it nor in a later head (closure, deps first) and the head; then
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's date, so the same inputs give the same commit
     and the fork CI's child commit keeps its result. A conflict raises Conflict(files): the dev's step.
     A Central or FileStore dependency adds no commit: its candidate is built in (§11) and

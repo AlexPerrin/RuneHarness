@@ -2,7 +2,7 @@
 # desktop_template.sh DESK: the desktops' template (tracks/fork/track.md) from what this host holds: a Temurin 11 Windows JDK (a
 # JRE lacks jdk.jartool, which RSProx's RuneLite launcher needs), the RSProx runtime the client repo built, and a first-run
 # profile with the plugins that upload data off. Idempotent: `up` runs it when the JDK is missing, one at a time. It writes
-# only under DESK; the first desktop of a fresh template downloads RuneLite into its own home.
+# only under DESK; the first desktop of a fresh template downloads RuneLite, and each start copies the jars it verified back into the template home (track.sh desktop_start).
 set -euo pipefail
 desk=${1:?usage: desktop_template.sh DESK}; runtime=${RSPROX_RUNTIME:-$HOME/osrs-plugins-reverse/re/rsprox/build/osrs-test-runtime}
 [ -f "$runtime/shared-1.0.5.jar" ] || { echo "no RSProx runtime at $runtime: the client repo's re/rsprox build" >&2; exit 1; }

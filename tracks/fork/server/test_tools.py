@@ -270,7 +270,7 @@ class DesktopDevtools(unittest.TestCase):
     def test_each_desktop_loads_the_live_clients_devtools_jar(s):  # the client track's build, not a jar staged by hand
         t = SRC
         f = t.split("\ndevtools_jar() {")[1].split("\n}")[0]
-        s.assertIn('"$c" build live "$tc"', f); s.assertIn("-u T -u EVIDENCE", f)
+        s.assertIn('"$c" build live "$tc"', f); s.assertIn("-u T -u TCOMMIT -u EVIDENCE", f)
         s.assertIn('jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar', f); s.assertIn("c=$root/tracks/client/track.sh", f)
         s.assertIn("  devtools_jar", t.split("\nup() {")[1].split("\n}")[0])
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]

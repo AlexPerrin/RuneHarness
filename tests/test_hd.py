@@ -71,7 +71,7 @@ class Hd(unittest.TestCase):
         g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b"); b1 = g("rev-parse", "HEAD")
         db = store.connect()
         db.execute("INSERT INTO job(kind, key, started_at) VALUES ('deploy', 'tr1:fork-1', '2026-01-01T00:00:00')")
-        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-in', ?, 't', ?, 't'), ('c-out', 'f' || ?, 't', 'x', 't')", (a1, a1, b1[1:]))
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-in', ?, 't', ?, 't'), ('c-out', ?, 't', 'x', 't')", (a1, a1, ("e" if b1[0] == "f" else "f") + b1[1:]))   # an unknown head: never b1 itself
         defs = [hd.act.Change("c-in", "central"), hd.act.Change("c-out", "central")]
         with mock.patch.object(hd.act, "changes", return_value=defs), mock.patch.dict(os.environ, {"CENTRAL": f"{repo}:{b1}"}):
             hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))

@@ -3,12 +3,13 @@
 # them here); the build is build/build.sh's, sourced. The pass keys a gate by the tree and the recipe version. Env from hd: SLUG HEAD T
 # (the tree) TCOMMIT BASE CLONE EVIDENCE CENTRAL HD_ROOT HD_KEY. Verbs:
 #   test [MODULE...]  build, then each module's tests (and integration tests, where it applies integration-test-suite) and spotlessCheck on the build copy (no module: those holding a file
-#                     the change's tree changes from origin/main); log evidence/<slug>/test.log, result state/<slug>/test.json
+#                     the change's tree changes from staging, its candidate's base); log evidence/<slug>/test.log, result state/<slug>/test.json
 #   spotless          spotlessCheck alone on those modules at TCOMMIT (a contract row; no TCOMMIT: the working copy's T), no build;
 #                     log evidence/<slug>/spotless.log, result state/<slug>/spotless.json
 #   gate TCOMMIT      the build, then every scripted criterion of the change from the build copy (`hd gate`), which records the job
 #   gate-ci           fork CI and Formatting green on gate/<slug> (blocks until both conclude: one conditional read of the
-#                     sha's runs, free while unchanged; a GitHub quota refusal holds until its reset) at a child of TCOMMIT whose
+#                     sha's runs, free while unchanged; a GitHub quota refusal holds until its reset) at a child of the PR's own
+#                     candidate PR_TCOMMIT (hd gate: the head and its deps on upstream main, not staging; a conflict fails; unset: TCOMMIT) whose
 #                     workflows first move the runner's ephemeral ports above the game port 43594 (an outgoing socket on it
 #                     fails the boot's bind), and with CENTRAL build that Central in, as build does (the change's head unchanged)
 #                     and whose CI restores the game data from the fork release asset game-data-<game.example.yml blob12>
@@ -24,14 +25,14 @@
 projects() { local f d; for f; do d=$(dirname "$f"); while [ "$d" != . ] && [ ! -f "$copy/$d/build.gradle.kts" ]; do d=$(dirname "$d"); done; [ "$d" = . ] || { [ "${d##*/}" = pack ] && d=${d%/pack}/$(basename "${d%/pack}")-pack; echo ":${d//\//:}"; }; done | sort -u; }   # the Gradle projects holding these files: settings.gradle.kts names a pack directory <parent>-pack
 projdir() { local d=${1#:}; d=${d//://}; [ "${d##*/}" = "$(basename "$(dirname "$d")")-pack" ] && d=$(dirname "$d")/pack; echo "$d"; }   # a project's directory
 tests() { build; gradle_check test "$@"; }
-spotless() {  # the check row: spotlessCheck on every module T changes from origin/main, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)
+spotless() {  # the check row: spotlessCheck on every module T changes from staging, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)
   tree; [ -d "$copy" ] || { git -C "$repo" worktree add -q --detach "$copy" "$tc"; $hd own worktree "$copy" "$slug"; }; gradle_check spotless
 }
 gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cannot open a linked worktree: the container sees the copy's .git as a plain repo of T, its objects borrowed
   local kind=$1; shift; git -C "$copy" reset -q --hard "$tc"; git -C "$copy" clean -fdq   # apart: a failed reset in an && list would not stop the verb
   local mods=("$@") f d g=$state/$kind.git out=${EVIDENCE:-$root/evidence/$slug} mb changed
   if [ ${#mods[@]} = 0 ]; then   # each read on its own line, so one that fails stops the verb instead of reading as no module touched
-    mb=$(git -C "$repo" merge-base origin/main "$tc"); changed=$(git -C "$repo" diff --name-only "$mb" "$tc")
+    mb=$(git -C "$repo" merge-base "$(git -C "$repo" rev-parse -q --verify staging || echo origin/main)" "$tc"); changed=$(git -C "$repo" diff --name-only "$mb" "$tc")
     mapfile -t mods < <(projects $changed)
   fi
   if [ ${#mods[@]} = 0 ]; then [ "$kind" = spotless ] && { echo "no module touched"; record true spotless <<< "no module touched"; return 0; }
@@ -83,7 +84,9 @@ gate_sha() {  # a child of TCOMMIT whose workflows move the ephemeral ports off 
 }
 gate_ci() {  # pushes T (gate_sha) to gate/<slug>; the newest run of each workflow at that sha concludes green, or the row fails;
   # a run failed at a step the head does not touch is the source's, not the head's: re-run once that source answers; held (exit 75: hd records no result) after 3 attempts
-  R=$(git -C "$repo" remote get-url fork | sed -E 's#.*github.com[:/]##; s#\.git$##'); seed
+  R=$(git -C "$repo" remote get-url fork | sed -E 's#.*github.com[:/]##; s#\.git$##')
+  case ${PR_TCOMMIT:-} in "") ;; conflict:*) echo "the PR's head does not merge with upstream main, $PR_TCOMMIT"; return 1 ;; *) TCOMMIT=$PR_TCOMMIT ;; esac   # the scratch merge: the PR on upstream main, never staging's other heads (G4)
+  seed
   sha=$(gate_sha); git -C "$repo" push -q --force fork "$sha:refs/heads/gate/$slug"
   q="repos/$R/actions/runs?branch=gate/$slug&head_sha=$sha&per_page=100" etag= runs= ran= rr=
   while :; do
@@ -131,6 +134,7 @@ print(timed(y))' "$1"
 seed() {  # the fork release asset game-data-<k> (k: game.example.yml's blob, which names the revision and so openrs2's cache id) from the image of T, once per k: CI reads it on an actions/cache miss
   local k a f; k=$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12) && [ -n "$k" ] || return 0; a=game-data-$k.tar.gz; f=$state/$a
   gh release view game-data -R "$R" --json assets -q '.assets[].name' 2>/dev/null | grep -x "$a" >/dev/null && return 0
+  [ "$(git -C "$repo" rev-parse -q --verify "${HD_TCOMMIT:-$TCOMMIT}:game.example.yml" | cut -c1-12)" = "$k" ] || { echo "or:${T:-} is built on another game.example.yml than $k: no $a seeded from it"; return 0; }   # staging's revision may differ from the PR's
   docker image inspect "or:${T:-}" >/dev/null 2>&1 || { echo "no or:${T:-} to seed $a from: CI waits on it"; return 0; }
   docker run --rm --entrypoint tar "or:$T" -cz -C /app/.data cache/LIVE gamevals-binary/gamevals.dat gamevals-binary/gamevals_generated.dat > "$f.tmp" || { rm -f "$f.tmp"; echo "seeding $a failed"; return 0; }
   mv -f "$f.tmp" "$f"

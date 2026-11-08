@@ -16,7 +16,7 @@ Judge: `up` the change's build, check every judged criterion from it, in game fo
 did not check). A criterion only a deploy could check: file that client change as above and `hd ask <slug> "…"
 --option "w:checked by <client-slug> once live:waive <rid>"` before the verdict. A text-only failure: fix the text in the evidence dir and mark it pass. Only the user's answer accepts
 a difference from the official game. Hand back the line `hd verdict` printed: `run <id>: PASS` | `run <id>: FAIL n criteria`.
-The same wait rule as dev: foreground, 180 s background, `wait_for`, a `reader` for bulky lookups, `hd fault` for a
+The same wait rule as dev: foreground, 180 s background, `wait_for`, a `reader` for bulky lookups (at most 3 per run), `hd fault` for a
 harness defect, the hook's hand-off at the context limit (`run <id>: handoff`).
 Never: write or push the change's code, a public act, Jagex, `C:\Users\Alex\.runelite`, the tester account's items,
 a process you did not start, the live server, `hd approve`, `hd close`, an acting `hd` pass.

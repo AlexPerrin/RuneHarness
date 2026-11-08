@@ -113,7 +113,9 @@ def measure_query(db, g, T, tree) -> None:
 
 def candidate(path, base: str, heads: list) -> tuple:
     """(tree, tcommit): the head itself when it descends from base; else merge-tree folded over base and each head,
-    committed with the newest parent's date so the same inputs give the same commit. Raises Conflict(files)."""
+    committed with the newest parent's date so the same inputs give the same commit. Raises Conflict(files).
+    A head a later head already carries is left out: that later head resolved any conflict between them."""
+    heads = [h for i, h in enumerate(heads) if not any(is_ancestor(path, h, l) for l in heads[i + 1:])]
     if len(heads) == 1 and is_ancestor(path, base, heads[0]):
         return git(path, "rev-parse", heads[0] + "^{tree}"), heads[0]
     cur = base
@@ -321,8 +323,16 @@ def start(db, step: Step, ch, T) -> None:
     if os.path.exists(rc):
         os.remove(rc)
     subprocess.run(["systemctl", "--user", "stop", unit + ".scope"], capture_output=True)   # a prior attempt's leftovers hold the name
+    held = ()
+    if step.kind == "deploy":   # the deploy holds state/live/stack.lock from inside this pass to its exit: a live stack's up (hd stack between passes) waits it out
+        os.makedirs(os.path.join(STATE, "live"), exist_ok=True)
+        lock = open(os.path.join(STATE, "live", "stack.lock"), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        held = (lock.fileno(),)
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=open(log, "ab"), stderr=subprocess.STDOUT,
-                         env=env, cwd=ROOT, start_new_session=True)
+                         env=env, cwd=ROOT, start_new_session=True, pass_fds=held)
+    if held:
+        lock.close()   # the child's copy holds it
     db.execute("""INSERT INTO job(kind, key, change, pid, pid_start, scope, log, started_at) VALUES (?,?,?,?,?,?,?,?)
                   ON CONFLICT(kind, key) DO UPDATE SET pid=excluded.pid, pid_start=excluded.pid_start, scope=excluded.scope,
                   log=excluded.log, started_at=excluded.started_at, ended_at=NULL, exit=NULL""",

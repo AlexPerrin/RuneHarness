@@ -1,7 +1,7 @@
 ---
 slug: goblin-367-rsprox-dump
 track: fork
-priority: P2
+priority: P1
 pr: 367
 public: content/goblin-diplomacy
 ---

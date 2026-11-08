@@ -20,8 +20,8 @@ keeps every revision's module building.
 ## The dev
 The brief names your clone (`~/src/OpenRune-FileStore/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
 `tracks/filestore/track.sh build <slug>` compiles your candidate in the build copy; `test <slug>` runs every
-module's tests there; `up <slug> [N]` builds the fork's base with your head as its FileStore and starts that server
-with N logged-in desktops (the fork's `up`); `log`, `down` as the fork's. A server change that needs your head names
+module's tests there; `up <slug> [N]` builds the fork's staging and Central's (the tree the test server runs) with your head
+as its FileStore and starts that server with N logged-in desktops (one, the default, logged in by token); `log`, `down` as the fork's. A server change that needs your head names
 your change in its `deps`: its candidate is then built with your head (composite), and its PR waits for yours to
 merge and release. Write `pr-title.txt`, `pr-body.md`, `pr-comment.md` and `pr-reply-<id>.md` as the server track
 does. Push `dev/<slug>` to `fork`, then `hd submit <slug>`.

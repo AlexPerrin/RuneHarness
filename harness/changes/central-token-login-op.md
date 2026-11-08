@@ -1,7 +1,7 @@
 ---
 slug: central-token-login-op
 track: central
-priority: P1
+priority: P0
 deps:
 - central-rights-test-mod
 - harness-central-build-gradlew

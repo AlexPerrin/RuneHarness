@@ -41,6 +41,7 @@ tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the work
   [ -d "$dev" ] || { git -C "$repo" worktree add -q "$dev" -B "dev/$slug" "$(git -C "$repo" rev-parse -q --verify "fork/dev/$slug" || echo origin/main)"; $hd own worktree "$dev" "$slug"; }
   idx=$(git -C "$dev" rev-parse --git-path snapshot-index); rm -f "$idx"   # from HEAD: add -A alone drops tracked files under ignored paths
   GIT_INDEX_FILE=$idx git -C "$dev" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dev" add -A . && snap=$(git -C "$dev" commit-tree "$(GIT_INDEX_FILE=$idx git -C "$dev" write-tree)" -p HEAD -m snapshot)
+  while IFS='=' read -r k v; do [ -n "${!k:-}" ] || export "$k=$v"; done < <($hd candidate "$slug" --composite)   # the libraries the candidate builds in (on staging: the test server's), unless the dev names one
   read -r T tc < <($hd candidate "$slug" --head "$snap"); T=$T$(composite_suffix)
 }
 composite_suffix() {  # the image of a composite build is its own: _c<central tree12>, _f<filestore tree12> (decide.built; docker refuses '+' in a tag)

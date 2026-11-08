@@ -11,7 +11,8 @@ hand-back line. Then read `tracks/<repo>/track.md` and use the skills it names.
 - Build with `tracks/<repo>/track.sh build <slug>`, bring up with `up`, down with `down`; never by hand.
 - A step runs in the foreground; one still running at 180 s is backgrounded by Claude Code and its notification
   resumes you. A game event is a devtools `wait_for`. Never a timeout, a sleep count or a `pgrep` on your own text.
-- Bulky lookups (recordings, dumps, decompiled code, logs, wiki) go to a `reader` agent with one question.
+- Bulky lookups (recordings, dumps, decompiled code, logs, wiki) go to a `reader` agent with one question; at most 3
+  readers per run (the user: 1-3), so merge related questions into one reader.
 - A limit in your scope is fixed before submission; one outside it is `hd new <slug> --blocks <yours>`.
 - A harness defect you meet: `hd fault <run> "<what>"`, then go on or hand back.
 - At the context limit the hook tells you: commit, stop your processes, write evidence/<slug>/handoff.md, hand back.

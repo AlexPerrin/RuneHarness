@@ -40,7 +40,7 @@ into the evidence dir. Releases are `vX.Y.Z`; autonomous builds are 0.1.x; a maj
 
 ## Network QA (every release, every change with `network: true`)
 Sample the app's ESTABLISHED sockets every 0.5 s through the sign-out, LOCAL_AUTH sign-in, play, `::drop` relog and
-restart sequence; DNS from logcat's "asked for" lines. Allowed sockets: 10.0.2.2:43594, :8080 and :443 only. The
+restart sequence; DNS from logcat's "asked for" lines. Allowed sockets: 10.0.2.2:43594, :8080, :8084 (Central's http: the LOCAL_AUTH sign-in) and :443 only. The
 network allowlist: `up` starts the container `mobile-allow` (`tracks/client/allow.py`, DNS over tcp 127.0.0.1:8053
 and tcp 443) and the emulator with `-dns-server` at its own relay, and turns the mobile's wifi off; the cellular path
 asks `mobile-allow`, which answers `api.runelite.net` and `static.runelite.net` with 10.0.2.2 and every other name

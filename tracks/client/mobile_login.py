@@ -111,5 +111,9 @@ if __name__ == "__main__":
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it
         d = ROOT / "state" / sys.argv[1]
         d.mkdir(parents=True, exist_ok=True); (d / "login-failed.logcat.txt").write_text(adb("logcat", "-d", "-v", "threadtime"))
+        # the game server's side of the same start (its login refusals and their reason, the sessions it holds): a later deploy loses it
+        srv = subprocess.run(["docker", "logs", "-t", "--since", (datetime.datetime.fromisoformat(since) - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ"), "osrs-openrune"],
+                             capture_output=True, text=True)
+        (d / "login-failed.server.txt").write_text(srv.stdout + srv.stderr)
     print(r)
     sys.exit(0 if r == "LOGGED_IN" else 1)

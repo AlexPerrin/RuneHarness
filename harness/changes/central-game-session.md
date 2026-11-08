@@ -3,6 +3,7 @@ slug: central-game-session
 track: central
 priority: P1
 deps:
+- central-rights-test-mod
 - central-token-login-op
 - h-central-up-sign-in
 ---

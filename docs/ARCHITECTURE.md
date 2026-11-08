@@ -572,7 +572,6 @@ decide.py takes a Ledger and never runs a subprocess, so it is tested over real 
 | `fork` AlexPerrin/OpenRune-Server | OpenRune/OpenRune-Server | upstream `main` → `dev/<slug>` | game content and behaviour; the test server |
 | `central` AlexPerrin/OpenRune-Central-Server | OpenRune/OpenRune-Central-Server | upstream `main` → `dev/<slug>` | accounts, sessions, world-link auth, `jav_config.ws`, `worldslist.ws` |
 | `filestore` AlexPerrin/OpenRune-FileStore | OpenRune/OpenRune-FileStore | upstream `main` → `dev/<slug>` | the cache library: I/O, every config codec, gameval references, packing |
-| `devtools` AlexPerrin/OpenRune-Developer-Tools | OpenRune/OpenRune-Developer-Tools | upstream `main` → `dev/<slug>` | the in-client MCP plugin both game clients are driven through |
 | `harness` AlexPerrin/osrs-harness | — | live branch → `harness/<slug>` | this repo |
 | `lab` AlexPerrin/pr-lab | itself | `main` → `dev/<slug>` | the PR lab: a repo of our own as its own upstream, so every GitHub path of the loop (a PR, CI, comments, a merge landing) runs without a maintainer; its CI fails on a root file named `FAIL` |
 
@@ -620,12 +619,16 @@ flowchart LR
   verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
   deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
   8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its https OIDC discovery.
-- The game clients are driven through OpenRune-Developer-Tools, built from our fork's gated head into the Android
-  jar and the desktop's sideloaded jar. `mcp/` holds transport only: `.mcp.json` names `osrs-mcp.sh`, the desktop
-  bridge (a stdio front of about 80 lines: `tools/list` snapshot when no client runs, routing by `port`, the bearer
-  token, a bounded answer, the Windows `netstat` probe) and the client repo's mobile bridge (stdio over `adb shell nc`).
-  Long-distance `walk_to`, session state in every answer, and token auth on both platforms are `devtools` changes,
-  not bridge code.
+- The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's
+  `host/plugins/devtools/build.sh` builds upstream's source at its pinned `REV` into the Android jar and the desktop's
+  sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
+  because upstream lacks it: `mcp/devtools_bridge.py` (upstream speaks HTTP on one loopback port; the sessions need a
+  stdio server that answers `tools/list` from a snapshot when no client runs, routes each call by `port` to one of many
+  desktops with that up's bearer token, bounds every answer, flags a dropped session after each desktop answer, and
+  walks `walk_to` at any distance in minimap steps, upstream's needing the tile in the loaded scene); the client
+  repo's mobile bridge (Android: upstream has no transport off the device, ours is stdio over `adb shell nc`);
+  `DevtoolsOwner.java` (below: upstream checks only the Origin header, no token, and opens URLs); the stub of the
+  self-updater in the Android build. Upstream changes to the plugin reach both clients by moving that `REV`.
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).

@@ -113,7 +113,9 @@ def measure_query(db, g, T, tree) -> None:
 
 def candidate(path, base: str, heads: list) -> tuple:
     """(tree, tcommit): the head itself when it descends from base; else merge-tree folded over base and each head,
-    committed with the newest parent's date so the same inputs give the same commit. Raises Conflict(files)."""
+    committed with the newest parent's date so the same inputs give the same commit. Raises Conflict(files).
+    A head a later head already carries is left out: that later head resolved any conflict between them."""
+    heads = [h for i, h in enumerate(heads) if not any(is_ancestor(path, h, l) for l in heads[i + 1:])]
     if len(heads) == 1 and is_ancestor(path, base, heads[0]):
         return git(path, "rev-parse", heads[0] + "^{tree}"), heads[0]
     cur = base

@@ -2,6 +2,8 @@
 slug: server-resumed-session-logout
 track: fork
 priority: P0
+deps:
+- server-reconnect
 ---
 # server: a resumed session that closes leaves its player in the world; every later login of the account is refused Duplicate
 

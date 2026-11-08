@@ -91,6 +91,18 @@ case "$*" in *"echo y"*) [ -n "$NOAPP" ] || echo y ;; *"ls -1"*) printf 'quest-h
         (st / "serial").write_text("emulator-5560\n"); s.env["NOAPP"] = "1"   # an install that failed made no plugins dir: nothing to restore
         rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, "restored"))
 
+    def test_netqa_reads_the_installed_apps_uid(s):  # the app's uid is the install's (10235 on emulator-5560), not a fixed one
+        st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True); (st / "serial").write_text("emulator-5560\n")
+        tcp = "0: 0100007F:1F90 0201000A:01BB 01 0:0 0:0 0 {} 0\n"   # a connection to 10.0.1.2:443 owned by that uid
+        adb = s.ev / "adb.exe"; adb.write_text(f"""#!/bin/sh
+case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.oldscape.android uid:10235\\r\\n' ;; *"exec-out cat"*) printf '{tcp.format(10235)}{tcp.format(10071).replace("0201000A", "0301000A")}' ;; esac
+"""); adb.chmod(0o755); s.env["ADB"] = str(adb)
+        r = subprocess.run([str(TRACK), "netqa", "x", "stop"], env=s.env, capture_output=True, text=True)
+        s.assertEqual((r.returncode, r.stdout.split("--- dns")[0].strip()), (0, "10.0.1.2:443"), r.stderr)
+        s.env["NOAPP"] = "1"
+        r = subprocess.run([str(TRACK), "netqa", "x", "stop"], env=s.env, capture_output=True, text=True)
+        s.assertEqual(r.returncode, 1); s.assertIn("not installed", r.stderr)
+
     def fake_windows(s):  # adb, the emulator and netstat as scripts; a started emulator's port lists as LISTENING
         sdk = s.ev / "sdk"; sys32 = s.ev / "sys32"; log = s.ev / "win.log"
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)

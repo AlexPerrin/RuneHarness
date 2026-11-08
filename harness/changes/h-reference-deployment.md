@@ -3,6 +3,7 @@ slug: h-reference-deployment
 track: harness
 priority: P0
 deps:
+- h-dep-gate-failed-waits
 - h-desktops-token-login
 - h-ref-devtools-upstream
 - h-ref-embedded-central
@@ -19,5 +20,7 @@ Upstream's shape as read 2026-11-07: the server is built by `:or-cache:freshCach
 Needed: tracks/fork/build and the deploy build and run that bundle on staging's tree (a container may wrap it; the steps inside are upstream's, not `install`'s server/bin/app). `up`, live-desktop and the deploy all use embedded Central on upstream's ports for jav_config and sign-in, with no issuer, http or http-desktop container. Desktops connect through RSProx's proxy-targets as the README says. Audit every hd.yaml pin: one a reference deployment makes unneeded goes (local/local-auth is the first to check), each kept one gets its reason. Compare our devtools plugin with OpenRune-Developer-Tools and adopt upstream's where it does the job, or name why not.
 
 Deviations to keep, each named in docs/ARCHITECTURE.md with its reason: the local jav_config instead of client.blurite.io (Privacy: no client contacts Jagex, and that config names Jagex hosts); Central's sign-in and token login, ours until the Central upstream hold lifts; the patched APK. No Privacy rule weakens for the reference.
+
+FileStore and Developer-Tools are part of the reference (the user's word): the cache is built by OpenRune-FileStore as upstream's `or-cache` does (the published `dev.or2:filestore`, our staged FileStore head where a filestore change is on staging), with no harness cache step beside it; the desktops' devtools are OpenRune-Developer-Tools where it does the job (h-ref-devtools-upstream), each kept tool of ours named with its reason.
 
 Done when, from a clean state, the staging deploy and `up` on a fresh C:\osrs-test home reach LOGGED_IN on the desktop and the APK with those containers gone, javcheck.py passing on Central's own /jav_config.ws, and ACCEPTANCE H8 replaced by the observed fact. If it is too large for one run, file its parts as changes, each with its deps, and hand back.

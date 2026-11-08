@@ -246,6 +246,8 @@ def cmd_submit(a):
                (T.name, ref, head, now()))
     if new:
         event(db, "submitted", a.slug, r["id"] if r else None, f"{head[:7]} candidate {tcommit[:7]} tree {tree[:12]}")
+    elif store.regate_failed(db, tree):
+        event(db, "regate", a.slug, r["id"] if r else None, f"{tree[:12]}: {head[:7]} submitted again after its gate failed")
     act.tick_later()
     print(f"run {r['id']}: submitted {head}" if r else f"submitted {head}")
 

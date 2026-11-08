@@ -4,6 +4,7 @@ track: harness
 priority: P0
 deps:
 - central-embedded-jav-config
+- h-candidate-skips-carried-deps
 - h-desktops-token-login
 - h-ref-server-bundle
 - h-ref-sign-in-no-issuer

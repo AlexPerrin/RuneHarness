@@ -161,9 +161,15 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     fi
     b=$(grep -m1 -A1 "Failed to start MCP server on port $dp" "$d/home/.runelite/logs/client.log" 2>/dev/null | tr '\n' ' ') || true   # logs/ is never copied into a claim: the line is this start's
     [ -z "$b" ] || { echo "desktop $i: its devtools plugin could not bind $dp: $b" >&2; return 1; }
+    b=$(grep -m1 -A1 'ERROR.*Launcher\.main:' "$state/desktop$i.log" 2>/dev/null | tr '\n' ' ') || true   # the RuneLite launcher failed (a 429 from repo.runelite.net): its error dialog keeps the JVM alive
+    [ -z "$b" ] || { echo "desktop $i: the RuneLite launcher failed: $b" >&2; return 1; }
     for p in $(marked "$i" | cut -d' ' -f1); do winpid "$p" "java.exe"; done; sleep 2
   done
   for p in $(marked "$i" | cut -d' ' -f1); do winpid "$p" "java.exe"; done
+  # the jars this start downloaded and verified (RSProx's RuneLite launcher, RuneLite's), into the template: the next instance's home holds them and downloads none (each start downloading all drew 429s)
+  for x in .rsprox/runelite-launcher .runelite/repository2; do
+    [ ! -d "$d/home/$x" ] || { mkdir -p "$desk/home/${x%/*}" && "$sys32/robocopy.exe" "$(wslpath -w "$d/home/$x")" "$(wslpath -w "$desk/home/$x")" /MIR /MT:16 /NFL /NDL /NJH /NJS /NP > /dev/null; } || [ $? -lt 8 ] || echo "desktop $i: its $x was not copied into the template" >&2
+  done
   inst=desktop$i; dt=$dp
 }
 desktops_remove() {  # stops every JVM carrying the marker of an instance this slug owns, then removes the instance, its owner last (a failed down re-runs)

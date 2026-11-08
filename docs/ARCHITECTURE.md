@@ -375,7 +375,7 @@ GitHub is read each pass only for public changes with a PR, conditionally (a 304
 def candidate(repo, base, heads) -> (tree, tcommit):
     """Fold `git merge-tree --write-tree` over base (Track.candidate_base: staging on a track with a deploy recipe, so the
     fork's judge proves the change with the token login and pins the test server runs, else hd.yaml's base), each
-    dependency head not yet in it (closure, deps first) and the head; then
+    dependency head not yet in it nor in a later head (closure, deps first) and the head; then
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's date, so the same inputs give the same commit
     and the fork CI's child commit keeps its result. A conflict raises Conflict(files): the dev's step.
     A Central or FileStore dependency adds no commit: its candidate is built in (§11) and
@@ -494,7 +494,7 @@ sequenceDiagram
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
 | `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion (an existing rid corrected in place, its check results dropped) |
-| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; prints the hand-back line |
+| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
 | `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, close (refused: the user's own) |
@@ -578,7 +578,6 @@ decide.py takes a Ledger and never runs a subprocess, so it is tested over real 
 | `fork` AlexPerrin/OpenRune-Server | OpenRune/OpenRune-Server | upstream `main` → `dev/<slug>` | game content and behaviour; the test server |
 | `central` AlexPerrin/OpenRune-Central-Server | OpenRune/OpenRune-Central-Server | upstream `main` → `dev/<slug>` | accounts, sessions, world-link auth, `jav_config.ws`, `worldslist.ws` |
 | `filestore` AlexPerrin/OpenRune-FileStore | OpenRune/OpenRune-FileStore | upstream `main` → `dev/<slug>` | the cache library: I/O, every config codec, gameval references, packing |
-| `devtools` AlexPerrin/OpenRune-Developer-Tools | OpenRune/OpenRune-Developer-Tools | upstream `main` → `dev/<slug>` | the in-client MCP plugin both game clients are driven through |
 | `harness` AlexPerrin/osrs-harness | — | live branch → `harness/<slug>` | this repo |
 | `lab` AlexPerrin/pr-lab | itself | `main` → `dev/<slug>` | the PR lab: a repo of our own as its own upstream, so every GitHub path of the loop (a PR, CI, comments, a merge landing) runs without a maintainer; its CI fails on a root file named `FAIL` |
 
@@ -632,12 +631,16 @@ flowchart LR
   `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on
   the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
   alone; a fork `up` types the login form until token login is in the fork's base.
-- The game clients are driven through OpenRune-Developer-Tools, built from our fork's gated head into the Android
-  jar and the desktop's sideloaded jar. `mcp/` holds transport only: `.mcp.json` names `osrs-mcp.sh`, the desktop
-  bridge (a stdio front of about 80 lines: `tools/list` snapshot when no client runs, routing by `port`, the bearer
-  token, a bounded answer, the Windows `netstat` probe) and the client repo's mobile bridge (stdio over `adb shell nc`).
-  Long-distance `walk_to`, session state in every answer, and token auth on both platforms are `devtools` changes,
-  not bridge code.
+- The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's
+  `host/plugins/devtools/build.sh` builds upstream's source at its pinned `REV` into the Android jar and the desktop's
+  sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
+  because upstream lacks it: `mcp/devtools_bridge.py` (upstream speaks HTTP on one loopback port; the sessions need a
+  stdio server that answers `tools/list` from a snapshot when no client runs, routes each call by `port` to one of many
+  desktops with that up's bearer token, bounds every answer, flags a dropped session after each desktop answer, and
+  walks `walk_to` at any distance in minimap steps, upstream's needing the tile in the loaded scene); the client
+  repo's mobile bridge (Android: upstream has no transport off the device, ours is stdio over `adb shell nc`);
+  `DevtoolsOwner.java` (below: upstream checks only the Origin header, no token, and opens URLs); the stub of its
+  update check (`checkAsync`) in both builds, so no client reaches a host for it. Upstream changes to the plugin reach both clients by moving that `REV`.
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).

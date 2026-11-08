@@ -70,6 +70,24 @@ class Observe(unittest.TestCase):
             act.candidate(self.repo, sh(self.repo, "rev-parse", "HEAD"), [head])
         self.assertEqual(cm.exception.args[0], ["b"])
 
+    def test_candidate_leaves_out_a_dep_head_a_later_head_carries(self):
+        base = sh(self.repo, "rev-parse", "HEAD")
+        heads = []
+        for name, text in (("d1", "x\n"), ("d2", "y\n")):
+            sh(self.repo, "checkout", "-qb", name, base)
+            Path(os.path.join(self.repo, "a")).write_text(text)
+            sh(self.repo, "commit", "-qam", name)
+            heads.append(sh(self.repo, "rev-parse", "HEAD"))
+        with self.assertRaises(act.Conflict):
+            act.candidate(self.repo, base, heads)
+        sh(self.repo, "checkout", "-qb", "head", heads[0])
+        with self.assertRaises(subprocess.CalledProcessError):
+            sh(self.repo, "merge", "-q", "d2")
+        Path(os.path.join(self.repo, "a")).write_text("xy\n")
+        sh(self.repo, "commit", "-qam", "resolve")
+        head = sh(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(act.candidate(self.repo, base, heads + [head])[1], head)
+
     def test_landed_when_the_head_is_an_ancestor_of_the_target(self):
         sh(self.repo, "checkout", "-qb", "harness/h-one")
         Path(os.path.join(self.repo, "b")).write_text("2\n")

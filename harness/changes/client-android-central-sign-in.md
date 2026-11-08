@@ -4,6 +4,7 @@ track: client
 priority: P0
 deps:
 - central-game-session
+- h-live-apk-central-sign-in
 ---
 # The official Android app signs in through Central's endpoints on the live stack
 

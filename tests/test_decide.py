@@ -149,6 +149,19 @@ class Tempo(Base):  # T1, T3, T4
         self.assertIsNone(decide.upstream_dep_wait(C, ch))   # its ship is not held by the fork PR
         self.assertIn("not yet landed on main", decide.upstream_dep_wait(C, nxt).why)   # G4: the same repo's PR still waits
 
+    def test_a_same_track_dep_whose_head_failed_its_gate_holds_its_dependent(self):   # run 270: h-reference-deployment ran on h-ref-server-bundle's failed head
+        dep, ch = Change("h-dep", "harness"), Change("h-one", "harness", deps=("h-dep",))
+        C = decide.Ctx(self.L, CFG, {c.slug: c for c in (dep, ch)})
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('harness', 'refs/heads/harness/h-dep', 'd1')")
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-dep', 'd1', 'td1', 'cd', 't')")
+        self.assertIsNone(decide.deps_live(C, ch))   # submitted, gate not run: it joins the candidate
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', 'td1:harness-1', 0, 'tests', 't')")
+        self.assertEqual(decide.deps_live(C, ch).why, "dep h-dep gate failed at d1")
+        self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"].kind, "wait")
+        self.db.execute("UPDATE ref SET sha='d2' WHERE name='refs/heads/harness/h-dep'")
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-dep', 'd2', 'td2', 'cd2', 't2')")
+        self.assertIsNone(decide.deps_live(C, ch))   # resubmitted: the new head joins again
+
     def test_a_dep_on_another_track_waits_for_its_landing_not_its_submission(self):
         dep = Change("h-fix", "harness")
         ch = Change("c-one", "client", deps=("h-fix",))
@@ -238,6 +251,14 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
     def submit(self):
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', ?, ?, ?, 't1')", (TIP, TREE, TC))
+
+    def test_the_same_head_after_a_failed_gate_is_gated_again(self):  # G5: replay.md written after the gate, then resubmitted
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'replay', 't')", (f"{TREE}:fork-1",))
+        self.assertTrue(store.regate_failed(self.db, TREE))
+        self.assertIsNone(self.db.execute("SELECT 1 FROM job WHERE kind='gate'").fetchone())   # no result: gate_due runs it again
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:fork-1",))
+        self.assertFalse(store.regate_failed(self.db, TREE))   # a passed gate stays
 
     def test_a_newer_head_is_merged_into_staging_again(self):  # M1, H4: a landed row older than the last submission is void
         self.submit()

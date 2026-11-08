@@ -199,19 +199,21 @@ measure() {
   if [ $platform = mobile ]; then down; else "$fork" live-desktop-down "$slug" >&2; fi; echo "client-api ($platform): $v"; $hd measure "$slug" "${TREE:-$T}" "$v" "$ev/api-probe.tsv"; [ -z "${HD_KEY:-}" ] || $hd job measure "$HD_KEY" ok "$v"
 }
 log() { "$adb" -s "$(serial)" logcat -d -v threadtime -T "$(cat "$state/log-mark" 2>/dev/null || echo 1)" 2>/dev/null | tr -d '\r' | grep -E "${arg:-.}" || true; }
-netqa() {  # start: a sampler on the mobile; stop: the distinct remote addresses (app uid 10071) and the DNS lookups
+netqa() {  # start: a sampler on the mobile; stop: the distinct remote addresses of the app's uid (as installed: pm list) and the DNS lookups
   s=$(serial); f=/sdcard/Download/netqa-$slug.txt
   if [ "$arg" = start ]; then "$adb" -s "$s" logcat -c; "$adb" -s "$s" shell "nohup sh -c 'while :; do date +%s; cat /proc/net/tcp /proc/net/tcp6; sleep 0.5; done' > $f 2>/dev/null &"; echo "sampling"
   else "$adb" -s "$s" shell pkill -f "/proc/net/tcp" || true
+    uid=$("$adb" -s "$s" shell pm list packages -U "$pkg" | tr -d '\r' | sed -n "s/^package:$pkg uid:\([0-9]*\).*/\1/p")
+    [ -n "$uid" ] || { echo "netqa: $pkg is not installed on $s" >&2; exit 1; }
     "$adb" -s "$s" exec-out cat "$f" | python3 -c '
 import sys, socket, struct
 seen = set()
 for l in sys.stdin:
     p = l.split()
-    if len(p) > 7 and p[3] == "01" and p[7] == "10071":
+    if len(p) > 7 and p[3] == "01" and p[7] == sys.argv[1]:
         a, port = p[2].split(":"); ip = socket.inet_ntoa(struct.pack("<I", int(a[-8:], 16))) if len(a) <= 8 else socket.inet_ntop(socket.AF_INET6, b"".join(struct.pack("<I", int(a[i:i+8], 16)) for i in range(0, 32, 8)))
         seen.add(f"{ip}:{int(port, 16)}")
-print("\n".join(sorted(seen)))'
+print("\n".join(sorted(seen)))' "$uid"
     "$adb" -s "$s" shell rm -f "$f"; echo "--- dns"; "$adb" -s "$s" logcat -d | tr -d '\r' | grep -i "asked for" || true
   fi
 }

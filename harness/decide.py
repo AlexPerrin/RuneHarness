@@ -218,6 +218,10 @@ def deps_live(C, ch):
             return Step("wait", f"dep {dep} ({d.track}) not landed")
         if not C.L.one("SELECT 1 FROM submission WHERE change=?", dep):
             return Step("wait", f"dep {dep}")
+        s = sub(C, d)   # a head that failed its gate cannot ship: nothing to build on until its dev resubmits
+        j = C.L.job("gate", key(C, d, "gate", s)) if s and "gate" in C.cfg.tracks[d.track].recipes else None
+        if j and j["ok"] == 0:
+            return Step("wait", f"dep {dep} gate failed at {s['head'][:7]}")
     return None
 
 

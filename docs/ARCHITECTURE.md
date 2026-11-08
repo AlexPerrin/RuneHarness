@@ -615,6 +615,9 @@ flowchart LR
   refuses a local branch ahead of the pushed ref.
 - The server-content inventory is `harness/goals/server-content.json`, a committed definition (one row per content unit
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
+- The game image `or:<T>` is upstream's release bundle (release-server.yml's Gradle steps; `server.jar`, `game.yml`,
+  `.data/` without raw-cache or key) run by `java -jar server.jar` on update-test-server.yml's ports: 43594 game, 9091
+  Central link, 9090 http (the one setting beyond `game.example.yml`, its `central.http-port`).
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
   template source; the official client's sign-in and game-session endpoints that mint the token the game
   verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The

@@ -149,7 +149,7 @@ class BuildLock(unittest.TestCase):
     def test_a_second_build_of_a_slug_waits_then_reuses_the_image(s):  # a dev's build was refused: the pass's build-<slug> container was running
         b = SRC.split("\nbuild() {")[1].split("\n}")[0]
         s.assertIn('{ flock 9; build_locked; } 9> "$state/build.lock"', b)
-        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if docker image inspect "or:$T"'))
+        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if docker image inspect -f \'{{json .Config.Entrypoint}}\' "or:$T"'))
 
     def test_the_lock_ends_with_the_build(s):  # a gate's 20 minutes of gate-ci held it: rekeyed builds and a dev's build waited behind it
         d = tempfile.mkdtemp(); line = next(l for l in SRC.splitlines() if l.startswith("build() {"))
@@ -199,12 +199,13 @@ class BuildAttempts(unittest.TestCase):
         s.assertEqual(c[-1], "rm -f build-x")                                     # and the build removes its container as it ends
 
     def test_an_image_holds_the_game_yml_of_its_tree(s):  # server-token-auth-17: or:2cdbf708b held an older tree's game.yml, kept by clean in the build copy
-        (s.root / "bin/docker").write_text(f'#!/bin/bash\necho "$*" >> {s.root}/calls\n' + 'case "$*" in "image inspect"*) exit 1;; *"--name build-x"*) while [ "$1" != -w ]; do shift; done; mkdir -p "$2/server/app/build/install/app" "$2/.data";;'
-                                           f' "build "*) cp "${{@: -1}}/game.yml" {s.root}/image-game.yml;; esac\n')   # the image's context, as docker build reads it
-        (s.repo / ".gitignore").write_text("game.yml\n"); git(s.repo, "add", "-A"); git(s.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i"); s.tc = git(s.repo, "rev-parse", "HEAD")   # upstream ignores game.yml
+        (s.root / "bin/docker").write_text(f'#!/bin/bash\necho "$*" >> {s.root}/calls\n' + 'case "$*" in "image inspect"*) exit 1;; *"--name build-x"*) while [ "$1" != -w ]; do shift; done; mkdir -p "$2/server/app/build/libs" "$2/.data/raw-cache" "$2/.data/cache"; touch "$2/server/app/build/libs/server.jar" "$2/.data/game.key";;'
+                                           f' "build "*) cp "${{@: -1}}/game.yml" {s.root}/image-game.yml; (cd "${{@: -1}}" && find . | sort) > {s.root}/image-files;; esac\n')   # the image's context, as docker build reads it
+        (s.repo / ".gitignore").write_text("game.yml\n"); (s.repo / "game.example.yml").write_text("central:\n  same-instance: true\n"); git(s.repo, "add", "-A"); git(s.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i"); s.tc = git(s.repo, "rev-parse", "HEAD")   # upstream ignores game.yml
         s.build(); (s.root / "repo/.worktrees/x-build/game.yml").write_text("old: tree\n")
         r = s.build(); s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        s.assertEqual((s.root / "image-game.yml").read_text(), "game: {}\n")
+        s.assertEqual((s.root / "image-game.yml").read_text(), "central:\n  http-port: 9090\n  same-instance: true\n")   # game.example.yml and the one harness setting: http on upstream's test server port
+        s.assertEqual((s.root / "image-files").read_text().split(), [".", "./.data", "./.data/cache", "./game.yml", "./server.jar"])   # release-server.yml's bundle: no raw-cache, and no key (up and deploy give their own)
         s.assertFalse((s.root / "repo/.worktrees/x-build/.image").exists())   # the context is the image's once built: none kept (V9-RETENTION)
         calls = (s.root / "calls").read_text().splitlines()   # no build container live once the image is built: the build cache goes with the last build
         s.assertLess(max(i for i, c in enumerate(calls) if c.startswith("build ")), max(i for i, c in enumerate(calls) if c == "builder prune -f"))
@@ -223,12 +224,13 @@ class CacheDownload(unittest.TestCase):
     def test_the_revision_is_downloaded_once_and_every_tree_repacks_it(s):  # 13 builds and deploys downloaded openrs2's 213 MB in a day: the store was keyed by the pack inputs, the /dl copy never filled
         b = (HERE.parent / "build/build.sh").read_text()
         s.assertIn('gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12', b)   # the gate's release asset key
-        c = b.split("s=/store/s-$CK d=/store/g-$GK")[1].split("generateRsa")[0]
+        c = b.split("s=/store/s-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
         s.assertLess(c.index("cp -a $d/. ."), c.index(":or-cache:freshCache"))          # a stored revision is restored, never downloaded
         s.assertLess(c.index(":or-cache:freshCache"), c.rindex("mv $d.tmp $d"))           # a download is stored whole
         s.assertLess(c.index("tar -xzf /game-data.tgz"), c.index("cp -a $d/. ."))          # sweep-28: a revision missing from the store comes from the gate's asset, never openrs2 first
         s.assertIn('gh release download game-data -R "$R" -p "game-data-$gk.tar.gz"', b)
-        s.assertIn("$g :or-cache:mergePluginGamevals :or-cache:buildCache", c)            # both repack this tree
+        s.assertLess(c.index(":or-cache:buildCache"), c.index(":or-cache:mergePluginGamevals"))   # a stored revision repacks this tree, then merges as release-server.yml: freshCache, mergePluginGamevals, shadowJar
+        s.assertLess(c.index(":or-cache:freshCache"), c.index(":or-cache:mergePluginGamevals"))
         s.assertNotIn("/dl", SRC)
 
 
@@ -1478,7 +1480,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
         for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
             s.assertIn(line + "\n", out)
-        s.assertIn('sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")', up)
+        s.assertIn('sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:9090")', up)
         s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
         s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http${sic:+s}://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
         central = (HERE.parent.parent / "central/track.sh").read_text()
@@ -1527,7 +1529,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
     def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
         import javcheck
         ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
-        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:8080", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
+        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:9090", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
         s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
         s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
         s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)

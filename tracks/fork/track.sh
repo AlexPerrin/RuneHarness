@@ -18,7 +18,8 @@
 #                     port, the desktop's JX_SESSION_ID a real session of account 1 (sign_in); restart refused (sessions are in memory)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
 #                     ones (--exp -5), another account's, and forged ones (another key DIR)
-#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), logged in as this slug's own account; prints LIVE_DESKTOP <devtools port> <instance dir>
+#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), signed in through the live Central's sign-in
+#                     as this slug's own account (its first sign-in registers it) and logged in by token with Play alone; prints LIVE_DESKTOP <devtools port> <instance dir>
 #   live-desktop-down stops that desktop and removes its instance
 #   restart           logs up's desktops out, restarts server-<slug>, its game.yml and database kept, and logs them in again
 #   down              stops the desktops, waits until the server has saved and dropped their characters or is gone, removes the stack record's containers
@@ -136,7 +137,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   jo=" -javaagent:$t\\rsprox\\$o.jar -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools=$dp:$w\\guard -Dosrstest.refusals=$(wslpath -w "$state/refused-urls.log")"   # no URL reaches the OS: each refused one is a line of that log
   jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
-    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$state/token/tls.pem" "$d/home/token-tls.pem"
+    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
     "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" >/dev/null
     jo+=" -Djavax.net.ssl.trustStore=$w\\home\\token-trust.p12 -Djavax.net.ssl.trustStorePassword=changeit"
   fi
@@ -190,9 +191,11 @@ keys() {  # the change's key pair in $state/key, made by up alone: whichever cha
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out "$k/game.key" 2>/dev/null   # PKCS#8, as the server's generateRsa writes
   printf 'Exponent: 10001\nModulus: %s' "$(modulus_of < "$k/game.key")" > "$k/client.key"
 }
-sign_in() {  # sets sid cid: a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account
-  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$state/token/tls.pem") code idt
-  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "$b/oauth2/auth?redirect_uri=http://127.0.0.1/cb&state=up&client_id=harness" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
+sign_in() {  # sign_in [ACCOUNT]: sets sid cid, a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account:
+  # ACCOUNT's by its password (its name; Central registers an account that never played), else Central's dev account
+  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$ca") a=(-G) code idt
+  [ -z "${1:-}" ] || a=(--data-urlencode "username=$1" --data-urlencode "password=$1")
+  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "${a[@]}" -d redirect_uri=http://127.0.0.1/cb -d state=up -d client_id=harness "$b/oauth2/auth" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
   idt=$("${c[@]}" -d grant_type=authorization_code -d "code=$code" -d client_id=harness "$b/oauth2/token" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id_token"])')
   sid=$("${c[@]}" -H 'Content-Type: application/json' -d "{\"idToken\":\"$idt\"}" "$b/game-session/v1/sessions" | python3 -c 'import json,sys;print(json.load(sys.stdin)["sessionId"])')
   cid=$("${c[@]}" -H "Authorization: Bearer $sid" "$b/game-session/v1/accounts" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["accountId"])')
@@ -200,7 +203,7 @@ sign_in() {  # sets sid cid: a session of Central's sign-in as the client's laun
 central_jav() {  # $state/jav_config.ws for the game's own Central: $tpl filled as the sidecar fills it, its base http(s, with $sic)://127.0.0.1:$http
   sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
-  tok=; sic=; sid=; cid=; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  tok=; sic=; sid=; cid=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
   docker image inspect "or:$T" >/dev/null 2>&1 || { echo "no image or:$T: build first"; return 1; }
   devtools_jar   # the jar every desktop of this up loads
   game=$(port 0); http=$(port 1)
@@ -356,12 +359,12 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
   [ $fail = 1 ] || rm -rf "$h"; return $fail
 }
 
-live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
-  srv=osrs-openrune; http=${OPENRUNE_DESKTOP_HTTP_PORT:-8082}; game=${OPENRUNE_GAME_PORT:-43594}; tok=
+live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
+  srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; sic=1; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
   devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
-  desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
-  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)") || true; echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
+  sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
+  login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1
   trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }

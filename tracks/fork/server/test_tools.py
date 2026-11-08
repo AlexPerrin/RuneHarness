@@ -1,5 +1,5 @@
 """The contract's script rows against a throwaway git repo: python3 -m unittest tools/server/test_tools.py"""
-import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest, urllib.parse
 from unittest import mock
 from pathlib import Path
 SUITE_TMP = tempfile.TemporaryDirectory(prefix="tools-suite-", ignore_cleanup_errors=True)   # every temp dir of these tests and of each process they
@@ -276,8 +276,10 @@ class DesktopDevtools(unittest.TestCase):
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
         s.assertLess(start.index('cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"'), start.index("exec setsid"))
         s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
-        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
-        for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's Central, game port, cache and modulus; never a stack of the slug's own
+        for k in ("srv=osrs-openrune", "http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}", "tok=true; sic=1; ca=$root/state/live/token/tls.pem", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        s.assertLess(live.index('sign_in "$(account 1)"'), live.index("desktop_start"))   # h-desktops-token-login: the session before the desktop that carries it
+        s.assertIn('desktop_login.py" "$dt" token)', live); s.assertNotIn('"$dt" "$(account 1)"', live)   # Play alone: no form typed
 
 
 class AccountName(unittest.TestCase):
@@ -808,11 +810,11 @@ class DesktopLogin(unittest.TestCase):
         s.assertEqual(got, ["press_key"])   # sent once, answered in its turn, never given up on
 
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever
-        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter and Enter after Escape start no attempt
+        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter starts no attempt
         s.assertTrue(d.token(1).startswith("FAILED: Enter started no login"))
-        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER"])   # never a click: a ban page's top button opens the user's browser
-        d, sent = s.fake(["LOGIN_SCREEN"] * (1 + d.FRAMES + 2 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # Escape left the response page: the Play page's Enter logs in
-        s.assertEqual(d.token(1), "LOGGED_IN")
+        s.assertEqual([(n, a) for n, a in sent if n != "get_client_state"], [("press_key", {"key": "ENTER"})])   # h-desktops-token-login: Play alone, no Escape, typing or click (a ban page's top button opens the user's browser)
+        d, sent = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGGED_IN"])   # the session's Play page: Enter logs in
+        s.assertEqual(d.token(1), "LOGGED_IN"); s.assertEqual([n for n, a in sent if n in ("press_key", "type_chat", "click")], ["press_key"])
         d, _ = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGIN_SCREEN"])   # a refusal: back at the login screen
         s.assertEqual(d.token(1), "FAILED: back at the login screen: the server refused the token")
         d, _ = s.fake(["LOGIN_SCREEN"])   # the form's Enter started no attempt
@@ -1498,12 +1500,23 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertNotIn("{{", j); s.assertEqual(javcheck.foreign(j), []); s.assertEqual(params["17"], "https://127.0.0.1:20001/worldslist.ws"); s.assertEqual(params["11"], "https://127.0.0.1:20001/")
         t.key(d / "token"); (d / "token" / "account").write_text("hab12\n"); t.GameSession.dir = d / "token"; t.GameSession.sessions = {}
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); tls.load_cert_chain(d / "token/tls.pem", d / "token/tls.key")
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+        class Password(t.GameSession):  # Central's POST /oauth2/auth: the form's account signed in by its password
+            posted = []
+            def answer(self):
+                if self.command == "POST" and self.path.endswith("/oauth2/auth"):
+                    f = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers["Content-Length"])).decode())); self.posted.append(f)
+                    (self.dir / "account").write_text(f["username"]); self.path += "?" + urllib.parse.urlencode(f); del self.headers["Content-Length"]
+                return super().answer()
+            do_GET = do_POST = answer
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Password); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
         threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
         fn = "sign_in() {" + SRC.split("\nsign_in() {")[1].split("\n}")[0] + "\n}"
-        out = subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "state": str(d)})
-        s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
+        sign = lambda who: subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in {who}; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "ca": str(d / "token/tls.pem")})
+        out = sign(""); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
         s.assertEqual(t.GameSession.sessions.get(sid), "hab12"); s.assertEqual(int(cid), zlib.crc32(b"hab12") & 0x7FFFFFFF)   # a session the sign-in opened, for its account
+        s.assertEqual(Password.posted, [])   # no account named: Central's dev account, no password sent
+        out = sign("hcd34"); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()   # h-desktops-token-login: live-desktop signs in the slug's own account, never the live dev account
+        s.assertEqual(Password.posted[0]["username"], "hcd34"); s.assertEqual(Password.posted[0]["password"], "hcd34"); s.assertEqual(t.GameSession.sessions.get(sid), "hcd34")
 
     def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
         s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])

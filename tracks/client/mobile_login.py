@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mobile_login.py <slug>: launches the app on $ANDROID_SERIAL and signs in at Central's form as the slug's own account; prints LOGGED_IN or FAILED: <why>.
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
-labels), then waits for the next screen; a screen it does not know, a refused login or the app's death is FAILED.
+labels), then waits for the next screen; a screen it does not know, a refused login, the game server losing the session before LOGGED_IN or the app's death is FAILED.
 """
 import datetime, hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path
@@ -77,10 +77,13 @@ def form(lab, fields, name, posted):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
-    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why)."""
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, lost=False):
+    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why).
+    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end)."""
     if st == "LOGGED_IN":
         return ("done",)
+    if lost:
+        return ("fail", f"the game server lost {name}'s session while the app was {st}")
     if raw == START_ERROR:
         return ("fail", "the app's start error page 'Error connecting to server' (gameState 1000)")
     if pkg == "com.android.chrome":
@@ -106,8 +109,14 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
     return ("wait",) if ix in WAIT else ("fail", f"an unknown login screen (LoginIndex {ix})")
 
 
+def lost(name, since):
+    """The game server logged the account's session lost since `since` (UTC ISO): 'Game session lost: user='<name>''."""
+    r = subprocess.run(["docker", "logs", "--since", since + "Z", "osrs-openrune"], capture_output=True, text=True)
+    return f"Game session lost: user='{name}'" in r.stdout + r.stderr
+
+
 def main(slug):
-    name, posted = account(slug), False
+    name, posted, since = account(slug), False, None
     adb("logcat", "-c")
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
     if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
@@ -117,7 +126,8 @@ def main(slug):
         st, ix, pkg, lab, raw, fields = screen()
         if not adb("shell", "pidof", PKG).strip():
             return "FAILED: the app died"
-        act = step(st, ix, pkg, lab, raw, name, fields, posted)
+        since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since))
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":

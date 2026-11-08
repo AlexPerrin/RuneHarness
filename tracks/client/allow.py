@@ -44,8 +44,8 @@ def pipe(a, b):  # a's bytes to b; a's end (or error) ends b's writing, the othe
 
 
 def record(c):  # the first TLS record whole: a ClientHello with a post-quantum key share spans TCP segments
-    r = c.recv(16384)
-    while 5 <= len(r) < 5 + struct.unpack(">H", r[3:5])[0] and (d := c.recv(16384)): r += d
+    r = c.recv(16384)   # a first byte not a TLS handshake (the game client's js5 or login falling back to port 443) is returned as is, and relay closes it
+    while r[:1] == b"\x16" and 5 <= len(r) < 5 + struct.unpack(">H", r[3:5])[0] and (d := c.recv(16384)): r += d
     return r
 
 

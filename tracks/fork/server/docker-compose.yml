@@ -1,5 +1,4 @@
-# The live test server: the game from the deployed image (its game.yml's token-login block holds the issuer's secret; its embedded
-# Central serves desktops jav_config.ws over http and the sign-in over https with the issuer's certificate), the
+# The live test server: the game from the deployed image (its game.yml's token-login block holds the issuer's secret), the
 # sidecars that serve jav_config.ws and slr.ws to the Android app (http) and to desktop clients (http-desktop), and issuer.py,
 # the APK's sign-in and tokens over http. `track.sh ship` runs it with switch.env, SIDECAR_DATA and ISSUER_DIR (the issuer's
 # DIR, which also holds the APK's jav_config.ws.template: this directory's, params 11, 20, 22 and 28 naming the issuer); the
@@ -10,7 +9,7 @@ services:
     image: osrs-openrune:241
     container_name: osrs-openrune
     restart: unless-stopped
-    ports: ["${OPENRUNE_GAME_PORT:-40255}:43594", "${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:9090", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"]   # Central's jav_config and sign-in for desktops
+    ports: ["${OPENRUNE_GAME_PORT:-40255}:43594"]
     volumes: [openrune-pgdata:/app/.data/postgres]
     environment: {JAVA_OPTS: "-Xmx2g"}
   http:

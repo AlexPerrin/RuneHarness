@@ -100,6 +100,16 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
         self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].kind, "run")
 
+    def test_a_harness_changes_library_dep_must_be_live(self):   # h-live-sign-in-needs-central: done with central-game-session only submitted
+        cen = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")
+        C = decide.Ctx(self.L, Cfg(agents=2, tracks={"harness": T, "central": cen}), {})
+        lib, ch = Change("c-op", "central"), Change("h-one", "harness", deps=("c-op",))
+        C.defs.update({c.slug: c for c in (lib, ch)})
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-op', 'h1', 't1', 'h1', 't')")
+        self.assertEqual(decide.deps_live(C, ch).why, "dep c-op not live on the test server")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('c-op', 'live', 'tr', 't')")
+        self.assertIsNone(decide.deps_live(C, ch))
+
     def test_a_client_change_waits_for_its_server_deps_own_deps_live(self):   # run 185: its dep ran live without the dep's dep
         cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
         base = Change("s-base", "fork", upstream=False); srv = Change("s-fix", "fork", upstream=False, deps=("s-base",))

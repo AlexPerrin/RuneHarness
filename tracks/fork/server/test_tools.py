@@ -1,5 +1,5 @@
 """The contract's script rows against a throwaway git repo: python3 -m unittest tools/server/test_tools.py"""
-import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest, urllib.parse
 from unittest import mock
 from pathlib import Path
 SUITE_TMP = tempfile.TemporaryDirectory(prefix="tools-suite-", ignore_cleanup_errors=True)   # every temp dir of these tests and of each process they
@@ -280,6 +280,7 @@ class DesktopDevtools(unittest.TestCase):
         s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
         live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
         for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        s.assertNotIn("sign_in", live)   # h-live-sign-in-needs-central: no Central sign-in until central-game-session runs live
 
 
 class AccountName(unittest.TestCase):
@@ -810,11 +811,11 @@ class DesktopLogin(unittest.TestCase):
         s.assertEqual(got, ["press_key"])   # sent once, answered in its turn, never given up on
 
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever
-        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter and Enter after Escape start no attempt
+        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter starts no attempt
         s.assertTrue(d.token(1).startswith("FAILED: Enter started no login"))
-        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER"])   # never a click: a ban page's top button opens the user's browser
-        d, sent = s.fake(["LOGIN_SCREEN"] * (1 + d.FRAMES + 2 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # Escape left the response page: the Play page's Enter logs in
-        s.assertEqual(d.token(1), "LOGGED_IN")
+        s.assertEqual([(n, a) for n, a in sent if n != "get_client_state"], [("press_key", {"key": "ENTER"})])   # h-desktops-token-login: Play alone, no Escape, typing or click (a ban page's top button opens the user's browser)
+        d, sent = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGGED_IN"])   # the session's Play page: Enter logs in
+        s.assertEqual(d.token(1), "LOGGED_IN"); s.assertEqual([n for n, a in sent if n in ("press_key", "type_chat", "click")], ["press_key"])
         d, _ = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGIN_SCREEN"])   # a refusal: back at the login screen
         s.assertEqual(d.token(1), "FAILED: back at the login screen: the server refused the token")
         d, _ = s.fake(["LOGIN_SCREEN"])   # the form's Enter started no attempt
@@ -1500,12 +1501,23 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertNotIn("{{", j); s.assertEqual(javcheck.foreign(j), []); s.assertEqual(params["17"], "https://127.0.0.1:20001/worldslist.ws"); s.assertEqual(params["11"], "https://127.0.0.1:20001/")
         t.key(d / "token"); (d / "token" / "account").write_text("hab12\n"); t.GameSession.dir = d / "token"; t.GameSession.sessions = {}
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); tls.load_cert_chain(d / "token/tls.pem", d / "token/tls.key")
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+        class Password(t.GameSession):  # Central's POST /oauth2/auth: the form's account signed in by its password
+            posted = []
+            def answer(self):
+                if self.command == "POST" and self.path.endswith("/oauth2/auth"):
+                    f = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers["Content-Length"])).decode())); self.posted.append(f)
+                    (self.dir / "account").write_text(f["username"]); self.path += "?" + urllib.parse.urlencode(f); del self.headers["Content-Length"]
+                return super().answer()
+            do_GET = do_POST = answer
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Password); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
         threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
         fn = "sign_in() {" + SRC.split("\nsign_in() {")[1].split("\n}")[0] + "\n}"
-        out = subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "state": str(d)})
-        s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
+        sign = lambda who: subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in {who}; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "ca": str(d / "token/tls.pem")})
+        out = sign(""); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
         s.assertEqual(t.GameSession.sessions.get(sid), "hab12"); s.assertEqual(int(cid), zlib.crc32(b"hab12") & 0x7FFFFFFF)   # a session the sign-in opened, for its account
+        s.assertEqual(Password.posted, [])   # no account named: Central's dev account, no password sent
+        out = sign("hcd34"); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()   # h-desktops-token-login: live-desktop signs in the slug's own account, never the live dev account
+        s.assertEqual(Password.posted[0]["username"], "hcd34"); s.assertEqual(Password.posted[0]["password"], "hcd34"); s.assertEqual(t.GameSession.sessions.get(sid), "hcd34")
 
     def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
         s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
@@ -1526,23 +1538,10 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 
-    def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
-        import javcheck
-        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
-        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:9090", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
-        s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
-        s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
-        s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
-        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
-                  "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
-            s.assertIn(e, ship)
-        s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
-        s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
-        s.assertLess(ship.index("central_jav"), ship.index("docker build"))
-        out = subprocess.run(["bash", "-c", f"sic=1 http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
-        s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
-        for line in ("param=11=https://127.0.0.1:8443/", "param=22=https://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):
-            s.assertIn(line + "\n", out)
+    def test_the_deploy_serves_no_central_sign_in_its_central_lacks(s):  # h-live-sign-in-needs-central: its checks failed every deploy and live-desktop at sign_in
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
+        for e in ("central-tls.p12", "OPENRUNE_HTTP_TLS_PORT", "OPENRUNE_CENTRAL_HTTPS_PORT", "central_jav"): s.assertNotIn(e, ship)
+        s.assertNotIn("OPENRUNE_CENTRAL", (HERE / "docker-compose.yml").read_text())
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):
         src = (HERE / "OsrsTestLauncher.java").read_text()

@@ -79,17 +79,26 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, 'd', '4')", (TIP,))
         self.assertFalse(decide.outdated(C, ch, self.L.last_verdict("h-one", TIP)))   # judged again and failed: a dev's now
 
-    def test_a_fork_only_change_on_a_track_without_staging_is_done_by_its_verdict(self):   # central-rights-test-mod: nothing to land on
+    def test_a_checked_library_change_stages_on_its_own_and_its_staging_moves_the_deploy(self):   # central-game-session: no fork dependent, never live
         C = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")
-        cfg = Cfg(agents=2, tracks={"fork": F, "central": C})
+        cfg = Cfg(agents=2, tracks={"harness": T, "fork": F, "central": C})
         lib = Change("c-fix", "central", upstream=False); ch = Change("s-one", "fork", deps=("c-fix",))
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('central', 'refs/remotes/fork/dev/c-fix', 'h1')")
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-fix', 'h1', 't1', 'h1', 't')")
-        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't')")
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, 't1:c-1', 1, 't')", (k,))
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't', 't')")
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('c-fix', 'h1', 1, 1, 'd', 't')")
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
-        self.assertEqual(steps["c-fix"].kind, "done")
-        self.assertNotIn("dep c-fix", steps["s-one"].why)      # its dependent is not held by it
+        self.assertEqual((steps["c-fix"].kind, steps["c-fix"].key), ("merge", "staging:h1"))   # gate and verdict passed: it joins central's staging
+        self.assertNotIn("dep c-fix", steps["s-one"].why)      # its fork dependent builds it in, not held by it
+        self.assertEqual(steps["fork:staging"].key, "tr1:fork-1")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('c-fix', 'refs/heads/staging', 'cs1', 't')")
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('central', 'refs/heads/staging', 'cs1', ?)", ("e" * 40,))
+        steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
+        self.assertEqual(steps["c-fix"].kind, "done")           # fork-only: done on its staging
+        self.assertEqual(steps["fork:staging"].key, f"tr1_c{'e' * 12}:fork-1")   # the next deploy carries it
 
     def test_a_client_changes_server_dep_must_be_live_on_the_test_server(self):   # the mobile reaches only the live stack
         cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})

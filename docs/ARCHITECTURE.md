@@ -236,7 +236,7 @@ stateDiagram-v2
   Judge --> Dev : verdict(head, criteria_digest).ok = 0
   Judge --> Stage : verdict.ok = 1
   state Stage <<fork>>
-  Stage --> TestServer : tracks with a deploy recipe, head not in ref staging → merge, conflict → Dev
+  Stage --> TestServer : tracks with a deploy recipe and the libraries, head not in ref staging → merge, conflict → Dev
   Stage --> Public : upstream PR or release
   Stage --> Ship : harness or client, not landed(live branch)
   Public --> WaitUpstreamDep : a dep in another PR has no landed(upstream main)
@@ -251,7 +251,7 @@ stateDiagram-v2
   Published --> Done : landed(change, upstream main)
   Ship --> Done : landed(change, live branch)
   TestServer --> Done : upstream false and verdict ok
-  Judge --> Done : upstream false on a track without staging (nothing to land on), verdict ok
+  Judge --> Done : upstream false on a track without staging (nothing to land on, not a library), verdict ok
   Done --> [*]
   Closed --> [*]
 ```
@@ -286,7 +286,7 @@ GUARDS = [
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
-    stage_due,         # tracks with a deploy recipe: no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
+    stage_due,         # tracks with a deploy recipe and the libraries (central, filestore: their own staging): no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
     upstream_dep_wait, # a same-track dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
                        # (G4); a library dep holds a card too; a dep on another track holds neither (deps_live waited for it)
     texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
@@ -396,12 +396,12 @@ def clone(T, ch) -> path:
     """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""
 
 def stage(db, ch, T, head):
-    """In <fork>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
+    """In <repo>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
     merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
     is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
-    job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
+    job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
     live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
 
 def brief(db, ch, step) -> path:
@@ -600,7 +600,10 @@ flowchart LR
   `build/filestore.init.gradle`: the head is not included (its Gradle 7 build and its `filestore` project clash with the
   fork's type-safe accessors) but published by `tracks/filestore/track.sh publish` to a Maven directory, from which alone
   every `dev.or2` module it holds resolves, the `all` POM included), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
-  the composite, so a library change is live on the test server with the first server tree built on it.
+  the composite. A library change that passed its gate and verdict merges into its own repo's staging (act.stage, no
+  pins) on its own, dependents or not; that staging is the deploy's composite (a library with no staging yet: the heads
+  staging's server changes were built with), so the next deploy carries it and marks it `live`. A server change's
+  library deps merge there before it does.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
   Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one

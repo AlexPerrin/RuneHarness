@@ -284,6 +284,9 @@ class DesktopDevtools(unittest.TestCase):
         s.assertIn('desktop_login.py" "$dt" token)', live); s.assertNotIn('"$dt" "$(account 1)"', live)   # Play alone: no form typed
         s.assertLess(live.index("live=1"), live.index('flock -s "$root/state/live/stack.lock" true'))   # h-deploy-spares-live-judge: its row holds deploys off, then a started one ends first
         s.assertLess(live.index("stack.lock"), live.index("sign_in"))
+        s.assertIn("set -E", live); s.assertIn("live_desktop_down >&2 || true' EXIT", live); s.assertIn("trap - EXIT", live)   # a failed start, set -e inside desktop_start included, names its step and leaves no instance
+        k = start.split('until "$desk/jdk/bin/keytool.exe"')[1].split("\n    done")[0]   # the interop error (accept4 failed 110) ends keytool: asked again on a fresh store, any other failure reported
+        s.assertIn("grep -q UtilAcceptVsock", k); s.assertIn('cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"', k); s.assertIn("return 1", k)
 
 
 class AccountName(unittest.TestCase):

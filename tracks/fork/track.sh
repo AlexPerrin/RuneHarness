@@ -140,7 +140,10 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
     jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
-    "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" >/dev/null
+    until "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" > /dev/null 2> "$d/keytool.err"; do   # a WSL interop error (accept4 failed 110) ends keytool, before or after it ran: asked again on a fresh store
+      grep -q UtilAcceptVsock "$d/keytool.err" || { echo "keytool failed: $(cat "$d/keytool.err")" >&2; return 1; }
+      until "$desk/jdk/bin/jps.exe" > /dev/null 2>&1; do sleep 1; done; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"
+    done
     jo+=" -Djavax.net.ssl.trustStore=$w\\home\\token-trust.p12 -Djavax.net.ssl.trustStorePassword=changeit"
   fi
   pid=
@@ -381,12 +384,13 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; sic=1; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
-  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
+  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # live: no deploy is planned while it is up; why: the step set -e ends at, in the function it failed in
+  trap 'echo "live-desktop ended before it was logged in, at: ${why:-$BASH_COMMAND}" >&2; live_desktop_down >&2 || true' EXIT   # a failed start names its step and leaves no instance
   flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
   login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1
-  trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
+  trap - EXIT; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }
 live_desktop_down() { unkeep; desktops_remove; rm -f "$state/up.json"; $hd stack "$slug" --clear; echo "down"; }
 case $verb in up|restart|down) [ "${DESKTOPS_LOCK:-}" = "$slug" ] || {   # one up, restart or down of a slug at a time: none acts on desktops another is starting or removing

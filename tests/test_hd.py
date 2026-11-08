@@ -99,6 +99,30 @@ class Hd(unittest.TestCase):
         hd.main(["dismiss", str(a["id"]), "fixed"])
         self.assertEqual(db.execute("SELECT disposition, why FROM alert").fetchone()[1], "fixed")
 
+    def test_a_fork_only_dep_done_on_staging_joins_a_candidate_off_main(self):   # central-rights-test-mod dropped from central-game-session's
+        import os, subprocess
+        from decide import Change, Cfg, Track
+        repo = os.path.join(self.dir.name, "repo")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        def commit(f, branch, new=False):
+            subprocess.run(["git", "-C", repo, "checkout", "-q"] + (["-b"] if new else []) + [branch], check=True, env=env)
+            Path(repo, f).write_text(f)
+            subprocess.run(["git", "-C", repo, "add", f], check=True, env=env)
+            subprocess.run(["git", "-C", repo, "commit", "-qm", f], check=True, env=env)
+            return hd.act.git(repo, "rev-parse", "HEAD")
+        os.makedirs(repo); subprocess.run(["git", "-C", repo, "init", "-q", "-b", "main"], check=True)
+        Path(repo, "base").write_text("base"); subprocess.run(["git", "-C", repo, "add", "base"], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-qm", "base"], check=True, env=env)
+        fork_only = commit("fork", "fork-only", new=True)
+        merged = commit("merged", "main")   # an upstream dep already on main
+        cfg = Cfg(tracks={"central": Track("central", "x/y", repo, "refs/heads/main", "o/y")})
+        defs = {"c": Change("c", "central", deps=("fork", "up")), "fork": Change("fork", "central", upstream=False), "up": Change("up", "central")}
+        self.addCleanup(setattr, hd, "change", hd.change); hd.change = defs.get
+        db = store.connect()
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('fork', ?, 't', 't', 't'), ('up', ?, 't', 't', 't')", (fork_only, merged))
+        db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('fork', 'refs/heads/staging', ?, 't')", (fork_only,))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"]), ([fork_only], {}))
+
 
 if __name__ == "__main__":
     unittest.main()

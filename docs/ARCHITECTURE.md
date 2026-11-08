@@ -273,7 +273,7 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps);
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps), unless its head is in its base already (a fork-only dep done on staging always joins);
                        # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a client
                        # change's any, else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
@@ -500,7 +500,7 @@ sequenceDiagram
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
-| `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
+| `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base with its same-track deps not yet in their base, as `hd submit` builds it |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |

@@ -9,7 +9,7 @@
 #   gate <slug> <key> the build copy at the candidate, then `hd gate`: every scripted criterion
 #   up <slug> [N]     a test server built from the fork's staging (what the test server runs) with this head as its Central, N
 #                     desktops logged in by token (the fork's up, which merges a head whose Central reads no file:// jav_config with Central's staging)
-#   up <slug> token   one desktop signed in through this head's own Central sign-in (the fork's up token with SIGN_IN=central): no issuer, no http sidecar
+#   up <slug> token   up 1: every up signs its desktops in through this head's own Central (merged with Central's staging when it serves no sign-in)
 #   down | log        the fork's, for that server
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}
@@ -45,7 +45,6 @@ case "$verb" in
   test) copy=${BUILD:-$copy}; gradle test ;;
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:central-1" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}   # the server the test server runs: its token login
-      [ "$arg" != token ] || export SIGN_IN=central
       export CENTRAL="$repo:$h" CENTRAL_REPO=$repo   # the fork's up merges a head whose Central reads no file:// jav_config with Central's staging
       TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
       TCOMMIT=$tc HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;

@@ -276,9 +276,12 @@ class DesktopDevtools(unittest.TestCase):
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
         s.assertLess(start.index('cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"'), start.index("exec setsid"))
         s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
-        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
-        for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
-        s.assertNotIn("sign_in", live)   # h-live-sign-in-needs-central: no Central sign-in until central-game-session runs live
+        live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's Central, game port, cache and modulus; never a stack of the slug's own
+        for k in ("srv=osrs-openrune", "http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}", "tok=true; sic=1; ca=$root/state/live/token/tls.pem", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        s.assertLess(live.index('sign_in "$(account 1)"'), live.index("desktop_start"))   # h-desktops-token-login: the session before the desktop that carries it
+        s.assertIn('desktop_login.py" "$dt" token)', live); s.assertNotIn('"$dt" "$(account 1)"', live)   # Play alone: no form typed
+        s.assertLess(live.index("live=1"), live.index('flock -s "$root/state/live/stack.lock" true'))   # h-deploy-spares-live-judge: its row holds deploys off, then a started one ends first
+        s.assertLess(live.index("stack.lock"), live.index("sign_in"))
 
 
 class AccountName(unittest.TestCase):
@@ -915,12 +918,12 @@ class DesktopLogin(unittest.TestCase):
         t = SRC; fn = t[t.index("login() {"):t.index("offline() {")]
         for site in ('login "$dt"', 'login "$(cut -d: -f2 <<< "${desktops[$i]}")"', 'login "$(cut -d: -f2 <<< "${ds[$i]}")"'):
             s.assertIn(site, t)   # every login of up and restart
-        s.assertEqual(t.count("desktop_login.py\" \"$1\" \"$2\""), 1)   # no login but through it
+        s.assertEqual(t.count('desktop_login.py" "$1" token'), 1)   # no login but through it, by token (Play alone)
         made = lambda *rows: subprocess.run(["bash", "-c", f'set -euo pipefail\nf=$(mktemp); trap "rm -f $f" EXIT; printf "%s\\n" {" ".join(repr(r) for r in rows)} > $f\nsql() {{ case $1 in *max*) echo 0 ;; *) head -1 $f; sed -i 1d $f ;; esac; }}   # each read in its own subshell: the rows a file\npython3() {{ echo "py $3"; }}\nself=.\n{fn}\nlogin 7786 h1'],
                                             capture_output=True, text=True).stdout
-        s.assertEqual(made("h1"), "py h1\n")
-        s.assertEqual(made("h1x h1", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")
-        s.assertEqual(made("h", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")   # no row of the account yet
+        s.assertEqual(made("h1"), "py token\n")
+        s.assertEqual(made("h1x h1", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")
+        s.assertEqual(made("h", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")   # no row of the account yet
 
 class Repo(unittest.TestCase):
     def setUp(s):
@@ -1180,6 +1183,14 @@ class GateCi(Repo):
         s.assertNotIn("If-None-Match", api[0]); s.assertTrue(all('If-None-Match: W/"running"' in c for c in api[1:]), api)  # a 304 keeps the ETag
         s.assertFalse([c for c in calls if c.startswith(("run list", "workflow run"))])  # runs were listed: nothing dispatched
 
+    def test_ci_runs_the_prs_own_candidate_not_stagings(s):  # h-fork-candidate-on-staging: proved on staging, the PR's CI on upstream main
+        for f in ("ci", "format"): s.write(f".github/workflows/{f}.yml", s.WF)
+        pr = s.commit("the PR on main"); s.write("staged.kt", "x")   # gate()'s own commit (TCOMMIT) holds more: staging's
+        r, _, _ = s.gate(s.GREEN, env={"PR_TCOMMIT": pr})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn(f"(T {pr})", r.stdout)
+        r, calls, _ = s.gate(s.GREEN, env={"PR_TCOMMIT": "conflict: a.kt"})
+        s.assertEqual(r.returncode, 1); s.assertIn("does not merge with upstream main, conflict: a.kt", r.stdout); s.assertEqual(calls, [])
+
     def test_a_quota_refusal_holds_the_row_until_githubs_reset(s):  # genie-355-bank-lamp's gate failed 'HTTP 403: API rate limit exceeded'
         r, calls, sleeps = s.gate(['HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: 9999999999\n\n{"message":"API rate limit exceeded"}', s.RUNS("success")])
         s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("held until its reset", r.stdout)
@@ -1428,6 +1439,18 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         (d / "token").write_text("a.b.c\n"); s.assertEqual(get(), {"token": "a.b.c"})
         (d / "token").write_text("x.y.z\n"); s.assertEqual(get(), {"token": "x.y.z"})
 
+    def test_each_desktops_session_gets_its_own_accounts_token(s):  # h-fork-candidate-on-staging: every up desktop by token, each its own account
+        import http.server, threading, urllib.request, zlib, issuer as t
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.key(d); (d / "account").write_text("hab11\n"); t.GameSession.dir = d; t.GameSession.sessions = {}
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
+        def call(path, sid, body=b""):
+            return json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/{path}", data=body, headers={"Authorization": f"Bearer {sid}"})))
+        sid2 = t.mint(d, "hab12", 31536000)   # up's JX_SESSION_ID for desktop 2
+        s.assertEqual(call("game-session/v1/tokens", sid2)["token"].split(".")[0], "hab12")
+        s.assertEqual(call("game-session/v1/accounts", sid2, None)[0]["accountId"], zlib.crc32(b"hab12") & 0x7FFFFFFF)   # up's JX_CHARACTER_ID
+        s.assertEqual(call("game-session/v1/tokens", t.mint(d, "hab12", -5))["token"].split(".")[0], "hab11")   # an expired session: DIR/account
+        t.key(d / "other"); s.assertEqual(call("game-session/v1/tokens", t.mint(d / "other", "hab12"))["token"].split(".")[0], "hab11")   # another DIR's: not a session
+
     def test_the_issuer_keeps_the_connection_for_the_client_to_close(s):  # a close right after the body cut the APK's character list short (curl 18, page 39)
         import http.client, http.server, threading, issuer as t
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.GameSession.dir = d; (d / "token").write_text("a.b.c\n")
@@ -1468,8 +1491,15 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
         s.assertIn('tpl=$state/jav_config.ws.template', up)
-        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+=" token-$slug"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
+        # h-fork-candidate-on-staging: every up (no `token` argument) logs each desktop in by token, Play alone, as its own account
+        s.assertIn("tok=true;", up); s.assertIn('rm -f "$state/token/token"', up)
+        loop = up.split("for i in $(seq 1 \"$n\"); do")[1]
+        s.assertLess(loop.index('who=$(account "$i"); sid=$(python3 "$self/server/issuer.py" mint "$state/token" "$who"'), loop.index("desktop_start"))
+        s.assertIn('JX_DISPLAY_NAME="${who:-$(account 1)}"', sh)
+        body = sh.split("\nlogin() {")[1].split("\nunkeep() {")[0]   # login and keep
+        s.assertNotIn('"$2" "$2"', body); s.assertEqual(body.count('desktop_login.py" "$1" token'), 1); s.assertIn('keep "server-$slug" token', body)   # no typed form
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck
@@ -1543,9 +1573,6 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
     def test_a_failed_deploy_records_its_failure_and_checks_the_templates_before_the_live_stack(s):  # h-mobile-login-page-9: a javcheck `|| return 6` raised no ERR, so the pass started the deploy 9 times, each recreating the live stack under a mobile's start (gameState 1000)
         ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
         s.assertLess(ship.index('javcheck.py" "$f" || return 6'), ship.index("docker compose"))
-        s.assertLess(ship.index('exec 8> "$state/stack.lock"; flock 8'), ship.index("docker compose"))   # no mobile start mid-login when the stack is replaced
-        up = (HERE.parent.parent / "client/track.sh").read_text().split("\nup() {")[1].split("\n}")[0]
-        s.assertLess(up.index('flock -s 8'), up.index("mobile_login.py")); s.assertLess(up.index("mobile_login.py"), up.index("exec 8>&-\n"))
         trap = next(l for l in ship.splitlines() if "' EXIT" in l)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "log").write_text("non-local hosts: auth.jagex.com\n")
         r = subprocess.run(["bash", "-c", f'set -euo pipefail; hd="echo hd"; arg=x; HD_KEY=k; HD_LOG={d}/log\ndeploy() {{\n{trap}\nfalse || return 6; }}\ndeploy'], capture_output=True, text=True)
@@ -1567,14 +1594,28 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         subprocess.run(["bash", "-c", line], check=True, env={**os.environ, "self": str(HERE.parent), "ISSUER_DIR": str(d)})
         t = (d / "jav_config.ws.template").read_text(encoding="utf-8"); orig = (HERE / "jav_config.ws.template").read_text(encoding="utf-8")
         params = dict(l[6:].split("=", 1) for l in t.splitlines() if l.startswith("param="))
-        s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8083/"))
+        s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8084/"))   # h-live-apk-central-sign-in: Central's http, not the issuer's 8083
+        s.assertIn('curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6', ship)
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 
-    def test_the_deploy_serves_no_central_sign_in_its_central_lacks(s):  # h-live-sign-in-needs-central: its checks failed every deploy and live-desktop at sign_in
-        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        for e in ("central-tls.p12", "OPENRUNE_HTTP_TLS_PORT", "OPENRUNE_CENTRAL_HTTPS_PORT", "central_jav"): s.assertNotIn(e, ship)
-        s.assertNotIn("OPENRUNE_CENTRAL", (HERE / "docker-compose.yml").read_text())
+    def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
+        import javcheck
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
+        s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:8080", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
+        s.assertIn("sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
+        s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
+        s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
+        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
+                  "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
+            s.assertIn(e, ship)
+        s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
+        s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
+        s.assertLess(ship.index("central_jav"), ship.index("docker build"))
+        out = subprocess.run(["bash", "-c", f"sic=1 http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
+        for line in ("param=11=https://127.0.0.1:8443/", "param=22=https://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):
+            s.assertIn(line + "\n", out)
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):
         src = (HERE / "OsrsTestLauncher.java").read_text()

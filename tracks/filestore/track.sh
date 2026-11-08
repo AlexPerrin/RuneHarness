@@ -10,8 +10,7 @@
 #   publish <slug> <commit>  the commit's modules and its all POM published (gradle publish) to <repo>/.worktrees/<slug>-filestore/.m2,
 #                     the Maven directory a fork build with FILESTORE resolves every dev.or2 module it holds from (fork build/filestore.init.gradle)
 #   up <slug> [N]     a test server built from the fork's staging and Central's (as the deploy builds it) with this head as its
-#                     FileStore; one desktop (N 1, the default) logged in by token (the fork's up token), N > 1 desktops by
-#                     the typed login (the fork's up N)
+#                     FileStore; N desktops (1 by default) logged in by token (the fork's up N)
 #   down | log        the fork's, for that server
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}
@@ -51,7 +50,6 @@ case "$verb" in
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:filestore-1" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging)   # the tree live desktops log in to: token login, built with the Central the deploy carries
       c=$(git -C "$central" rev-parse --verify -q staging) && export CENTRAL="$central:$c"
-      case ${arg:-1} in 1) arg=token ;; esac   # one desktop logged in by token (the issuer's, as live desktops); N > 1 by the typed login
       FILESTORE="$repo:${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}" TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
       HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;
   down|log) HD_REPO=$fork exec bash "$self/../fork/track.sh" "$verb" "$slug" "$arg" ;;

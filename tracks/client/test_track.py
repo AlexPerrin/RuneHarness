@@ -202,6 +202,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertIn('[ -f "$ev/$T.devtools-desktop.jar" ]', b)
         s.assertIn('cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"', b)
 
+    def test_up_holds_deploys_off_until_down(s):  # h-deploy-spares-live-judge: a judge's mobile plays on the live stack from up to down
+        t = TRACK.read_text(); up = t.split("\nup() {")[1].split("\n}")[0]; down = t.split("\ndown() {")[1].split("\n}")[0]
+        s.assertLess(up.index('{"live": 1'), up.index('flock -s "$root/state/live/stack.lock" true')); s.assertLess(up.index("stack.lock"), up.index("  boot"))
+        s.assertLess(down.index('$hd stack "$slug" --clear'), down.index("s=$(serial) || return 0"))   # cleared also when no emulator came up
+
     def test_emulator_has_no_console_window(s):  # started directly, not through cmd's start; its output is the run's log
         log = s.fake_windows(); s.row("up")
         s.assertNotIn("cmd.exe", TRACK.read_text())

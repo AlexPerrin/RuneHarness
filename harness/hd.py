@@ -189,22 +189,32 @@ def cmd_criterion(a):
     print(f"criterion {a.slug}/{a.rid} ({a.kind})")
 
 
-def dep_inputs(db, cfg, ch) -> tuple:
-    """(same-track dep heads, library composite) a candidate of ch builds in: every submitted dep whose head is not yet
-    in its track's base (landed there or an ancestor of it); a fork-only dep done on staging is never in it."""
+def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
+    """(same-track dep heads, library composite) a candidate of ch on the commit base builds in: every submitted dep not
+    yet in it (landed on its track's base, or its head an ancestor of base, or for a library of its own base); staged
+    (a candidate on staging): the libraries the test server runs with (Ledger.staging_composite), a dep's head in place
+    of its library's."""
     heads, composite = [], {}
+    if staged:
+        # shortcut: a library dep's head replaces that library's staging, not merged with it; merge them if a dep ever needs both
+        composite = json.loads(Ledger(db).staging_composite(decide.STAGING) or "{}")
     for dep in decide.candidate_deps(change, ch):
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
         dT = track(d, cfg)
         if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, dT.base)).fetchone() \
-                or act.is_ancestor(dT.path, s["head"], dT.base):
+                or act.is_ancestor(dT.path, s["head"], base if d.track == ch.track else dT.base):
             continue
         if d.track == ch.track:
             heads.append(s["head"])
         elif d.track in ("central", "filestore"):   # a library head built into the candidate as a Gradle composite
             composite[d.track] = {"head": s["head"], "tree": act.git(dT.path, "rev-parse", s["head"] + "^{tree}")}
     return heads, composite
+
+
+def candidate_base(T) -> str:
+    """The commit a candidate starts from: T.candidate_base(), or base while staging is not yet made."""
+    return act.git(T.path, "rev-parse", "--verify", "-q", T.candidate_base(), check=False) or act.git(T.path, "rev-parse", T.base)
 
 
 def cmd_submit(a):
@@ -221,14 +231,15 @@ def cmd_submit(a):
     head = act.git(T.path, "rev-parse", "--verify", "-q", ref, check=False)
     if not head:
         sys.exit(f"hd submit: no commit on {ref}")
-    base = act.git(T.path, "rev-parse", T.base)
-    if act.is_ancestor(T.path, head, base):
+    if act.is_ancestor(T.path, head, act.git(T.path, "rev-parse", T.base)):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
-    heads, composite = dep_inputs(db, cfg, ch)
+    base = candidate_base(T)
+    heads, composite = dep_inputs(db, cfg, ch, base, T.candidate_base() != T.base)
     try:
         tree, tcommit = act.candidate(T.path, base, heads + [head])
     except act.Conflict as c:
-        sys.exit(f"hd submit: the candidate conflicts in {' '.join(c.args[0])}: merge {T.base} into your branch")
+        sys.exit(f"hd submit: the candidate on {T.candidate_base()} conflicts in {' '.join(c.args[0])}: make the head merge with it"
+                 + (f" (never by merging {T.candidate_base()} into the branch: the PR head holds no other change)" if T.candidate_base() != T.base else f": merge {T.base} into your branch"))
     r = live_run(db, a.slug)
     new = store.submit(db, a.slug, head, tree, tcommit, json.dumps(composite) if composite else None, r["id"] if r else None)
     db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
@@ -413,16 +424,16 @@ def cmd_job(a):
     event(db, "job", os.environ.get("HD_SLUG"), None, f"{a.kind} {decide.short(a.key)} {a.result} {a.detail or ''}")
     if a.kind == "deploy" and a.result == "ok":   # the test server now runs staging as it was when the deploy began: those heads are live
         j = db.execute("SELECT started_at FROM job WHERE kind='deploy' AND key=?", (a.key,)).fetchone()
-        for r in db.execute("""SELECT change FROM landed WHERE target=? AND at<=? AND change NOT IN (SELECT change FROM landed WHERE target='live')""",
+        for r in db.execute("""SELECT change FROM landed WHERE target=? AND at<=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '') AND change NOT IN (SELECT change FROM landed WHERE target='live' AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), ''))""",
                             (decide.STAGING, j["started_at"] or now())).fetchall():
-            db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
+            db.execute("INSERT OR REPLACE INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
             event(db, "landed", r["change"], None, "live: the test server runs it")
         for lib in ("central", "filestore"):   # a library change is live once its head is in the library head the deploy built in (the job env's CENTRAL)
             path, _, built = os.environ.get(lib.upper(), "").rpartition(":")
             for c in [c for c in act.changes() if c.track == lib] if built else []:
                 h = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (c.slug,)).fetchone()
-                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live'", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
-                    db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
+                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live' AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
+                    db.execute("INSERT OR REPLACE INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
                     event(db, "landed", c.slug, None, f"live: the test server runs it in {lib} {built[:7]}")
     act.tick_later()
 
@@ -437,6 +448,12 @@ def cmd_gate(a):
     s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY id DESC LIMIT 1", (a.slug, tree)).fetchone() \
         or {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
     env = act.job_env(db, ch, T, s, BUILD=a.dir)
+    if T.candidate_base() != T.base and s["head"]:   # proved on staging; the PR's own candidate, on base alone, is what its CI runs (G4)
+        base = act.git(T.path, "rev-parse", T.base)
+        try:
+            env["PR_TCOMMIT"] = act.candidate(T.path, base, dep_inputs(db, act.cfg(), ch, base)[0] + [s["head"]])[1]
+        except act.Conflict as c:
+            env["PR_TCOMMIT"] = f"conflict: {' '.join(c.args[0])}"
     fails = []
     for c in Ledger(db).criteria(a.slug, "script"):
         print(f"== {c['rid']}: {c['cmd']}", flush=True)
@@ -461,9 +478,15 @@ def cmd_gate(a):
 def cmd_candidate(a):
     cfg, ch = act.cfg(), change(a.slug)
     T = track(ch, cfg)
+    base = a.base or candidate_base(T)
+    heads, composite = dep_inputs(store.connect(), cfg, ch, base, not a.base and T.candidate_base() != T.base)
+    if a.composite:   # the build's env: the libraries this candidate builds in, as the pass's job env carries them
+        for lib, v in sorted(composite.items()):
+            print(f"{lib.upper()}={cfg.tracks[lib].path}:{v['head']}")
+        return
     head = act.git(T.path, "rev-parse", a.head or T.dev_ref(ch))
     try:
-        print(*act.candidate(T.path, a.base or act.git(T.path, "rev-parse", T.base), dep_inputs(store.connect(), cfg, ch)[0] + [head]))
+        print(*act.candidate(T.path, base, heads + [head]))
     except act.Conflict as c:
         sys.exit(f"conflict: {' '.join(c.args[0])}")
 
@@ -475,11 +498,17 @@ def cmd_stack(a):
         db.execute("DELETE FROM stack WHERE change=?", (a.slug,))
         return
     d = json.load(open(a.file))
-    db.execute("""INSERT INTO stack(change, script, containers_json, desktops_json, token, modulus, started_at) VALUES (?,?,?,?,?,?,?)
+    if d.get("live"):   # between two passes, never inside one: a pass that planned a deploy without this row has started it, holding state/live/stack.lock
+        import fcntl
+        os.makedirs(STATE, exist_ok=True)
+        lock = open(os.path.join(STATE, "tick.lock"), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)   # released as the command exits
+    db.execute("""INSERT INTO stack(change, script, containers_json, desktops_json, token, modulus, started_at, live) VALUES (?,?,?,?,?,?,?,?)
                   ON CONFLICT(change) DO UPDATE SET script=excluded.script, containers_json=excluded.containers_json,
-                  desktops_json=excluded.desktops_json, token=excluded.token, modulus=excluded.modulus, started_at=excluded.started_at""",
+                  desktops_json=excluded.desktops_json, token=excluded.token, modulus=excluded.modulus, started_at=excluded.started_at,
+                  live=excluded.live""",
                (a.slug, d.get("script"), json.dumps(d.get("containers", "").split()), json.dumps(d.get("desktops", "").split()),
-                d.get("token"), d.get("modulus"), d.get("started")))
+                d.get("token"), d.get("modulus"), d.get("started"), int(bool(d.get("live")))))
 
 
 def cmd_own(a):
@@ -625,7 +654,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("close"); s.add_argument("slug"); s.add_argument("words")
     s = sub.add_parser("job"); s.add_argument("kind"); s.add_argument("key"); s.add_argument("result", choices=("ok", "fail")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")
-    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head")
+    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head"); s.add_argument("--composite", action="store_true")
     s = sub.add_parser("stack"); s.add_argument("slug"); s.add_argument("file", nargs="?"); s.add_argument("--clear", action="store_true")
     s = sub.add_parser("own"); s.add_argument("kind", choices=("image", "volume", "container", "worktree", "dir")); s.add_argument("key"); s.add_argument("owner")
     s = sub.add_parser("step"); s.add_argument("slug"); s.add_argument("script"); s.add_argument("step"); s.add_argument("state", choices=("start", "done")); s.add_argument("detail", nargs="?")

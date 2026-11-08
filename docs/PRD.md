@@ -33,7 +33,8 @@ publish → maintainers' findings become criteria.
   that fails for a cause outside the tree (host, quota, a source down) records no result and runs again.
 - **H4** The test server runs staging: one branch holding the base, the permanent local branches and every checked
   server head, merged once each; a conflict is the dev's step; a closed change is reverted out, and so is a local
-  branch the merging change supersedes.
+  branch the merging change supersedes. A server change is built and judged on staging (its candidate is staging plus
+  its head), so it is proved on what the test server runs; its PR is packaged from the head alone (G4).
 - **H5** Every process a run starts is the run's: stopped with it, bounded by one count of builds and one of agents,
   named after its change or run. No mobile or desktop contacts Jagex, checked by its bring-up.
 - **H6** Harness and client changes ship one at a time by fast-forward of the live branch to a checked candidate.
@@ -62,8 +63,8 @@ publish → maintainers' findings become criteria.
   did not check; nothing is checked twice for the same tree, head and criteria.
 - **G3** A failing verdict lists the dev before anything is built, gated or judged again; a text-only failure is
   fixed in place and re-marked without a new dev run.
-- **G4** An upstream PR is self-contained: its head holds no unmerged commit of another PR; a dependency in another
-  PR holds only the card until merged there, never the dev work.
+- **G4** An upstream PR is self-contained: its head holds no unmerged commit of another PR nor any staged commit, and
+  its CI runs it on upstream main; a dependency in another PR holds only the card until merged there, never the dev work.
 - **G5** A harness change is checked against reality before it ships: its tests, and its pass replayed over a
   snapshot of the live ledger, differing from the live pass only where a criterion says so.
 

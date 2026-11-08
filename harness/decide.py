@@ -58,6 +58,11 @@ class Track:
             return ch.branch
         return f"refs/remotes/{self.remote}/{self.prefix}/{ch.slug}" if self.remote else f"refs/heads/{self.prefix}/{ch.slug}"
 
+    def candidate_base(self):
+        """The ref a candidate starts from: staging on a track that deploys the test server (proved on what the server
+        runs, H4), else base; the PR head itself stays on base (G4)."""
+        return STAGING if self.upstream and "deploy" in self.recipes else self.base
+
     def done_ref(self, ch):
         """Where a landed row means done: the live branch, upstream main, or staging for a fork-only change."""
         return self.base if (not self.upstream or ch.upstream) else "refs/heads/staging"
@@ -213,6 +218,10 @@ def deps_live(C, ch):
             return Step("wait", f"dep {dep} ({d.track}) not landed")
         if not C.L.one("SELECT 1 FROM submission WHERE change=?", dep):
             return Step("wait", f"dep {dep}")
+        s = sub(C, d)   # a head that failed its gate cannot ship: nothing to build on until its dev resubmits
+        j = C.L.job("gate", key(C, d, "gate", s)) if s and "gate" in C.cfg.tracks[d.track].recipes else None
+        if j and j["ok"] == 0:
+            return Step("wait", f"dep {dep} gate failed at {s['head'][:7]}")
     return None
 
 
@@ -545,6 +554,8 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             s = job_due(C, "deploy", f"{tree}:{T.recipes['deploy']}")
             if s and s.kind == "deploy" and L.jobs_in_flight("deploy"):
                 s = Step("wait", "a deploy is running")
+            if s and s.kind == "deploy" and L.live_users():   # a deploy recreates the stack under whoever plays on it
+                s = Step("wait", f"{', '.join(L.live_users())} on the live stack")
             if s and s.kind == "deploy" and low:
                 s = None   # a deploy builds: none below the disk level
             if s and s.kind != "wait":

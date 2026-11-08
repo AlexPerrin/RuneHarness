@@ -91,6 +91,18 @@ case "$*" in *"echo y"*) [ -n "$NOAPP" ] || echo y ;; *"ls -1"*) printf 'quest-h
         (st / "serial").write_text("emulator-5560\n"); s.env["NOAPP"] = "1"   # an install that failed made no plugins dir: nothing to restore
         rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, "restored"))
 
+    def test_netqa_reads_the_installed_apps_uid(s):  # the app's uid is the install's (10235 on emulator-5560), not a fixed one
+        st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True); (st / "serial").write_text("emulator-5560\n")
+        tcp = "0: 0100007F:1F90 0201000A:01BB 01 0:0 0:0 0 {} 0\n"   # a connection to 10.0.1.2:443 owned by that uid
+        adb = s.ev / "adb.exe"; adb.write_text(f"""#!/bin/sh
+case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.oldscape.android uid:10235\\r\\n' ;; *"exec-out cat"*) printf '{tcp.format(10235)}{tcp.format(10071).replace("0201000A", "0301000A")}' ;; esac
+"""); adb.chmod(0o755); s.env["ADB"] = str(adb)
+        r = subprocess.run([str(TRACK), "netqa", "x", "stop"], env=s.env, capture_output=True, text=True)
+        s.assertEqual((r.returncode, r.stdout.split("--- dns")[0].strip()), (0, "10.0.1.2:443"), r.stderr)
+        s.env["NOAPP"] = "1"
+        r = subprocess.run([str(TRACK), "netqa", "x", "stop"], env=s.env, capture_output=True, text=True)
+        s.assertEqual(r.returncode, 1); s.assertIn("not installed", r.stderr)
+
     def fake_windows(s):  # adb, the emulator and netstat as scripts; a started emulator's port lists as LISTENING
         sdk = s.ev / "sdk"; sys32 = s.ev / "sys32"; log = s.ev / "win.log"
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
@@ -194,6 +206,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         b = BUILD.read_text().split("\nbuild() {")[1].split("\n}")[0]
         s.assertIn('[ -f "$ev/$T.devtools-desktop.jar" ]', b)
         s.assertIn('cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"', b)
+
+    def test_up_holds_deploys_off_until_down(s):  # h-deploy-spares-live-judge: a judge's mobile plays on the live stack from up to down
+        t = TRACK.read_text(); up = t.split("\nup() {")[1].split("\n}")[0]; down = t.split("\ndown() {")[1].split("\n}")[0]
+        s.assertLess(up.index('{"live": 1'), up.index('flock -s "$root/state/live/stack.lock" true')); s.assertLess(up.index("stack.lock"), up.index("  boot"))
+        s.assertLess(down.index('$hd stack "$slug" --clear'), down.index("s=$(serial) || return 0"))   # cleared also when no emulator came up
 
     def test_emulator_has_no_console_window(s):  # started directly, not through cmd's start; its output is the run's log
         log = s.fake_windows(); s.row("up")

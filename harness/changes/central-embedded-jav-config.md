@@ -1,7 +1,7 @@
 ---
 slug: central-embedded-jav-config
 track: central
-priority: P1
+priority: P0
 deps:
 - central-rights-test-mod
 - h-central-up-desktop-jav

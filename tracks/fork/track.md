@@ -53,15 +53,19 @@ repeat, source removed mid-action, counts read with `get_inventory` and `get_con
 
 ## The dev
 The brief names your clone (`~/src/OpenRune-Server/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
-`tracks/fork/track.sh build <slug>` builds your working copy's candidate in the build copy; `up <slug> [N]` starts the
-server from that build with N logged-in desktops and prints their devtools ports; `test <slug> [module...]` builds,
+`tracks/fork/track.sh build <slug>` builds your working copy's candidate in the build copy: your head merged onto
+staging (what the test server runs: the pins, token login, every staged head), while the branch itself stays on
+upstream main and never takes staging in (its PR holds no other change; the fork CI runs it on main alone); a head
+that does not merge onto staging is yours to make merge. `up <slug> [N]` starts the server from that build with N
+desktops logged in by token (Play alone, each its own account) and prints their devtools ports (the server's own Central serves
+their `jav_config.ws` from a file: a build whose Central reads none, the published one, is first rebuilt with Central's
+staging, the Central the test server runs); `test <slug> [module...]` builds,
 then runs each module's tests, its integration tests and spotlessCheck on the build copy (no module: every module the
 change touches) and writes `evidence/<slug>/test.log`; never gradle by hand. `log <slug> <pattern>` reads the server
 log; `restart <slug>` restarts that server, its game.yml and database kept, and logs the desktops in again. Each up
 starts a fresh database; `RESUME=1 … up` starts from the accounts as the change's last `down` saved them. The realm is
 live's (`dev_mode` off, xp at 1x) and every desktop's account a member at rank 0; `STAFF=<N>[,<M>...]` on one `up`
-makes those desktops' accounts administrators. `up <slug> token` starts one desktop whose login is a token login
-(Play alone). `live-desktop <slug>` logs one desktop in on the live stack as the slug's own account.
+makes those desktops' accounts administrators. `live-desktop <slug>` signs one desktop in through the live Central as the slug's own account, by token.
 The server `up` starts runs game.yml with `quest-requirements` `mode` from the front matter `quest-mode:`
 (`respect-progress` by default, or `assume-completed`); `QUEST_MODE=<mode>` on one `up` overrides it; PR notes name
 it as the verification setting. Every server run goes through track.sh, never a container by hand. Test through

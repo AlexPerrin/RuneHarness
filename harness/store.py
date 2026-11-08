@@ -168,7 +168,9 @@ CREATE TABLE alert_6 (
   UNIQUE (kind, subject));
 INSERT INTO alert_6 SELECT * FROM alert; DROP TABLE alert; ALTER TABLE alert_6 RENAME TO alert;"""
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6]
+SCHEMA_7 = "ALTER TABLE stack ADD COLUMN live INTEGER NOT NULL DEFAULT 0;"   # the stack plays on the live test server (a mobile, live-desktop): no deploy under it
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7]
 
 
 def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
@@ -182,6 +184,17 @@ def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
                   ON CONFLICT(change, head) DO UPDATE SET tree=excluded.tree, tcommit=excluded.tcommit,
                   composite_json=excluded.composite_json, run=excluded.run, at=excluded.at""",
                (slug, head, tree, tcommit, composite, run, now()))
+    return True
+
+
+def regate_failed(db, tree) -> bool:
+    """The same head submitted again after its tree's gate failed: what failed was outside the tree (evidence/<slug>/
+    replay.md, a tool), so the gate's results go and it runs again. A passed or running gate stays. True when cleared."""
+    if not db.execute("SELECT 1 FROM job WHERE kind='gate' AND key LIKE ? AND ok=0 AND ended_at IS NOT NULL", (tree + ":%",)).fetchone():
+        return False
+    db.execute("DELETE FROM job WHERE kind='gate' AND key LIKE ? AND ended_at IS NOT NULL", (tree + ":%",))
+    db.execute("DELETE FROM attempt WHERE kind='gate' AND key LIKE ?", (tree + ":%",))
+    db.execute("DELETE FROM check_result WHERE tree=?", (tree,))
     return True
 
 
@@ -262,7 +275,7 @@ class Ledger:
         return row["tree"] if row else None
 
     def landed(self, slug, target):
-        return self.one("SELECT sha FROM landed WHERE change=? AND target=?", slug, target)
+        return self.one("SELECT sha FROM landed WHERE change=? AND target=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", slug, target)   # void once a newer head is submitted (M1)
 
     def open_ask(self, slug):
         return self.one("SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", slug)
@@ -322,6 +335,12 @@ class Ledger:
 
     def live_run(self, slug):
         return self.one("SELECT * FROM run WHERE change=? AND ended_at IS NULL", slug)
+
+    def live_users(self):
+        """Changes playing on the live test server now: a stack row marked live whose change has a live run or a job in flight."""
+        return [r["change"] for r in self.all("""SELECT s.change FROM stack s WHERE s.live AND (
+            EXISTS (SELECT 1 FROM run r WHERE r.change=s.change AND r.ended_at IS NULL)
+            OR EXISTS (SELECT 1 FROM job j WHERE j.change=s.change AND j.pid IS NOT NULL AND j.ended_at IS NULL)) ORDER BY s.change""")]
 
     def live_runs(self):
         return self.all("SELECT * FROM run WHERE ended_at IS NULL ORDER BY id")

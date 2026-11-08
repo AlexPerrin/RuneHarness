@@ -46,6 +46,27 @@ class Act(unittest.TestCase):
         a = store.connect(store.DB).execute("SELECT kind, subject, detail FROM alert").fetchone()
         self.assertEqual((a["kind"], a["subject"]), ("fault", "pass")); self.assertIn("ValueError", a["detail"])
 
+    def test_a_deploy_holds_the_live_stack_lock_from_its_pass(self):   # h-deploy-spares-live-judge: an up after this pass waits the deploy out
+        import fcntl, os
+        from unittest import mock
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        self.addCleanup(setattr, act, "STATE", act.STATE); act.STATE = d.name
+        db = store.connect(str(Path(d.name) / "hd.db")); seen = {}
+        def popen(cmd, **k):
+            probe = open(Path(d.name) / "live" / "stack.lock")
+            try:
+                fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB); seen["held"] = False
+            except BlockingIOError:
+                seen["held"] = True
+            seen["fds"] = k.get("pass_fds")
+            return mock.Mock(pid=1)
+        with mock.patch.object(act, "job_env", lambda *a, **k: {}), mock.patch.object(act.subprocess, "run"), \
+             mock.patch.object(act.subprocess, "Popen", popen), mock.patch.object(act.observe, "pid_start", lambda p: 0):
+            act.start(db, decide.Step("deploy", "staging moved", key="tr1:fork-1"), decide.Change("staging", "fork", upstream=False),
+                      decide.Track("fork", "o/fork", "/nonexistent", "refs/heads/main", upstream="o/r", recipes={"deploy": "fork-1"}))
+        self.assertTrue(seen["held"]); self.assertEqual(len(seen["fds"]), 1)
+        probe = open(Path(d.name) / "live" / "stack.lock"); fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)   # the pass's own copy is gone: only the deploy's held it
+
     def test_a_released_clone_leaves_its_uncommitted_work_as_evidence(self):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         self.addCleanup(setattr, act, "ROOT", act.ROOT); act.ROOT = d.name

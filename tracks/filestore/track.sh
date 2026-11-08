@@ -9,14 +9,15 @@
 #   gate <slug> <key> the build copy at the candidate, then `hd gate`: every scripted criterion
 #   publish <slug> <commit>  the commit's modules and its all POM published (gradle publish) to <repo>/.worktrees/<slug>-filestore/.m2,
 #                     the Maven directory a fork build with FILESTORE resolves every dev.or2 module it holds from (fork build/filestore.init.gradle)
-#   up <slug> [N]     a test server built from the fork's base with this head as its FileStore, N desktops (the fork's up)
+#   up <slug> [N]     a test server built from the fork's staging and Central's (as the deploy builds it) with this head as its
+#                     FileStore; N desktops (1 by default) logged in by token (the fork's up N)
 #   down | log        the fork's, for that server
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$HOME/src/OpenRune-FileStore}
-fork=${FORK_REPO:-$HOME/src/OpenRune-Server}
+fork=${FORK_REPO:-$HOME/src/OpenRune-Server}; central=${CENTRAL_REPO:-$HOME/src/OpenRune-Central-Server}
 case "$verb" in recipe) printf 'build filestore-2\ngate filestore-2\n'; exit 0 ;; esac
 [ -f "$root/harness/changes/$slug.md" ] || { echo "no change \"$slug\": tracks/filestore/track.sh <verb> <slug> [key]" >&2; exit 2; }
 state=$root/state/$slug; mkdir -p "$state"
@@ -47,7 +48,8 @@ case "$verb" in
   test) copy=${BUILD:-$copy}; gradle test ;;
   publish) copy=$repo/.worktrees/$slug-filestore; checkout; rm -rf "$copy/.m2"; gradle publish ;;   # to HOSTING_DIRECTORY: $copy/.m2
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:filestore-1" "$copy" ;;
-  up) tc=$(git -C "$fork" rev-parse origin/main)
+  up) tc=$(git -C "$fork" rev-parse staging)   # the tree live desktops log in to: token login, built with the Central the deploy carries
+      c=$(git -C "$central" rev-parse --verify -q staging) && export CENTRAL="$central:$c"
       FILESTORE="$repo:${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}" TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
       HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;
   down|log) HD_REPO=$fork exec bash "$self/../fork/track.sh" "$verb" "$slug" "$arg" ;;

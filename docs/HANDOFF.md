@@ -132,4 +132,3 @@ social holds; the `hd park` proposal.
 - The `kpi` alert is not computed; `hd kpi` prints the metrics. Every number in the KPI table is a target, not a measurement.
 - The image rebuild churn (one image released three times, rebuilt) is untraced.
 - `tests/mermaid_parse.mjs` needs `npm i mermaid jsdom` in `~/.cache/mm` (its header); run it with `NODE_PATH=~/.cache/mm/node_modules`.
-- The `devtools` repo (OpenRune-Developer-Tools) is in ARCHITECTURE §11 but not in `hd.yaml`; its fork does not exist yet.

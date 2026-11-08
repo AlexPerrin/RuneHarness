@@ -526,6 +526,16 @@ class DesktopInstance(unittest.TestCase):
         err = p.communicate(timeout=60)[1]
         s.assertEqual(p.returncode, 1); s.assertIn("could not bind 7780", err); s.assertIn("BindException: Address already in use", err); s.assertNotIn("at x", err)
 
+    def test_a_launcher_failing_on_a_429_fails_up_and_a_started_desktop_seeds_the_templates_jars(s):  # h-live-desktop-launcher-429: every start downloaded all of RuneLite, repo.runelite.net answered 429 and the launcher's error dialog kept the start waiting forever
+        java = s.t / "desk/jdk/bin/java.exe"; ok = java.read_text()
+        java.write_text(f'#!/bin/bash\necho "$$ OsrsTestLauncher $*" > {s.t}/win/$$.jvm; printf "ERROR]    [main]: Launcher.main:416 - unable to download artifacts\\njava.io.IOException: Unable to download x.jar (status code 429)\\n\\tat y\\n"; exec sleep 30\n')
+        p = s.sh("a", "desktop_start", stderr=subprocess.PIPE); err = p.communicate(timeout=60)[1]
+        s.assertEqual(p.returncode, 1); s.assertIn("the RuneLite launcher failed", err); s.assertIn("status code 429", err); s.assertNotIn("at y", err)
+        java.write_text(ok.replace("mkdir held;", "mkdir -p home/.runelite/repository2 home/.rsprox/runelite-launcher; touch home/.runelite/repository2/client.jar home/.rsprox/runelite-launcher/launcher.jar; mkdir held;", 1))
+        p = s.sh("b", "desktop_start; echo $inst"); out = p.communicate(timeout=60)[0].split()
+        s.assertEqual((p.returncode, out), (0, ["desktop2"]))
+        s.assertTrue((s.t / "desk/home/.runelite/repository2/client.jar").exists()); s.assertTrue((s.t / "desk/home/.rsprox/runelite-launcher/launcher.jar").exists())   # the next home is copied with them
+
     def test_a_launch_wsl_interop_ended_is_launched_again_once_the_interop_answers(s):  # sweep-51 P3-b, sweep-53 P3-c: desktop logs holding only the interop error each failed a whole up
         java = s.t / "desk/jdk/bin/java.exe"; jps = s.t / "desk/jdk/bin/jps.exe"
         java.write_text(java.read_text().replace("#!/bin/bash\n", f'#!/bin/bash\n[ -e {s.t}/vsock ] && {{ rm {s.t}/vsock; touch {s.t}/jps-fails; echo "900 OsrsTestLauncher -Dosrstest.marker=osrs-test-run1" > {s.t}/win/900.jvm; echo "<3>WSL (1 - ) ERROR: UtilAcceptVsock:273: accept4 failed 110" >&2; exit 1; }}; ', 1))

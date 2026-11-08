@@ -149,7 +149,7 @@ class BuildLock(unittest.TestCase):
     def test_a_second_build_of_a_slug_waits_then_reuses_the_image(s):  # a dev's build was refused: the pass's build-<slug> container was running
         b = SRC.split("\nbuild() {")[1].split("\n}")[0]
         s.assertIn('{ flock 9; build_locked; } 9> "$state/build.lock"', b)
-        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if docker image inspect -f \'{{json .Config.Entrypoint}}\' "or:$T"'))
+        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if [ "$(docker image inspect -f \'{{index .Config.Labels "hd.build"}}\' "or:$T"'))
 
     def test_the_lock_ends_with_the_build(s):  # a gate's 20 minutes of gate-ci held it: rekeyed builds and a dev's build waited behind it
         d = tempfile.mkdtemp(); line = next(l for l in SRC.splitlines() if l.startswith("build() {"))
@@ -224,7 +224,7 @@ class CacheDownload(unittest.TestCase):
     def test_the_revision_is_downloaded_once_and_every_tree_repacks_it(s):  # 13 builds and deploys downloaded openrs2's 213 MB in a day: the store was keyed by the pack inputs, the /dl copy never filled
         b = (HERE.parent / "build/build.sh").read_text()
         s.assertIn('gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12', b)   # the gate's release asset key
-        c = b.split("s=/store/s-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
+        c = b.split("s=/store/s$V-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
         s.assertLess(c.index("cp -a $d/. ."), c.index(":or-cache:freshCache"))          # a stored revision is restored, never downloaded
         s.assertLess(c.index(":or-cache:freshCache"), c.rindex("mv $d.tmp $d"))           # a download is stored whole
         s.assertLess(c.index("tar -xzf /game-data.tgz"), c.index("cp -a $d/. ."))          # sweep-28: a revision missing from the store comes from the gate's asset, never openrs2 first
@@ -232,6 +232,17 @@ class CacheDownload(unittest.TestCase):
         s.assertLess(c.index(":or-cache:buildCache"), c.index(":or-cache:mergePluginGamevals"))   # a stored revision repacks this tree, then merges as release-server.yml: freshCache, mergePluginGamevals, shadowJar
         s.assertLess(c.index(":or-cache:freshCache"), c.index(":or-cache:mergePluginGamevals"))
         s.assertNotIn("/dl", SRC)
+
+    def test_every_pack_starts_from_no_other_trees_incremental_state(s):  # hunter-feat-pr or:0abbfc5be22c: the copy's incremental_server skipped the projanim renumber; Telekinetic Grab threw 'Projectile not found'
+        b = (HERE.parent / "build/build.sh").read_text()
+        c = b.split("s=/store/s$V-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
+        packs = [c.index(":or-cache:buildCache"), c.index(":or-cache:freshCache")]
+        clears = [i for i in range(len(c)) if c.startswith("rm -f .data/cache/incremental_*", i)]
+        s.assertLess(c.index("if [ -d $s ]; then cp -a $s/. .; else"), clears[0])          # the store's pack is this tree's exact inputs': kept whole
+        s.assertLess(clears[0], min(packs))                                                  # the copy's state, kept by clean, gone before either pack
+        s.assertTrue(c[c.index("cp -a $d/. ."):].startswith("cp -a $d/. . && rm -f .data/cache/incremental_*"))   # the stored revision's too
+        s.assertIn('docker build -q --label hd.build=$v', b)                                 # a kept or:<T> or store entry is of this version:
+        s.assertIn('[ -d /store/s$v-$ck ]', b)                                               # one packed from carried state is built again
 
 
 class ShipFailure(unittest.TestCase):

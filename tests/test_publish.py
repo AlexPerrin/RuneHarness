@@ -68,6 +68,17 @@ class Publish(unittest.TestCase):
         self.assertIn("PR OpenRune/OpenRune-Server#5", rendered)
         self.assertIn("hd.py approve genie aaaaaaa", rendered)
 
+    def test_a_finding_we_already_answered_gets_no_second_reply(self):   # A3: #367 re-posted three answered replies
+        cs = [{"id": 77, "node_id": "IC_77", "user": {"login": "m"}, "created_at": "2026-11-01T00:00:00Z"},
+              {"id": 78, "node_id": "IC_78", "user": {"login": publish.OWNER}, "created_at": "2026-11-02T00:00:00Z"},
+              {"id": 79, "node_id": "IC_79", "user": {"login": "m"}, "created_at": "2026-11-03T00:00:00Z"}]
+        self.db.execute("INSERT INTO gh(url, body) VALUES (?, ?)", ("repos/OpenRune/OpenRune-Server/issues/5/comments", json.dumps(cs)))
+        texts = dict(TEXTS, **{"pr-reply-79.md": "> new?\n\n@m fixed\n"})
+        cid = publish.card(self.db, Change("genie", "fork", pr=5), F, HEAD, PR, texts)
+        c = self.db.execute("SELECT * FROM card WHERE id=?", (cid,)).fetchone()
+        self.assertEqual([s.get("findings") for s in json.loads(c["steps_json"]) if s["name"] == "comment"], [["79"]])
+        self.assertNotIn("why?", json.loads(c["texts_json"])["comment"])
+
     def test_new_pr_card(self):
         cid = publish.card(self.db, Change("genie", "fork"), F, HEAD, None, TEXTS)
         c = self.db.execute("SELECT * FROM card WHERE id=?", (cid,)).fetchone()

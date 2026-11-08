@@ -1,7 +1,7 @@
 ---
 slug: hunter-feat-pr
 track: fork
-priority: P2
+priority: P3
 pr: 408
 public: feat/hunter
 ---

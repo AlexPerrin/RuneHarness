@@ -90,7 +90,7 @@
   ],
   "A3": [
     "test_decide.Server.test_a_finding_needs_a_reply_before_a_new_card",
-    "pending: a maintainer finding on PR #450 (or #448 after the cutover) triaged and answered through the loop"
+    "2026-11-08: eaglepurerocketgrape's finding on #367 (issuecomment-6600852912: the fade overlay left open, the scene run without a free region) became goblin-367-rsprox-dump's criteria, fixed by 0cbfe5236 and qa-passed at 5ef0cd1 (run 168); card 9, on the user's approval, pushed it, waited for green CI, posted one comment naming the head and answering both points (issuecomment-6725056926) and marked #367 ready"
   ],
   "A4": [
     "test_decide.Authority.test_closed_is_done_and_open_ask_waits",

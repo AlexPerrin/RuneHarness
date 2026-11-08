@@ -402,7 +402,7 @@ def clone(T, ch) -> path:
 def stage(db, ch, T, head):
     """In <repo>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
     merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
-    is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
+    is reverted (git revert -m 1) before that change's head merges, a `local/*` pin hd.yaml no longer lists at the next merge; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
@@ -431,7 +431,16 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
 each (Gradle's file locks do not reach across containers).
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order; a pin leaves
-it only by the revert of the change that supersedes it.
+it only by a revert: before the head of the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer
+lists, at the next merge. The pins are what the test server needs beyond upstream's release bundle; a change's tree
+is upstream main's, so a pin never serves a change's build or tests:
+- `local/android`: the official Android client (ENHANCED_ANDROID) logs in and plays; upstream serves desktop only.
+- `local/test-commands`: the testers' commands on the test server (stacked on `local/android`).
+- `local/world-settings`: test-server world settings no `game.yml` key gives: every account a member, a new character
+  in Lumbridge, 1x XP whatever the realm, the clan tabs' no-clan state.
+- `local/skip-cs2-packs`: custom clientscripts numbered right after the stock range and the dev spawn menu's left out
+  of the cache; the official Android client crashes at cache sync on groups far above it (upstream numbers its own
+  from 45553).
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
 merges records `ship fail`, the dev's step. The harness ship and `hd commit` both hold `state/ship.lock`: no commit moves
@@ -623,6 +632,9 @@ flowchart LR
   refuses a local branch ahead of the pushed ref.
 - The server-content inventory is `harness/goals/server-content.json`, a committed definition (one row per content unit
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
+- The game image `or:<T>` is upstream's release bundle (release-server.yml's Gradle steps; `server.jar`, `game.yml`,
+  `.data/` without raw-cache or key) run by `java -jar server.jar` on update-test-server.yml's ports: 43594 game, 9091
+  Central link, 9090 http (the one setting beyond `game.example.yml`, its `central.http-port`).
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
   template source; the official client's sign-in and game-session endpoints that mint the token the game
   verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The

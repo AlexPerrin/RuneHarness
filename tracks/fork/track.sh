@@ -279,7 +279,7 @@ down() {
   unkeep   # no keeper logs in a desktop down stops
   (desktops_remove) || true   # a missing program still lets the containers go
   if [ "$(docker inspect -f '{{.State.Running}}' "server-$slug" 2>/dev/null)" = true ] && docker logs "server-$slug" 2>&1 | grep "Server ready in" >/dev/null; then offline; fi   # the server drops each disconnected character and saves it: RESUME starts there
-  cs=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["containers"])' "$state/up.json" 2>/dev/null) || cs="server-$slug http-$slug token-$slug"   # a stack up before its record named its containers: the names every up gives
+  cs=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["containers"])' "$state/up.json" 2>/dev/null) || cs="server-$slug"   # a stack up before its record named its containers: the one every up gives
   docker rm -f $cs >/dev/null 2>&1 || true
   left=$(docker ps -a --format '{{.Names}}') || { echo "down: docker does not answer: the record stays" >&2; return 1; }
   left=$(grep -xF "${cs// /$'\n'}" <<< "$left" || true); [ -z "$left" ] || { echo "down: $left not removed: the record stays" >&2; return 1; }
@@ -322,7 +322,7 @@ EOF
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
   # recreated, never restarted: a container's file bind mount does not outlive a WSL restart (Docker Desktop remounts it as a directory);
   # the sidecars first, so a stack that cannot start leaves the game server as it was; a container of a service compose no longer names goes
-  (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans http http-desktop) >/dev/null
+  (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans http) >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
   $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
   since=$(date -u +%FT%TZ)
@@ -330,7 +330,7 @@ EOF
   if ready osrs-openrune "$since"; then  # the record names the stack's containers: hd deploys again while one is not running
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
-    for c in osrs-openrune-http osrs-openrune-http-desktop; do python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "$c" 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6; done
+    python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port osrs-openrune-http 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6   # the APK's sidecar
     python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, for desktops
     curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6   # its sign-in over https
     curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6   # and over http, the APK's

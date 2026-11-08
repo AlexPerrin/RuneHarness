@@ -261,7 +261,7 @@ class ShipFailure(unittest.TestCase):
 
     def test_ship_recreates_the_stack_and_records_its_containers(s):  # harness-live-http-mount: compose restarted the exited http, whose file mount a WSL restart had turned into a directory
         f = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        side, game = f.index("--force-recreate --remove-orphans http http-desktop)"), f.index("--force-recreate openrune)")   # h-ref-sign-in-no-issuer: the dropped issuer's container goes
+        side, game = f.index("--force-recreate --remove-orphans http)"), f.index("--force-recreate openrune)")   # h-ref-sign-in-no-issuer, h-ref-embedded-central: the dropped issuer's and http-desktop's containers go
         s.assertLess(side, f.index('docker tag "osrs-openrune:$T" "$live_image"')); s.assertLess(side, game)   # a sidecar that cannot start leaves the game server as it was
         s.assertIn('"containers":sys.argv[8].split()', f); s.assertIn("ps -a --format '{{.Name}}'", f)
 
@@ -1546,7 +1546,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         compose = (HERE / "docker-compose.yml").read_text(); ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
         s.assertNotIn('LOCAL_AUTH: "true"', compose); s.assertIn('"${ISSUER_DIR}/jav_config.ws.template:/app/protocol/jav_config.ws.template:ro"', compose)
         s.assertNotIn("issuer:", compose); s.assertNotIn("8083", compose)   # h-ref-sign-in-no-issuer: Central serves the APK's sign-in
-        s.assertIn("up -d --no-deps --force-recreate --remove-orphans http http-desktop)", ship); s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)
+        s.assertIn("up -d --no-deps --force-recreate --remove-orphans http)", ship); s.assertNotIn("http-desktop", compose + SRC)   # h-ref-embedded-central: desktops take jav_config from Central; s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)
         s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d)
         line = next(l for l in ship.splitlines() if "param=(11|20|22|28)" in l)

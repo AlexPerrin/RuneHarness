@@ -621,8 +621,9 @@ flowchart LR
   refuses a local branch ahead of the pushed ref.
 - The server-content inventory is `harness/goals/server-content.json`, a committed definition (one row per content unit
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
-- The live stack is the game image, Central and Postgres; the compose also runs the sidecars that serve `jav_config.ws`
-  and the world list. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
+- The live stack is the game image, Central and Postgres; the compose also runs the APK's sidecar (`http`), which serves
+  its `jav_config.ws` and world list. Desktops take `jav_config.ws` from Central (8443), the deploy's template file through
+  `OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://`. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
   `issuer.py key`, which game.yml's token-login block also holds; host ports 8084 http, 8443 https with that key's
   certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both; the APK's
   `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on the live stack

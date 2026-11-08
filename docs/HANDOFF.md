@@ -29,7 +29,7 @@ with the PRD validated. Check every fact here against `hd` and the ledger before
 ## The test server
 
 Live is `3b74775d88e7_cc6e461efc74e` (staging, deployed 21:01 UTC: `server-reconnect` and `live-session-drops-after-login`
-on it), ports 43594 and the sidecars http and http-desktop; embedded Central signs desktops and the APK in.
+on it), ports 43594 and the APK's sidecar http; embedded Central serves desktops jav_config and signs desktops and the APK in.
 The cutover's part 1 is done: the key pair and `tree.json` are in `state/live/`, and `server-token-auth`, `local-android-rsprot-token-gjstr`
 and `local-cs2-group-names` are live. `state/live/` here is what the running stack uses.
 

@@ -54,7 +54,9 @@ repeat, source removed mid-action, counts read with `get_inventory` and `get_con
 ## The dev
 The brief names your clone (`~/src/OpenRune-Server/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
 `tracks/fork/track.sh build <slug>` builds your working copy's candidate in the build copy; `up <slug> [N]` starts the
-server from that build with N logged-in desktops and prints their devtools ports; `test <slug> [module...]` builds,
+server from that build with N logged-in desktops and prints their devtools ports (the server's own Central serves
+their `jav_config.ws` from a file: a build whose Central reads none, the published one, is first rebuilt with Central's
+staging, the Central the test server runs); `test <slug> [module...]` builds,
 then runs each module's tests, its integration tests and spotlessCheck on the build copy (no module: every module the
 change touches) and writes `evidence/<slug>/test.log`; never gradle by hand. `log <slug> <pattern>` reads the server
 log; `restart <slug>` restarts that server, its game.yml and database kept, and logs the desktops in again. Each up

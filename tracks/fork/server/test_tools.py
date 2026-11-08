@@ -1467,28 +1467,48 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         up = sh.split("\nup() {")[1].split("\n}")[0]; down = sh.split("\ndown() {")[1].split("\n}")[0]
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
-        s.assertIn('-v "$tpl:/app/protocol/jav_config.ws.template:ro"', up)
-        s.assertIn('cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('tpl=$state/jav_config.ws.template', up)
+        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck
         up = SRC.split("\nup() {")[1].split("\n}")[0]
-        fill = JAV + "\ncentral_jav"; s.assertIn("\n    central_jav\n", up)
+        fill = JAV + "\ncentral_jav"; s.assertIn("\n  central_jav   #", up)
         out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
         for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
             s.assertIn(line + "\n", out)
         s.assertIn('sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")', up)
-        s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertNotIn("http-$slug", up)   # no sidecar: every up's own Central serves it
         s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http${sic:+s}://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
+        s.assertIn('[ -n "$sic" ] || file_central || T=$(central_staged)', up)
         central = (HERE.parent.parent / "central/track.sh").read_text()
-        s.assertIn('git -C "$repo" grep -q \'scheme == "file"\' "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without file:// support keeps the sidecar (upstream main has the env alias already)
+        s.assertIn('export CENTRAL="$repo:$h"', central)   # the fork's up merges a head without file:// support with Central's staging
+
+    def test_an_up_whose_central_reads_no_file_jav_config_rebuilds_with_centrals_staging(s):  # h-ref-up-central-jav-config: the published Central fetches jav_config over http alone
+        d = Path(tempfile.mkdtemp()); c = d / "central"; c.mkdir(); src = c / "central-app/src/main"; src.mkdir(parents=True)
+        g = lambda *a: git(str(c), "-c", "user.name=t", "-c", "user.email=t@t", *a)
+        g("init", "-q", "-b", "main"); (src / "A.kt").write_text("http\n"); g("add", "-A"); g("commit", "-qm", "main")
+        g("checkout", "-qb", "head"); (src / "B.kt").write_text("x\n"); g("add", "-A"); g("commit", "-qm", "head")   # a Central change without file:// support
+        g("checkout", "-qb", "staging", "main"); (src / "A.kt").write_text('if (scheme == "file")\n'); g("add", "-A"); g("commit", "-qm", "file")
+        (d / "build").mkdir(); (d / "build/build.sh").write_text(f'echo "$T|$CENTRAL|$HD_KEY" > {d}/args; echo \'{{"T": "built"}}\' > {d}/build.json\n')
+        (d / "build/build.sh").chmod(0o755)
+        fns = SRC[SRC.index("file_central() {"):SRC.index("central_jav() {")]
+        run = lambda T, central="": subprocess.run(["bash", "-c", f"set -euo pipefail\ncrepo={c}; self={d}; state={d}; slug=x; T={T}; CENTRAL={central}\n{fns}\nif file_central; then echo file; else central_staged; fi"], capture_output=True, text=True)
+        tree = lambda r: g("rev-parse", r + "^{tree}")[:12]
+        s.assertEqual(run(f"abc_c{tree('staging')}").stdout, "file\n")                     # built with a file:// Central: as it is
+        r = run("abc"); s.assertEqual(r.stdout, "built\n", r.stderr)                          # the published Central: rebuilt with staging's
+        s.assertEqual((d / "args").read_text(), f"|{c}:{g('rev-parse', 'staging')}|\n")      # T unset (the build keys its own), no job reported
+        r = run(f"abc_c{tree('head')}", f"{c}:{g('rev-parse', 'head')}"); s.assertEqual(r.stdout, "built\n", r.stderr)
+        m = (d / "args").read_text().split("|")[1].split(":")[1]
+        s.assertEqual(g("rev-parse", m + "^@").split(), [g("rev-parse", "head"), g("rev-parse", "staging")])   # the head merged with staging
+        s.assertEqual(g("show", f"{m}:central-app/src/main/B.kt"), "x"); s.assertTrue(run(f"abc_c{tree(m)}").stdout == "file\n")
 
     def test_up_token_with_central_sign_in_starts_the_server_alone_and_a_real_session(s):  # h-central-up-sign-in: Central serves jav_config, the sign-in and game-session
         import javcheck, ssl, http.server, zlib, issuer as t
         up = SRC.split("\nup() {")[1].split("\n}")[0]
-        s.assertIn('[ "${SIGN_IN:-}" != central ] || sic=1', up); s.assertIn('[ -n "$sic" ] || cs+=', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('[ "${SIGN_IN:-}" != central ] || sic=1', up); s.assertIn('[ -n "$sic" ] || cs+=', up)
         for e in ("OPENRUNE_SIGN_IN_TOKEN_SECRET", "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)", "OPENRUNE_HTTP_TLS_PORT=8443", "OPENRUNE_HTTP_TLS_KEYSTORE=", "OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://"):
             s.assertIn(e, up)
         s.assertIn('ep=http${sic:+s}://127.0.0.1:$http', SRC); s.assertIn("JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1}", SRC)
@@ -1557,7 +1577,7 @@ class StackRecord(unittest.TestCase):  # each step re-derived the stack: down lo
 
     def test_up_writes_the_record_before_its_first_container(s):
         rec = s.up.index("  stack started=")
-        for c in ('docker run -d --name "token-$slug"', 'docker run -d --name "server-$slug"', 'docker run -d --name "http-$slug"', "desktop_start"):
+        for c in ('docker run -d --name "token-$slug"', 'docker run -d --name "server-$slug"', "desktop_start"):
             s.assertLess(rec, s.up.index(c))
         for f in ('script="$self/track.sh"', 'containers="$cs"', 'modulus="$modulus"', 'staff="$staff"', 'token="$devtoken"'):
             s.assertIn(f, s.up[rec:s.up.index("\n", s.up.index("\n", rec) + 1)])

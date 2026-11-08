@@ -5,7 +5,7 @@
 repos:
   client:    {name: AlexPerrin/osrs-plugins-reverse,   path: ~/osrs-plugins-reverse,        base: refs/remotes/origin/main,   prefix: client, remote: origin}
   fork:      {name: AlexPerrin/OpenRune-Server,         path: ~/src/OpenRune-Server,         base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Server,         remote: fork,
-              pins: [local/android, local/test-commands, local/world-settings, local/skip-cs2-packs]}   # fork branches every staging tree carries besides the changes, in merge order: the user's list; {pin: slug} leaves staging as that change's head merges, a dropped local/* pin at the next merge; each pin's reason: docs/ARCHITECTURE.md "The pins"
+              pins: [local/android, local/test-commands, local/world-settings, local/skip-cs2-packs]}   # fork branches every staging tree carries besides the changes, in merge order: the user's list; {pin: slug} leaves staging as that change's head merges, a dropped local/* pin at the next merge, a moved pin is merged again at the next merge; each pin's reason: docs/ARCHITECTURE.md "The pins"
   central:   {name: AlexPerrin/OpenRune-Central-Server, path: ~/src/OpenRune-Central-Server, base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-Central-Server, remote: fork}
   filestore: {name: AlexPerrin/OpenRune-FileStore,      path: ~/src/OpenRune-FileStore,      base: refs/remotes/origin/main,   upstream: OpenRune/OpenRune-FileStore,      remote: fork}
   harness:   {name: AlexPerrin/osrs-harness,            path: .,                             base: refs/heads/v9,              prefix: harness}

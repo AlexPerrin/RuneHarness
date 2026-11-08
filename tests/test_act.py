@@ -80,7 +80,7 @@ class Act(unittest.TestCase):
         self.assertFalse(wt.exists())
         self.assertIn("+b", Path(d.name, "evidence/s/clone.diff").read_text())
 
-    def test_a_pin_leaves_staging_as_the_change_that_supersedes_it_merges_or_hd_yaml_drops_it(self):
+    def test_a_pin_leaves_staging_as_the_change_that_supersedes_it_merges_or_hd_yaml_drops_it_and_follows_its_moved_tip(self):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         db = store.connect(str(Path(d.name) / "hd.db"))
         repo, bare = Path(d.name, "r"), Path(d.name, "fork.git")
@@ -98,13 +98,15 @@ class Act(unittest.TestCase):
         wt = repo / ".worktrees" / "staging"
         self.assertEqual(((wt / "f").read_text(), (wt / "k").read_text()), ("real\n", "2\n"))   # the superseded pin out, the other kept
         self.assertEqual([r["kind"] for r in db.execute("SELECT kind FROM event ORDER BY id")], ["unpinned", "merged"])
+        g("checkout", "-q", "local/other"); (repo / "k").write_text("3\n"); g("commit", "-qam", "other moved"); g("push", "-q", "fork", "local/other"); g("fetch", "-q", "fork")
         g("checkout", "-qb", "dev/next", "main"); (repo / "n").write_text("n\n"); g("add", "n"); g("commit", "-qm", "next")
-        act.stage(db, decide.Change("real", "fork"), T, g("rev-parse", "HEAD"))   # reverted once: a later merge does not revert again
+        act.stage(db, decide.Change("next", "fork"), T, g("rev-parse", "HEAD"))   # reverted once: a later merge does not revert again
         self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='unpinned'").fetchone()[0], 1)
+        self.assertEqual(((wt / "f").read_text(), (wt / "k").read_text()), ("real\n", "3\n"))   # the moved pin merged again, the reverted one stays out
         g("checkout", "-qb", "dev/third", "main"); (repo / "t").write_text("t\n"); g("add", "t"); g("commit", "-qm", "third")
         act.stage(db, decide.Change("third", "fork"), dataclasses.replace(T, pins=(("local/spike", "real"),)), g("rev-parse", "HEAD"))
         self.assertEqual(((wt / "k").read_text(), (wt / "t").read_text()), ("1\n", "t\n"))   # a pin dropped from hd.yaml leaves staging at the next merge
-        self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='unpinned'").fetchone()[0], 2)
+        self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='unpinned'").fetchone()[0], 3)   # both merges of the dropped pin
 
 
 if __name__ == "__main__":

@@ -1,9 +1,14 @@
 ---
 slug: h-reference-deployment
 track: harness
-priority: P1
+priority: P0
 deps:
 - h-desktops-token-login
+- h-ref-devtools-upstream
+- h-ref-embedded-central
+- h-ref-pins-audit
+- h-ref-rsprox-targets
+- h-ref-server-bundle
 ---
 # The local stack is a reference OpenRune deployment (PRD H8)
 

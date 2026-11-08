@@ -1,7 +1,7 @@
 ---
 slug: central-sign-in-first-account
 track: central
-priority: P1
+priority: P0
 deps:
 - central-game-session
 ---

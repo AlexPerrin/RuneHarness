@@ -5,10 +5,10 @@
    "tools": {}
   },
   "serverInfo": {
-   "name": "flux-client-mcp",
-   "version": "0.1.0"
+   "name": "openrune-devtools",
+   "version": "dev"
   },
-  "instructions": "RuneLite game client control. Prefer the one-call interaction tools over screenshots and raw clicks:\n- inventory item (drop/eat/wield/use): item_action - NEVER screenshot or click_component for this\n- scene object (chop/mine/open/bank): interact_object\n- NPC: interact_npc, or get_npc_menu + click_menu_option for server-added options\n- other player (trade/follow): interact_player\n- widget right-click option: widget_action\nData tools (list_*, get_*, dump_interface) answer questions about game state - use them instead of screenshots.\nTo wait for something to finish (walking somewhere, combat, an interface opening, a game message), call wait_for - never poll with screenshots or repeated list calls.\nOnly call screenshot when the user explicitly asks to SEE something or for visual layout verification."
+  "instructions": "RuneLite game client control for testing private servers.\nReading state:\n- observe: one client-thread pass - vitals, combat, inventory, nearby NPCs/objects/items, dialogue\n- get_combat_state: cheap combat poll (in combat, attackers, target, prayers, ticks since hits)\n- list_npcs / list_objects / list_ground_items / get_inventory / get_dialogue answer focused questions\n- get_timeline + per-channel history tools explain what just happened (projectiles, hitsplats, vars, xp, spawns, loot, overhead text)\n- snapshot_state + diff_state report ONLY what changed between two points - the regression primitive\n- run_batch executes an ordered list of tool calls in one request\nActing:\n- list_actions: every action available now as a numbered menu; act(id) runs one - refuses stale menus\n- inventory item (drop/eat/wield/use): item_action - works with the inventory tab closed\n- scene object: object_action (no hover needed) or interact_object (on-screen objects)\n- NPC: interact_npc, or get_npc_menu + click_menu_option for server-added options\n- other player (trade/follow): interact_player; widget right-click option: widget_action\n- prayer on/off: set_prayer; raw escape hatch: invoke_menu_action\nWaiting: wait_for blocks until a condition is met (idle, arrival, npc death, dialogue, interface,\nchat, hitsplat, projectile, animation, var, combat) - never poll with screenshots or repeated calls.\nOnly call screenshot when the user explicitly asks to SEE something or for visual layout verification."
  },
  "tools": [
   {
@@ -195,6 +195,120 @@
    "inputSchema": {
     "type": "object",
     "properties": {}
+   }
+  },
+  {
+   "name": "get_status",
+   "description": "Server and session status for diagnostics: plugin version, port, uptime, tool count, game state and (when logged in) tick + player position. Use to confirm requests reach the plugin before trusting failures.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_combat_state",
+   "description": "One cheap call for whether the local player is fighting, moving or idle: hp/prayer points, ticks since a hitsplat landed on you and since one you dealt landed, inCombat (either within 8 ticks, Idle Notifier's rule), moving/animating, walk destination, the NPC you are attacking plus every NPC/player attacking you, and active prayers.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "set_prayer",
+   "description": "Turn a prayer on or off in ONE call, without opening the prayer tab: e.g. prayer PROTECT_FROM_MAGIC, on true. Names are RuneLite Prayer enum names (PROTECT_FROM_MISSILES, PROTECT_FROM_MELEE, EAGLE_EYE, RIGOUR...). No-op when it is already in that state. Returns the active prayers afterwards.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "prayer": {
+      "type": "string",
+      "description": "Prayer enum name, e.g. PROTECT_FROM_MAGIC"
+     },
+     "on": {
+      "type": "boolean",
+      "description": "true to activate (default), false to deactivate"
+     }
+    },
+    "required": [
+     "prayer"
+    ]
+   }
+  },
+  {
+   "name": "observe",
+   "description": "Everything a decision loop or test reads each step, in ONE client-thread pass: tick, position, hp/prayer, run, combat state, inventory with each item's options, nearest NPCs/interactive objects/ground items, dialogue. Use instead of calling get_client_state, get_skills, get_inventory, list_* and get_dialogue separately.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only things within this many tiles (default 15)"
+     },
+     "maxNpcs": {
+      "type": "integer",
+      "description": "Nearest NPCs to include (default 10)"
+     },
+     "maxObjects": {
+      "type": "integer",
+      "description": "Nearest interactive objects to include (default 10)"
+     },
+     "maxItems": {
+      "type": "integer",
+      "description": "Nearest ground items to include (default 6)"
+     },
+     "sections": {
+      "type": "array",
+      "description": "Extra sections to include: equipment, skills, players, projectiles (none by default)"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_actions",
+   "description": "Every action available right now as a numbered menu with plain-language labels (\"Attack Goblin (lvl 2, 3 tiles)\", \"eat Shark\", dialogue options), each with the tool + args that perform it. Built for small decision models that pick from a list. Run one with act(id). While a dialogue options menu is open, only its options are listed.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "maxDistance": {
+      "type": "integer",
+      "description": "Only things within this many tiles (default 15)"
+     },
+     "maxActions": {
+      "type": "integer",
+      "description": "Cap on menu length (default 40)"
+     },
+     "dedupe": {
+      "type": "boolean",
+      "description": "Keep only the nearest of identical actions, e.g. one 'Attack Goblin' (default true)"
+     },
+     "includeObservation": {
+      "type": "boolean",
+      "description": "Also return the observe snapshot the menu was built from"
+     }
+    }
+   }
+  },
+  {
+   "name": "act",
+   "description": "Run action `id` from the last list_actions menu. Fails if that menu is older than maxAgeTicks, and re-validates the target right before acting (NPC identity, object still on its tile, ground item still there, dialogue still open) so a stale choice never runs. Optional args are merged into the stored call - needed for enter_input (text).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Action id from list_actions"
+     },
+     "maxAgeTicks": {
+      "type": "integer",
+      "description": "Refuse menus older than this many game ticks (default 3)"
+     },
+     "args": {
+      "type": "object",
+      "description": "Optional overrides merged into the stored tool args (e.g. text for enter_input)"
+     }
+    },
+    "required": [
+     "id"
+    ]
    }
   },
   {
@@ -647,6 +761,41 @@
    }
   },
   {
+   "name": "object_action",
+   "description": "Invoke a scene object's option directly at its world coordinates - the object need not be on screen and the mouse never moves. Same menu entry the client sends (scene x/y + object id). Use interact_object instead when you want a real hover+click.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "objectId": {
+      "type": "integer",
+      "description": "Object id from list_objects or observe"
+     },
+     "x": {
+      "type": "integer",
+      "description": "World x of the object's tile"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y of the object's tile"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane 0-3 (default: current plane)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Menu option to invoke, e.g. Chop down, Bank, Open"
+     }
+    },
+    "required": [
+     "objectId",
+     "x",
+     "y",
+     "option"
+    ]
+   }
+  },
+  {
    "name": "interact_player",
    "description": "Interact with another player in ONE call - no screenshot needed. Hovers the player and clicks the matching right-click option, e.g. Trade with.",
    "inputSchema": {
@@ -1035,14 +1184,1289 @@
    }
   },
   {
+   "name": "snapshot_state",
+   "description": "Store a labelled state snapshot (vitals, combat, inventory, equipment, skills, nearby entities). Pair with diff_state to answer 'what did that action change' without eyeballing JSON.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "description": "Name to store it under (default 'last')"
+     }
+    }
+   }
+  },
+  {
+   "name": "diff_state",
+   "description": "Diff the live world against a stored snapshot_state label and return ONLY the changed fields: moved tiles, hp/prayer deltas, item and entity differences. The regression-test primitive.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "from": {
+      "type": "string",
+      "description": "snapshot_state label to compare against (default 'last')"
+     },
+     "maxDistance": {
+      "type": "integer",
+      "description": "Entity scan radius for both snapshots (default 15)"
+     }
+    }
+   }
+  },
+  {
+   "name": "run_batch",
+   "description": "Run a list of tool calls in order in one request: steps:[{tool,arguments}]. Stops at the first failure unless stopOnError:false. Each step reports ok + result/error text.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "array",
+      "description": "Ordered calls: [{\"tool\":\"walk_to\",\"arguments\":{\"x\":3220,\"y\":3219}}]"
+     },
+     "stopOnError": {
+      "type": "boolean",
+      "description": "Abort the batch on first failed step (default true)"
+     }
+    },
+    "required": [
+     "steps"
+    ]
+   }
+  },
+  {
+   "name": "get_special_attack",
+   "description": "Special attack state: energy percent and whether the spec bar is enabled.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "toggle_special_attack",
+   "description": "Toggle the special attack bar by clicking the spec orb. Returns the enabled state after the click.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_attack_style",
+   "description": "Current weapon attack style index plus the style names the combat tab offers for the wielded weapon.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "set_attack_style",
+   "description": "Click a combat-tab attack style by name (fuzzy, e.g. 'aggressive') or index 0-3.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "style": {
+      "type": "string",
+      "description": "Style name substring or index ('slash', 'aggressive', '2')"
+     }
+    },
+    "required": [
+     "style"
+    ]
+   }
+  },
+  {
+   "name": "list_spells",
+   "description": "Spells visible in the standard spellbook: name + widget component id.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "cast_spell",
+   "description": "Click a spellbook spell by name (fuzzy). For on-target combat spells, cast then click the target.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "spell": {
+      "type": "string",
+      "description": "Spell name substring, e.g. 'fire surge'"
+     }
+    },
+    "required": [
+     "spell"
+    ]
+   }
+  },
+  {
+   "name": "is_walkable",
+   "description": "Collision-map check on a world tile: raw flag bits, whether the tile is walkable, and which directions are blocked. Answers 'did the door actually block'.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "World x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default current)"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "get_destination",
+   "description": "The world tile the local player is currently walking to, or null when idle.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "search_interfaces",
+   "description": "Find loaded widgets whose text contains a string (quest journals, drop logs, banks, shops). Returns component ids, groups, text.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string",
+      "description": "Case-insensitive substring to search for"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap (default 50)"
+     }
+    },
+    "required": [
+     "text"
+    ]
+   }
+  },
+  {
+   "name": "bank_action",
+   "description": "Invoke a bank op directly on a banked item (Withdraw-1/5/10/All...) or a deposited item via side:'inventory' (Deposit-1/All...) \u2014 bank must be open.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "option": {
+      "type": "string",
+      "description": "Op name, e.g. 'Withdraw-1', 'Withdraw-All', 'Deposit-5'"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "Item id"
+     },
+     "itemName": {
+      "type": "string",
+      "description": "Name substring (alternative)"
+     },
+     "side": {
+      "type": "string",
+      "description": "bank (default, withdraw side) or inventory (deposit side)"
+     }
+    },
+    "required": [
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "get_spawn_history",
+   "description": "NPC lifecycle events: spawn, despawn and transform (id change at a stable index \u2014 boss phase changes). Filter by kind/name.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "kind": {
+      "type": "string",
+      "description": "spawn, despawn or transform"
+     },
+     "nameFilter": {
+      "type": "string",
+      "description": "NPC name substring"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_loot_history",
+   "description": "Ground-item lifecycle: spawned (drops!) and despawned events with item, quantity, tile, tick \u2014 deterministic drop-table evidence.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "kind": {
+      "type": "string",
+      "description": "spawned or despawned"
+     },
+     "nameFilter": {
+      "type": "string",
+      "description": "Item name substring"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_overhead_history",
+   "description": "Overhead text events ('More power!') \u2014 how many mechanics announce phase changes. Filter matches actor or text.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "nameFilter": {
+      "type": "string",
+      "description": "Matches actor name or text"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_interface_history",
+   "description": "Interface (widget group) load/close events in a recent window \u2014 proves the server opened or closed a screen, with the game tick it happened on.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "groupId": {
+      "type": "integer",
+      "description": "Only this interface (group) id"
+     },
+     "kind": {
+      "type": "string",
+      "description": "opened, closed or unloaded"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_action_history",
+   "description": "Audit trail of menu options the client actually invoked (walks, clicks, tool calls): option, target, MenuAction type and raw param0/param1/identifier. This is what the server received - use it to verify a tool sent the packet you expected.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "filter": {
+      "type": "string",
+      "description": "Matches option, target or MenuAction type"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_menu",
+   "description": "The menu entries currently built (whatever was hovered last): option, target, MenuAction type and raw params. Inspect before click_menu_option, or to see the real packet fields for invoke_menu_action.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_shop",
+   "description": "Items on the open shop's stock widget: slot, itemId, name, stock quantity and the ops each slot offers (Value, Buy 1/5/10/50...). Errors when no shop is open.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "shop_action",
+   "description": "Invoke a shop op directly on a stock item (Buy 1/5/10/50, Value) or on an inventory item shown for selling via side:'inventory' (Sell 1/5/10/50) - shop must be open.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "option": {
+      "type": "string",
+      "description": "Op name, e.g. 'Buy 1', 'Sell 5', 'Value'"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "Item id"
+     },
+     "itemName": {
+      "type": "string",
+      "description": "Name substring (alternative to itemId)"
+     },
+     "side": {
+      "type": "string",
+      "description": "shop (default, buy side) or inventory (sell side)"
+     }
+    },
+    "required": [
+     "option"
+    ]
+   }
+  },
+  {
+   "name": "get_trade",
+   "description": "Trade screen state: stage (offer/confirm/none), your offered items from the trade container, and every item widget rendered on the trade screen grouped by parent (the partner's offer shows on their side).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "trade_action",
+   "description": "Invoke a trade op: action 'accept'/'decline' clicks the screen's button (works on the confirm screen too), or offer/remove ops on items - itemId|itemName + option ('Offer-1','Offer-10','Remove-All') + side 'inventory' (offer, default) or 'offer' (remove).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "description": "accept or decline (alternative to option+item)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Item op, e.g. 'Offer-1', 'Offer-All', 'Remove-5'"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "Item id"
+     },
+     "itemName": {
+      "type": "string",
+      "description": "Name substring (alternative to itemId)"
+     },
+     "side": {
+      "type": "string",
+      "description": "inventory (default, offer side) or offer (remove side)"
+     }
+    }
+   }
+  },
+  {
+   "name": "list_worlds",
+   "description": "The world list the client loaded: id, player count, activity, location, types, and which is current. Needed before hop_world.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "hop_world",
+   "description": "Hop to a world id from list_worlds. The client logs out and reconnects - follow with wait_for world or login state.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "world": {
+      "type": "integer",
+      "description": "World id to hop to"
+     }
+    },
+    "required": [
+     "world"
+    ]
+   }
+  },
+  {
+   "name": "logout",
+   "description": "Invoke the Logout button on the logout tab interface. The logout interface must be loaded - if not loaded this errors; open the logout tab in the client first (or use press_key with the client's logout hotkey if configured).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_quests",
+   "description": "Every quest known to the client with its state: NOT_STARTED, IN_PROGRESS or FINISHED. Filter by name substring or state.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "nameFilter": {
+      "type": "string",
+      "description": "Quest name substring"
+     },
+     "state": {
+      "type": "string",
+      "description": "NOT_STARTED, IN_PROGRESS or FINISHED"
+     }
+    }
+   }
+  },
+  {
+   "name": "item_def",
+   "description": "Item definition from the cache: name, note/placeholder links, stackable, members, tradeable, store price and inventory options - the ground truth for what an item id is. Optional 'param' resolves one item param key.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Item id"
+     },
+     "param": {
+      "type": "integer",
+      "description": "Optional item param key to resolve (int/str/long value)"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "npc_def",
+   "description": "NPC definition from the cache: name, combat level, menu actions, size and transform ids (varbit-driven forms).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "NPC id"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "object_def",
+   "description": "Object definition from the cache: name, menu actions, size and impostor/transform ids (objects that swap form by varbit, like doors and farming patches).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Object id"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "find_path",
+   "description": "BFS pathfind over the loaded collision map to a world tile: returns whether it's reachable plus the exact tile path. Answers 'can the player actually get there' without walking.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "Target world x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Target world y"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default current)"
+     },
+     "fromX": {
+      "type": "integer",
+      "description": "Start world x (default player)"
+     },
+     "fromY": {
+      "type": "integer",
+      "description": "Start world y (default player)"
+     },
+     "maxPath": {
+      "type": "integer",
+      "description": "Return at most this many path tiles (default 200)"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "get_collision_area",
+   "description": "Raw collision flags for a rectangle of the loaded scene - the grid walls/doors/blockers live in. Row-major [y][x] in world coordinates, with per-tile walkable/decode.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "Rectangle origin world x (south-west)"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Rectangle origin world y"
+     },
+     "width": {
+      "type": "integer",
+      "description": "Tiles wide (default 8, max 32)"
+     },
+     "height": {
+      "type": "integer",
+      "description": "Tiles tall (default 8, max 32)"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default current)"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "set_camera",
+   "description": "Point the camera: yaw and pitch targets for deterministic screenshots of the same scene.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "yaw": {
+      "type": "integer",
+      "description": "Camera yaw target 0-2047 (0 = south, 512 = west, 1024 = north, 1536 = east)"
+     },
+     "pitch": {
+      "type": "integer",
+      "description": "Camera pitch target 128-383 (lower = steeper overhead view)"
+     }
+    }
+   }
+  },
+  {
+   "name": "use_item",
+   "description": "Use an inventory item on something: 'Use' is invoked on the item, then the target's 'Use item -> target' menu entry is clicked (the same two packets a player sends). Targets: npc (npcIndex|npcName), object (objectId+x+y), player (playerName), or another inventory item (targetItemId|targetItemName). For quests, crafting, keys-on-doors.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "itemId": {
+      "type": "integer",
+      "description": "Item id in the inventory"
+     },
+     "itemName": {
+      "type": "string",
+      "description": "Item name substring (alternative)"
+     },
+     "npcIndex": {
+      "type": "integer",
+      "description": "Use on NPC index (from list_npcs)"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "Use on nearest matching NPC name"
+     },
+     "objectId": {
+      "type": "integer",
+      "description": "Use on object id"
+     },
+     "x": {
+      "type": "integer",
+      "description": "Object world x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Object world y"
+     },
+     "playerName": {
+      "type": "string",
+      "description": "Use on player name substring"
+     },
+     "targetItemId": {
+      "type": "integer",
+      "description": "Use on this inventory item id (item-on-item)"
+     },
+     "targetItemName": {
+      "type": "string",
+      "description": "Use on this inventory item name"
+     }
+    }
+   }
+  },
+  {
+   "name": "compare_screenshot",
+   "description": "Screenshot diffing for rendering regressions: first call with a label stores the region as the baseline; later calls diff against it and report changedPixels, percent and a bounding box. Same crop args as screenshot (componentId/childIndex, interfaceId, or x/y/width/height - defaults to full canvas). thresholdPct makes 'match' a pass/fail gate.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "label": {
+      "type": "string",
+      "description": "Baseline name (default 'default')"
+     },
+     "componentId": {
+      "type": "integer",
+      "description": "Crop to widget (see screenshot)"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Dynamic child of componentId"
+     },
+     "interfaceId": {
+      "type": "integer",
+      "description": "Crop to interface"
+     },
+     "x": {
+      "type": "integer",
+      "description": "Region x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "Region y"
+     },
+     "width": {
+      "type": "integer",
+      "description": "Region width"
+     },
+     "height": {
+      "type": "integer",
+      "description": "Region height"
+     },
+     "padding": {
+      "type": "integer",
+      "description": "Padding around widget/interface crop"
+     },
+     "thresholdPct": {
+      "type": "number",
+      "description": "match=true when changedPct <= this (default 0)"
+     },
+     "rebaseline": {
+      "type": "boolean",
+      "description": "Overwrite the stored baseline instead of comparing"
+     }
+    }
+   }
+  },
+  {
+   "name": "widget_op",
+   "description": "Invoke a named widget action directly (no mouse): resolves the widget, finds option in its actions list (or opIndex position), and fires CC_OP. Use for buttons/list rows/item ops anywhere a widget exposes actions. Returns the action invoked.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id of the widget (or its container)"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Dynamic-child index inside the container (e.g. list row / item slot)"
+     },
+     "option": {
+      "type": "string",
+      "description": "Case-insensitive substring of the action to fire, e.g. 'Wear'"
+     },
+     "opIndex": {
+      "type": "integer",
+      "description": "Fire the Nth action (0-based) instead of matching by name"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_actor",
+   "description": "Deep inspect one actor by npcIndex, npcName or playerName: position, animations, facing, health, overhead text, target, spot anims, canvas position, and NPC id/composition.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "npcIndex": {
+      "type": "integer",
+      "description": "NPC index from list_npcs"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "NPC name substring (first match wins)"
+     },
+     "playerName": {
+      "type": "string",
+      "description": "Player name substring (exact name preferred)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_tile",
+   "description": "Inspect a single world tile: all objects (game/wall/decorative/ground) with actions, ground items, collision flags and walkability. Cheaper and more precise than list_* for a known tile.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "World x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default: current)"
+     }
+    }
+   }
+  },
+  {
+   "name": "set_var",
+   "description": "Write a client-side var (varp/varbit/varcint/varcstr) for UI/state testing. CLIENT-SIDE ONLY: the server will overwrite it on the next sync; get_var.serverValue exposes what the server last sent. Returns old->new.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "description": "varbit, varp, varcint or varcstr"
+     },
+     "id": {
+      "type": "integer",
+      "description": "Var id"
+     },
+     "value": {
+      "type": "string",
+      "description": "New value (integer for all but varcstr)"
+     }
+    },
+    "required": [
+     "type",
+     "id",
+     "value"
+    ]
+   }
+  },
+  {
+   "name": "toggle_run",
+   "description": "Toggle run mode by clicking the run orb. Returns energy and run state after the click.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "mark_tile",
+   "description": "Draw a persistent highlighted tile in the game scene so a human watching the client can see what an agent is pointing at. Optional label, colour and tick expiry.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Marker id (default 'mark'); reuse replaces it"
+     },
+     "x": {
+      "type": "integer",
+      "description": "World x"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y"
+     },
+     "plane": {
+      "type": "integer",
+      "description": "Plane (default: current)"
+     },
+     "label": {
+      "type": "string",
+      "description": "Text drawn above the tile"
+     },
+     "color": {
+      "type": "string",
+      "description": "Hex colour, e.g. '#ff0000' or '0xff0000' (default yellow)"
+     },
+     "ticks": {
+      "type": "integer",
+      "description": "Auto-remove after N game ticks (default 120; 0 = never)"
+     }
+    },
+    "required": [
+     "x",
+     "y"
+    ]
+   }
+  },
+  {
+   "name": "mark_widget",
+   "description": "Draw a persistent rectangle around a widget so a human can see which component an agent is referencing.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Marker id (default 'mark'); reuse replaces it"
+     },
+     "componentId": {
+      "type": "integer",
+      "description": "Packed component id"
+     },
+     "childIndex": {
+      "type": "integer",
+      "description": "Dynamic-child index to mark instead of the whole widget"
+     },
+     "label": {
+      "type": "string",
+      "description": "Text drawn above the rectangle"
+     },
+     "color": {
+      "type": "string",
+      "description": "Hex colour (default yellow)"
+     },
+     "ticks": {
+      "type": "integer",
+      "description": "Auto-remove after N game ticks (default 120; 0 = never)"
+     }
+    },
+    "required": [
+     "componentId"
+    ]
+   }
+  },
+  {
+   "name": "clear_marks",
+   "description": "Remove overlay markers: one by name, or all when name is omitted.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Marker id to remove"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_hint_arrow",
+   "description": "Current hint arrow (server-set navigation marker): type + target tile/NPC/player. Servers send these for quests and mechanics.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "set_hint_arrow",
+   "description": "Set a client-side hint arrow on a tile, NPC or player \u2014 navigation aid for humans watching the client (server can overwrite it).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "x": {
+      "type": "integer",
+      "description": "World x for a tile arrow"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y for a tile arrow"
+     },
+     "npcIndex": {
+      "type": "integer",
+      "description": "Arrow follows this NPC"
+     },
+     "playerName": {
+      "type": "string",
+      "description": "Arrow follows this player"
+     }
+    }
+   }
+  },
+  {
+   "name": "clear_hint_arrow",
+   "description": "Clear the current hint arrow.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "examine",
+   "description": "Send an Examine packet: npcIndex/npcName, objectId+x+y, ground item (itemId+x+y), or inventory itemId \u2014 the server responds with chat text; read it via wait_for chat_message or get_chat_history.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "npcIndex": {
+      "type": "integer",
+      "description": "NPC to examine"
+     },
+     "npcName": {
+      "type": "string",
+      "description": "NPC name substring to examine"
+     },
+     "objectId": {
+      "type": "integer",
+      "description": "Scene object id to examine (needs x/y)"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "Item id: inventory item when x/y omitted, ground item at x,y when present"
+     },
+     "x": {
+      "type": "integer",
+      "description": "World x for object/ground-item examine"
+     },
+     "y": {
+      "type": "integer",
+      "description": "World y for object/ground-item examine"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_clan",
+   "description": "Clan channel info: own + guest channel name, member list (name, rank, world).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_fc",
+   "description": "Friends chat: owner, channel name, your rank, kick rank, member list (name, world, rank).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_friends",
+   "description": "Friends list: name + world for each friend.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_ignore",
+   "description": "Ignore list: names (and previous names) of ignored players.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_vars",
+   "description": "Bulk var dump: varps (with serverValue) or varcs in an id range. For 'which vars did the server just send' \u2014 pair with get_var_history for per-change evidence.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "description": "varp (default), varcint or varcstr"
+     },
+     "start": {
+      "type": "integer",
+      "description": "First id to include (default 0)"
+     },
+     "end": {
+      "type": "integer",
+      "description": "Last id to include (default: whole varp array / populated varcs)"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap rows returned (default 500)"
+     }
+    }
+   }
+  },
+  {
+   "name": "enum_def",
+   "description": "EnumComposition cache dump: enum id -> key/value rows (ints or strings). Useful for varbit-driven lookups (prayer lists, shop stock tables, skill data).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Enum id"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap rows (default 500)"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "struct_def",
+   "description": "StructComposition cache dump: struct id -> param keys, optionally resolving values for given keys.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Struct id"
+     },
+     "keys": {
+      "type": "string",
+      "description": "Comma-separated param keys to resolve (default: first 20 found)"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "anim_def",
+   "description": "Animation definition: frame count, duration, per-frame lengths, forced hand items \u2014 verify an animation id does what the server intended.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "description": "Animation id"
+     }
+    },
+    "required": [
+     "id"
+    ]
+   }
+  },
+  {
+   "name": "list_gfx",
+   "description": "Active unattached graphics objects (ground-targeted spotanims \u2014 AoE telegraphs without an actor): id, world tile, plane, finished.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "list_ge_offers",
+   "description": "Grand Exchange offer slots: state, itemId, quantity, sold, price, spent. Empty on servers without GE.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_instance_map",
+   "description": "Instanced region layout: isInInstancedRegion + the instance chunk template grid (source region coords + rotation per chunk) \u2014 for dungeon/instanced-area servers.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "db_table",
+   "description": "DBTable cache access: 'table' lists row ids, 'row' dumps a row's fields, 'table'+'column'+'value' queries rows by value. Server-driven config/data tables.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "table": {
+      "type": "integer",
+      "description": "DBTable id - list its rows (or query with column+value)"
+     },
+     "row": {
+      "type": "integer",
+      "description": "Row id - dump its fields"
+     },
+     "column": {
+      "type": "integer",
+      "description": "Column index for value queries"
+     },
+     "field": {
+      "type": "integer",
+      "description": "Field index within a column (default 0)"
+     },
+     "value": {
+      "type": "string",
+      "description": "Query rows whose column field equals this (int or string)"
+     },
+     "maxResults": {
+      "type": "integer",
+      "description": "Cap rows (default 200)"
+     }
+    }
+   }
+  },
+  {
+   "name": "item_sprite",
+   "description": "Render an item's inventory icon as a PNG image (content image block) - the same icon the client draws.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "itemId": {
+      "type": "integer",
+      "description": "Item id"
+     },
+     "quantity": {
+      "type": "integer",
+      "description": "Stack quantity shown (default 1)"
+     },
+     "noted": {
+      "type": "boolean",
+      "description": "Render the noted form"
+     }
+    },
+    "required": [
+     "itemId"
+    ]
+   }
+  },
+  {
+   "name": "get_music",
+   "description": "Active MIDI requests: archive ids + jingle flag - which music tracks/jingles the server is currently playing.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {}
+   }
+  },
+  {
+   "name": "get_object_history",
+   "description": "Scene object lifecycle events: spawned/despawned for game/wall/decorative/ground objects - boss arena objects, doors toggling, phase structures. Filter e.g. field=kind contains=spawned, or field=name contains=door.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "field": {
+      "type": "string",
+      "description": "Entry field to filter on (default: return all)"
+     },
+     "contains": {
+      "type": "string",
+      "description": "Case-insensitive substring the field must contain"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_gfx_history",
+   "description": "Unattached graphics object spawns (ground spotanims - AoE telegraphs). Filter e.g. field=gfxId.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "field": {
+      "type": "string",
+      "description": "Entry field to filter on (default: return all)"
+     },
+     "contains": {
+      "type": "string",
+      "description": "Case-insensitive substring the field must contain"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_interact_history",
+   "description": "Actor target changes: which actor targeted/cleared which target - tank swaps, retargets. Fields: source, target, sourceType, targetType.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "field": {
+      "type": "string",
+      "description": "Entry field to filter on (default: return all)"
+     },
+     "contains": {
+      "type": "string",
+      "description": "Case-insensitive substring the field must contain"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_social_history",
+   "description": "Clan channel + friends chat events: joins, leaves, member changes. Fields: kind, name, detail.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "field": {
+      "type": "string",
+      "description": "Entry field to filter on (default: return all)"
+     },
+     "contains": {
+      "type": "string",
+      "description": "Case-insensitive substring the field must contain"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
+   "name": "get_world_history",
+   "description": "World/session events: world_changed, mapload (instanced region loads). Fields: kind, worldId.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sinceMs": {
+      "type": "integer",
+      "description": "Window in ms (default 60000)"
+     },
+     "field": {
+      "type": "string",
+      "description": "Entry field to filter on (default: return all)"
+     },
+     "contains": {
+      "type": "string",
+      "description": "Case-insensitive substring the field must contain"
+     },
+     "limit": {
+      "type": "integer",
+      "description": "Max events (default 100)"
+     }
+    }
+   }
+  },
+  {
    "name": "wait_for",
-   "description": "Block until a game condition is met, checked every 100ms - returns the moment it happens. Use this after walk_to/interact/attack instead of taking screenshots or guessing delays. Returns met:false with current state on timeout.",
+   "description": "Block until a game condition is met, checked every 100ms - returns the moment it happens. Use this after walk_to/interact/attack instead of taking screenshots or guessing delays. Event-based conditions only see NEW events since the call started. Returns met:false with current state on timeout.",
    "inputSchema": {
     "type": "object",
     "properties": {
      "condition": {
       "type": "string",
-      "description": "What to wait for: idle (player stopped animating/moving), at_tile (arrived at x/y), npc_dead (npcIndex/npcName), dialogue (any dialogue opened), interface_open / interface_closed (interfaceId), chat_message (textContains appeared)"
+      "description": "What to wait for: idle, at_tile, npc_dead, dialogue, interface_open / interface_closed, chat_message, hitsplat, projectile, animation, spotanim, var, in_combat / out_of_combat, prayer, ticks, spawn / despawn / transform, loot, overhead, xp, container, action, world, stat, menu, game_state, object_spawn / object_despawn, interacting, gfx, hintarrow"
      },
      "timeoutMs": {
       "type": "integer",
@@ -1062,11 +2486,11 @@
      },
      "npcIndex": {
       "type": "integer",
-      "description": "npc_dead: NPC index from list_npcs"
+      "description": "npc_dead/animation/spotanim: NPC index from list_npcs"
      },
      "npcName": {
       "type": "string",
-      "description": "npc_dead: NPC name substring"
+      "description": "npc_dead/animation/spotanim: NPC name substring"
      },
      "interfaceId": {
       "type": "integer",
@@ -1075,6 +2499,82 @@
      "textContains": {
       "type": "string",
       "description": "chat_message: case-insensitive substring to watch for"
+     },
+     "actorName": {
+      "type": "string",
+      "description": "hitsplat/animation/spotanim: actor name substring (default any)"
+     },
+     "animationId": {
+      "type": "integer",
+      "description": "animation: exact animation id to wait for"
+     },
+     "projectileId": {
+      "type": "integer",
+      "description": "projectile: exact projectile (gfx) id to wait for"
+     },
+     "type": {
+      "type": "string",
+      "description": "var: varbit, varp, varcint or varcstr"
+     },
+     "id": {
+      "type": "integer",
+      "description": "var: varbit/varp/varc id"
+     },
+     "value": {
+      "type": "integer",
+      "description": "var: value to wait for (exact match; omit to wait for ANY change from baseline)"
+     },
+     "prayer": {
+      "type": "string",
+      "description": "prayer: Prayer enum name, e.g. PROTECT_FROM_MAGIC"
+     },
+     "on": {
+      "type": "boolean",
+      "description": "prayer: wait for active (default true) or inactive"
+     },
+     "skill": {
+      "type": "string",
+      "description": "xp/stat: skill name, e.g. ATTACK (stat waits for any boosted/real level change)"
+     },
+     "amount": {
+      "type": "integer",
+      "description": "xp: xp gained to wait for (default 1)"
+     },
+     "containerId": {
+      "type": "integer",
+      "description": "container: item container id (default 93 inventory)"
+     },
+     "itemId": {
+      "type": "integer",
+      "description": "container: item id whose count change to wait for"
+     },
+     "filter": {
+      "type": "string",
+      "description": "action: matches option/target/MenuAction type"
+     },
+     "state": {
+      "type": "string",
+      "description": "game_state: GameState name substring (default LOGGED_IN)"
+     },
+     "objectId": {
+      "type": "integer",
+      "description": "object_spawn/despawn: object id to match"
+     },
+     "objectName": {
+      "type": "string",
+      "description": "object_spawn/despawn: object name substring"
+     },
+     "gfxId": {
+      "type": "integer",
+      "description": "gfx: graphics object id to match"
+     },
+     "source": {
+      "type": "string",
+      "description": "interacting: source actor name substring"
+     },
+     "target": {
+      "type": "string",
+      "description": "interacting: target actor name substring"
      }
     },
     "required": [

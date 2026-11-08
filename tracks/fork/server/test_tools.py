@@ -1580,7 +1580,8 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         subprocess.run(["bash", "-c", line], check=True, env={**os.environ, "self": str(HERE.parent), "ISSUER_DIR": str(d)})
         t = (d / "jav_config.ws.template").read_text(encoding="utf-8"); orig = (HERE / "jav_config.ws.template").read_text(encoding="utf-8")
         params = dict(l[6:].split("=", 1) for l in t.splitlines() if l.startswith("param="))
-        s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8083/"))
+        s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8084/"))   # h-live-apk-central-sign-in: Central's http, not the issuer's 8083
+        s.assertIn('curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6', ship)
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 

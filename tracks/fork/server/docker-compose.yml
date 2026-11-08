@@ -1,8 +1,8 @@
 # The live test server: the game from the deployed image (its game.yml's token-login block holds the issuer's secret; its embedded
-# Central serves desktops jav_config.ws over http and the sign-in over https with the issuer's certificate), the
-# sidecars that serve jav_config.ws and slr.ws to the Android app (http) and to desktop clients (http-desktop), and issuer.py,
-# the APK's sign-in and tokens over http. `track.sh ship` runs it with switch.env, SIDECAR_DATA and ISSUER_DIR (the issuer's
-# DIR, which also holds the APK's jav_config.ws.template: this directory's, params 11, 20, 22 and 28 naming the issuer); the
+# Central serves desktops jav_config.ws over http and the sign-in over https with the issuer's certificate, the APK the sign-in
+# over http), the sidecars that serve jav_config.ws and slr.ws to the Android app (http) and to desktop clients (http-desktop),
+# and issuer.py. `track.sh ship` runs it with switch.env, SIDECAR_DATA and ISSUER_DIR (the issuer's DIR, which also holds the
+# APK's jav_config.ws.template: this directory's, params 11, 20, 22 and 28 naming Central's http port 8084); the
 # image tag osrs-openrune:241 is moved by ship, never built here. Every host the sidecars serve is local (javcheck.py checks).
 name: osrs-openrune
 services:

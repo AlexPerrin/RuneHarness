@@ -625,7 +625,8 @@ flowchart LR
   template source; the official client's sign-in and game-session endpoints that mint the token the game
   verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
   deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
-  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its https OIDC discovery. A desktop on
+  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both; the APK's
+  `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on
   the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
   alone; a fork `up` types the login form until token login is in the fork's base.
 - The game clients are driven through OpenRune-Developer-Tools, built from our fork's gated head into the Android

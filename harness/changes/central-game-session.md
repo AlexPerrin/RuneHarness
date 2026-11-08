@@ -5,6 +5,7 @@ priority: P1
 deps:
 - central-rights-test-mod
 - central-token-login-op
+- h-candidate-fork-only-dep
 - h-central-up-sign-in
 ---
 # Central serves the official client's sign-in: OIDC and game-session endpoints that mint the login token

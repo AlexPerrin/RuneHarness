@@ -40,7 +40,7 @@ class Track(unittest.TestCase):
         s.assertTrue((m2 / "dev/or2/all/3.0.7/all-3.0.7.pom").exists())   # the head published, not included (its accessors clash with the fork's)
         s.assertIn(f"{m2}\n", r.stdout); s.assertIn(f"{m2}:{m2}:ro", r.stdout)   # FDIR is that directory, mounted read-only
 
-    def test_up_builds_on_staging_and_logs_one_desktop_in_by_token(s):
+    def test_up_builds_on_staging_and_passes_the_desktop_count_on(s):   # every fork up logs in by token
         d = s.root.parent; t = d / "tracks"; (t / "filestore").mkdir(parents=True); (t / "fork").mkdir()
         (t / "filestore/track.sh").write_text(TRACK.read_text())   # beside a fake fork track: its calls and the env they carry
         (t / "fork/track.sh").write_text('echo "$1 $3 TCOMMIT=$TCOMMIT CENTRAL=${CENTRAL:-} FILESTORE=$FILESTORE" >> "$(dirname "$0")/calls"\n')
@@ -49,14 +49,14 @@ class Track(unittest.TestCase):
             r = repos[name] = d / name; r.mkdir(); g = lambda *a: subprocess.run(["git", "-C", str(r), *a], check=True, capture_output=True, text=True).stdout.strip()
             g("init", "-q"); g("config", "user.email", "t@t"); g("config", "user.name", "t"); g("commit", "-q", "--allow-empty", "-m", "c"); g("branch", "staging")
         sha = lambda r: subprocess.run(["git", "-C", str(r), "rev-parse", "staging"], capture_output=True, text=True).stdout.strip()
-        for n, mode in (("1", "token"), ("", "token"), ("2", "2")):
+        for n, mode in (("1", "1"), ("", ""), ("2", "2")):
             (t / "fork/calls").unlink(missing_ok=True)
             r = subprocess.run(["bash", str(t / "filestore/track.sh"), "up", "x", *([n] if n else [])], capture_output=True, text=True,
                                env={**s.env, "FORK_REPO": str(repos["fork"]), "CENTRAL_REPO": str(repos["central"])})
             s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             build, up = (t / "fork/calls").read_text().splitlines()
             s.assertEqual(build, f"build {sha(repos['fork'])} TCOMMIT={sha(repos['fork'])} CENTRAL={repos['central']}:{sha(repos['central'])} FILESTORE={s.repo}:{s.head}")
-            s.assertTrue(up.startswith(f"up {mode} "), up)
+            s.assertTrue(up.startswith(f"up {mode} TCOMMIT"), up)
 
 
 if __name__ == "__main__":

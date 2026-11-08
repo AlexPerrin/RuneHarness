@@ -5,16 +5,18 @@
 # runs), test, spotless, gate, gate-ci and ci-step gate/gate.sh's (the code a gate runs). Verbs:
 #   up [N]            server-<slug> from or:<T>, its embedded Central serving the up's jav_config from file:// (an or:<T> whose Central reads
 #                     none: first rebuilt with that Central merged with Central's staging, as the deploy's composite) on the change's ports (quest mode: QUEST_MODE, else the change's front
-#                     matter quest-mode, else respect-progress; or assume-completed), N desktops logged in,
+#                     matter quest-mode, else respect-progress; or assume-completed), N desktops logged in by token (auth type 7) with
+#                     Play alone, no form typed: token-<slug> (server/issuer.py) is the issuer of compact signed tokens whose secret
+#                     game.yml's token-login block holds and jav_config params 11 and 22 name (https: the client takes no other), each
+#                     desktop's JX_SESSION_ID a session the issuer minted for its own account (the build is on staging, whose server
+#                     takes token logins),
 #                     each loading the live client's devtools jar (CLIENT_TRACK: the client track's script, its build of slug live);
 #                     a fresh database, or with RESUME=1 the accounts as the change's last down saved them; the realm as live
 #                     (dev_mode off, xp at 1x), every account a member at rank 0, or with STAFF=N[,M...] those desktops' administrators;
 #                     idle logout off (live keeps it); each desktop logged in again after any logout until down (keep); a failed
 #                     up takes down what it started; one up, restart or down of a slug at a time (a second waits)
-#   up token          up 1, the desktop's login a token login (auth type 7) for its account: token-<slug> (server/issuer.py) is the
-#                     issuer of compact signed tokens whose secret game.yml's token-login block holds and jav_config param 11
-#                     names (https: the client takes no other); with SIGN_IN=central (tracks/central/track.sh up <slug> token) the head's
-#                     Central signs in instead: server-<slug> alone, its Central serving jav_config (its file the template, rendered),
+#   up token          up 1; with SIGN_IN=central (tracks/central/track.sh up <slug> token, one desktop) the head's
+#                     Central signs in instead of the issuer: server-<slug> alone, its Central serving jav_config (its file the template, rendered),
 #                     OIDC and game-session over https on the http port (the issuer's secret and certificate) and http on a docker
 #                     port, the desktop's JX_SESSION_ID a real session of account 1 (sign_in); restart refused (sessions are in memory)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
@@ -73,12 +75,11 @@ sql() { local pg; pg=$(docker logs "server-$slug" 2>&1 | grep -oE 'jdbc:postgres
   docker run --rm --network "container:server-$slug" postgres:16-alpine psql -h 127.0.0.1 -p "$pg" -U postgres -d postgres -tAq -c "$1"; }
 login() {  # login <devtools port> <account>: logs that desktop in as the account (a FAILED login fails up and restart: one whose inventory widget does not show container 93 too); a lost key types another name, whose first login makes a stray account (the rights update then missed the real row): until this login made no row but the account's, out and in again
   local m; while :; do m=$(sql "select coalesce(max(id), 0) from accounts")
-    if [ -n "${tok:-}" ]; then python3 "$self/server/desktop_login.py" "$1" token; else python3 "$self/server/desktop_login.py" "$1" "$2" "$2"; fi   # prints LOGGED_IN or FAILED: reason
+    python3 "$self/server/desktop_login.py" "$1" token   # Play alone; prints LOGGED_IN or FAILED: reason
     [ "$(sql "select string_agg(lower(account_name), ' ') from accounts where id > $m or lower(account_name) = '$2'")" = "$2" ] && return
     echo "login on $1 made another account than $2: logging in again"; python3 "$self/server/desktop_login.py" "$1" logout; done; }
 keep() {  # keep <devtools port> <account>: from now until down, that desktop logged out (a disconnect, a restart, a logout) logs in again
-  if [ -n "${tok:-}" ]; then set -- "$1" token; else set -- "$1" "$2" "$2"; fi
-  setsid python3 "$self/server/desktop_login.py" "$1" keep "server-$slug" "${@:2}" < /dev/null >> "$state/keep-$1.log" 2>&1 & }
+  setsid python3 "$self/server/desktop_login.py" "$1" keep "server-$slug" token < /dev/null >> "$state/keep-$1.log" 2>&1 & }
 unkeep() { pkill -f "^python3 [^ ]*/desktop_login\.py [0-9]+ keep server-$slug " || true; }   # this slug's keepers stopped, by their command line (no pid file a reused pid could match): a logout that is meant stays out
 offline() { until [ "$(docker inspect -f '{{.State.Running}}' "server-$slug" 2>/dev/null)" != true ] || [ "$(sql "select count(*) from main.character_progress where online_central_world_id is not null and character_id in ($mine)")" = 0 ]; do sleep 1; done; }   # each character saved at its logout, or the server gone: none is saved after
 
@@ -152,7 +153,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     fi
     if [ -z "$pid" ]; then
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
-        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="$(account 1)" \
+        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
         "-Dosrstest.token=${tok:-false}" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!
@@ -212,7 +213,8 @@ central_staged() {  # the T of or:<T>'s tree built with Central's staging, the C
 central_jav() {  # $state/jav_config.ws for the game's own Central: $tpl filled as the sidecar fills it, its base http(s, with $sic)://127.0.0.1:$http
   sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
-  tok=; sic=; sid=; cid=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  tok=true; sic=; sid=; cid=; who=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || n=1; [ "${SIGN_IN:-}" != central ] || sic=1
+  [ -z "$sic" ] || [ "$n" = 1 ] || { echo "SIGN_IN=central signs one desktop in" >&2; return 2; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
   [ -n "$sic" ] || file_central || T=$(central_staged)
   docker image inspect "or:$T" >/dev/null 2>&1 || { echo "no image or:$T: build first"; return 1; }
   devtools_jar   # the jar every desktop of this up loads
@@ -224,7 +226,7 @@ up() {
   keys   # never a missing mount source: docker would make it a directory
   modulus=$(modulus_of < "$state/key/game.key"); devtoken=$(openssl rand -hex 16)   # the up's devtools token: its desktops' endpoints answer no other caller
   staff=$(for i in $(tr , ' ' <<< "${STAFF:-}"); do account "$i"; done | paste -sd' ')   # STAFF=1,2: those desktops' accounts administrators
-  cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"
+  cs="server-$slug"; [ -n "$sic" ] || cs+=" token-$slug"
   stack started="$(date -u +%FT%TZ)" script="$self/track.sh" repo="$repo" containers="$cs" signin="${sic:+central}" \
     modulus="$modulus" game:="$game" http:="$http" desktops= accounts= staff="$staff" token="$devtoken"   # before its first container: down and hd's repair act on what it names
   tpl=$self/server/jav_config.ws.template
@@ -235,8 +237,8 @@ up() {
     sopt=(-p "$http:8443" -p 8080 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
       -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
       -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit)
-  elif [ -n "$tok" ]; then  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
-    python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"; token >/dev/null
+  else  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
+    python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"; rm -f "$state/token/token"   # no token a past `token` wrote: each desktop's own session
     docker run -d --name "token-$slug" -p 8080 -v "$self/server/issuer.py:/issuer.py:ro" -v "$state/token:/t:ro" python:3.13-alpine python3 /issuer.py serve /t >/dev/null
     sed -E "s#^param=(11|22)=.*#param=\1=https://127.0.0.1:$(docker port "token-$slug" 8080 | head -1 | cut -d: -f2)/#" "$tpl" > "$state/jav_config.ws.template"; tpl=$state/jav_config.ws.template   # 11 Jagex auth, 22 RuneScape auth: the client casts both to https
   fi
@@ -252,6 +254,7 @@ up() {
   else python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 8080 | head -1 | cut -d: -f2)/jav_config.ws"; sign_in; fi   # Central's, over its http port; the session after the realm's restart (Central keeps sessions in memory)
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
+    [ -n "$sic" ] || { who=$(account "$i"); sid=$(python3 "$self/server/issuer.py" mint "$state/token" "$who" --exp 31536000); cid=$(python3 -c 'import sys, zlib; print(zlib.crc32(sys.argv[1].encode()) & 0x7FFFFFFF)' "$who"); }   # the session the issuer answers with this desktop's account
     desktop_start
     desktops+=("$inst:$dt"); accounts+=("$(account "$i")")
     stack desktops="${desktops[*]}" accounts="${accounts[*]}"   # before the login: restart and the devtools tools find each desktop
@@ -272,7 +275,7 @@ restart() {  # the server container restarted with its game.yml and database; th
   d=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["desktops"], "|", d["accounts"], "|", d.get("signin", ""))' "$state/up.json")
   [ -z "$(cut -d'|' -f3 <<< "$d" | tr -d ' ')" ] || { echo "restart: Central keeps the desktop's sign-in session in memory, which a restart loses: down and up again" >&2; return 1; }
   d=${d%|*}
-  tok=$(docker ps -q -f "name=^token-$slug\$"); read -ra ds <<< "${d%%|*}"; read -ra as <<< "${d#*|}"
+  read -ra ds <<< "${d%%|*}"; read -ra as <<< "${d#*|}"
   unkeep; for c in "${ds[@]}"; do python3 "$self/server/desktop_login.py" "$(cut -d: -f2 <<< "$c")" logout; done; offline
   since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"
   for i in "${!ds[@]}"; do login "$(cut -d: -f2 <<< "${ds[$i]}")" "${as[$i]}"; keep "$(cut -d: -f2 <<< "${ds[$i]}")" "${as[$i]}"; done

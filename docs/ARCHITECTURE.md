@@ -1,8 +1,8 @@
 # Architecture
 
 The solution to docs/PROBLEM.md that meets docs/PRD.md. Vocabulary: a **change** (a committed definition) has
-**criteria** (scripted or judged); a dev **submits** a head; its **candidate** is base + dependencies + head, built
-once; **jobs** (build, gate, deploy, ship, publish) are keyed by the tree they run on; the test server runs
+**criteria** (scripted or judged); a dev **submits** a head; its **candidate** is base + dependencies + head (on a
+track that deploys the test server, its staging in place of base), built once; **jobs** (build, gate, deploy, ship, publish) are keyed by the tree they run on; the test server runs
 **staging**; qa records a **verdict**; a public act is a **card** the user turns into an **approval**, which the
 harness **publishes**; a client or harness change **ships** by fast-forward; a run **asks** and the user **answers**;
 the pass raises **alerts**; everything is a row in the **ledger**.
@@ -33,7 +33,8 @@ state/hd.db  state/<slug>/*.log  state/briefs/<run>.md  state/wake.orchestrator 
 A change definition's front matter: `slug`, `track` (client | fork | central | filestore | harness), `kind` (change |
 release), `upstream` (false: fork only), `priority` (P0–P4), `deps`, `goal`, `units`, `pr`, `public` (the PR branch on
 the fork), `branch`; other keys are the track script's. Definitions are parsed each pass; the ledger holds runtime rows
-only. hd.yaml's repos carry `base` (the full ref a candidate starts from), `prefix` (dev branches) and `remote` (where
+only. hd.yaml's repos carry `base` (the full ref a candidate starts from; a track with a `deploy` recipe starts it from
+its staging, `Track.candidate_base`, and its PR head stays on `base`), `prefix` (dev branches) and `remote` (where
 dev refs are pushed; in the product clones `origin` is upstream and `fork` the fork; none: the dev ref stays local).
 
 ## 2 Schema (store.py, migration 1)
@@ -371,7 +372,9 @@ GitHub is read each pass only for public changes with a PR, conditionally (a 304
 
 ```python
 def candidate(repo, base, heads) -> (tree, tcommit):
-    """Fold `git merge-tree --write-tree` over base, each dependency head (closure, deps first) and the head; then
+    """Fold `git merge-tree --write-tree` over base (Track.candidate_base: staging on a track with a deploy recipe, so the
+    fork's judge proves the change with the token login and pins the test server runs, else hd.yaml's base), each
+    dependency head not yet in it (closure, deps first) and the head; then
     `git commit-tree` with GIT_COMMITTER_DATE = the newest parent's date, so the same inputs give the same commit
     and the fork CI's child commit keeps its result. A conflict raises Conflict(files): the dev's step.
     A Central or FileStore dependency adds no commit: its candidate is built in (§11) and
@@ -499,8 +502,8 @@ sequenceDiagram
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live`, and each library change whose head is in the library head it built in |
-| `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
-| `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base with its same-track deps not yet in their base, as `hd submit` builds it |
+| `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate); a candidate on staging also gives its criteria `PR_TCOMMIT`, the head with its deps on base alone (or `conflict: <files>`), where the fork CI runs the PR |
+| `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base (default the candidate base) with its same-track deps not yet in it, as `hd submit` builds it |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |
@@ -605,7 +608,7 @@ flowchart LR
   staging's server changes were built with), so the next deploy carries it and marks it `live`. A server change's
   library deps merge there before it does.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
-  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's base built with the head; FileStore: the fork's and Central's staging built with the head, one desktop logged in by token;
+  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's staging built with the head; FileStore: the fork's and Central's staging built with the head;
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits

@@ -10,7 +10,9 @@ does not fit, nor an Ed25519 signature with its account). The server's game.yml 
                                    runs (an immediate code for DIR/account, an HS256 id_token by the secret) and game-session with
                                    the shapes RSProx records: POST sessions {idToken} -> {sessionId}; GET accounts with Bearer
                                    <sessionId> -> [{accountId, displayName, userHash}]; tokens -> {"token"} (shape unsourced; the
-                                   desktop parses it): DIR/token, read at each request, else a fresh one for DIR/account
+                                   desktop parses it): DIR/token, read at each request, else a fresh one for the Bearer
+                                   session's account (one it opened, or a test desktop's JX_SESSION_ID: a token this DIR
+                                   minted), else for DIR/account
 """
 import base64, hashlib, hmac, http.server, json, os, secrets, ssl, subprocess, sys, threading, time, urllib.parse, zlib
 from pathlib import Path
@@ -37,6 +39,14 @@ def sign(d, msg):
 def mint(d, account, exp=3600):
     body = f"{account}.{int(time.time()) + int(exp)}"
     return body + "." + sign(d, body)
+
+
+def minted(d, tok):  # the account of a token this DIR minted, unexpired, else None
+    try:
+        body, mac = tok.rsplit(".", 1); acc, exp = body.rsplit(".", 1)
+        return acc if hmac.compare_digest(mac, sign(d, body)) and int(exp) > time.time() else None
+    except (ValueError, TypeError, OSError):
+        return None
 
 
 def id_token(d, claims):
@@ -70,6 +80,8 @@ class GameSession(http.server.BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
         iss = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{self.headers.get('Host')}/"
         account = lambda: (self.dir / "account").read_text().strip()
+        bearer = self.headers.get("Authorization", "").removeprefix("Bearer ")
+        session = self.sessions.get(bearer) or minted(self.dir, bearer)   # each test desktop's session names its own account
         if p.endswith("/.well-known/openid-configuration"):
             return self.send(200, {"issuer": iss, "authorization_endpoint": iss + "oauth2/auth", "token_endpoint": iss + "oauth2/token",
                                    "userinfo_endpoint": iss + "userinfo", "jwks_uri": iss + "jwks", "response_types_supported": ["code"],
@@ -104,14 +116,14 @@ class GameSession(http.server.BaseHTTPRequestHandler):
             sid = secrets.token_hex(16); self.sessions[sid] = acc
             return self.send(200, {"sessionId": sid})
         if p.endswith("game-session/v1/accounts"):
-            acc = self.sessions.get(self.headers.get("Authorization", "").removeprefix("Bearer "))
+            acc = session
             if not acc:
                 return self.send(401, {"error": "invalid session"})
             n = zlib.crc32(acc.encode()) & 0x7FFFFFFF  # a stable number per account name
             return self.send(200, [{"accountId": n, "displayName": acc, "userHash": n}])
         if p.endswith("game-session/v1/tokens"):
             t = self.dir / "token"
-            return self.send(200, {"token": t.read_text().strip() if t.exists() else mint(self.dir, account())})
+            return self.send(200, {"token": t.read_text().strip() if t.exists() else mint(self.dir, session or account())})
         self.send_error(404)
 
     do_GET = do_POST = answer

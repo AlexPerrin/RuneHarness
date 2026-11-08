@@ -109,7 +109,7 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
-  until [ "$(A shell getprop sys.boot_completed)" = 1 ]; do sleep 2; done
+  until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
   A uninstall "$pkg" >/dev/null
   until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
@@ -154,6 +154,9 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
     "$sys32/taskkill.exe" /F /PID "$w" /FI "IMAGENAME eq ${ps##*/}" >/dev/null 2>&1 || true; rm -f "$root"/state/winpids/*/"$w" "$state/allow-relay.winpid"
   fi
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
+  if [[ $(A get-state) == *"not found"* ]]; then   # the emulator is gone (it exited): nothing on it to restore
+    rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
+  fi
   bad=()
   A shell rm -f "$files/plugins/devtools.jar" >/dev/null
   for p in devtools probe set; do A shell setprop "debug.osrsrl.$p" '""' >/dev/null; done

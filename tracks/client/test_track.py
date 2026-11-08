@@ -96,6 +96,7 @@ case "$*" in *"echo y"*) [ -n "$NOAPP" ] || echo y ;; *"ls -1"*) printf 'quest-h
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
         HOSTS = re.search(r'^hosts="([^"]+)"', TRACK.read_text(), re.M).group(1)
         progs = {sdk / "platform-tools/adb.exe": f"""printf "%s\\n" "adb $*" >> {log}
+[ -z "$GONE" ] || case "$*" in *boot_completed*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
 case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
@@ -120,6 +121,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         log = s.fake_windows()
         rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("install failed", out)
         s.assertIn("adb -s emulator-5560 emu kill", log.read_text())
+        s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
+
+    def test_an_emulator_gone_while_booting_ends_up_and_down_restores_nothing(s):  # run 222 start 5: the emulator shut down mid-boot and up waited on boot_completed for 41 minutes
+        log = s.fake_windows(); s.env["GONE"] = "1"
+        rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("the emulator emulator-5560 exited while booting", out)
+        s.assertIn("restored (the emulator emulator-5560 had exited)", out); s.assertNotIn("RESTORE FAILED", out)
         s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")

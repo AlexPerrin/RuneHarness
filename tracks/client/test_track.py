@@ -333,6 +333,16 @@ case "$*" in *push*) ;;
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname())
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
+        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
+            asked.append(a[0])
+            if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")
+            return real("127.0.0.1", u.getsockname()[1], socket.AF_INET, socket.SOCK_STREAM)
+        l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); h = hello("api.runelite.net")
+        with mock.patch("socket.getaddrinfo", flaky):
+            t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start(); c.sendall(h)
+            v = u.accept()[0]; s.assertEqual(allow.record(v), h); v.close(); c.close(); t.join(); l.close(); u.close()
+        s.assertEqual(asked, ["api.runelite.net", "api.runelite.net"])   # resolved again after EAI_AGAIN, relayed the hello
 
     def test_network_qa_allows_three_hosts(s):  # the skill's allowed list: the local server and the two RuneLite hosts, nothing else
         skill = (TRACK.parent.parent.parent / ".claude/skills/network-qa/SKILL.md").read_text()

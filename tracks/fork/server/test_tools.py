@@ -1481,7 +1481,7 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
         s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http${sic:+s}://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
         central = (HERE.parent.parent / "central/track.sh").read_text()
-        s.assertIn('git -C "$repo" grep -q OPENRUNE_JAV_CONFIG_URL_TEMPLATE "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without it keeps the sidecar
+        s.assertIn('git -C "$repo" grep -q \'scheme == "file"\' "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without file:// support keeps the sidecar (upstream main has the env alias already)
 
     def test_up_token_with_central_sign_in_starts_the_server_alone_and_a_real_session(s):  # h-central-up-sign-in: Central serves jav_config, the sign-in and game-session
         import javcheck, ssl, http.server, zlib, issuer as t

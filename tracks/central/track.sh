@@ -7,10 +7,9 @@
 #   build <slug> [key]  the candidate compiled (gradle assemble) in the build copy <repo>/.worktrees/<slug>-build, in a container
 #   test              every module's tests (gradle test) in the build copy (a criterion: cwd the build copy)
 #   gate <slug> <key> the build copy at the candidate, then `hd gate`: every scripted criterion
-#   up <slug> [N]     a test server built from the fork's base with this head as its Central, N desktops (the fork's up); a head
-#                     whose embedded Central reads a file:// jav_config serves it itself (CENTRAL_JAV: no http-<slug>)
-#   up <slug> token   the server's token login (dev/server-token-auth: staging's local-auth spike maps every token to one account) with this head as its Central, one desktop signed in through
-#                     Central's own sign-in (the fork's up token with SIGN_IN=central): no issuer, no http sidecar
+#   up <slug> [N]     a test server built from the fork's staging (what the test server runs) with this head as its Central, N
+#                     desktops logged in by token (the fork's up, which merges a head whose Central reads no file:// jav_config with Central's staging)
+#   up <slug> token   one desktop signed in through this head's own Central sign-in (the fork's up token with SIGN_IN=central): no issuer, no http sidecar
 #   down | log        the fork's, for that server
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}
@@ -45,11 +44,11 @@ case "$verb" in
   build) checkout; if gradle assemble -x test; then [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "assembled ${T:-}"; else [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "gradle assemble"; exit 1; fi ;;
   test) copy=${BUILD:-$copy}; gradle test ;;
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:central-1" "$copy" ;;
-  up) tc=$(git -C "$fork" rev-parse origin/main); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}
-      [ "$arg" != token ] || { tc=$(git -C "$fork" rev-parse dev/server-token-auth); export SIGN_IN=central; }
-      ! git -C "$repo" grep -q 'scheme == "file"' "$h" -- central-app/src/main || export CENTRAL_JAV=1   # a head whose Central reads a file:// jav_config (central-embedded-jav-config) serves the desktops itself; upstream already has the env alias
-      CENTRAL="$repo:$h" TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
-      HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;
+  up) tc=$(git -C "$fork" rev-parse staging); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}   # the server the test server runs: its token login
+      [ "$arg" != token ] || export SIGN_IN=central
+      export CENTRAL="$repo:$h" CENTRAL_REPO=$repo   # the fork's up merges a head whose Central reads no file:// jav_config with Central's staging
+      TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
+      TCOMMIT=$tc HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;
   down|log) HD_REPO=$fork exec bash "$self/../fork/track.sh" "$verb" "$slug" "$arg" ;;
   *) echo "verbs: recipe build test gate up down log" >&2; exit 2 ;;
 esac

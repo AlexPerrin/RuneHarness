@@ -79,35 +79,54 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, 'd', '4')", (TIP,))
         self.assertFalse(decide.outdated(C, ch, self.L.last_verdict("h-one", TIP)))   # judged again and failed: a dev's now
 
-    def test_a_fork_only_change_on_a_track_without_staging_is_done_by_its_verdict(self):   # central-rights-test-mod: nothing to land on
+    def test_a_checked_library_change_stages_on_its_own_and_its_staging_moves_the_deploy(self):   # central-game-session: no fork dependent, never live
         C = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")
-        cfg = Cfg(agents=2, tracks={"fork": F, "central": C})
+        cfg = Cfg(agents=2, tracks={"harness": T, "fork": F, "central": C})
         lib = Change("c-fix", "central", upstream=False); ch = Change("s-one", "fork", deps=("c-fix",))
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('central', 'refs/remotes/fork/dev/c-fix', 'h1')")
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-fix', 'h1', 't1', 'h1', 't')")
-        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't')")
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, 't1:c-1', 1, 't')", (k,))
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't', 't')")
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('c-fix', 'h1', 1, 1, 'd', 't')")
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
-        self.assertEqual(steps["c-fix"].kind, "done")
-        self.assertNotIn("dep c-fix", steps["s-one"].why)      # its dependent is not held by it
+        self.assertEqual((steps["c-fix"].kind, steps["c-fix"].key), ("merge", "staging:h1"))   # gate and verdict passed: it joins central's staging
+        self.assertNotIn("dep c-fix", steps["s-one"].why)      # its fork dependent builds it in, not held by it
+        self.assertEqual(steps["fork:staging"].key, "tr1:fork-1")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('c-fix', 'refs/heads/staging', 'cs1', 't2')")
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('central', 'refs/heads/staging', 'cs1', ?)", ("e" * 40,))
+        steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
+        self.assertEqual(steps["c-fix"].kind, "done")           # fork-only: done on its staging
+        self.assertEqual(steps["fork:staging"].key, f"tr1_c{'e' * 12}:fork-1")   # the next deploy carries it
 
     def test_a_client_changes_server_dep_must_be_live_on_the_test_server(self):   # the mobile reaches only the live stack
         cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
         srv = Change("s-fix", "fork", upstream=False); ch = Change("c-one", "client", deps=("s-fix",))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('s-fix', 'h1', 't1', 'h1', 't')")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't2')")
         self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].why, "dep s-fix not live on the test server")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't2')")
         self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, srv], cfg)}["c-one"].kind, "run")
+
+    def test_a_harness_changes_library_dep_must_be_live(self):   # h-live-sign-in-needs-central: done with central-game-session only submitted
+        cen = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")
+        C = decide.Ctx(self.L, Cfg(agents=2, tracks={"harness": T, "central": cen}), {})
+        lib, ch = Change("c-op", "central"), Change("h-one", "harness", deps=("c-op",))
+        C.defs.update({c.slug: c for c in (lib, ch)})
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-op', 'h1', 't1', 'h1', 't')")
+        self.assertEqual(decide.deps_live(C, ch).why, "dep c-op not live on the test server")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('c-op', 'live', 'tr', 't2')")
+        self.assertIsNone(decide.deps_live(C, ch))
 
     def test_a_client_change_waits_for_its_server_deps_own_deps_live(self):   # run 185: its dep ran live without the dep's dep
         cfg = Cfg(agents=2, tracks={"fork": F, "client": Track("client", "x/c", "/nowhere", "refs/remotes/origin/main", "", "client", {"gate": "client-1"}, "origin")})
         base = Change("s-base", "fork", upstream=False); srv = Change("s-fix", "fork", upstream=False, deps=("s-base",))
         ch = Change("c-one", "client", deps=("s-fix",))
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't2')")
         step = lambda: {a.change: a.step for a in decide.plan(self.L, [ch, srv, base], cfg)}["c-one"]
         self.assertEqual(step().why, "dep s-base not live on the test server")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-base', 'live', 'tr', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-base', 'live', 'tr', 't2')")
         s1 = step()
         self.assertEqual(s1.kind, "run")
         self.db.execute("DELETE FROM landed WHERE change='s-base'")
@@ -123,9 +142,9 @@ class Tempo(Base):  # T1, T3, T4
         nxt = Change("s-next", "fork", deps=("s-fix",))
         cfg = Cfg(agents=2, tracks={"harness": T, "fork": F})
         C = decide.Ctx(self.L, cfg, {c.slug: c for c in (srv, ch, nxt)})
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'refs/heads/staging', 's1', 't2')")
         self.assertEqual(decide.deps_live(C, ch).why, "dep s-fix not live on the test server")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('s-fix', 'live', 'tr', 't2')")
         self.assertIsNone(decide.deps_live(C, ch))
         self.assertIsNone(decide.upstream_dep_wait(C, ch))   # its ship is not held by the fork PR
         self.assertIn("not yet landed on main", decide.upstream_dep_wait(C, nxt).why)   # G4: the same repo's PR still waits
@@ -137,7 +156,7 @@ class Tempo(Base):  # T1, T3, T4
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('h-fix', 'd1', 'td', 'cd', 't')")
         s = {a.change: a.step for a in decide.plan(self.L, [ch, dep], cfg)}["c-one"]
         self.assertEqual((s.kind, s.why), ("wait", "dep h-fix (harness) not landed"))
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-fix', 'refs/heads/v9', 'd1', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-fix', 'refs/heads/v9', 'd1', 't2')")
         self.assertEqual({a.change: a.step for a in decide.plan(self.L, [ch, dep], cfg)}["c-one"].kind, "run")
 
     def test_a_dep_landing_is_a_new_input_for_the_dev(self):   # a dev that filed its blocker runs again once the blocker lands
@@ -147,7 +166,7 @@ class Tempo(Base):  # T1, T3, T4
         s1 = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"]
         self.run_row(s1.input, ended_at="t", end_kind="handback", record="run 1: filed h-dep")
         self.assertIn("ended (handback)", {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"].why)
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd1', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd1', 't2')")
         s2 = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"]
         self.assertEqual(s2.kind, "run"); self.assertNotEqual(s1.input, s2.input)
 
@@ -189,7 +208,7 @@ class Gate(Base):  # G2, G3, H2
         self.submit()
         self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('h-one', 'x', 'judge', 't', 'user', 't2')")
         self.assertIn("criteria added", self.step().why)
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't2')")
         self.assertEqual(self.step().kind, "done")   # landed is done, whatever is seeded later
 
 
@@ -201,7 +220,7 @@ class Hands(Base):  # H6
         self.assertEqual((s.kind, s.key), ("ship", f"refs/heads/v9:{TC}"))
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('ship', ?, 1, 't')", (s.key,))
         self.assertIn("not yet landed", self.step().why)
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't2')")
         self.assertEqual(self.step().kind, "done")
 
     def test_one_ship_per_branch(self):
@@ -219,6 +238,13 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
     def submit(self):
         self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', ?, ?, ?, 't1')", (TIP, TREE, TC))
+
+    def test_a_newer_head_is_merged_into_staging_again(self):  # M1, H4: a landed row older than the last submission is void
+        self.submit()
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")
+        self.assertTrue(self.L.landed("genie", "refs/heads/staging"))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('genie', 'newer', 'tn', 'cn', 't3')")
+        self.assertIsNone(self.L.landed("genie", "refs/heads/staging"))
 
     def test_criteria_run_first_then_dev_then_build_gate_judge_merge(self):
         s = self.step()
@@ -238,7 +264,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('genie', ?, 2, 1, ?, 't')", (TIP, d))
         s = self.step()
         self.assertEqual((s.kind, s.key), ("merge", f"staging:{TIP}"))
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")
         self.assertEqual(self.step().why, "texts: pr-title.txt, pr-body.md, pr-comment.md")
         for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
             self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', ?, 'x', 'text')", (n,))
@@ -254,7 +280,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("UPDATE publish_step SET done_at='t'")
         self.db.execute("UPDATE approval SET spent_at='t', spent_why='published'")
         self.assertEqual(self.step().why, "maintainers")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/remotes/origin/main', 'm', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/remotes/origin/main', 'm', 't2')")
         self.assertEqual(self.step().kind, "done")
 
     def test_a_head_merges_into_staging_after_its_deps(self):   # staging runs the head, not the candidate that carried the dep
@@ -267,7 +293,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('base', 'd1', 'td', 'd1', 't')")
         step = lambda: {a.change: a.step for a in decide.plan(self.L, [self.ch, dep], CFG)}["genie"]
         self.assertEqual(step().why, "dep base not yet on staging")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('base', 'refs/heads/staging', 's', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('base', 'refs/heads/staging', 's', 't2')")
         self.assertEqual(step().kind, "merge")
 
     def test_a_finding_needs_a_reply_before_a_new_card(self):
@@ -275,7 +301,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.submit()
         for k in ("build", "gate"):
             self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{TREE}:fork-1"))
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")
         for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
             self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', ?, 'x', 'text')", (n,))
         self.db.execute("INSERT INTO finding(comment_id, pr, author, body, triage, change) VALUES (77, 5, 'm', 'why?', 'finding', 'genie')")
@@ -315,6 +341,16 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual((a[0].step.kind, a[0].step.key), ("deploy", "tr1:fork-1"))
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('deploy', 'tr1:fork-1', 1, 't')")
         self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
+
+    def test_no_deploy_under_a_live_stack_in_use(self):   # h-deploy-spares-live-judge: a judge's mobile or live-desktop keeps the live stack until its down
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
+        self.db.execute("INSERT INTO stack(change, live) VALUES ('h-one', 1)")
+        deploy = lambda: [x.step.kind for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"]
+        self.assertEqual(deploy(), ["deploy"])   # a row whose run ended (its down never ran) holds nothing
+        self.run_row("i", started_at="t")
+        self.assertEqual(deploy(), [])
+        self.db.execute("DELETE FROM stack")   # down
+        self.assertEqual(deploy(), ["deploy"])
 
     def test_a_track_without_deploy_skips_staging_and_its_conflict(self):   # staging exists only to deploy
         lab = Track("lab", "AlexPerrin/lab", "/nowhere", "refs/remotes/origin/main", "Up/lab", "dev", {"gate": "lab-1"}, "fork")
@@ -393,7 +429,7 @@ class Retention(Base):  # H7: an artifact lives while an owner fact holds; the s
     def test_close_merge_and_withdraw_release_the_changes_clones(self):
         self.own("worktree", "/r/.worktrees/h-one", "h-one")
         self.assertEqual(self.released(), [])
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't')")   # merged: done
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-one', 'refs/heads/v9', 'd', 't2')")   # merged: done
         self.assertEqual(self.released(), ["worktree:/r/.worktrees/h-one"])
         self.db.execute("DELETE FROM landed"); self.db.execute("INSERT INTO change_state(slug, closed_at) VALUES ('h-one', 't')")
         self.assertEqual(self.released(), ["worktree:/r/.worktrees/h-one"])
@@ -440,7 +476,7 @@ class Authority(Base):  # A2 (close), A4 (ask)
         ch = Change("h-one", "harness", deps=("h-dep",))
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}
         self.assertEqual(steps["h-one"].why, "dep h-dep")
-        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd', 't')")
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 'd', 't2')")
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}
         self.assertEqual(steps["h-one"].kind, "run")
 

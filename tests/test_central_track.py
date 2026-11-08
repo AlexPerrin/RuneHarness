@@ -27,5 +27,10 @@ class Build(unittest.TestCase):
             s.assertIn(f"own worktree {repo}/.worktrees/x-build x", (root / "harness/hd.py.calls").read_text())   # the change owns its build copy
 
 
+    def test_up_builds_on_the_forks_staging(s):   # h-fork-candidate-on-staging: the server the test server runs, its token login
+        up = TRACK.read_text().split("\n  up) ")[1].split(";;")[0]
+        s.assertIn('tc=$(git -C "$fork" rev-parse staging)', up); s.assertNotIn("origin/main", up); s.assertNotIn("server-token-auth", up)
+
+
 if __name__ == "__main__":
     unittest.main()

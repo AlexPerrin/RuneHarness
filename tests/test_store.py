@@ -1,4 +1,5 @@
 import glob
+import json
 import shutil
 import sqlite3
 import sys
@@ -66,6 +67,8 @@ class Store(unittest.TestCase):
         add("c", "c2")
         with self.assertRaises(ValueError):
             L.staging_composite(st)
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('central', ?, 'm1', 'mt')", (st,))   # the library's own staging merged both
+        self.assertEqual(json.loads(L.staging_composite(st)), {"central": {"head": "m1", "tree": "mt"}})
 
     def test_an_artifact_row_is_refused_outside_the_build_places(self):   # a release removes it: never a path the builds do not write
         store.own(self.db, "worktree", "/r/.worktrees/x-build", "x"); store.own(self.db, "worktree", "/r/.worktrees/x-build", "x")

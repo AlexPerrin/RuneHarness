@@ -1,7 +1,7 @@
 ---
 slug: central-game-session
 track: central
-priority: P1
+priority: P0
 deps:
 - central-embedded-jav-config
 - central-rights-test-mod

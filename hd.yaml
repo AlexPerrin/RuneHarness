@@ -13,7 +13,7 @@ repos:
 
 bots: []                  # upstream logins whose comments never file a finding, besides those GitHub marks as bots
 free: 100                 # GB free on ~/src's volume and /mnt/c below which no build starts and the driver is told compaction is due
-builds: 3                 # builds and container steps at once (an N-slot flock semaphore)
+builds: 5                 # builds and container steps at once (an N-slot flock semaphore): the user's word (2026-11-07)
 agents: 5                 # runs alive at once: the user's word (2026-11-03)
 context_limit: 800000     # tokens; past it the hook tells a run to hand off (the user's word: the window is large on their plan)
 hold: P2                  # P3 (new quests, stretch goals) held: the user's word (2026-11-01) "Work on P2s. Exclude P3s"

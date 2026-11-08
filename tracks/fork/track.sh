@@ -3,22 +3,26 @@
 # HD_SLUG HD_KEY HD_TREE HD_TCOMMIT HD_HEAD HD_BASE HD_REPO HD_CLONE HD_LOG HD_RC HD_BUILDS and the short names the scripts and
 # criteria read: SLUG HEAD T TCOMMIT BASE CLONE BUILD EVIDENCE CENTRAL. build and tree are build/build.sh's (the code a build
 # runs), test, spotless, gate, gate-ci and ci-step gate/gate.sh's (the code a gate runs). Verbs:
-#   up [N]            server-<slug> and http-<slug> (CENTRAL_JAV set: none, server-<slug>'s Central serves jav_config) from or:<T> on the change's ports (quest mode: QUEST_MODE, else the change's front
-#                     matter quest-mode, else respect-progress; or assume-completed), N desktops logged in,
+#   up [N]            server-<slug> from or:<T>, its embedded Central serving the up's jav_config from file:// (an or:<T> whose Central reads
+#                     none: first rebuilt with that Central merged with Central's staging, as the deploy's composite) on the change's ports (quest mode: QUEST_MODE, else the change's front
+#                     matter quest-mode, else respect-progress; or assume-completed), N desktops logged in by token (auth type 7) with
+#                     Play alone, no form typed: token-<slug> (server/issuer.py) is the issuer of compact signed tokens whose secret
+#                     game.yml's token-login block holds and jav_config params 11 and 22 name (https: the client takes no other), each
+#                     desktop's JX_SESSION_ID a session the issuer minted for its own account (the build is on staging, whose server
+#                     takes token logins),
 #                     each loading the live client's devtools jar (CLIENT_TRACK: the client track's script, its build of slug live);
 #                     a fresh database, or with RESUME=1 the accounts as the change's last down saved them; the realm as live
 #                     (dev_mode off, xp at 1x), every account a member at rank 0, or with STAFF=N[,M...] those desktops' administrators;
 #                     idle logout off (live keeps it); each desktop logged in again after any logout until down (keep); a failed
 #                     up takes down what it started; one up, restart or down of a slug at a time (a second waits)
-#   up token          up 1, the desktop's login a token login (auth type 7) for its account: token-<slug> (server/issuer.py) is the
-#                     issuer of compact signed tokens whose secret game.yml's token-login block holds and jav_config param 11
-#                     names (https: the client takes no other); with SIGN_IN=central (tracks/central/track.sh up <slug> token) the head's
-#                     Central signs in instead: server-<slug> alone, its Central serving jav_config (its file the template, rendered),
+#   up token          up 1; with SIGN_IN=central (tracks/central/track.sh up <slug> token, one desktop) the head's
+#                     Central signs in instead of the issuer: server-<slug> alone, its Central serving jav_config (its file the template, rendered),
 #                     OIDC and game-session over https on the http port (the issuer's secret and certificate) and http on a docker
 #                     port, the desktop's JX_SESSION_ID a real session of account 1 (sign_in); restart refused (sessions are in memory)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
 #                     ones (--exp -5), another account's, and forged ones (another key DIR)
-#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), logged in as this slug's own account; prints LIVE_DESKTOP <devtools port> <instance dir>
+#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), signed in through the live Central's sign-in
+#                     as this slug's own account (its first sign-in registers it) and logged in by token with Play alone; prints LIVE_DESKTOP <devtools port> <instance dir>
 #   live-desktop-down stops that desktop and removes its instance
 #   restart           logs up's desktops out, restarts server-<slug>, its game.yml and database kept, and logs them in again
 #   down              stops the desktops, waits until the server has saved and dropped their characters or is gone, removes the stack record's containers
@@ -72,12 +76,11 @@ sql() { local pg; pg=$(docker logs "server-$slug" 2>&1 | grep -oE 'jdbc:postgres
   docker run --rm --network "container:server-$slug" postgres:16-alpine psql -h 127.0.0.1 -p "$pg" -U postgres -d postgres -tAq -c "$1"; }
 login() {  # login <devtools port> <account>: logs that desktop in as the account (a FAILED login fails up and restart: one whose inventory widget does not show container 93 too); a lost key types another name, whose first login makes a stray account (the rights update then missed the real row): until this login made no row but the account's, out and in again
   local m; while :; do m=$(sql "select coalesce(max(id), 0) from accounts")
-    if [ -n "${tok:-}" ]; then python3 "$self/server/desktop_login.py" "$1" token; else python3 "$self/server/desktop_login.py" "$1" "$2" "$2"; fi   # prints LOGGED_IN or FAILED: reason
+    python3 "$self/server/desktop_login.py" "$1" token   # Play alone; prints LOGGED_IN or FAILED: reason
     [ "$(sql "select string_agg(lower(account_name), ' ') from accounts where id > $m or lower(account_name) = '$2'")" = "$2" ] && return
     echo "login on $1 made another account than $2: logging in again"; python3 "$self/server/desktop_login.py" "$1" logout; done; }
 keep() {  # keep <devtools port> <account>: from now until down, that desktop logged out (a disconnect, a restart, a logout) logs in again
-  if [ -n "${tok:-}" ]; then set -- "$1" token; else set -- "$1" "$2" "$2"; fi
-  setsid python3 "$self/server/desktop_login.py" "$1" keep "server-$slug" "${@:2}" < /dev/null >> "$state/keep-$1.log" 2>&1 & }
+  setsid python3 "$self/server/desktop_login.py" "$1" keep "server-$slug" token < /dev/null >> "$state/keep-$1.log" 2>&1 & }
 unkeep() { pkill -f "^python3 [^ ]*/desktop_login\.py [0-9]+ keep server-$slug " || true; }   # this slug's keepers stopped, by their command line (no pid file a reused pid could match): a logout that is meant stays out
 offline() { until [ "$(docker inspect -f '{{.State.Running}}' "server-$slug" 2>/dev/null)" != true ] || [ "$(sql "select count(*) from main.character_progress where online_central_world_id is not null and character_id in ($mine)")" = 0 ]; do sleep 1; done; }   # each character saved at its logout, or the server gone: none is saved after
 
@@ -136,7 +139,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   jo=" -javaagent:$t\\rsprox\\$o.jar -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools=$dp:$w\\guard -Dosrstest.refusals=$(wslpath -w "$state/refused-urls.log")"   # no URL reaches the OS: each refused one is a line of that log
   jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
-    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$state/token/tls.pem" "$d/home/token-tls.pem"
+    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
     "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" >/dev/null
     jo+=" -Djavax.net.ssl.trustStore=$w\\home\\token-trust.p12 -Djavax.net.ssl.trustStorePassword=changeit"
   fi
@@ -151,16 +154,22 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     fi
     if [ -z "$pid" ]; then
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
-        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="$(account 1)" \
+        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
         "-Dosrstest.token=${tok:-false}" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!
     fi
     b=$(grep -m1 -A1 "Failed to start MCP server on port $dp" "$d/home/.runelite/logs/client.log" 2>/dev/null | tr '\n' ' ') || true   # logs/ is never copied into a claim: the line is this start's
     [ -z "$b" ] || { echo "desktop $i: its devtools plugin could not bind $dp: $b" >&2; return 1; }
+    b=$(grep -m1 -A1 'ERROR.*Launcher\.main:' "$state/desktop$i.log" 2>/dev/null | tr '\n' ' ') || true   # the RuneLite launcher failed (a 429 from repo.runelite.net): its error dialog keeps the JVM alive
+    [ -z "$b" ] || { echo "desktop $i: the RuneLite launcher failed: $b" >&2; return 1; }
     for p in $(marked "$i" | cut -d' ' -f1); do winpid "$p" "java.exe"; done; sleep 2
   done
   for p in $(marked "$i" | cut -d' ' -f1); do winpid "$p" "java.exe"; done
+  # the jars this start downloaded and verified (RSProx's RuneLite launcher, RuneLite's), into the template: the next instance's home holds them and downloads none (each start downloading all drew 429s)
+  for x in .rsprox/runelite-launcher .runelite/repository2; do
+    [ ! -d "$d/home/$x" ] || { mkdir -p "$desk/home/${x%/*}" && "$sys32/robocopy.exe" "$(wslpath -w "$d/home/$x")" "$(wslpath -w "$desk/home/$x")" /MIR /MT:16 /NFL /NDL /NJH /NJS /NP > /dev/null; } || [ $? -lt 8 ] || echo "desktop $i: its $x was not copied into the template" >&2
+  done
   inst=desktop$i; dt=$dp
 }
 desktops_remove() {  # stops every JVM carrying the marker of an instance this slug owns, then removes the instance, its owner last (a failed down re-runs)
@@ -179,7 +188,7 @@ devtools_jar() {  # sets jar: the devtools classes jar of the client track's bui
   local c=$root/tracks/client/track.sh crepo tc
   crepo=$(python3 -c 'import os, sys, yaml; p = os.path.expanduser(yaml.safe_load(open(sys.argv[1]))["repos"]["client"]["path"]); print(p if os.path.isabs(p) else os.path.normpath(os.path.join(sys.argv[2], p)))' "$root/hd.yaml" "$root")
   tc=$(git -C "$crepo" rev-parse "origin/HEAD^{commit}")
-  flock "$root/state/client-live.lock" env -u T -u EVIDENCE HD_ROOT="$root" HD_REPO="$crepo" "$c" build live "$tc" >&2   # one build copy for every up
+  flock "$root/state/client-live.lock" env -u T -u TCOMMIT -u EVIDENCE HD_ROOT="$root" HD_REPO="$crepo" "$c" build live "$tc" >&2   # one build copy for every up
   jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar
   [ -f "$jar" ] || { echo "no desktop devtools jar $jar" >&2; return 1; }
 }
@@ -190,17 +199,30 @@ keys() {  # the change's key pair in $state/key, made by up alone: whichever cha
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out "$k/game.key" 2>/dev/null   # PKCS#8, as the server's generateRsa writes
   printf 'Exponent: 10001\nModulus: %s' "$(modulus_of < "$k/game.key")" > "$k/client.key"
 }
-sign_in() {  # sets sid cid: a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account
-  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$state/token/tls.pem") code idt
-  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "$b/oauth2/auth?redirect_uri=http://127.0.0.1/cb&state=up&client_id=harness" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
+sign_in() {  # sign_in [ACCOUNT]: sets sid cid, a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account:
+  # ACCOUNT's by its password (its name; Central registers an account that never played), else Central's dev account
+  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$ca") a=(-G) code idt
+  [ -z "${1:-}" ] || a=(--data-urlencode "username=$1" --data-urlencode "password=$1")
+  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "${a[@]}" -d redirect_uri=http://127.0.0.1/cb -d state=up -d client_id=harness "$b/oauth2/auth" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
   idt=$("${c[@]}" -d grant_type=authorization_code -d "code=$code" -d client_id=harness "$b/oauth2/token" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id_token"])')
   sid=$("${c[@]}" -H 'Content-Type: application/json' -d "{\"idToken\":\"$idt\"}" "$b/game-session/v1/sessions" | python3 -c 'import json,sys;print(json.load(sys.stdin)["sessionId"])')
   cid=$("${c[@]}" -H "Authorization: Bearer $sid" "$b/game-session/v1/accounts" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["accountId"])')
 }
+crepo=${CENTRAL_REPO:-$HOME/src/OpenRune-Central-Server}
+file_central() { local c; c=$(grep -oE '_c[0-9a-f]{12}' <<< "$T") && git -C "$crepo" grep -q 'scheme == "file"' "${c#_c}" -- central-app/src/main; }   # or:<T>'s Central (its _c<tree12>; none: the published one, which fetches jav_config over http alone) reads a file:// jav_config
+central_staged() {  # the T of or:<T>'s tree built with Central's staging, the Central the deploy runs (with CENTRAL: that head merged with it), on stdout
+  local h p c t; h=$(git -C "$crepo" rev-parse refs/heads/staging)
+  if [ -n "${CENTRAL:-}" ]; then IFS=: read -r p c <<< "$CENTRAL"
+    t=$(git -C "$crepo" merge-tree --write-tree "$c" "$h") || { echo "Central $c does not merge with Central's staging: merge it there first" >&2; return 1; }
+    h=$(git -C "$crepo" -c user.name="Alex Perrin" -c user.email=44126061+AlexPerrin@users.noreply.github.com commit-tree "$t" -p "$c" -p "$h" -m "up: $c with staging"); fi
+  (unset T; CENTRAL="$crepo:$h" HD_KEY= "$self/build/build.sh" build "$slug" >&2)   # TCOMMIT (the pass's) or the dev's working copy, as the up's own build; cached by its _c<tree12>
+  python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json"; }
 central_jav() {  # $state/jav_config.ws for the game's own Central: $tpl filled as the sidecar fills it, its base http(s, with $sic)://127.0.0.1:$http
   sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
-  tok=; sic=; sid=; cid=; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  tok=true; sic=; sid=; cid=; who=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || n=1; [ "${SIGN_IN:-}" != central ] || sic=1
+  [ -z "$sic" ] || [ "$n" = 1 ] || { echo "SIGN_IN=central signs one desktop in" >&2; return 2; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  [ -n "$sic" ] || file_central || T=$(central_staged)
   docker image inspect "or:$T" >/dev/null 2>&1 || { echo "no image or:$T: build first"; return 1; }
   devtools_jar   # the jar every desktop of this up loads
   game=$(port 0); http=$(port 1)
@@ -211,7 +233,7 @@ up() {
   keys   # never a missing mount source: docker would make it a directory
   modulus=$(modulus_of < "$state/key/game.key"); devtoken=$(openssl rand -hex 16)   # the up's devtools token: its desktops' endpoints answer no other caller
   staff=$(for i in $(tr , ' ' <<< "${STAFF:-}"); do account "$i"; done | paste -sd' ')   # STAFF=1,2: those desktops' accounts administrators
-  cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"
+  cs="server-$slug"; [ -n "$sic" ] || cs+=" token-$slug"
   stack started="$(date -u +%FT%TZ)" script="$self/track.sh" repo="$repo" containers="$cs" signin="${sic:+central}" \
     modulus="$modulus" game:="$game" http:="$http" desktops= accounts= staff="$staff" token="$devtoken"   # before its first container: down and hd's repair act on what it names
   tpl=$self/server/jav_config.ws.template
@@ -222,21 +244,16 @@ up() {
     sopt=(-p "$http:8443" -p 8080 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
       -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
       -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit)
-  elif [ -n "$tok" ]; then  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
-    python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"; token >/dev/null
+  else  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
+    python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"; rm -f "$state/token/token"   # no token a past `token` wrote: each desktop's own session
     docker run -d --name "token-$slug" -p 8080 -v "$self/server/issuer.py:/issuer.py:ro" -v "$state/token:/t:ro" python:3.13-alpine python3 /issuer.py serve /t >/dev/null
     sed -E "s#^param=(11|22)=.*#param=\1=https://127.0.0.1:$(docker port "token-$slug" 8080 | head -1 | cut -d: -f2)/#" "$tpl" > "$state/jav_config.ws.template"; tpl=$state/jav_config.ws.template   # 11 Jagex auth, 22 RuneScape auth: the client casts both to https
   fi
-  if [ -n "${CENTRAL_JAV:-}$sic" ]; then   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
-    central_jav
-    sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
-  fi
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
+  sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
   [ -n "${RESUME:-}" ] || rm -rf "$state/postgres"; mkdir -p -m 700 "$state/postgres"   # fresh, or RESUME: the last down's (owner uid 1000, the server's)
   docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" -v "$state/postgres:/app/.data/postgres" \
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
-  [ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug" -p "$http:8080" -v "$sidecar_data:/data:ro" -v "$tpl:/app/protocol/jav_config.ws.template:ro" \
-    -e WORLD_HOST=127.0.0.1 -e HTTP_PUBLIC_PORT="$http" -e WORLD_ID=255 -e SAVE_DIR=/tmp/saves -e JAV_CONFIG_TEMPLATE=/app/protocol/jav_config.ws.template \
-    -e LOCAL_AUTH=false -e PROOF_OF_WORK=false -e VALIDATE_CRCS=false osrs-rsps-test:241 >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
   if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
@@ -244,6 +261,7 @@ up() {
   else python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 8080 | head -1 | cut -d: -f2)/jav_config.ws"; sign_in; fi   # Central's, over its http port; the session after the realm's restart (Central keeps sessions in memory)
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
+    [ -n "$sic" ] || { who=$(account "$i"); sid=$(python3 "$self/server/issuer.py" mint "$state/token" "$who" --exp 31536000); cid=$(python3 -c 'import sys, zlib; print(zlib.crc32(sys.argv[1].encode()) & 0x7FFFFFFF)' "$who"); }   # the session the issuer answers with this desktop's account
     desktop_start
     desktops+=("$inst:$dt"); accounts+=("$(account "$i")")
     stack desktops="${desktops[*]}" accounts="${accounts[*]}"   # before the login: restart and the devtools tools find each desktop
@@ -264,7 +282,7 @@ restart() {  # the server container restarted with its game.yml and database; th
   d=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["desktops"], "|", d["accounts"], "|", d.get("signin", ""))' "$state/up.json")
   [ -z "$(cut -d'|' -f3 <<< "$d" | tr -d ' ')" ] || { echo "restart: Central keeps the desktop's sign-in session in memory, which a restart loses: down and up again" >&2; return 1; }
   d=${d%|*}
-  tok=$(docker ps -q -f "name=^token-$slug\$"); read -ra ds <<< "${d%%|*}"; read -ra as <<< "${d#*|}"
+  read -ra ds <<< "${d%%|*}"; read -ra as <<< "${d#*|}"
   unkeep; for c in "${ds[@]}"; do python3 "$self/server/desktop_login.py" "$(cut -d: -f2 <<< "$c")" logout; done; offline
   since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"
   for i in "${!ds[@]}"; do login "$(cut -d: -f2 <<< "${ds[$i]}")" "${as[$i]}"; keep "$(cut -d: -f2 <<< "${ds[$i]}")" "${as[$i]}"; done
@@ -285,6 +303,7 @@ image_key() {  # image_key IMAGE: its game.key and client.key carry the live pai
   [ "$g" = "$modulus" ] && [ "$c" = "$modulus" ] || { echo "key: $1 carries game.key ${g:0:8} and client.key ${c:0:8}, not the live pair's ${modulus:0:8}"; return 4; }
   echo "key: the live pair's ${modulus:0:8}"
 }
+# deploy runs holding state/live/stack.lock (act.start's, inherited): a flock of its own on that file would wait on itself
 deploy() {  # staging's tree → the live test server; a failing step names itself and records the job failed
   set -E; trap 'echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $?)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND"' ERR
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
@@ -292,7 +311,7 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   # the issuer (compose's ISSUER_DIR): its secret in the image's game.yml; the APK's sign-in and tokens for the tester account it has always played
   export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
-  sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_ISSUER_PORT:-8083}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"
+  sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"   # the APK's sign-in: Central's plain http (LOCAL_AUTH takes http; discovery answers the request's Host)
   # Central's sign-in for desktops, as up's SIGN_IN=central: the issuer's secret and account, https with its certificate, its own jav_config
   sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
   openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
@@ -327,6 +346,7 @@ EOF
     for c in osrs-openrune-http osrs-openrune-http-desktop; do python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "$c" 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6; done
     python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, for desktops
     curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6   # its sign-in over https
+    curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6   # and over http, the APK's
     [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" ok "live: $T"
   else
     docker tag "osrs-openrune:rollback-${prev:0:12}" "$live_image"; (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps openrune) >/dev/null
@@ -356,12 +376,13 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
   [ $fail = 1 ] || rm -rf "$h"; return $fail
 }
 
-live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
-  srv=osrs-openrune; http=${OPENRUNE_DESKTOP_HTTP_PORT:-8082}; game=${OPENRUNE_GAME_PORT:-43594}; tok=
+live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
+  srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; sic=1; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
-  devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
-  desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
-  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)") || true; echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
+  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
+  flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
+  sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
+  login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1
   trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }

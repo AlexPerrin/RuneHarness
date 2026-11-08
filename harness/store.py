@@ -168,7 +168,9 @@ CREATE TABLE alert_6 (
   UNIQUE (kind, subject));
 INSERT INTO alert_6 SELECT * FROM alert; DROP TABLE alert; ALTER TABLE alert_6 RENAME TO alert;"""
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6]
+SCHEMA_7 = "ALTER TABLE stack ADD COLUMN live INTEGER NOT NULL DEFAULT 0;"   # the stack plays on the live test server (a mobile, live-desktop): no deploy under it
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7]
 
 
 def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
@@ -262,7 +264,7 @@ class Ledger:
         return row["tree"] if row else None
 
     def landed(self, slug, target):
-        return self.one("SELECT sha FROM landed WHERE change=? AND target=?", slug, target)
+        return self.one("SELECT sha FROM landed WHERE change=? AND target=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", slug, target)   # void once a newer head is submitted (M1)
 
     def open_ask(self, slug):
         return self.one("SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", slug)
@@ -284,15 +286,21 @@ class Ledger:
         return {r["criterion_id"]: r for r in self.all("SELECT * FROM check_result WHERE tree=?", tree)}
 
     def staging_composite(self, staging) -> str | None:
-        """The library heads staging's server changes were built with: a staging build has no dependency on its own, and
-        a head that needs an unpublished Central builds only with it. Two heads of one library are a conflict to merge first."""
+        """The library heads the test server runs with: a library's own staging (its checked changes merged there,
+        act.stage), else the heads staging's server changes were built with (a staging build has no dependency on its own,
+        and a head that needs an unpublished Central builds only with it). Two of those heads are a conflict to merge first."""
         comp = {}
+        for lib in ("central", "filestore"):
+            r = self.one("SELECT sha, tree FROM ref WHERE repo=? AND name=?", lib, staging)
+            if r:
+                comp[lib] = {"head": r["sha"], "tree": r["tree"]}
+        own = set(comp)
         for r in self.all("SELECT change FROM landed WHERE target=?", staging):
             s = self.one("SELECT composite_json FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", r["change"])
             if self.closed(r["change"]) or not s or not s["composite_json"]:
                 continue
             for lib, v in json.loads(s["composite_json"]).items():
-                if comp.setdefault(lib, v)["head"] != v["head"]:
+                if lib not in own and comp.setdefault(lib, v)["head"] != v["head"]:
                     raise ValueError(f"staging holds two {lib} heads, {comp[lib]['head'][:7]} and {v['head'][:7]}: its deploy needs them merged")
         return json.dumps(comp) if comp else None
 
@@ -316,6 +324,12 @@ class Ledger:
 
     def live_run(self, slug):
         return self.one("SELECT * FROM run WHERE change=? AND ended_at IS NULL", slug)
+
+    def live_users(self):
+        """Changes playing on the live test server now: a stack row marked live whose change has a live run or a job in flight."""
+        return [r["change"] for r in self.all("""SELECT s.change FROM stack s WHERE s.live AND (
+            EXISTS (SELECT 1 FROM run r WHERE r.change=s.change AND r.ended_at IS NULL)
+            OR EXISTS (SELECT 1 FROM job j WHERE j.change=s.change AND j.pid IS NOT NULL AND j.ended_at IS NULL)) ORDER BY s.change""")]
 
     def live_runs(self):
         return self.all("SELECT * FROM run WHERE ended_at IS NULL ORDER BY id")

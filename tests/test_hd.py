@@ -62,6 +62,21 @@ class Hd(unittest.TestCase):
         hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))
         self.assertEqual([r[0] for r in store.connect().execute("SELECT change FROM landed WHERE target='live'")], ["s-a"])   # s-b landed after the deploy began
 
+    def test_a_deploy_ok_marks_the_library_heads_it_built_in_live(self):   # h-live-sign-in-needs-central: a Central change never reached live
+        import argparse, os, subprocess
+        from unittest import mock
+        repo = Path(self.dir.name) / "c"; g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "a"); a1 = g("rev-parse", "HEAD")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b"); b1 = g("rev-parse", "HEAD")
+        db = store.connect()
+        db.execute("INSERT INTO job(kind, key, started_at) VALUES ('deploy', 'tr1:fork-1', '2026-01-01T00:00:00')")
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-in', ?, 't', ?, 't'), ('c-out', ?, 't', 'x', 't')", (a1, a1, ("e" if b1[0] == "f" else "f") + b1[1:]))   # an unknown head: never b1 itself
+        defs = [hd.act.Change("c-in", "central"), hd.act.Change("c-out", "central")]
+        with mock.patch.object(hd.act, "changes", return_value=defs), mock.patch.dict(os.environ, {"CENTRAL": f"{repo}:{b1}"}):
+            hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))
+        self.assertEqual([r[0] for r in store.connect().execute("SELECT change FROM landed WHERE target='live'")], ["c-in"])   # c-out's head is not in the built head
+
     def test_a_malformed_ask_is_refused_before_any_row(self):   # alert 20: options split on a ':' inside the text left an unanswerable question
         import argparse, sqlite3
         hd.store.connect().execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('x', 'dev', 'code', 'i', 'b', 't')")
@@ -121,7 +136,26 @@ class Hd(unittest.TestCase):
         db = store.connect()
         db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('fork', ?, 't', 't', 't'), ('up', ?, 't', 't', 't')", (fork_only, merged))
         db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('fork', 'refs/heads/staging', ?, 't')", (fork_only,))
-        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"]), ([fork_only], {}))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"], merged), ([fork_only], {}))
+        # h-fork-candidate-on-staging: a track that deploys the test server proves a change on staging (H4), its head on main (G4)
+        subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "staging", "main"], check=True, env=env)
+        subprocess.run(["git", "-C", repo, "merge", "-q", "--no-ff", "--no-edit", "fork-only"], check=True, env=env)
+        staging = hd.act.git(repo, "rev-parse", "staging")
+        subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "dev", "main"], check=True, env=env)
+        head = commit("head", "dev")
+        T = Track("fork", "x/y", repo, "refs/heads/main", "o/y", recipes={"deploy": "fork-1"})
+        cfg = Cfg(tracks={"fork": T})
+        defs.update(f=Change("f", "fork", deps=("g",)), g=Change("g", "fork", upstream=False))
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('g', ?, 't', 't', 't')", (fork_only,))
+        self.assertEqual((T.candidate_base(), hd.candidate_base(T)), ("refs/heads/staging", staging))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging), ([], {}))   # on staging already: in the base
+        db.execute("INSERT INTO ref(repo, name, sha, tree, seen_at) VALUES ('central', 'refs/heads/staging', 'c1', 'ct', 't')")
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging, staged=True), ([], {"central": {"head": "c1", "tree": "ct"}}))   # built with the libraries the test server runs
+        tree, tcommit = hd.act.candidate(repo, staging, [head])
+        files = hd.act.git(repo, "ls-tree", "--name-only", tree).split()
+        self.assertEqual(sorted(files), ["base", "fork", "head", "merged"])   # staging's own commit is proved with the head
+        self.assertFalse(hd.act.is_ancestor(repo, fork_only, head))   # the PR head holds no staged commit
+        self.assertEqual(Track("central", "x/y", repo, "refs/heads/main", "o/y").candidate_base(), "refs/heads/main")   # no deploy: base
 
 
 if __name__ == "__main__":

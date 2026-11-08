@@ -46,8 +46,9 @@ publish → maintainers' findings become criteria.
   the user is told compaction is due, with its commands.
 - **H8** The local stack is a reference OpenRune deployment: the server built and run as upstream's release is (the
   release workflow's Gradle steps and bundle, `java -jar server.jar` beside `game.yml` and `.data/`), Central embedded
-  (`central.same-instance`) on upstream's ports serving the clients' config and sign-in, the cache from OpenRune-FileStore,
-  and desktops connecting through RSProx as upstream's README sets out. A harness stand-in for what these tools do
+  (`central.same-instance`) on upstream's ports serving the clients' config and sign-in, the cache built by
+  OpenRune-FileStore (upstream's library, with our staged FileStore changes), desktops connecting through RSProx as
+  upstream's README sets out, and OpenRune-Developer-Tools as the desktops' devtools plugin. A harness stand-in for what these tools do
   goes. Login works for any client: every desktop and the APK sign in by that one path, each proved on the live stack. Each
   remaining deviation is named with its reason in docs/ARCHITECTURE.md; Privacy outranks the reference.
 

@@ -20,4 +20,6 @@ Needed: tracks/fork/build and the deploy build and run that bundle on staging's 
 
 Deviations to keep, each named in docs/ARCHITECTURE.md with its reason: the local jav_config instead of client.blurite.io (Privacy: no client contacts Jagex, and that config names Jagex hosts); Central's sign-in and token login, ours until the Central upstream hold lifts; the patched APK. No Privacy rule weakens for the reference.
 
+FileStore and Developer-Tools are part of the reference (the user's word): the cache is built by OpenRune-FileStore as upstream's `or-cache` does (the published `dev.or2:filestore`, our staged FileStore head where a filestore change is on staging), with no harness cache step beside it; the desktops' devtools are OpenRune-Developer-Tools where it does the job (h-ref-devtools-upstream), each kept tool of ours named with its reason.
+
 Done when, from a clean state, the staging deploy and `up` on a fresh C:\osrs-test home reach LOGGED_IN on the desktop and the APK with those containers gone, javcheck.py passing on Central's own /jav_config.ws, and ACCEPTANCE H8 replaced by the observed fact. If it is too large for one run, file its parts as changes, each with its deps, and hand back.

@@ -413,16 +413,16 @@ def cmd_job(a):
     event(db, "job", os.environ.get("HD_SLUG"), None, f"{a.kind} {decide.short(a.key)} {a.result} {a.detail or ''}")
     if a.kind == "deploy" and a.result == "ok":   # the test server now runs staging as it was when the deploy began: those heads are live
         j = db.execute("SELECT started_at FROM job WHERE kind='deploy' AND key=?", (a.key,)).fetchone()
-        for r in db.execute("""SELECT change FROM landed WHERE target=? AND at<=? AND change NOT IN (SELECT change FROM landed WHERE target='live')""",
+        for r in db.execute("""SELECT change FROM landed WHERE target=? AND at<=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '') AND change NOT IN (SELECT change FROM landed WHERE target='live' AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), ''))""",
                             (decide.STAGING, j["started_at"] or now())).fetchall():
-            db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
+            db.execute("INSERT OR REPLACE INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
             event(db, "landed", r["change"], None, "live: the test server runs it")
         for lib in ("central", "filestore"):   # a library change is live once its head is in the library head the deploy built in (the job env's CENTRAL)
             path, _, built = os.environ.get(lib.upper(), "").rpartition(":")
             for c in [c for c in act.changes() if c.track == lib] if built else []:
                 h = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (c.slug,)).fetchone()
-                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live'", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
-                    db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
+                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live' AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
+                    db.execute("INSERT OR REPLACE INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
                     event(db, "landed", c.slug, None, f"live: the test server runs it in {lib} {built[:7]}")
     act.tick_later()
 

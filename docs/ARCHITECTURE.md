@@ -158,7 +158,7 @@ CREATE TABLE finding (                                 -- a maintainer's word on
 -- observations
 CREATE TABLE ref    (repo TEXT, name TEXT, sha TEXT NOT NULL, seen_at TEXT, tree TEXT, PRIMARY KEY (repo, name));  -- tree: migration 2
 CREATE TABLE text   (change TEXT, name TEXT, sha TEXT NOT NULL, body TEXT NOT NULL, at TEXT, PRIMARY KEY (change, name));  -- migration 3: evidence/<slug>/pr-*
-CREATE TABLE landed (change TEXT, target TEXT, sha TEXT, at TEXT, PRIMARY KEY (change, target));
+CREATE TABLE landed (change TEXT, target TEXT, sha TEXT, at TEXT, PRIMARY KEY (change, target));   -- void once the change has a newer submission (M1): Ledger.landed reads only rows at or after it; a newer head lands again (INSERT OR REPLACE)
 CREATE TABLE gh     (url TEXT PRIMARY KEY, etag TEXT, status INTEGER, body TEXT, at TEXT);
 CREATE TABLE stack  (change TEXT PRIMARY KEY, script TEXT, containers_json TEXT, desktops_json TEXT,
                      token TEXT, modulus TEXT, started_at TEXT);          -- a change's running server and clients
@@ -320,7 +320,7 @@ flowchart TD
   T0([timer / run end / command]) --> F
   subgraph OBS["observe.py"]
     F["git fetch each repo with an open change<br/>for-each-ref → UPSERT ref where sha changed"] --> L{"a target ref moved?"}
-    L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → INSERT landed"]
+    L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → landed (replacing a row older than the last submission)"]
     L -- no --> P
     LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok<br/>sessions: pid gone → crash, started runs → console; definition moved → drain"]
     P --> GH["disk rows: free space of ~/src and /mnt/c<br/>public changes: evidence/<slug>/pr-* → text rows;<br/>a change with a pr: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]

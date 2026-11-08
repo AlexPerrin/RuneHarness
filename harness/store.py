@@ -262,7 +262,7 @@ class Ledger:
         return row["tree"] if row else None
 
     def landed(self, slug, target):
-        return self.one("SELECT sha FROM landed WHERE change=? AND target=?", slug, target)
+        return self.one("SELECT sha FROM landed WHERE change=? AND target=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", slug, target)   # void once a newer head is submitted (M1)
 
     def open_ask(self, slug):
         return self.one("SELECT a.* FROM ask a LEFT JOIN answer n ON n.ask=a.id WHERE a.change=? AND n.ask IS NULL", slug)

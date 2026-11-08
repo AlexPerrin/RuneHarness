@@ -43,17 +43,17 @@ def fetch(db, T) -> set:
 
 
 def landed(db, T, target: str, changes: list) -> None:
-    """For each open change of the track with a submission and no landed row for target: its head an ancestor of
-    target's sha → INSERT landed."""
+    """For each open change of the track with a submission and no landed row for target since its last submission: its head
+    an ancestor of target's sha → landed (a row older than the change's last submission is void, M1)."""
     sha = db.execute("SELECT sha FROM ref WHERE repo=? AND name=?", (T.name, target)).fetchone()
     if not sha:
         return
     for ch in changes:
-        if db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (ch.slug, target)).fetchone():
+        if db.execute("SELECT 1 FROM landed WHERE change=? AND target=? AND at >= coalesce((SELECT max(s.at) FROM submission s WHERE s.change=landed.change), '')", (ch.slug, target)).fetchone():
             continue
         head = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (ch.slug,)).fetchone()
         if head and subprocess.run(["git", "-C", T.path, "merge-base", "--is-ancestor", head["head"], sha["sha"]]).returncode == 0:
-            db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (ch.slug, target, sha["sha"], now()))
+            db.execute("INSERT OR REPLACE INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (ch.slug, target, sha["sha"], now()))
             event(db, "landed", ch.slug, None, f"{head['head'][:7]} on {target}")
 
 

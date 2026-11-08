@@ -915,12 +915,12 @@ class DesktopLogin(unittest.TestCase):
         t = SRC; fn = t[t.index("login() {"):t.index("offline() {")]
         for site in ('login "$dt"', 'login "$(cut -d: -f2 <<< "${desktops[$i]}")"', 'login "$(cut -d: -f2 <<< "${ds[$i]}")"'):
             s.assertIn(site, t)   # every login of up and restart
-        s.assertEqual(t.count("desktop_login.py\" \"$1\" \"$2\""), 1)   # no login but through it
+        s.assertEqual(t.count('desktop_login.py" "$1" token'), 1)   # no login but through it, by token (Play alone)
         made = lambda *rows: subprocess.run(["bash", "-c", f'set -euo pipefail\nf=$(mktemp); trap "rm -f $f" EXIT; printf "%s\\n" {" ".join(repr(r) for r in rows)} > $f\nsql() {{ case $1 in *max*) echo 0 ;; *) head -1 $f; sed -i 1d $f ;; esac; }}   # each read in its own subshell: the rows a file\npython3() {{ echo "py $3"; }}\nself=.\n{fn}\nlogin 7786 h1'],
                                             capture_output=True, text=True).stdout
-        s.assertEqual(made("h1"), "py h1\n")
-        s.assertEqual(made("h1x h1", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")
-        s.assertEqual(made("h", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")   # no row of the account yet
+        s.assertEqual(made("h1"), "py token\n")
+        s.assertEqual(made("h1x h1", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")
+        s.assertEqual(made("h", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")   # no row of the account yet
 
 class Repo(unittest.TestCase):
     def setUp(s):
@@ -1180,6 +1180,14 @@ class GateCi(Repo):
         s.assertNotIn("If-None-Match", api[0]); s.assertTrue(all('If-None-Match: W/"running"' in c for c in api[1:]), api)  # a 304 keeps the ETag
         s.assertFalse([c for c in calls if c.startswith(("run list", "workflow run"))])  # runs were listed: nothing dispatched
 
+    def test_ci_runs_the_prs_own_candidate_not_stagings(s):  # h-fork-candidate-on-staging: proved on staging, the PR's CI on upstream main
+        for f in ("ci", "format"): s.write(f".github/workflows/{f}.yml", s.WF)
+        pr = s.commit("the PR on main"); s.write("staged.kt", "x")   # gate()'s own commit (TCOMMIT) holds more: staging's
+        r, _, _ = s.gate(s.GREEN, env={"PR_TCOMMIT": pr})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn(f"(T {pr})", r.stdout)
+        r, calls, _ = s.gate(s.GREEN, env={"PR_TCOMMIT": "conflict: a.kt"})
+        s.assertEqual(r.returncode, 1); s.assertIn("does not merge with upstream main, conflict: a.kt", r.stdout); s.assertEqual(calls, [])
+
     def test_a_quota_refusal_holds_the_row_until_githubs_reset(s):  # genie-355-bank-lamp's gate failed 'HTTP 403: API rate limit exceeded'
         r, calls, sleeps = s.gate(['HTTP/2.0 403 Forbidden\nX-Ratelimit-Remaining: 0\nX-Ratelimit-Reset: 9999999999\n\n{"message":"API rate limit exceeded"}', s.RUNS("success")])
         s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("held until its reset", r.stdout)
@@ -1428,6 +1436,18 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         (d / "token").write_text("a.b.c\n"); s.assertEqual(get(), {"token": "a.b.c"})
         (d / "token").write_text("x.y.z\n"); s.assertEqual(get(), {"token": "x.y.z"})
 
+    def test_each_desktops_session_gets_its_own_accounts_token(s):  # h-fork-candidate-on-staging: every up desktop by token, each its own account
+        import http.server, threading, urllib.request, zlib, issuer as t
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.key(d); (d / "account").write_text("hab11\n"); t.GameSession.dir = d; t.GameSession.sessions = {}
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
+        def call(path, sid, body=b""):
+            return json.load(urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{srv.server_port}/{path}", data=body, headers={"Authorization": f"Bearer {sid}"})))
+        sid2 = t.mint(d, "hab12", 31536000)   # up's JX_SESSION_ID for desktop 2
+        s.assertEqual(call("game-session/v1/tokens", sid2)["token"].split(".")[0], "hab12")
+        s.assertEqual(call("game-session/v1/accounts", sid2, None)[0]["accountId"], zlib.crc32(b"hab12") & 0x7FFFFFFF)   # up's JX_CHARACTER_ID
+        s.assertEqual(call("game-session/v1/tokens", t.mint(d, "hab12", -5))["token"].split(".")[0], "hab11")   # an expired session: DIR/account
+        t.key(d / "other"); s.assertEqual(call("game-session/v1/tokens", t.mint(d / "other", "hab12"))["token"].split(".")[0], "hab11")   # another DIR's: not a session
+
     def test_the_issuer_keeps_the_connection_for_the_client_to_close(s):  # a close right after the body cut the APK's character list short (curl 18, page 39)
         import http.client, http.server, threading, issuer as t
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); t.GameSession.dir = d; (d / "token").write_text("a.b.c\n")
@@ -1468,8 +1488,15 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
         s.assertIn('tpl=$state/jav_config.ws.template', up)
-        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+=" token-$slug"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
+        # h-fork-candidate-on-staging: every up (no `token` argument) logs each desktop in by token, Play alone, as its own account
+        s.assertIn("tok=true;", up); s.assertIn('rm -f "$state/token/token"', up)
+        loop = up.split("for i in $(seq 1 \"$n\"); do")[1]
+        s.assertLess(loop.index('who=$(account "$i"); sid=$(python3 "$self/server/issuer.py" mint "$state/token" "$who"'), loop.index("desktop_start"))
+        s.assertIn('JX_DISPLAY_NAME="${who:-$(account 1)}"', sh)
+        body = sh.split("\nlogin() {")[1].split("\nunkeep() {")[0]   # login and keep
+        s.assertNotIn('"$2" "$2"', body); s.assertEqual(body.count('desktop_login.py" "$1" token'), 1); s.assertIn('keep "server-$slug" token', body)   # no typed form
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck

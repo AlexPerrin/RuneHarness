@@ -136,7 +136,26 @@ class Hd(unittest.TestCase):
         db = store.connect()
         db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('fork', ?, 't', 't', 't'), ('up', ?, 't', 't', 't')", (fork_only, merged))
         db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('fork', 'refs/heads/staging', ?, 't')", (fork_only,))
-        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"]), ([fork_only], {}))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"], merged), ([fork_only], {}))
+        # h-fork-candidate-on-staging: a track that deploys the test server proves a change on staging (H4), its head on main (G4)
+        subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "staging", "main"], check=True, env=env)
+        subprocess.run(["git", "-C", repo, "merge", "-q", "--no-ff", "--no-edit", "fork-only"], check=True, env=env)
+        staging = hd.act.git(repo, "rev-parse", "staging")
+        subprocess.run(["git", "-C", repo, "checkout", "-q", "-b", "dev", "main"], check=True, env=env)
+        head = commit("head", "dev")
+        T = Track("fork", "x/y", repo, "refs/heads/main", "o/y", recipes={"deploy": "fork-1"})
+        cfg = Cfg(tracks={"fork": T})
+        defs.update(f=Change("f", "fork", deps=("g",)), g=Change("g", "fork", upstream=False))
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('g', ?, 't', 't', 't')", (fork_only,))
+        self.assertEqual((T.candidate_base(), hd.candidate_base(T)), ("refs/heads/staging", staging))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging), ([], {}))   # on staging already: in the base
+        db.execute("INSERT INTO ref(repo, name, sha, tree, seen_at) VALUES ('central', 'refs/heads/staging', 'c1', 'ct', 't')")
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging, staged=True), ([], {"central": {"head": "c1", "tree": "ct"}}))   # built with the libraries the test server runs
+        tree, tcommit = hd.act.candidate(repo, staging, [head])
+        files = hd.act.git(repo, "ls-tree", "--name-only", tree).split()
+        self.assertEqual(sorted(files), ["base", "fork", "head", "merged"])   # staging's own commit is proved with the head
+        self.assertFalse(hd.act.is_ancestor(repo, fork_only, head))   # the PR head holds no staged commit
+        self.assertEqual(Track("central", "x/y", repo, "refs/heads/main", "o/y").candidate_base(), "refs/heads/main")   # no deploy: base
 
 
 if __name__ == "__main__":

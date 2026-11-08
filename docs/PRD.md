@@ -54,8 +54,9 @@ publish → maintainers' findings become criteria.
 
 - **G1** Criteria are written before the code: the track's seed criteria, the accuracy specification from the
   recordings and the wiki, the live upstream rules with their blob shas, the user's decisions, maintainers'
-  findings. Each is scripted (a command the gate runs) or judged (the evaluator checks it). A criterion added later
-  joins the change at its next head.
+  findings. Each is scripted (a command the gate runs) or judged (the evaluator checks it), and checkable from the
+  change's own build before its verdict: a claim seen only once deployed (on the live test server, on a mobile) is a
+  client change depending on it, never its criterion. A criterion added later joins the change at its next head.
 - **G2** Cheapest first, each once: the gate runs every scripted criterion on the candidate before any evaluator
   run; the evaluator runs only where judged criteria exist and judges every one, pass or fail, never passing one it
   did not check; nothing is checked twice for the same tree, head and criteria.

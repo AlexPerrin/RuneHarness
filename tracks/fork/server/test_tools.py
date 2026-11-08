@@ -1,5 +1,5 @@
 """The contract's script rows against a throwaway git repo: python3 -m unittest tools/server/test_tools.py"""
-import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest
+import json, os, re, shutil, subprocess, sys, tempfile, threading, time, unittest, urllib.parse
 from unittest import mock
 from pathlib import Path
 SUITE_TMP = tempfile.TemporaryDirectory(prefix="tools-suite-", ignore_cleanup_errors=True)   # every temp dir of these tests and of each process they
@@ -10,6 +10,7 @@ for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 SRC = "\n".join((HERE.parent / f).read_text() for f in ("track.sh", "build/build.sh", "gate/gate.sh"))   # the track script and the code a build and a gate run
+JAV = "central_jav() {" + SRC.split("\ncentral_jav() {")[1].split(" }\n")[0] + " }"   # up's and deploy's fill of Central's jav_config
 
 
 def git(repo, *a, env=None):
@@ -269,7 +270,7 @@ class DesktopDevtools(unittest.TestCase):
     def test_each_desktop_loads_the_live_clients_devtools_jar(s):  # the client track's build, not a jar staged by hand
         t = SRC
         f = t.split("\ndevtools_jar() {")[1].split("\n}")[0]
-        s.assertIn('"$c" build live "$tc"', f); s.assertIn("-u T -u EVIDENCE", f)
+        s.assertIn('"$c" build live "$tc"', f); s.assertIn("-u T -u TCOMMIT -u EVIDENCE", f)
         s.assertIn('jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar', f); s.assertIn("c=$root/tracks/client/track.sh", f)
         s.assertIn("  devtools_jar", t.split("\nup() {")[1].split("\n}")[0])
         start = t.split("\ndesktop_start() {")[1].split("\n}")[0]
@@ -277,6 +278,7 @@ class DesktopDevtools(unittest.TestCase):
         s.assertLess(start.index("EXTRA_PLUGINS"), start.index("exec setsid"))   # the client track's probe jar loads at the start
         live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
         for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
+        s.assertNotIn("sign_in", live)   # h-live-sign-in-needs-central: no Central sign-in until central-game-session runs live
 
 
 class AccountName(unittest.TestCase):
@@ -807,11 +809,11 @@ class DesktopLogin(unittest.TestCase):
         s.assertEqual(got, ["press_key"])   # sent once, answered in its turn, never given up on
 
     def test_a_refusal_page_returns_not_hangs(s):  # server-token-auth-14: on 'Incorrect username or password.' Enter did nothing and token waited forever
-        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter and Enter after Escape start no attempt
+        d, sent = s.fake(["LOGIN_SCREEN"])   # Enter starts no attempt
         s.assertTrue(d.token(1).startswith("FAILED: Enter started no login"))
-        s.assertEqual([a.get("key", (a.get("x"), a.get("y"))) for n, a in sent if n in ("press_key", "click")], ["ENTER", "ESCAPE", "ENTER"])   # never a click: a ban page's top button opens the user's browser
-        d, sent = s.fake(["LOGIN_SCREEN"] * (1 + d.FRAMES + 2 + 1) + ["LOGGING_IN", "LOGGED_IN"])   # Escape left the response page: the Play page's Enter logs in
-        s.assertEqual(d.token(1), "LOGGED_IN")
+        s.assertEqual([(n, a) for n, a in sent if n != "get_client_state"], [("press_key", {"key": "ENTER"})])   # h-desktops-token-login: Play alone, no Escape, typing or click (a ban page's top button opens the user's browser)
+        d, sent = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGGED_IN"])   # the session's Play page: Enter logs in
+        s.assertEqual(d.token(1), "LOGGED_IN"); s.assertEqual([n for n, a in sent if n in ("press_key", "type_chat", "click")], ["press_key"])
         d, _ = s.fake(["LOGIN_SCREEN"] * 2 + ["LOGGING_IN", "LOGIN_SCREEN"])   # a refusal: back at the login screen
         s.assertEqual(d.token(1), "FAILED: back at the login screen: the server refused the token")
         d, _ = s.fake(["LOGIN_SCREEN"])   # the form's Enter started no attempt
@@ -1465,44 +1467,75 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         up = sh.split("\nup() {")[1].split("\n}")[0]; down = sh.split("\ndown() {")[1].split("\n}")[0]
         s.assertIn('issuer.py" key "$state/token" >> "$state/game.yml"', up)
         s.assertIn("param=\\1=https://127.0.0.1:", up)   # the client casts params 11 and 22 connections to https
-        s.assertIn('-v "$tpl:/app/protocol/jav_config.ws.template:ro"', up)
-        s.assertIn('cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
+        s.assertIn('tpl=$state/jav_config.ws.template', up)
+        s.assertIn('cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"', up); s.assertIn('containers="$cs"', up); s.assertIn('docker rm -f $cs', down)   # the record names it; down removes what the record names
         s.assertIn('"-Dosrstest.token=${tok:-false}"', sh); s.assertIn("JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME", sh)
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck
         up = SRC.split("\nup() {")[1].split("\n}")[0]
-        fill = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        fill = JAV + "\ncentral_jav"; s.assertIn("\n  central_jav   #", up)
         out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
         for line in ("codebase=http://127.0.0.1/", "param=17=http://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
             s.assertIn(line + "\n", out)
         s.assertIn('sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")', up)
-        s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertNotIn("http-$slug", up)   # no sidecar: every up's own Central serves it
         s.assertIn('javcheck.py" "http://127.0.0.1:$http/jav_config.ws"', up); s.assertIn("ep=http${sic:+s}://127.0.0.1:$http", SRC)   # the same port either way: the desktop's endpoint
+        s.assertIn('[ -n "$sic" ] || file_central || T=$(central_staged)', up)
         central = (HERE.parent.parent / "central/track.sh").read_text()
-        s.assertIn('git -C "$repo" grep -q OPENRUNE_JAV_CONFIG_URL_TEMPLATE "$h" -- central-app/src/main || export CENTRAL_JAV=1', central)   # a head without it keeps the sidecar
+        s.assertIn('export CENTRAL="$repo:$h"', central)   # the fork's up merges a head without file:// support with Central's staging
+
+    def test_an_up_whose_central_reads_no_file_jav_config_rebuilds_with_centrals_staging(s):  # h-ref-up-central-jav-config: the published Central fetches jav_config over http alone
+        d = Path(tempfile.mkdtemp()); c = d / "central"; c.mkdir(); src = c / "central-app/src/main"; src.mkdir(parents=True)
+        g = lambda *a: git(str(c), "-c", "user.name=t", "-c", "user.email=t@t", *a)
+        g("init", "-q", "-b", "main"); (src / "A.kt").write_text("http\n"); g("add", "-A"); g("commit", "-qm", "main")
+        g("checkout", "-qb", "head"); (src / "B.kt").write_text("x\n"); g("add", "-A"); g("commit", "-qm", "head")   # a Central change without file:// support
+        g("checkout", "-qb", "staging", "main"); (src / "A.kt").write_text('if (scheme == "file")\n'); g("add", "-A"); g("commit", "-qm", "file")
+        (d / "build").mkdir(); (d / "build/build.sh").write_text(f'echo "$T|$CENTRAL|$HD_KEY" > {d}/args; echo \'{{"T": "built"}}\' > {d}/build.json\n')
+        (d / "build/build.sh").chmod(0o755)
+        fns = SRC[SRC.index("file_central() {"):SRC.index("central_jav() {")]
+        run = lambda T, central="": subprocess.run(["bash", "-c", f"set -euo pipefail\ncrepo={c}; self={d}; state={d}; slug=x; T={T}; CENTRAL={central}\n{fns}\nif file_central; then echo file; else central_staged; fi"], capture_output=True, text=True)
+        tree = lambda r: g("rev-parse", r + "^{tree}")[:12]
+        s.assertEqual(run(f"abc_c{tree('staging')}").stdout, "file\n")                     # built with a file:// Central: as it is
+        r = run("abc"); s.assertEqual(r.stdout, "built\n", r.stderr)                          # the published Central: rebuilt with staging's
+        s.assertEqual((d / "args").read_text(), f"|{c}:{g('rev-parse', 'staging')}|\n")      # T unset (the build keys its own), no job reported
+        r = run(f"abc_c{tree('head')}", f"{c}:{g('rev-parse', 'head')}"); s.assertEqual(r.stdout, "built\n", r.stderr)
+        m = (d / "args").read_text().split("|")[1].split(":")[1]
+        s.assertEqual(g("rev-parse", m + "^@").split(), [g("rev-parse", "head"), g("rev-parse", "staging")])   # the head merged with staging
+        s.assertEqual(g("show", f"{m}:central-app/src/main/B.kt"), "x"); s.assertTrue(run(f"abc_c{tree(m)}").stdout == "file\n")
 
     def test_up_token_with_central_sign_in_starts_the_server_alone_and_a_real_session(s):  # h-central-up-sign-in: Central serves jav_config, the sign-in and game-session
         import javcheck, ssl, http.server, zlib, issuer as t
         up = SRC.split("\nup() {")[1].split("\n}")[0]
-        s.assertIn('[ "${SIGN_IN:-}" != central ] || sic=1', up); s.assertIn('[ -n "$sic" ] || cs+=', up); s.assertIn('[ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug"', up)
+        s.assertIn('[ "${SIGN_IN:-}" != central ] || sic=1', up); s.assertIn('[ -n "$sic" ] || cs+=', up)
         for e in ("OPENRUNE_SIGN_IN_TOKEN_SECRET", "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)", "OPENRUNE_HTTP_TLS_PORT=8443", "OPENRUNE_HTTP_TLS_KEYSTORE=", "OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://"):
             s.assertIn(e, up)
         s.assertIn('ep=http${sic:+s}://127.0.0.1:$http', SRC); s.assertIn("JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1}", SRC)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "token").mkdir()
-        render = next(l for l in up.splitlines() if "HTTP_BASE" in l)
+        render = JAV + "\ncentral_jav"
         subprocess.run(["bash", "-c", render], check=True, env={**os.environ, "sic": "1", "http": "20001", "tpl": str(HERE / "jav_config.ws.template"), "state": str(d)})
         j = (d / "jav_config.ws").read_text(encoding="utf-8"); params = dict(l[6:].split("=", 1) for l in j.splitlines() if l.startswith("param="))
         s.assertNotIn("{{", j); s.assertEqual(javcheck.foreign(j), []); s.assertEqual(params["17"], "https://127.0.0.1:20001/worldslist.ws"); s.assertEqual(params["11"], "https://127.0.0.1:20001/")
         t.key(d / "token"); (d / "token" / "account").write_text("hab12\n"); t.GameSession.dir = d / "token"; t.GameSession.sessions = {}
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); tls.load_cert_chain(d / "token/tls.pem", d / "token/tls.key")
-        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), t.GameSession); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+        class Password(t.GameSession):  # Central's POST /oauth2/auth: the form's account signed in by its password
+            posted = []
+            def answer(self):
+                if self.command == "POST" and self.path.endswith("/oauth2/auth"):
+                    f = dict(urllib.parse.parse_qsl(self.rfile.read(int(self.headers["Content-Length"])).decode())); self.posted.append(f)
+                    (self.dir / "account").write_text(f["username"]); self.path += "?" + urllib.parse.urlencode(f); del self.headers["Content-Length"]
+                return super().answer()
+            do_GET = do_POST = answer
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Password); srv.socket = tls.wrap_socket(srv.socket, server_side=True)
         threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
         fn = "sign_in() {" + SRC.split("\nsign_in() {")[1].split("\n}")[0] + "\n}"
-        out = subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "state": str(d)})
-        s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
+        sign = lambda who: subprocess.run(["bash", "-c", f"set -euo pipefail\n{fn}\nsign_in {who}; echo $sid $cid"], capture_output=True, text=True, env={**os.environ, "http": str(srv.server_port), "ca": str(d / "token/tls.pem")})
+        out = sign(""); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()
         s.assertEqual(t.GameSession.sessions.get(sid), "hab12"); s.assertEqual(int(cid), zlib.crc32(b"hab12") & 0x7FFFFFFF)   # a session the sign-in opened, for its account
+        s.assertEqual(Password.posted, [])   # no account named: Central's dev account, no password sent
+        out = sign("hcd34"); s.assertEqual(out.returncode, 0, out.stderr); sid, cid = out.stdout.split()   # h-desktops-token-login: live-desktop signs in the slug's own account, never the live dev account
+        s.assertEqual(Password.posted[0]["username"], "hcd34"); s.assertEqual(Password.posted[0]["password"], "hcd34"); s.assertEqual(t.GameSession.sessions.get(sid), "hcd34")
 
     def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
         s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
@@ -1538,6 +1571,11 @@ class TokenLogin(unittest.TestCase):  # a test desktop's token login (auth type 
         s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
         s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 
+    def test_the_deploy_serves_no_central_sign_in_its_central_lacks(s):  # h-live-sign-in-needs-central: its checks failed every deploy and live-desktop at sign_in
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
+        for e in ("central-tls.p12", "OPENRUNE_HTTP_TLS_PORT", "OPENRUNE_CENTRAL_HTTPS_PORT", "central_jav"): s.assertNotIn(e, ship)
+        s.assertNotIn("OPENRUNE_CENTRAL", (HERE / "docker-compose.yml").read_text())
+
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):
         src = (HERE / "OsrsTestLauncher.java").read_text()
         s.assertIn('"JX_ACCESS_TOKEN", "JX_REFRESH_TOKEN"', src)
@@ -1554,7 +1592,7 @@ class StackRecord(unittest.TestCase):  # each step re-derived the stack: down lo
 
     def test_up_writes_the_record_before_its_first_container(s):
         rec = s.up.index("  stack started=")
-        for c in ('docker run -d --name "token-$slug"', 'docker run -d --name "server-$slug"', 'docker run -d --name "http-$slug"', "desktop_start"):
+        for c in ('docker run -d --name "token-$slug"', 'docker run -d --name "server-$slug"', "desktop_start"):
             s.assertLess(rec, s.up.index(c))
         for f in ('script="$self/track.sh"', 'containers="$cs"', 'modulus="$modulus"', 'staff="$staff"', 'token="$devtoken"'):
             s.assertIn(f, s.up[rec:s.up.index("\n", s.up.index("\n", rec) + 1)])

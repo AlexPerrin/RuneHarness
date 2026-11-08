@@ -3,7 +3,8 @@
 # HD_SLUG HD_KEY HD_TREE HD_TCOMMIT HD_HEAD HD_BASE HD_REPO HD_CLONE HD_LOG HD_RC HD_BUILDS and the short names the scripts and
 # criteria read: SLUG HEAD T TCOMMIT BASE CLONE BUILD EVIDENCE CENTRAL. build and tree are build/build.sh's (the code a build
 # runs), test, spotless, gate, gate-ci and ci-step gate/gate.sh's (the code a gate runs). Verbs:
-#   up [N]            server-<slug> and http-<slug> (CENTRAL_JAV set: none, server-<slug>'s Central serves jav_config) from or:<T> on the change's ports (quest mode: QUEST_MODE, else the change's front
+#   up [N]            server-<slug> from or:<T>, its embedded Central serving the up's jav_config from file:// (an or:<T> whose Central reads
+#                     none: first rebuilt with that Central merged with Central's staging, as the deploy's composite) on the change's ports (quest mode: QUEST_MODE, else the change's front
 #                     matter quest-mode, else respect-progress; or assume-completed), N desktops logged in,
 #                     each loading the live client's devtools jar (CLIENT_TRACK: the client track's script, its build of slug live);
 #                     a fresh database, or with RESUME=1 the accounts as the change's last down saved them; the realm as live
@@ -136,7 +137,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   jo=" -javaagent:$t\\rsprox\\$o.jar -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools=$dp:$w\\guard -Dosrstest.refusals=$(wslpath -w "$state/refused-urls.log")"   # no URL reaches the OS: each refused one is a line of that log
   jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
-    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$state/token/tls.pem" "$d/home/token-tls.pem"
+    jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
     "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" >/dev/null
     jo+=" -Djavax.net.ssl.trustStore=$w\\home\\token-trust.p12 -Djavax.net.ssl.trustStorePassword=changeit"
   fi
@@ -179,7 +180,7 @@ devtools_jar() {  # sets jar: the devtools classes jar of the client track's bui
   local c=$root/tracks/client/track.sh crepo tc
   crepo=$(python3 -c 'import os, sys, yaml; p = os.path.expanduser(yaml.safe_load(open(sys.argv[1]))["repos"]["client"]["path"]); print(p if os.path.isabs(p) else os.path.normpath(os.path.join(sys.argv[2], p)))' "$root/hd.yaml" "$root")
   tc=$(git -C "$crepo" rev-parse "origin/HEAD^{commit}")
-  flock "$root/state/client-live.lock" env -u T -u EVIDENCE HD_ROOT="$root" HD_REPO="$crepo" "$c" build live "$tc" >&2   # one build copy for every up
+  flock "$root/state/client-live.lock" env -u T -u TCOMMIT -u EVIDENCE HD_ROOT="$root" HD_REPO="$crepo" "$c" build live "$tc" >&2   # one build copy for every up
   jar=$root/evidence/live/$(git -C "$crepo" rev-parse "$tc^{tree}").devtools-desktop.jar
   [ -f "$jar" ] || { echo "no desktop devtools jar $jar" >&2; return 1; }
 }
@@ -190,15 +191,29 @@ keys() {  # the change's key pair in $state/key, made by up alone: whichever cha
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out "$k/game.key" 2>/dev/null   # PKCS#8, as the server's generateRsa writes
   printf 'Exponent: 10001\nModulus: %s' "$(modulus_of < "$k/game.key")" > "$k/client.key"
 }
-sign_in() {  # sets sid cid: a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account
-  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$state/token/tls.pem") code idt
-  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "$b/oauth2/auth?redirect_uri=http://127.0.0.1/cb&state=up&client_id=harness" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
+sign_in() {  # sign_in [ACCOUNT]: sets sid cid, a session of Central's sign-in as the client's launcher makes it (auth -> token -> sessions), and its account:
+  # ACCOUNT's by its password (its name; Central registers an account that never played), else Central's dev account
+  local b=https://127.0.0.1:$http c=(curl -fsS --cacert "$ca") a=(-G) code idt
+  [ -z "${1:-}" ] || a=(--data-urlencode "username=$1" --data-urlencode "password=$1")
+  code=$("${c[@]}" -o /dev/null -w '%{redirect_url}' "${a[@]}" -d redirect_uri=http://127.0.0.1/cb -d state=up -d client_id=harness "$b/oauth2/auth" | sed -nE 's/.*[?&]code=([^&]+).*/\1/p')
   idt=$("${c[@]}" -d grant_type=authorization_code -d "code=$code" -d client_id=harness "$b/oauth2/token" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id_token"])')
   sid=$("${c[@]}" -H 'Content-Type: application/json' -d "{\"idToken\":\"$idt\"}" "$b/game-session/v1/sessions" | python3 -c 'import json,sys;print(json.load(sys.stdin)["sessionId"])')
   cid=$("${c[@]}" -H "Authorization: Bearer $sid" "$b/game-session/v1/accounts" | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["accountId"])')
 }
+crepo=${CENTRAL_REPO:-$HOME/src/OpenRune-Central-Server}
+file_central() { local c; c=$(grep -oE '_c[0-9a-f]{12}' <<< "$T") && git -C "$crepo" grep -q 'scheme == "file"' "${c#_c}" -- central-app/src/main; }   # or:<T>'s Central (its _c<tree12>; none: the published one, which fetches jav_config over http alone) reads a file:// jav_config
+central_staged() {  # the T of or:<T>'s tree built with Central's staging, the Central the deploy runs (with CENTRAL: that head merged with it), on stdout
+  local h p c t; h=$(git -C "$crepo" rev-parse refs/heads/staging)
+  if [ -n "${CENTRAL:-}" ]; then IFS=: read -r p c <<< "$CENTRAL"
+    t=$(git -C "$crepo" merge-tree --write-tree "$c" "$h") || { echo "Central $c does not merge with Central's staging: merge it there first" >&2; return 1; }
+    h=$(git -C "$crepo" -c user.name="Alex Perrin" -c user.email=44126061+AlexPerrin@users.noreply.github.com commit-tree "$t" -p "$c" -p "$h" -m "up: $c with staging"); fi
+  (unset T; CENTRAL="$crepo:$h" HD_KEY= "$self/build/build.sh" build "$slug" >&2)   # TCOMMIT (the pass's) or the dev's working copy, as the up's own build; cached by its _c<tree12>
+  python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json"; }
+central_jav() {  # $state/jav_config.ws for the game's own Central: $tpl filled as the sidecar fills it, its base http(s, with $sic)://127.0.0.1:$http
+  sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
-  tok=; sic=; sid=; cid=; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  tok=; sic=; sid=; cid=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || { tok=true; n=1; [ "${SIGN_IN:-}" != central ] || sic=1; }; T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
+  [ -n "$sic" ] || file_central || T=$(central_staged)
   docker image inspect "or:$T" >/dev/null 2>&1 || { echo "no image or:$T: build first"; return 1; }
   devtools_jar   # the jar every desktop of this up loads
   game=$(port 0); http=$(port 1)
@@ -209,7 +224,7 @@ up() {
   keys   # never a missing mount source: docker would make it a directory
   modulus=$(modulus_of < "$state/key/game.key"); devtoken=$(openssl rand -hex 16)   # the up's devtools token: its desktops' endpoints answer no other caller
   staff=$(for i in $(tr , ' ' <<< "${STAFF:-}"); do account "$i"; done | paste -sd' ')   # STAFF=1,2: those desktops' accounts administrators
-  cs="server-$slug"; [ -n "${CENTRAL_JAV:-}$sic" ] || cs+=" http-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"
+  cs="server-$slug"; [ -n "$sic" ] || cs+="${tok:+ token-$slug}"
   stack started="$(date -u +%FT%TZ)" script="$self/track.sh" repo="$repo" containers="$cs" signin="${sic:+central}" \
     modulus="$modulus" game:="$game" http:="$http" desktops= accounts= staff="$staff" token="$devtoken"   # before its first container: down and hd's repair act on what it names
   tpl=$self/server/jav_config.ws.template
@@ -225,16 +240,11 @@ up() {
     docker run -d --name "token-$slug" -p 8080 -v "$self/server/issuer.py:/issuer.py:ro" -v "$state/token:/t:ro" python:3.13-alpine python3 /issuer.py serve /t >/dev/null
     sed -E "s#^param=(11|22)=.*#param=\1=https://127.0.0.1:$(docker port "token-$slug" 8080 | head -1 | cut -d: -f2)/#" "$tpl" > "$state/jav_config.ws.template"; tpl=$state/jav_config.ws.template   # 11 Jagex auth, 22 RuneScape auth: the client casts both to https
   fi
-  if [ -n "${CENTRAL_JAV:-}$sic" ]; then   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
-    sed -E "s#\{\{HTTP_BASE\}\}#http${sic:+s}://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=http${sic:+s}://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"
-    sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
-  fi
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
+  sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
   [ -n "${RESUME:-}" ] || rm -rf "$state/postgres"; mkdir -p -m 700 "$state/postgres"   # fresh, or RESUME: the last down's (owner uid 1000, the server's)
   docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" -v "$state/postgres:/app/.data/postgres" \
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
-  [ -n "${CENTRAL_JAV:-}$sic" ] || docker run -d --name "http-$slug" -p "$http:8080" -v "$sidecar_data:/data:ro" -v "$tpl:/app/protocol/jav_config.ws.template:ro" \
-    -e WORLD_HOST=127.0.0.1 -e HTTP_PUBLIC_PORT="$http" -e WORLD_ID=255 -e SAVE_DIR=/tmp/saves -e JAV_CONFIG_TEMPLATE=/app/protocol/jav_config.ws.template \
-    -e LOCAL_AUTH=false -e PROOF_OF_WORK=false -e VALIDATE_CRCS=false osrs-rsps-test:241 >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
   if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi

@@ -236,7 +236,7 @@ stateDiagram-v2
   Judge --> Dev : verdict(head, criteria_digest).ok = 0
   Judge --> Stage : verdict.ok = 1
   state Stage <<fork>>
-  Stage --> TestServer : tracks with a deploy recipe, head not in ref staging → merge, conflict → Dev
+  Stage --> TestServer : tracks with a deploy recipe and the libraries, head not in ref staging → merge, conflict → Dev
   Stage --> Public : upstream PR or release
   Stage --> Ship : harness or client, not landed(live branch)
   Public --> WaitUpstreamDep : a dep in another PR has no landed(upstream main)
@@ -251,7 +251,7 @@ stateDiagram-v2
   Published --> Done : landed(change, upstream main)
   Ship --> Done : landed(change, live branch)
   TestServer --> Done : upstream false and verdict ok
-  Judge --> Done : upstream false on a track without staging (nothing to land on), verdict ok
+  Judge --> Done : upstream false on a track without staging (nothing to land on, not a library), verdict ok
   Done --> [*]
   Closed --> [*]
 ```
@@ -273,9 +273,9 @@ def next(C: Ctx, ch: Change) -> Step:     # Ctx = (Ledger, Cfg, every definition
 
 GUARDS = [
     closed,            # change_state.closed_at or folded_into → done
-    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps);
-                       # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a client
-                       # change's any, else a staged one) must be live with its own server deps, transitively (landed 'live': the test
+    deps_live,         # a dep with no submission (not landed, not closed) → wait; a submitted same-track dep joins the candidate with its own, transitively (decide.candidate_deps), unless its head is in its base already (a fork-only dep done on staging always joins);
+                       # a dep on another track (a harness fix, a library) must land or close; a server dep on another track (a change
+                       # off the server tracks: any, a library included; else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
@@ -286,7 +286,7 @@ GUARDS = [
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
-    stage_due,         # tracks with a deploy recipe: no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
+    stage_due,         # tracks with a deploy recipe and the libraries (central, filestore: their own staging): no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
     upstream_dep_wait, # a same-track dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
                        # (G4); a library dep holds a card too; a dep on another track holds neither (deps_live waited for it)
     texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
@@ -396,12 +396,12 @@ def clone(T, ch) -> path:
     """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""
 
 def stage(db, ch, T, head):
-    """In <fork>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
+    """In <repo>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
     merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
     is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
-    job per staging tree (`track.sh deploy`, keyed `<staging tree>:<recipe>`), which the deploy script refuses without the
+    job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
     live key pair in state/live/key or a sidecar jav_config template naming a foreign host, both before any live container
     is recreated; it recreates the stack holding state/live/stack.lock, which the client's up holds shared through each
     mobile login, so no start is mid-login when its server is replaced (state/live/turn.lock lets no new login past a
@@ -502,9 +502,9 @@ sequenceDiagram
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`) | the stack row: the change's running containers, desktops, token, modulus |
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
-| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live` |
+| `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live`, and each library change whose head is in the library head it built in |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate) |
-| `hd candidate <slug> [--base sha]` | track scripts (`track.sh ship`), anyone | nothing: prints `<tree> <tcommit>` of the head on base |
+| `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base with its same-track deps not yet in their base, as `hd submit` builds it |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |
@@ -604,9 +604,12 @@ flowchart LR
   `build/filestore.init.gradle`: the head is not included (its Gradle 7 build and its `filestore` project clash with the
   fork's type-safe accessors) but published by `tracks/filestore/track.sh publish` to a Maven directory, from which alone
   every `dev.or2` module it holds resolves, the `all` POM included), and the key, the jobs' `T` and the image carry `_c<tree12>` / `_f<tree12>`. The test server image carries
-  the composite, so a library change is live on the test server with the first server tree built on it.
+  the composite. A library change that passed its gate and verdict merges into its own repo's staging (act.stage, no
+  pins) on its own, dependents or not; that staging is the deploy's composite (a library with no staging yet: the heads
+  staging's server changes were built with), so the next deploy carries it and marks it `live`. A server change's
+  library deps merge there before it does.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
-  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (the fork's base built with the head as its Central or FileStore,
+  Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's base built with the head; FileStore: the fork's and Central's staging built with the head, one desktop logged in by token;
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
 - Upstream, a library change is its own PR on its own repo. A server change built on a library head waits

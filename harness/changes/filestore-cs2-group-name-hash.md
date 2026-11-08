@@ -5,6 +5,7 @@ priority: P2
 deps:
 - h-filestore-build
 - h-filestore-up-login
+- local-cs2-names-drop-spawn
 ---
 # FileStore: name each packed clientscript group in the cache reference table (moved from OpenRune-Server #448)
 

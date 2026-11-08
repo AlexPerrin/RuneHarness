@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """desktop_login.py <devtools port> [keep <server container>] <user> <password> | <devtools port> [keep <server container>] token | <devtools port> logout | <devtools port> guard <token>: logs a desktop
-client in, by its login form or (token) by the token login its Jagex session variables start (prints LOGGED_IN or
+client in, by its login form (an image without token login) or (token) by Play alone, the token login its Jagex session variables start (prints LOGGED_IN or
 FAILED: <reason>; LOGGED_IN only once the inventory widget shows container 93, FAILED when TICKS game ticks pass with no slot in it), or out through the logout tab's button (prints LOGIN_SCREEN) through its devtools endpoint; keep: logs it in again after each logout, until the desktop is gone. Keys, but
 and it clicks nothing on the login screen: a ban or lock page's top button opens runescape.com in the user's browser. It acts only on the instance
 that owns the port when it starts (DESKTOP_DIR/run/<port - 7779>/owner, its up's slug and claim): no call is sent once that
@@ -154,21 +154,16 @@ def clear(port):  # press_key takes one key per call
         call(port, "press_key", key="BACKSPACE")
 
 
-def attempt(port, leave=(lambda port: call(port, "press_key", key="ESCAPE"),)):
+def attempt(port):
     """Presses Enter and returns the attempt's end state: LOGGED_IN or LOGIN_SCREEN, or None when the key started no attempt.
     The client takes a key on its next frame and a submit leaves LOGIN_SCREEN on that frame, and each state read runs on a
-    frame, so FRAMES reads still on LOGIN_SCREEN are a page Enter does not submit (a refusal's response page): each of leave
-    in turn (Escape) is tried on it, and Enter is pressed on the page under it. Nothing clicks these pages: the top button of a
-    ban or lock page opens runescape.com in the user's browser."""
+    frame, so FRAMES reads still on LOGIN_SCREEN are a page Enter does not submit (a refusal's response page). Nothing clicks
+    these pages: the top button of a ban or lock page opens runescape.com in the user's browser."""
     call(port, "press_key", key="ENTER")
     for _ in range(FRAMES):
         if state(port).get("gameState") != "LOGIN_SCREEN":
             return wait(port, ("LOGGED_IN", "LOGIN_SCREEN"))["gameState"]
-    if not leave:
-        return None
-    leave[0](port)
-    state(port), state(port)  # each read runs on a client frame: the page has changed before Enter
-    return attempt(port, leave[1:])
+    return None
 
 
 def login(port, user, password):
@@ -183,19 +178,19 @@ def login(port, user, password):
     call(port, "press_key", key="TAB")
     clear(port)
     call(port, "type_chat", text=password, send=False)
-    return result(port, attempt(port, leave=()), "the server refused the login")
+    return result(port, attempt(port), "the server refused the login")
 
 
 def token(port):
     s = wait(port, ("LOGIN_SCREEN", "LOGGED_IN"))
     if s["gameState"] == "LOGGED_IN":
         return inventory(port)
-    return result(port, attempt(port), "the server refused the token")   # the session's login page: Enter plays; the client fetches its token from param 11
+    return result(port, attempt(port), "the server refused the token")   # the session's login page, Play its one key (the launcher's preferences hold the terms accepted): the client fetches its token from param 11
 
 
 def result(port, g, refused):
     if g is None:
-        return "FAILED: Enter started no login: the login screen is on a page Enter does not submit and Escape does not leave (a refusal, ban or disconnected dialog)"
+        return "FAILED: Enter started no login: the login screen is on a page Enter does not submit (a refusal, ban or disconnected dialog)"
     return inventory(port) if g == "LOGGED_IN" else f"FAILED: back at the login screen: {refused}"
 
 

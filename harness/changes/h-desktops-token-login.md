@@ -4,6 +4,8 @@ track: harness
 priority: P1
 deps:
 - central-game-session
+- central-sign-in-first-account
+- h-live-central-sign-in
 ---
 # Every desktop logs in by token through Central: the typed login script goes
 

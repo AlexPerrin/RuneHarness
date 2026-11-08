@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -188,6 +189,24 @@ def cmd_criterion(a):
     print(f"criterion {a.slug}/{a.rid} ({a.kind})")
 
 
+def dep_inputs(db, cfg, ch) -> tuple:
+    """(same-track dep heads, library composite) a candidate of ch builds in: every submitted dep whose head is not yet
+    in its track's base (landed there or an ancestor of it); a fork-only dep done on staging is never in it."""
+    heads, composite = [], {}
+    for dep in decide.candidate_deps(change, ch):
+        s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
+        d = change(dep)
+        dT = track(d, cfg)
+        if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, dT.base)).fetchone() \
+                or act.is_ancestor(dT.path, s["head"], dT.base):
+            continue
+        if d.track == ch.track:
+            heads.append(s["head"])
+        elif d.track in ("central", "filestore"):   # a library head built into the candidate as a Gradle composite
+            composite[d.track] = {"head": s["head"], "tree": act.git(dT.path, "rev-parse", s["head"] + "^{tree}")}
+    return heads, composite
+
+
 def cmd_submit(a):
     db = store.connect()
     cfg, ch = act.cfg(), change(a.slug)
@@ -205,17 +224,7 @@ def cmd_submit(a):
     base = act.git(T.path, "rev-parse", T.base)
     if act.is_ancestor(T.path, head, base):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
-    heads, composite = [], {}
-    for dep in decide.candidate_deps(change, ch):
-        s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
-        d = change(dep)
-        if not s or db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (dep, track(d, cfg).done_ref(d))).fetchone():
-            continue
-        if d.track == ch.track:
-            heads.append(s["head"])
-        elif d.track in ("central", "filestore"):   # a library head built into the candidate as a Gradle composite
-            dT = track(d, cfg)
-            composite[d.track] = {"head": s["head"], "tree": act.git(dT.path, "rev-parse", s["head"] + "^{tree}")}
+    heads, composite = dep_inputs(db, cfg, ch)
     try:
         tree, tcommit = act.candidate(T.path, base, heads + [head])
     except act.Conflict as c:
@@ -294,7 +303,7 @@ def cmd_answer(a):
         sys.exit(f"hd answer: options are {[o['id'] for o in json.loads(q['options_json'])]}")
     effect, _, arg = opt["effect"].partition(" ")
     if effect == "close":
-        sys.exit("hd answer: a close is the user's own: ! hd close")
+        sys.exit(f"hd answer: a close is the user's own: ! python3 {os.path.abspath(__file__)} close {a.slug} {shlex.quote(a.words or opt['text'])}")
     db.execute("BEGIN")
     db.execute("INSERT INTO answer(ask, option, words, by, at) VALUES (?,?,?,?,?)", (q["id"], a.option, a.words, "user", now()))
     if effect == "dep":
@@ -408,6 +417,13 @@ def cmd_job(a):
                             (decide.STAGING, j["started_at"] or now())).fetchall():
             db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (r["change"], "live", a.key.split(":")[0], now()))
             event(db, "landed", r["change"], None, "live: the test server runs it")
+        for lib in ("central", "filestore"):   # a library change is live once its head is in the library head the deploy built in (the job env's CENTRAL)
+            path, _, built = os.environ.get(lib.upper(), "").rpartition(":")
+            for c in [c for c in act.changes() if c.track == lib] if built else []:
+                h = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (c.slug,)).fetchone()
+                if h and not db.execute("SELECT 1 FROM landed WHERE change=? AND target='live'", (c.slug,)).fetchone() and act.is_ancestor(path, h["head"], built):
+                    db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (c.slug, "live", a.key.split(":")[0], now()))
+                    event(db, "landed", c.slug, None, f"live: the test server runs it in {lib} {built[:7]}")
     act.tick_later()
 
 
@@ -447,7 +463,7 @@ def cmd_candidate(a):
     T = track(ch, cfg)
     head = act.git(T.path, "rev-parse", a.head or T.dev_ref(ch))
     try:
-        print(*act.candidate(T.path, a.base or act.git(T.path, "rev-parse", T.base), [head]))
+        print(*act.candidate(T.path, a.base or act.git(T.path, "rev-parse", T.base), dep_inputs(store.connect(), cfg, ch)[0] + [head]))
     except act.Conflict as c:
         sys.exit(f"conflict: {' '.join(c.args[0])}")
 

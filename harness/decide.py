@@ -160,7 +160,8 @@ def closed(C, ch):
     return None
 
 
-SERVER = ("fork", "central", "filestore")
+LIBRARY = ("central", "filestore")   # the libraries the server builds in as a Gradle composite
+SERVER = ("fork",) + LIBRARY
 
 
 def server_deps(C, ch) -> list:
@@ -195,19 +196,20 @@ def deps_live(C, ch):
     waited for before the card or the ship, upstream_dep_wait); a dep on another track (a harness fix the dev filed, a
     library the server needs) is nothing to build on until it lands or closes. A server fix that runs on the test server
     is there once live: a change on another track builds on it then, its PR held or not (an upstream merge gates only the
-    dep's own track, upstream_dep_wait)."""
+    dep's own track, upstream_dep_wait). Off the server tracks a library dep too is there only once live (a client, the
+    live stack and its desktops reach the test server alone)."""
     for dep in ch.deps:
         d = C.defs.get(dep)
         if d is None:
             return Step("wait", f"dep {dep} has no definition")
-        if d.track != ch.track and (stages(C, d) or ch.track == "client" and d.track in SERVER):   # the mobile reaches only the live test server
+        if d.track != ch.track and (stages(C, d) and d.track not in LIBRARY or ch.track not in SERVER and d.track in SERVER):
             for x in [dep] + server_deps(C, d):   # a server dep works there only with its own deps
                 if not (C.L.closed(x) or C.L.landed(x, "live")):
                     return Step("wait", f"dep {x} not live on the test server")
             continue
         if done(C, d):
             continue
-        if d.track != ch.track and d.track not in ("central", "filestore"):
+        if d.track != ch.track and d.track not in LIBRARY:
             return Step("wait", f"dep {dep} ({d.track}) not landed")
         if not C.L.one("SELECT 1 FROM submission WHERE change=?", dep):
             return Step("wait", f"dep {dep}")
@@ -300,9 +302,10 @@ STAGING = "refs/heads/staging"
 
 
 def stages(C, ch):
-    """Staging exists to deploy the test server: only a track with an upstream and a deploy recipe merges into it."""
+    """Staging exists to deploy the test server: a track with an upstream and a deploy recipe merges into it, and so
+    does a library the server builds in (its own staging is the deploy's composite, store.staging_composite)."""
     T = C.cfg.tracks[ch.track]
-    return bool(T.upstream and "deploy" in T.recipes)
+    return bool(T.upstream and ("deploy" in T.recipes or ch.track in LIBRARY))
 
 
 def stage_due(C, ch):
@@ -323,7 +326,7 @@ def upstream_dep_wait(C, ch):
     it to land or go live, and its PR may wait in the outbound queue meanwhile."""
     for dep in ch.deps:
         d = C.defs.get(dep)
-        if d and not done(C, d) and (d.track == ch.track or is_public(C, ch) and d.track in ("central", "filestore")):
+        if d and not done(C, d) and (d.track == ch.track or is_public(C, ch) and d.track in LIBRARY):
             return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
     return None
 
@@ -535,6 +538,10 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
     for T in cfg.tracks.values():   # the test server runs staging: one deploy per staging tree
         tree = L.ref_tree(T.name, STAGING) if T.upstream and "deploy" in T.recipes else None
         if tree:
+            try:   # the libraries' staging moves the deploy too
+                tree = built({"tree": tree, "composite_json": L.staging_composite(STAGING)})
+            except ValueError:
+                pass   # two library heads: act.start raises it as the deploy's fault
             s = job_due(C, "deploy", f"{tree}:{T.recipes['deploy']}")
             if s and s.kind == "deploy" and L.jobs_in_flight("deploy"):
                 s = Step("wait", "a deploy is running")

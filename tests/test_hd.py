@@ -62,6 +62,21 @@ class Hd(unittest.TestCase):
         hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))
         self.assertEqual([r[0] for r in store.connect().execute("SELECT change FROM landed WHERE target='live'")], ["s-a"])   # s-b landed after the deploy began
 
+    def test_a_deploy_ok_marks_the_library_heads_it_built_in_live(self):   # h-live-sign-in-needs-central: a Central change never reached live
+        import argparse, os, subprocess
+        from unittest import mock
+        repo = Path(self.dir.name) / "c"; g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "a"); a1 = g("rev-parse", "HEAD")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "b"); b1 = g("rev-parse", "HEAD")
+        db = store.connect()
+        db.execute("INSERT INTO job(kind, key, started_at) VALUES ('deploy', 'tr1:fork-1', '2026-01-01T00:00:00')")
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('c-in', ?, 't', ?, 't'), ('c-out', ?, 't', 'x', 't')", (a1, a1, ("e" if b1[0] == "f" else "f") + b1[1:]))   # an unknown head: never b1 itself
+        defs = [hd.act.Change("c-in", "central"), hd.act.Change("c-out", "central")]
+        with mock.patch.object(hd.act, "changes", return_value=defs), mock.patch.dict(os.environ, {"CENTRAL": f"{repo}:{b1}"}):
+            hd.cmd_job(argparse.Namespace(kind="deploy", key="tr1:fork-1", result="ok", detail=""))
+        self.assertEqual([r[0] for r in store.connect().execute("SELECT change FROM landed WHERE target='live'")], ["c-in"])   # c-out's head is not in the built head
+
     def test_a_malformed_ask_is_refused_before_any_row(self):   # alert 20: options split on a ':' inside the text left an unanswerable question
         import argparse, sqlite3
         hd.store.connect().execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('x', 'dev', 'code', 'i', 'b', 't')")
@@ -98,6 +113,30 @@ class Hd(unittest.TestCase):
         self.assertEqual((a["kind"], a["subject"], a["disposition"]), ("fault", "7", None))
         hd.main(["dismiss", str(a["id"]), "fixed"])
         self.assertEqual(db.execute("SELECT disposition, why FROM alert").fetchone()[1], "fixed")
+
+    def test_a_fork_only_dep_done_on_staging_joins_a_candidate_off_main(self):   # central-rights-test-mod dropped from central-game-session's
+        import os, subprocess
+        from decide import Change, Cfg, Track
+        repo = os.path.join(self.dir.name, "repo")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        def commit(f, branch, new=False):
+            subprocess.run(["git", "-C", repo, "checkout", "-q"] + (["-b"] if new else []) + [branch], check=True, env=env)
+            Path(repo, f).write_text(f)
+            subprocess.run(["git", "-C", repo, "add", f], check=True, env=env)
+            subprocess.run(["git", "-C", repo, "commit", "-qm", f], check=True, env=env)
+            return hd.act.git(repo, "rev-parse", "HEAD")
+        os.makedirs(repo); subprocess.run(["git", "-C", repo, "init", "-q", "-b", "main"], check=True)
+        Path(repo, "base").write_text("base"); subprocess.run(["git", "-C", repo, "add", "base"], check=True)
+        subprocess.run(["git", "-C", repo, "commit", "-qm", "base"], check=True, env=env)
+        fork_only = commit("fork", "fork-only", new=True)
+        merged = commit("merged", "main")   # an upstream dep already on main
+        cfg = Cfg(tracks={"central": Track("central", "x/y", repo, "refs/heads/main", "o/y")})
+        defs = {"c": Change("c", "central", deps=("fork", "up")), "fork": Change("fork", "central", upstream=False), "up": Change("up", "central")}
+        self.addCleanup(setattr, hd, "change", hd.change); hd.change = defs.get
+        db = store.connect()
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('fork', ?, 't', 't', 't'), ('up', ?, 't', 't', 't')", (fork_only, merged))
+        db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('fork', 'refs/heads/staging', ?, 't')", (fork_only,))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["c"]), ([fork_only], {}))
 
 
 if __name__ == "__main__":

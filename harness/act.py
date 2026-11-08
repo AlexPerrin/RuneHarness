@@ -321,8 +321,16 @@ def start(db, step: Step, ch, T) -> None:
     if os.path.exists(rc):
         os.remove(rc)
     subprocess.run(["systemctl", "--user", "stop", unit + ".scope"], capture_output=True)   # a prior attempt's leftovers hold the name
+    held = ()
+    if step.kind == "deploy":   # the deploy holds state/live/stack.lock from inside this pass to its exit: a live stack's up (hd stack between passes) waits it out
+        os.makedirs(os.path.join(STATE, "live"), exist_ok=True)
+        lock = open(os.path.join(STATE, "live", "stack.lock"), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        held = (lock.fileno(),)
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=open(log, "ab"), stderr=subprocess.STDOUT,
-                         env=env, cwd=ROOT, start_new_session=True)
+                         env=env, cwd=ROOT, start_new_session=True, pass_fds=held)
+    if held:
+        lock.close()   # the child's copy holds it
     db.execute("""INSERT INTO job(kind, key, change, pid, pid_start, scope, log, started_at) VALUES (?,?,?,?,?,?,?,?)
                   ON CONFLICT(kind, key) DO UPDATE SET pid=excluded.pid, pid_start=excluded.pid_start, scope=excluded.scope,
                   log=excluded.log, started_at=excluded.started_at, ended_at=NULL, exit=NULL""",

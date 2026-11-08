@@ -60,6 +60,8 @@ up() {
   live=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("modulus", ""))' "$root/state/live/tree.json" 2>/dev/null || true)
   mine=$(unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aoE '[0-9a-f]{256}' | grep -vE '^(00010203|80818283)' | head -1 || true)   # the patched modulus (the library's other 256-hex runs are byte tables)
   [ -n "$live" ] && [ "$mine" = "$live" ] || { l=${live:0:8}; echo "refused: $T.apk carries modulus ${mine:0:8}, the live stack (state/live/tree.json) ${l:-none, deployed before its key pair}: its login would be refused 'Invalid RSA check'"; return 1; }
+  printf '{"live": 1, "started": "%s"}\n' "$(date -u +%FT%TZ)" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"   # the stack row: no deploy is planned while this mobile plays on the live stack, until down
+  mkdir -p "$root/state/live"; flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   boot
   ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug"   # its command line names the change: down stops it when up's caller died
   date +%s.000 > "$state/log-mark"   # epoch: logcat -T reads a date-time as the device's local time
@@ -150,6 +152,7 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   if w=$(cat "$state/allow-relay.winpid" 2>/dev/null); then   # the mobile's DNS relay, by its pid and image (a reused pid is left alone)
     "$sys32/taskkill.exe" /F /PID "$w" /FI "IMAGENAME eq ${ps##*/}" >/dev/null 2>&1 || true; rm -f "$root"/state/winpids/*/"$w" "$state/allow-relay.winpid"
   fi
+  rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
   bad=()
   A shell rm -f "$files/plugins/devtools.jar" >/dev/null

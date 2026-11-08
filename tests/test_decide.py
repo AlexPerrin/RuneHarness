@@ -342,6 +342,16 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('deploy', 'tr1:fork-1', 1, 't')")
         self.assertEqual([x for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"], [])
 
+    def test_no_deploy_under_a_live_stack_in_use(self):   # h-deploy-spares-live-judge: a judge's mobile or live-desktop keeps the live stack until its down
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('fork', 'refs/heads/staging', 's1', 'tr1')")
+        self.db.execute("INSERT INTO stack(change, live) VALUES ('h-one', 1)")
+        deploy = lambda: [x.step.kind for x in decide.plan(self.L, [], CFG) if x.change == "fork:staging"]
+        self.assertEqual(deploy(), ["deploy"])   # a row whose run ended (its down never ran) holds nothing
+        self.run_row("i", started_at="t")
+        self.assertEqual(deploy(), [])
+        self.db.execute("DELETE FROM stack")   # down
+        self.assertEqual(deploy(), ["deploy"])
+
     def test_a_track_without_deploy_skips_staging_and_its_conflict(self):   # staging exists only to deploy
         lab = Track("lab", "AlexPerrin/lab", "/nowhere", "refs/remotes/origin/main", "Up/lab", "dev", {"gate": "lab-1"}, "fork")
         cfg = Cfg(agents=2, hold="P2", tracks={**CFG.tracks, "lab": lab})

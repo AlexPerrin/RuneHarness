@@ -279,6 +279,8 @@ class DesktopDevtools(unittest.TestCase):
         live = t.split("\nlive_desktop() {")[1].split("\n}")[0]   # the live stack's desktop sidecar, game port, cache and modulus; never a stack of the slug's own
         for k in ("srv=osrs-openrune", "8082", "43594", "state/live/tree.json", "devtools_jar"): s.assertIn(k, live)
         s.assertNotIn("sign_in", live)   # h-live-sign-in-needs-central: no Central sign-in until central-game-session runs live
+        s.assertLess(live.index("live=1"), live.index('flock -s "$root/state/live/stack.lock" true'))   # h-deploy-spares-live-judge: its row holds deploys off, then a started one ends first
+        s.assertLess(live.index("stack.lock"), live.index("desktop_start"))
 
 
 class AccountName(unittest.TestCase):

@@ -362,7 +362,8 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_DESKTOP_HTTP_PORT:-8082}; game=${OPENRUNE_GAME_PORT:-43594}; tok=
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
-  devtools_jar; stack token="$devtoken" desktops= accounts=; trap 'live_desktop_down >&2 || true' ERR
+  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
+  flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
   login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)") || true; echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
   [[ $login_live == *LOGGED_IN* ]] || return 1

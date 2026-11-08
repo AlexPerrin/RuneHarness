@@ -550,6 +550,8 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             s = job_due(C, "deploy", f"{tree}:{T.recipes['deploy']}")
             if s and s.kind == "deploy" and L.jobs_in_flight("deploy"):
                 s = Step("wait", "a deploy is running")
+            if s and s.kind == "deploy" and L.live_users():   # a deploy recreates the stack under whoever plays on it
+                s = Step("wait", f"{', '.join(L.live_users())} on the live stack")
             if s and s.kind == "deploy" and low:
                 s = None   # a deploy builds: none below the disk level
             if s and s.kind != "wait":

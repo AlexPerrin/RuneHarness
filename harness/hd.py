@@ -498,11 +498,17 @@ def cmd_stack(a):
         db.execute("DELETE FROM stack WHERE change=?", (a.slug,))
         return
     d = json.load(open(a.file))
-    db.execute("""INSERT INTO stack(change, script, containers_json, desktops_json, token, modulus, started_at) VALUES (?,?,?,?,?,?,?)
+    if d.get("live"):   # between two passes, never inside one: a pass that planned a deploy without this row has started it, holding state/live/stack.lock
+        import fcntl
+        os.makedirs(STATE, exist_ok=True)
+        lock = open(os.path.join(STATE, "tick.lock"), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)   # released as the command exits
+    db.execute("""INSERT INTO stack(change, script, containers_json, desktops_json, token, modulus, started_at, live) VALUES (?,?,?,?,?,?,?,?)
                   ON CONFLICT(change) DO UPDATE SET script=excluded.script, containers_json=excluded.containers_json,
-                  desktops_json=excluded.desktops_json, token=excluded.token, modulus=excluded.modulus, started_at=excluded.started_at""",
+                  desktops_json=excluded.desktops_json, token=excluded.token, modulus=excluded.modulus, started_at=excluded.started_at,
+                  live=excluded.live""",
                (a.slug, d.get("script"), json.dumps(d.get("containers", "").split()), json.dumps(d.get("desktops", "").split()),
-                d.get("token"), d.get("modulus"), d.get("started")))
+                d.get("token"), d.get("modulus"), d.get("started"), int(bool(d.get("live")))))
 
 
 def cmd_own(a):

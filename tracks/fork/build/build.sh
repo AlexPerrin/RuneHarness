@@ -17,6 +17,7 @@ state=$root/state/$slug; mkdir -p "$state"
 dev=$repo/.worktrees/$slug; copy=$repo/.worktrees/$slug-build
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 record() { python3 -c 'import json,os,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:],"head":os.environ.get("HEAD","")}))' "$T" "$1" | atomic "$state/$2.json"; }
+v=2   # the version of what a build keeps (or:<T>'s label hd.build, the store's s<v>-<ck>): bumped when one kept may be wrong (2: packed with no other tree's incremental state)
 size=(--cpus=4 --memory=5g)   # one build or check container's share of the host; hd.yaml builds (HD_BUILDS) bounds how many run at once
 slot() {  # slot <command...>: the command under one of the HD_BUILDS build slots (the first free, else waiting on the first)
   local n=${HD_BUILDS:-3} i fd rc; mkdir -p ~/.cache/hd
@@ -62,7 +63,7 @@ central() {  # the change's Central dependencies, merged by hd, built in (gate/c
 }
 build() { tree; { flock 9; build_locked; } 9> "$state/build.lock"; }   # one build of a slug at a time (the pass's and its dev's): the second waits, then reuses a cached or:<T>; the lock ends with the build, never held by the gate or its rows after it
 build_locked() {
-  if docker image inspect -f '{{json .Config.Entrypoint}}' "or:$T" 2>/dev/null | grep -q server.jar; then $hd own image "or:$T" "$slug@$T"; echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi   # cached: or:<T> holding the bundle (an older recipe's, without server.jar, is built again)
+  if [ "$(docker image inspect -f '{{index .Config.Labels "hd.build"}}' "or:$T" 2>/dev/null)" = "$v" ]; then $hd own image "or:$T" "$slug@$T"; echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi   # cached: or:<T> of this version (an older one's is built again)
   n=1; while [ -e "$state/build-$T-$n.log" ]; do n=$((n + 1)); done; log=$state/build-$T-$n.log   # each attempt its own log (under the lock)
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
   $hd own worktree "$copy" "$slug"   # every artifact a row of its owner: hd releases it once no owner is live (docs/ARCHITECTURE.md §6)
@@ -81,7 +82,7 @@ build_locked() {
   local i; for i in $(seq 1 "${HD_BUILDS:-3}"); do docker run --rm -v "gradle-$i:/gradle" eclipse-temurin:21 chown 1000:1000 /gradle; done
   docker run --rm -v "$cs:/store" eclipse-temurin:21 chown 1000:1000 /store   # docker makes a new volume root's; the build runs as 1000
   gd=$state/.game-data-$gk.tgz; rm -f "$gd"   # the revision missing from the store: the gate's release asset of it (seeded from an image), so a build needs openrs2 only for a revision no image holds yet
-  if [ -n "$gk" ] && ! docker run --rm -v "$cs:/store" eclipse-temurin:21 sh -c "[ -d /store/s-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
+  if [ -n "$gk" ] && ! docker run --rm -v "$cs:/store" eclipse-temurin:21 sh -c "[ -d /store/s$v-$ck ] || [ -d /store/g-$gk ]" >/dev/null 2>&1; then
     R=$(git -C "$repo" remote get-url fork 2>/dev/null | sed -E 's#.*github.com[:/]##; s#\.git$##' || true)
     [ -z "$R" ] || gh release download game-data -R "$R" -p "game-data-$gk.tar.gz" -O "$gd" >/dev/null 2>&1 || rm -f "$gd"
   fi
@@ -90,14 +91,15 @@ build_locked() {
   $hd own container "build-$slug" "$owner"
   docker rm -f "build-$slug" >/dev/null 2>&1 || true   # a killed build's container, still running: the slug's build lock is held, it is no one else's
   trap 'docker rm -f "build-$slug" >/dev/null 2>&1 || true' EXIT; trap 'exit 143' TERM INT   # a stopped build's container ends with it
-  box "$log" --rm --name "build-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CK="$ck" -e GK="$gk" -e CDIR="$cdir" -e FDIR="$fdir" \
+  box "$log" --rm --name "build-$slug" -u 1000:1000 -e HOME=/gradle/home -e GRADLE_USER_HOME=/gradle -e CK="$ck" -e V="$v" -e GK="$gk" -e CDIR="$cdir" -e FDIR="$fdir" \
     "${vols[@]}" -v "$repo/.git:$repo/.git:ro" -v "$copy:$copy" -w "$copy" \
     eclipse-temurin:21 bash -c '
       set -e; mkdir -p "$HOME"; g="./gradlew --console=plain --build-cache --no-configuration-cache --max-workers=4 -Dorg.gradle.jvmargs=-Xmx1536m${CDIR:+ --init-script /central.init.gradle}${FDIR:+ --init-script /filestore.init.gradle}"
-      s=/store/s-$CK d=/store/g-$GK   # s: every output of the cache step (api/generated is compiled, the gamevals are read at boot); d: the game data of the revision
+      s=/store/s$V-$CK d=/store/g-$GK   # s: every output of the cache step (api/generated is compiled, the gamevals are read at boot); d: the game data of the revision
       if [ -d $s ]; then cp -a $s/. .; else
+        rm -f .data/cache/incremental_*   # or-cache packs incrementally: state the copy kept from another tree skips a type whose toml is unchanged though an id it resolves moved
         [ -z "$GK" ] || [ -d $d ] || [ ! -s /game-data.tgz ] || { rm -rf $d.tmp && mkdir -p $d.tmp/.data && tar -xzf /game-data.tgz -C $d.tmp/.data && mv $d.tmp $d; }   # the asset: the revision stored, never openrs2
-        if [ -n "$GK" ] && [ -d $d ]; then cp -a $d/. .   # the revision downloaded once: every tree repacks it, as CI on a cache hit
+        if [ -n "$GK" ] && [ -d $d ]; then cp -a $d/. . && rm -f .data/cache/incremental_*   # the revision downloaded once: every tree repacks it, as CI on a cache hit
           $g :or-cache:buildCache   # freshCache past its download (its FRESH_INSTALL builds the cache next)
         else
           $g :or-cache:freshCache
@@ -113,7 +115,7 @@ build_locked() {
   cp "$copy/server/app/build/libs/server.jar" "$copy/game.yml" "$st/"
   tar -C "$copy/.data" --exclude=./raw-cache --exclude=./client.key --exclude=./game.key --exclude=./postgres -c . | tar -C "$st/.data" -x
   $hd own image "or:$T" "$slug@$T"
-  hosted "$log" docker build -q -f "$self/Dockerfile" -t "or:$T" "$st" || { rm -rf "$st"; record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "docker build"; return 1; }
+  hosted "$log" docker build -q --label hd.build=$v -f "$self/Dockerfile" -t "or:$T" "$st" || { rm -rf "$st"; record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "docker build"; return 1; }
   rm -rf "$st"   # the context is the image's now
   [ -n "$(docker ps -q -f name=^build-)" ] || docker builder prune -f >/dev/null 2>&1 || true   # the last build ended: its build cache goes with it
   record true build < "$log"; echo "built or:$T"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "or:$T"

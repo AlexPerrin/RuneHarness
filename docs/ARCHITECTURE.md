@@ -449,7 +449,7 @@ the live tip between a ship's candidate and its push (the engineer's commits go 
 ```python
 def card(db, ch, T, head, pr, texts) -> card id:
     """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
-    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready
+    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no second reply, publish.answered) → ready
     (if new or draft). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
     texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 

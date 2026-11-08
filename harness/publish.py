@@ -14,6 +14,17 @@ from store import ROOT, event, now
 OWNER = "AlexPerrin"   # our GitHub login: the PR head's owner, the comments that are ours
 
 
+def answered(db, upstream: str, number: int) -> set:
+    """Ids (REST id and node id) of others' comments on the PR older than our latest comment there: answered already.
+    Read from the gh rows observe.pr keeps for the PR's issue and review comments."""
+    cs = []
+    for url in (f"repos/{upstream}/issues/{number}/comments", f"repos/{upstream}/pulls/{number}/comments"):
+        row = db.execute("SELECT body FROM gh WHERE url=?", (url,)).fetchone()
+        cs += json.loads(row["body"]) if row and row["body"] else []
+    last = max((c["created_at"] for c in cs if c["user"]["login"] == OWNER), default="")
+    return {str(x) for c in cs if c["user"]["login"] != OWNER and c["created_at"] < last for x in (c["id"], c.get("node_id"))}
+
+
 def card(db, ch, T, head: str, pr: dict | None, texts: dict, refusal: str = "") -> int:
     """Steps from the PR's state and the texts: push (unless the PR is at head) → pr (open a draft) | edit (title or body
     differ) → ci (if pushed or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready (if draft or new).
@@ -21,7 +32,8 @@ def card(db, ch, T, head: str, pr: dict | None, texts: dict, refusal: str = "") 
     public = ch.public or f"content/{ch.slug}"
     steps, t = [], {"title": texts.get("pr-title.txt", "").strip(), "body": texts.get("pr-body.md", "")}
     comment = texts.get("pr-comment.md", "").strip()
-    replies = sorted(k for k in texts if k.startswith("pr-reply-"))
+    done = answered(db, T.upstream, pr["number"]) if pr else set()
+    replies = sorted(k for k in texts if k.startswith("pr-reply-") and k[9:-3] not in done)   # a finding we already answered gets no second reply
     if replies:
         comment += "\n\n" + "\n\n".join(texts[k].strip() for k in replies)
     t["comment"] = comment

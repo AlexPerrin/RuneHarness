@@ -21,7 +21,8 @@
 #                     port, the desktop's JX_SESSION_ID a real session of account 1 (sign_in); restart refused (sessions are in memory)
 #   token [TOKEN]     the token the desktop's next login sends (none: a fresh valid one); server/issuer.py mint makes expired
 #                     ones (--exp -5), another account's, and forged ones (another key DIR)
-#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), logged in as this slug's own account; prints LIVE_DESKTOP <devtools port> <instance dir>
+#   live-desktop      one desktop on the live stack (EXTRA_PLUGINS: more jars it loads), signed in through the live Central's sign-in
+#                     as this slug's own account (its first sign-in registers it) and logged in by token with Play alone; prints LIVE_DESKTOP <devtools port> <instance dir>
 #   live-desktop-down stops that desktop and removes its instance
 #   restart           logs up's desktops out, restarts server-<slug>, its game.yml and database kept, and logs them in again
 #   down              stops the desktops, waits until the server has saved and dropped their characters or is gone, removes the stack record's containers
@@ -296,6 +297,7 @@ image_key() {  # image_key IMAGE: its game.key and client.key carry the live pai
   [ "$g" = "$modulus" ] && [ "$c" = "$modulus" ] || { echo "key: $1 carries game.key ${g:0:8} and client.key ${c:0:8}, not the live pair's ${modulus:0:8}"; return 4; }
   echo "key: the live pair's ${modulus:0:8}"
 }
+# deploy runs holding state/live/stack.lock (act.start's, inherited): a flock of its own on that file would wait on itself
 deploy() {  # staging's tree → the live test server; a failing step names itself and records the job failed
   set -E; trap 'echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $?)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND"' ERR
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
@@ -304,12 +306,18 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
   sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_ISSUER_PORT:-8083}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"
+  # Central's sign-in for desktops, as up's SIGN_IN=central: the issuer's secret and account, https with its certificate, its own jav_config
+  sic=1; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
+  openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
   [ -f "$state/key/game.key" ] && [ -f "$state/key/client.key" ] || { echo "no live key pair in $state/key"; return 4; }
   modulus=$(modulus_of < "$state/key/game.key")   # the live stack's pair, seeded once with the key every APK carries: no image passes its key to the next
   cat > "$state/Dockerfile" <<EOF
 FROM or:$T
 COPY --chown=1000:1000 key/game.key key/client.key /app/.data/
 COPY --chown=1000:1000 game.yml /app/game.yml
+COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/
+ENV OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")" OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")" OPENRUNE_HTTP_TLS_PORT=8443 \
+    OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws
 EOF
   $hd own image "osrs-openrune:$T" "staging@$T"   # released once staging moves on (the live tag keeps the running one)
   docker build -q -f "$state/Dockerfile" -t "osrs-openrune:$T" "$state" >/dev/null
@@ -330,6 +338,8 @@ EOF
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
     for c in osrs-openrune-http osrs-openrune-http-desktop; do python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "$c" 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6; done
+    python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, for desktops
+    curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6   # its sign-in over https
     [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" ok "live: $T"
   else
     docker tag "osrs-openrune:rollback-${prev:0:12}" "$live_image"; (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps openrune) >/dev/null
@@ -359,13 +369,13 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
   [ $fail = 1 ] || rm -rf "$h"; return $fail
 }
 
-live_desktop() {  # one desktop logged in on the LIVE stack (its desktop sidecar, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
-  srv=osrs-openrune; http=${OPENRUNE_DESKTOP_HTTP_PORT:-8082}; game=${OPENRUNE_GAME_PORT:-43594}; tok=
+live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
+  srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; sic=1; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
   devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
   flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
-  desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"
-  login_live=$(python3 "$self/server/desktop_login.py" "$dt" "$(account 1)" "$(account 1)") || true; echo "$login_live" >&2   # the account is this slug's own, made by its first login; never the tester's
+  sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
+  login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1
   trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }

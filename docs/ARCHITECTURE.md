@@ -624,7 +624,11 @@ flowchart LR
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
 - The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
   template source; the official client's sign-in and game-session endpoints that mint the token the game
-  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer.
+  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
+  deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
+  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its https OIDC discovery. A desktop on
+  the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
+  alone; a fork `up` types the login form until token login is in the fork's base.
 - The game clients are driven through OpenRune-Developer-Tools, built from our fork's gated head into the Android
   jar and the desktop's sideloaded jar. `mcp/` holds transport only: `.mcp.json` names `osrs-mcp.sh`, the desktop
   bridge (a stdio front of about 80 lines: `tools/list` snapshot when no client runs, routing by `port`, the bearer

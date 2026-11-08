@@ -248,8 +248,24 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
         form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
-        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name), ("sign_in",))                 # Central's form: the slug's own account, typed
-        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {**form, name: (1, 1)}, None, name), ("wait",))  # typed and posted: Central answers next
+        f = lambda u, uf, p, pf: {"Username": (u, uf, 5, 1), "Password": (p, pf, 5, 2)}
+        on = lambda fields, posted=False: m.step("LOGIN_SCREEN", 30, chrome, {**form, **{t: (5, 1) for t, *_ in fields.values() if t}}, None, name, fields, posted)
+        s.assertEqual(on(f("", False, "", False))[:2], ("tap", "Username field"))                          # the field itself, never its label
+        s.assertEqual(on(f("", True, "", False)), ("type", "Username"))                                     # typed once focused
+        s.assertEqual(on(f(name[:4], True, "", False)), ("type", "Username"))                               # still landing: main types once per screen
+        s.assertEqual(on(f(name, True, "", False))[:2], ("tap", "Password field"))
+        s.assertEqual(on(f(name, False, "", True)), ("type", "Password"))
+        s.assertEqual(on(f(name, False, name, True))[:2], ("tap", "Sign in"))                              # both read back holding the name
+        s.assertEqual(on(f("", False, name, False))[:2], ("tap", "Username field"))                        # run 289: the name among the labels, the Username empty: not posted
+        s.assertEqual(on(f("x", True, "", False))[0], "fail")                                               # a field holding another text
+        s.assertEqual(on(f(name, False, name, False), True), ("wait",))                                     # posted: the form leaves next
+        s.assertEqual(on(f("", False, name, False), True), ("wait",))                                       # the posted page while the redirect hands over (seen live: Username cleared)
+        s.assertEqual(on(f("", False, "", False), True)[0], "fail")                                         # Central's 401 answers its form again
+        tip = m.step("LOGIN_SCREEN", 30, chrome, {**form, "Please fill out this field.": (1, 1)}, None, name, f("", True, name, False), True)
+        s.assertEqual(tip, ("fail", "Central's form did not post: Please fill out this field."))           # run 289's stuck form
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name, {})[0], "fail")                  # a form without its fields
+        lab, fields = m.views('<node text="Username " class="android.widget.TextView" bounds="[0,0][10,10]" /><node NAF="true" text="" class="android.widget.EditText" focused="true" bounds="[20,0][40,10]" hint="Username" />')
+        s.assertEqual((lab, fields), ({"Username": (5, 5)}, {"Username": ("", True, 30, 5)}))
         s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
 
     def test_concurrent_boots_take_distinct_ports(s):

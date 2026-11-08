@@ -43,7 +43,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-1-%s\n' "$(cd "$self/server" && cat issuer.py docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
+case $verb in recipe) printf 'build fork-2\ngate fork-1\ndeploy fork-1-%s\n' "$(cd "$self/server" && cat issuer.py docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
@@ -241,7 +241,7 @@ up() {
   if [ -n "$sic" ]; then  # Central's sign-in: game.yml trusts the issuer's secret; Central signs with it and serves https with its certificate
     python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"
     openssl pkcs12 -export -in "$state/token/tls.pem" -inkey "$state/token/tls.key" -passout pass:changeit -out "$state/token/tls.p12"
-    sopt=(-p "$http:8443" -p 8080 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
+    sopt=(-p "$http:8443" -p 9090 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
       -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
       -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit)
   else  # the issuer: game.yml trusts its key; param 11 sends the desktop's game-session calls to it
@@ -249,8 +249,8 @@ up() {
     docker run -d --name "token-$slug" -p 8080 -v "$self/server/issuer.py:/issuer.py:ro" -v "$state/token:/t:ro" python:3.13-alpine python3 /issuer.py serve /t >/dev/null
     sed -E "s#^param=(11|22)=.*#param=\1=https://127.0.0.1:$(docker port "token-$slug" 8080 | head -1 | cut -d: -f2)/#" "$tpl" > "$state/jav_config.ws.template"; tpl=$state/jav_config.ws.template   # 11 Jagex auth, 22 RuneScape auth: the client casts both to https
   fi
-  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (8080; https on 8443 with its sign-in), the template filled as the sidecar fills it
-  sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:8080")
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (9090, the bundle's game.yml; https on 8443 with its sign-in), the template filled as the sidecar fills it
+  sopt+=(-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws); [ -n "$sic" ] || sopt+=(-p "$http:9090")
   [ -n "${RESUME:-}" ] || rm -rf "$state/postgres"; mkdir -p -m 700 "$state/postgres"   # fresh, or RESUME: the last down's (owner uid 1000, the server's)
   docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" -v "$state/postgres:/app/.data/postgres" \
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
@@ -258,7 +258,7 @@ up() {
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
   if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
   if [ -z "$sic" ]; then python3 "$self/server/javcheck.py" "http://127.0.0.1:$http/jav_config.ws"   # no desktop is pointed at a foreign host
-  else python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 8080 | head -1 | cut -d: -f2)/jav_config.ws"; sign_in; fi   # Central's, over its http port; the session after the realm's restart (Central keeps sessions in memory)
+  else python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"; sign_in; fi   # Central's, over its http port; the session after the realm's restart (Central keeps sessions in memory)
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
     [ -n "$sic" ] || { who=$(account "$i"); sid=$(python3 "$self/server/issuer.py" mint "$state/token" "$who" --exp 31536000); cid=$(python3 -c 'import sys, zlib; print(zlib.crc32(sys.argv[1].encode()) & 0x7FFFFFFF)' "$who"); }   # the session the issuer answers with this desktop's account

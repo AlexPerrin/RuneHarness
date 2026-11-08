@@ -3,6 +3,7 @@ slug: h-mobile-login-page-9
 track: harness
 priority: P1
 deps:
+- client-host-initial-gamestate
 - server-reconnect
 ---
 # mobile_login: a live start ends at LoginIndex 9 (Unexpected server response) after Play Now

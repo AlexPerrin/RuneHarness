@@ -22,7 +22,7 @@ upstream until the user lifts the hold (hd.yaml, ARCHITECTURE §11).
 The brief names your clone (`~/src/OpenRune-Central-Server/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
 `tracks/central/track.sh build <slug>` compiles your candidate in the build copy; `test <slug>` runs every module's
 tests there; `up <slug> [N]` builds the fork's base with your head as its Central and starts that server with N
-logged-in desktops (the fork's `up`; a head whose embedded Central reads `OPENRUNE_JAV_CONFIG_URL_TEMPLATE` serves the
+logged-in desktops (the fork's `up`; a head whose embedded Central reads a `file://` jav_config serves the
 desktops' `jav_config.ws` itself on the up's http port, with no `http-<slug>`); `up <slug> token` builds the server's token login (dev/server-token-auth) with your head and signs its one desktop in
 through your Central's sign-in (needs both central-game-session's endpoints and central-embedded-jav-config's file jav_config); `log`, `down` as the fork's. A server change that needs your head names your
 change in its `deps`: its candidate is then built with your head (composite), and its PR waits for yours to merge and

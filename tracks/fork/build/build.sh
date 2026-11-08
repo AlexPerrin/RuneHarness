@@ -62,11 +62,13 @@ central() {  # the change's Central dependencies, merged by hd, built in (gate/c
 }
 build() { tree; { flock 9; build_locked; } 9> "$state/build.lock"; }   # one build of a slug at a time (the pass's and its dev's): the second waits, then reuses a cached or:<T>; the lock ends with the build, never held by the gate or its rows after it
 build_locked() {
-  if docker image inspect "or:$T" >/dev/null 2>&1; then $hd own image "or:$T" "$slug@$T"; echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi
+  if docker image inspect -f '{{json .Config.Entrypoint}}' "or:$T" 2>/dev/null | grep -q server.jar; then $hd own image "or:$T" "$slug@$T"; echo "cached or:$T"; record true build <<< "cached"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "cached or:$T"; return; fi   # cached: or:<T> holding the bundle (an older recipe's, without server.jar, is built again)
   n=1; while [ -e "$state/build-$T-$n.log" ]; do n=$((n + 1)); done; log=$state/build-$T-$n.log   # each attempt its own log (under the lock)
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
   $hd own worktree "$copy" "$slug"   # every artifact a row of its owner: hd releases it once no owner is live (docs/ARCHITECTURE.md §6)
-  cp "$copy/game.example.yml" "$copy/game.yml"   # every build renders T's config: game.yml is ignored, so clean keeps an older tree's
+  cp "$copy/game.example.yml" "$copy/game.yml"   # every build renders T's config, as release-server.yml: game.yml is ignored, so clean keeps an older tree's
+  # the one harness setting beyond game.example.yml: embedded Central's http on 9090, the port upstream's test server serves (update-test-server.yml HTTP_PORT; the code's default is 8080)
+  grep -qE '^[[:space:]]+http-port:' "$copy/game.yml" || sed -i '/^central:/a\  http-port: 9090' "$copy/game.yml"
   if grep -q '\.m2-rsprot' "$copy/settings.gradle.kts"; then  # local/android pins an rsprot published only to the clone's .m2-rsprot
     [ -d "$repo/.m2-rsprot" ] || { echo "no $repo/.m2-rsprot: the tree pins a locally published rsprot" | tee "$log" | record false build; echo "build failed: $log"; return 1; }
     cp -a "$repo/.m2-rsprot" "$copy/"
@@ -96,19 +98,20 @@ build_locked() {
       if [ -d $s ]; then cp -a $s/. .; else
         [ -z "$GK" ] || [ -d $d ] || [ ! -s /game-data.tgz ] || { rm -rf $d.tmp && mkdir -p $d.tmp/.data && tar -xzf /game-data.tgz -C $d.tmp/.data && mv $d.tmp $d; }   # the asset: the revision stored, never openrs2
         if [ -n "$GK" ] && [ -d $d ]; then cp -a $d/. .   # the revision downloaded once: every tree repacks it, as CI on a cache hit
+          $g :or-cache:buildCache   # freshCache past its download (its FRESH_INSTALL builds the cache next)
         else
           $g :or-cache:freshCache
           [ -z "$GK" ] || { rm -rf $d.tmp && mkdir -p $d.tmp && cp -a --parents .data/cache .data/gamevals-binary/gamevals.dat .data/gamevals-binary/gamevals_generated.dat $d.tmp/ && mv $d.tmp $d; }   # whole or not at all
         fi
-        $g :or-cache:mergePluginGamevals :or-cache:buildCache
+        $g :or-cache:mergePluginGamevals   # release-server.yml: freshCache, then mergePluginGamevals, then shadowJar
         rm -rf $s.tmp && mkdir -p $s.tmp && cp -a --parents .data/cache .data/gamevals .data/gamevals-binary api/generated $s.tmp/ && mv $s.tmp $s
       fi
-      $g generateRsa :server:app:installDist -x test' || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
+      $g :server:app:shadowJar' || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
   trap - EXIT TERM INT   # past its container: a gate sourcing this never removes a later build's
   rm -f "$gd"
-  st=$copy/.image; rm -rf "$st"; mkdir -p "$st/data"
-  cp -a "$copy/server/app/build/install/app" "$st/server"; cp "$copy/game.yml" "$st/"
-  cp -a "$copy/.data/." "$st/data/"; rm -rf "$st/data/client.key" "$st/data/game.key" "$st/data/postgres"
+  st=$copy/.image; rm -rf "$st"; mkdir -p "$st/.data"   # release-server.yml's bundle: server.jar, game.yml, .data/ without raw-cache; no key or database (up and deploy give their own)
+  cp "$copy/server/app/build/libs/server.jar" "$copy/game.yml" "$st/"
+  tar -C "$copy/.data" --exclude=./raw-cache --exclude=./client.key --exclude=./game.key --exclude=./postgres -c . | tar -C "$st/.data" -x
   $hd own image "or:$T" "$slug@$T"
   hosted "$log" docker build -q -f "$self/Dockerfile" -t "or:$T" "$st" || { rm -rf "$st"; record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "docker build"; return 1; }
   rm -rf "$st"   # the context is the image's now

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -302,7 +303,7 @@ def cmd_answer(a):
         sys.exit(f"hd answer: options are {[o['id'] for o in json.loads(q['options_json'])]}")
     effect, _, arg = opt["effect"].partition(" ")
     if effect == "close":
-        sys.exit("hd answer: a close is the user's own: ! hd close")
+        sys.exit(f"hd answer: a close is the user's own: ! python3 {os.path.abspath(__file__)} close {a.slug} {shlex.quote(a.words or opt['text'])}")
     db.execute("BEGIN")
     db.execute("INSERT INTO answer(ask, option, words, by, at) VALUES (?,?,?,?,?)", (q["id"], a.option, a.words, "user", now()))
     if effect == "dep":

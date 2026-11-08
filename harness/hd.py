@@ -188,10 +188,15 @@ def cmd_criterion(a):
     print(f"criterion {a.slug}/{a.rid} ({a.kind})")
 
 
-def dep_inputs(db, cfg, ch, base) -> tuple:
+def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
     """(same-track dep heads, library composite) a candidate of ch on the commit base builds in: every submitted dep not
-    yet in it (landed on its track's base, or its head an ancestor of base, or for a library of its own base)."""
+    yet in it (landed on its track's base, or its head an ancestor of base, or for a library of its own base); staged
+    (a candidate on staging): the libraries the test server runs with (Ledger.staging_composite), a dep's head in place
+    of its library's."""
     heads, composite = [], {}
+    if staged:
+        # shortcut: a library dep's head replaces that library's staging, not merged with it; merge them if a dep ever needs both
+        composite = json.loads(Ledger(db).staging_composite(decide.STAGING) or "{}")
     for dep in decide.candidate_deps(change, ch):
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
@@ -228,7 +233,7 @@ def cmd_submit(a):
     if act.is_ancestor(T.path, head, act.git(T.path, "rev-parse", T.base)):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
     base = candidate_base(T)
-    heads, composite = dep_inputs(db, cfg, ch, base)
+    heads, composite = dep_inputs(db, cfg, ch, base, T.candidate_base() != T.base)
     try:
         tree, tcommit = act.candidate(T.path, base, heads + [head])
     except act.Conflict as c:
@@ -472,10 +477,15 @@ def cmd_gate(a):
 def cmd_candidate(a):
     cfg, ch = act.cfg(), change(a.slug)
     T = track(ch, cfg)
+    base = a.base or candidate_base(T)
+    heads, composite = dep_inputs(store.connect(), cfg, ch, base, not a.base and T.candidate_base() != T.base)
+    if a.composite:   # the build's env: the libraries this candidate builds in, as the pass's job env carries them
+        for lib, v in sorted(composite.items()):
+            print(f"{lib.upper()}={cfg.tracks[lib].path}:{v['head']}")
+        return
     head = act.git(T.path, "rev-parse", a.head or T.dev_ref(ch))
     try:
-        base = a.base or candidate_base(T)
-        print(*act.candidate(T.path, base, dep_inputs(store.connect(), cfg, ch, base)[0] + [head]))
+        print(*act.candidate(T.path, base, heads + [head]))
     except act.Conflict as c:
         sys.exit(f"conflict: {' '.join(c.args[0])}")
 
@@ -637,7 +647,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("close"); s.add_argument("slug"); s.add_argument("words")
     s = sub.add_parser("job"); s.add_argument("kind"); s.add_argument("key"); s.add_argument("result", choices=("ok", "fail")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")
-    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head")
+    s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head"); s.add_argument("--composite", action="store_true")
     s = sub.add_parser("stack"); s.add_argument("slug"); s.add_argument("file", nargs="?"); s.add_argument("--clear", action="store_true")
     s = sub.add_parser("own"); s.add_argument("kind", choices=("image", "volume", "container", "worktree", "dir")); s.add_argument("key"); s.add_argument("owner")
     s = sub.add_parser("step"); s.add_argument("slug"); s.add_argument("script"); s.add_argument("step"); s.add_argument("state", choices=("start", "done")); s.add_argument("detail", nargs="?")

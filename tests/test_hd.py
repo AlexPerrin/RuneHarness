@@ -149,6 +149,8 @@ class Hd(unittest.TestCase):
         db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('g', ?, 't', 't', 't')", (fork_only,))
         self.assertEqual((T.candidate_base(), hd.candidate_base(T)), ("refs/heads/staging", staging))
         self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging), ([], {}))   # on staging already: in the base
+        db.execute("INSERT INTO ref(repo, name, sha, tree, seen_at) VALUES ('central', 'refs/heads/staging', 'c1', 'ct', 't')")
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging, staged=True), ([], {"central": {"head": "c1", "tree": "ct"}}))   # built with the libraries the test server runs
         tree, tcommit = hd.act.candidate(repo, staging, [head])
         files = hd.act.git(repo, "ls-tree", "--name-only", tree).split()
         self.assertEqual(sorted(files), ["base", "fork", "head", "merged"])   # staging's own commit is proved with the head

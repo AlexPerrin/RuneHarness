@@ -915,12 +915,12 @@ class DesktopLogin(unittest.TestCase):
         t = SRC; fn = t[t.index("login() {"):t.index("offline() {")]
         for site in ('login "$dt"', 'login "$(cut -d: -f2 <<< "${desktops[$i]}")"', 'login "$(cut -d: -f2 <<< "${ds[$i]}")"'):
             s.assertIn(site, t)   # every login of up and restart
-        s.assertEqual(t.count("desktop_login.py\" \"$1\" \"$2\""), 1)   # no login but through it
+        s.assertEqual(t.count('desktop_login.py" "$1" token'), 1)   # no login but through it, by token (Play alone)
         made = lambda *rows: subprocess.run(["bash", "-c", f'set -euo pipefail\nf=$(mktemp); trap "rm -f $f" EXIT; printf "%s\\n" {" ".join(repr(r) for r in rows)} > $f\nsql() {{ case $1 in *max*) echo 0 ;; *) head -1 $f; sed -i 1d $f ;; esac; }}   # each read in its own subshell: the rows a file\npython3() {{ echo "py $3"; }}\nself=.\n{fn}\nlogin 7786 h1'],
                                             capture_output=True, text=True).stdout
-        s.assertEqual(made("h1"), "py h1\n")
-        s.assertEqual(made("h1x h1", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")
-        s.assertEqual(made("h", "h1"), "py h1\nlogin on 7786 made another account than h1: logging in again\npy logout\npy h1\n")   # no row of the account yet
+        s.assertEqual(made("h1"), "py token\n")
+        s.assertEqual(made("h1x h1", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")
+        s.assertEqual(made("h", "h1"), "py token\nlogin on 7786 made another account than h1: logging in again\npy logout\npy token\n")   # no row of the account yet
 
 class Repo(unittest.TestCase):
     def setUp(s):

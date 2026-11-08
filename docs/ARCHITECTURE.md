@@ -503,7 +503,7 @@ sequenceDiagram
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
 | `hd job <kind> <key> ok\|fail [detail]`, `hd step <slug> <script> <step> start\|done` | track scripts | job; step_log; a deploy ok marks every change then on staging landed `live`, and each library change whose head is in the library head it built in |
 | `hd gate <slug> <key> <dir>` | track scripts (`track.sh gate`, a ship on a new tree) | check_result per scripted criterion at the key's tree, then job(gate); a candidate on staging also gives its criteria `PR_TCOMMIT`, the head with its deps on base alone (or `conflict: <files>`), where the fork CI runs the PR |
-| `hd candidate <slug> [--base sha] [--head sha]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base (default the candidate base) with its same-track deps not yet in it, as `hd submit` builds it |
+| `hd candidate <slug> [--base sha] [--head sha] [--composite]` | track scripts (`track.sh ship`, the builds), anyone | nothing: prints `<tree> <tcommit>` of the head on base (default the candidate base) with its same-track deps not yet in it, as `hd submit` builds it; `--composite`: `CENTRAL=<clone>:<head>` / `FILESTORE=…` lines, the libraries it builds in (on staging: `staging_composite`, a dep's head in place of its library's), as `submission.composite_json` records them |
 | `hd fault <run> <what>` | any run | alert(kind='fault') |
 | `hd dismiss <alert id> <why>` | orchestrator | alert.disposition |
 | `hd stop <run>` | orchestrator | run.ended_at, end_kind=stop; `systemctl --user stop hd-<run>.slice` |

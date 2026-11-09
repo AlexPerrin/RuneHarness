@@ -46,6 +46,16 @@ atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"
 serial() { cat "$state/serial" 2>/dev/null || { echo "no mobile for $slug: run up"; return 1; }; }
 win() { wslpath -w "$1"; }
 A() { local o; for _ in 1 2 3 4 5; do o=$({ "$adb" -s "$s" "$@" 2>&1 || true; } | tr -d '\r'); [[ $o == *"accept4 failed"* ]] || break; sleep 1; done; printf '%s\n' "$o"; }   # adb on the run's mobile ($s), again while WSL interop drops its stdio ("accept4 failed", as mobile_login.py); callers judge its output
+poll() {  # poll CMD...: until CMD succeeds (1: not yet; any other failure ends the wait with it), or the emulator is gone: every boot wait ends on that fact
+  local rc; until "$@"; do rc=$?; [ $rc = 1 ] || return $rc
+    [[ $(A get-state) != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 1; done
+}
+booted() { [ "$(A shell getprop sys.boot_completed)" = 1 ]; }
+cellular() { local c; c=$(A shell dumpsys connectivity); [[ $c =~ ni\{MOBILE[^\ ]*\ CONNECTED && $c != *"ni{WIFI"* ]]; }   # the cellular path up, the wifi one off
+app_files() {  # the app's first start made its files dir; 2 when the app died before
+  local f; f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ] && return 0
+  [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 2; }; return 1
+}
 pm_idle() {  # the package manager is up (its dump lists the install sessions) and no active or legacy session installs $pkg
   local d; d=$(A shell "dumpsys package | sed -n '/^Active install sessions:/,/^Finalized install sessions:/p;/^Legacy install sessions:/,+1p'" | tr -d ' \n')
   [[ $d == "Activeinstallsessions:"* && $d != *"$pkg"* ]]   # the dump wraps long lines: joined, the package name is whole
@@ -111,9 +121,9 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
-  until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
+  poll booted || return 1   # offline while it boots
   A uninstall "$pkg" >/dev/null
-  until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
+  poll pm_idle || return 1   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
   path=$(A shell pm path "$pkg"); path=${path#package:}
   [ "$(A shell "unzip -l $path | grep -c libosrsrl")" = 1 ] || { echo "the APK carries no libosrsrl" >&2; return 1; }
@@ -121,12 +131,12 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   for r in $reverse; do A reverse "tcp:${r%:*}" "tcp:${r#*:}" >/dev/null   # the APK's servers on its own loopback, through adb: no address of the host's network
     A reverse --list | grep -qF " tcp:${r%:*} tcp:${r#*:}" || { echo "adb reverse did not map tcp:${r%:*} to tcp:${r#*:} on $s" >&2; return 1; }; done
   A shell svc wifi disable >/dev/null   # the wifi path (netsimd) resolves through Windows; the cellular one asks -dns-server
-  cell='ni\{MOBILE[^ ]* CONNECTED'; until c=$(A shell dumpsys connectivity); [[ $c =~ $cell && $c != *"ni{WIFI"* ]]; do sleep 1; done
+  poll cellular || return 1
   A shell settings put secure immersive_mode_confirmations confirmed >/dev/null   # SystemUI's "Viewing full screen" prompt never shows: no tap
   blocked >&2 || return 1
   r=$(A shell am start -W -n "$pkg/com.jagex.android.MainActivity")   # a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches; by component: its launcher filter has no DEFAULT category, so an implicit am start does not resolve
   [[ $r == *"Status: ok"* || $r == *"Status: timeout"* ]] || { echo "the app did not start: $r" >&2; return 1; }   # timeout: started, its first frame slower than -W waits; the files/ wait below decides
-  until f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ]; do [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 1; }; sleep 1; done; A shell am force-stop "$pkg" >/dev/null
+  poll app_files || return 1; A shell am force-stop "$pkg" >/dev/null
   A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done
   [ "$(A shell ls -1 "$files/plugins" | LC_ALL=C sort | paste -sd' ')" = "$defaults" ] || { echo "the three default plugins are not in place" >&2; return 1; }

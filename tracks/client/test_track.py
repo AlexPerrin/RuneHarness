@@ -108,7 +108,7 @@ case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
         HOSTS = re.search(r'^hosts="([^"]+)"', TRACK.read_text(), re.M).group(1)
         progs = {sdk / "platform-tools/adb.exe": f"""printf "%s\\n" "adb $*" >> {log}
-[ -z "$GONE" ] || case "$*" in *boot_completed*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
+[ -z "$GONE" ] || case "$*" in *$GONE*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
 case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
@@ -137,10 +137,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     def test_an_emulator_gone_while_booting_ends_up_and_down_restores_nothing(s):  # run 222 start 5: the emulator shut down mid-boot and up waited on boot_completed for 41 minutes
-        log = s.fake_windows(); s.env["GONE"] = "1"
-        rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("the emulator emulator-5560 exited while booting", out)
-        s.assertIn("restored (the emulator emulator-5560 had exited)", out); s.assertNotIn("RESTORE FAILED", out)
-        s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
+        log = s.fake_windows()
+        for gone in ("boot_completed", "dumpsys package", "dumpsys connectivity"):   # run 331 start 8: gone after its boot, up polled the package manager for 15 min
+            s.env.update(GONE=gone, INSTALL="Success")
+            rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertRegex(out, r"the emulator emulator-55\d\d exited while booting")
+            s.assertRegex(out, r"restored \(the emulator emulator-55\d\d had exited\)"); s.assertNotIn("RESTORE FAILED", out)
+            s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
     def test_the_emulator_is_recorded_under_the_runs_slice_until_down(s):  # osrs-harness R5: a run's end stops its Linux processes; the Windows emulator outlives them

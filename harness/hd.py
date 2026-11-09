@@ -325,7 +325,7 @@ def cmd_answer(a):
         write_change(a.slug, fm, body)
     elif effect == "waive":
         db.execute("UPDATE criterion SET waived=1 WHERE change=? AND rid=?", (a.slug, arg))
-    elif effect == "reply":
+    elif effect == "reply" and arg:   # a bare reply (an ask from before hd ask checked options) records the words only
         d = os.path.join(ROOT, "evidence", a.slug)
         os.makedirs(d, exist_ok=True)
         f = db.execute("SELECT * FROM finding WHERE comment_id=?", (int(arg),)).fetchone()

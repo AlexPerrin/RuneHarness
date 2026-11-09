@@ -113,6 +113,12 @@ class Hd(unittest.TestCase):
         hd.main(["answer", "x", "a", "pushed"])
         self.assertEqual(store.connect().execute("SELECT option, words FROM answer").fetchone()[1], "pushed")
 
+    def test_a_bare_reply_from_an_old_ask_records_the_answer(self):   # ask 2: options carried from v8 with effect 'reply' and no comment id
+        db = store.connect()
+        db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('x', 'how?', ?, 't')", (json.dumps([{"id": "a", "text": "fork-only", "effect": "reply"}]),))
+        hd.main(["answer", "x", "a", "fork-only"])
+        self.assertEqual(db.execute("SELECT option, words FROM answer").fetchone()[1], "fork-only")
+
     def test_fault_raises_an_alert_and_dismiss_disposes_of_it(self):
         hd.main(["fault", "7", "hd criterion add is unusable"])
         db = store.connect()

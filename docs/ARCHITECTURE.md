@@ -759,7 +759,9 @@ stateDiagram-v2
 ```bash
 # harness/orchestrator.sh — run once by the user in their terminal, so the session and its agents are visible
 cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
-systemctl --user is-active -q hd-loop.timer || systemd-run --user --unit hd-loop --on-calendar='*:*:00' python3 "$PWD/harness/hd.py" tick
+systemctl --user show -p ExecStart hd-loop.service | grep -qF " $PWD/harness/hd.py tick" ||   # a timer of another checkout is replaced
+  { systemctl --user stop hd-loop.timer hd-loop.service; systemctl --user reset-failed hd-loop.service; false; } ||
+  systemd-run --user --unit hd-loop --on-calendar='*:*:00' python3 "$PWD/harness/hd.py" tick
 n=0
 while :; do
   n=$((n + 1)); unit=hd-orchestrator-$$-$n
@@ -776,7 +778,7 @@ done
   any other top-level session in the checkout is the `driver`) and the digest of `orchestrator.md` and `.mcp.json` it
   loaded (Claude Code reads both once, at start). `hd` finds its session by the calling pid's ancestry. A driver is
   never drained for a moved definition. The supervisor runs the session in a user scope so that a run's shell can be moved into
-  the run's own scope, and starts the minute timer `hd-loop.timer` once.
+  the run's own scope, and starts the minute timer `hd-loop.timer` once, replacing one that runs another checkout's `hd` (its briefs would name that checkout's paths).
 - **Delta view**: `hd` prints only lines with `event.id > session.seen_event` and advances it; a card is shown once
   per (head, texts) per session. A session's context grows with events, not with passes.
 - **Drain**: set by the PostToolUse hook when the transcript passes `context_limit`, or by the pass when HEAD's

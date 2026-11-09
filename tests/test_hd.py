@@ -180,6 +180,32 @@ class Hd(unittest.TestCase):
         self.assertFalse(hd.act.is_ancestor(repo, fork_only, head))   # the PR head holds no staged commit
         self.assertEqual(Track("central", "x/y", repo, "refs/heads/main", "o/y").candidate_base(), "refs/heads/main")   # no deploy: base
 
+    def test_a_staged_library_dep_merges_onto_the_library_staging(self):   # h-dep-composite-merges-staging: tokenLogin only on Central's staging
+        import os, subprocess
+        from decide import Change, Cfg, Track
+        repo = os.path.join(self.dir.name, "central")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        def git(*a): subprocess.run(["git", "-C", repo, *a], check=True, env=env, capture_output=True)
+        def commit(f, branch):
+            git("checkout", "-q", "-B", branch, "main"); Path(repo, f).write_text(f); git("add", f); git("commit", "-qm", f)
+            return hd.act.git(repo, "rev-parse", "HEAD")
+        os.makedirs(repo); git("init", "-q", "-b", "main")
+        Path(repo, "base").write_text("base"); git("add", "base"); git("commit", "-qm", "base")
+        staging, dep = commit("token", "staging"), commit("dep", "dep")
+        cfg = Cfg(tracks={"central": Track("central", "x/y", repo, "refs/heads/main", "o/y")})
+        defs = {"f": Change("f", "fork", deps=("d",)), "d": Change("d", "central")}
+        self.addCleanup(setattr, hd, "change", hd.change); hd.change = defs.get
+        db = store.connect()
+        db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('d', ?, 't', 't', 't')", (dep,))
+        db.execute("INSERT INTO ref(repo, name, sha, tree, seen_at) VALUES ('central', 'refs/heads/staging', ?, 'st', 't')", (staging,))
+        lib = hd.dep_inputs(db, cfg, defs["f"], "unused", staged=True)[1]["central"]
+        self.assertEqual(sorted(hd.act.git(repo, "ls-tree", "--name-only", lib["tree"]).split()), ["base", "dep", "token"])
+        self.assertTrue(hd.act.is_ancestor(repo, staging, lib["head"]) and hd.act.is_ancestor(repo, dep, lib["head"]))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], "unused")[1]["central"]["head"], dep)   # off staging: the head alone
+        git("checkout", "-q", "staging"); git("merge", "-q", "--no-edit", "dep")
+        db.execute("UPDATE ref SET sha=? WHERE repo='central'", (hd.act.git(repo, "rev-parse", "staging"),))
+        self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], "unused", staged=True)[1]["central"]["head"], hd.act.git(repo, "rev-parse", "staging"))   # already in staging
+
 
 if __name__ == "__main__":
     unittest.main()

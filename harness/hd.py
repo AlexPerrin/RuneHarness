@@ -192,11 +192,10 @@ def cmd_criterion(a):
 def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
     """(same-track dep heads, library composite) a candidate of ch on the commit base builds in: every submitted dep not
     yet in it (landed on its track's base, or its head an ancestor of base, or for a library of its own base); staged
-    (a candidate on staging): the libraries the test server runs with (Ledger.staging_composite), a dep's head in place
-    of its library's."""
+    (a candidate on staging): the libraries the test server runs with (Ledger.staging_composite), each with its
+    unlanded dep heads merged in (act.candidate), the composite the deploy runs."""
     heads, composite = [], {}
     if staged:
-        # shortcut: a library dep's head replaces that library's staging, not merged with it; merge them if a dep ever needs both
         composite = json.loads(Ledger(db).staging_composite(decide.STAGING) or "{}")
     for dep in decide.candidate_deps(change, ch):
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
@@ -208,7 +207,15 @@ def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
         if d.track == ch.track:
             heads.append(s["head"])
         elif d.track in ("central", "filestore"):   # a library head built into the candidate as a Gradle composite
-            composite[d.track] = {"head": s["head"], "tree": act.git(dT.path, "rev-parse", s["head"] + "^{tree}")}
+            lib = composite.get(d.track)
+            if lib and act.is_ancestor(dT.path, s["head"], lib["head"]):
+                continue   # already in the library's staging
+            try:   # merged onto the library's staging (or the dep heads before it); the head alone when there is none
+                tree, head = act.candidate(dT.path, lib["head"], [s["head"]]) if lib else \
+                    (act.git(dT.path, "rev-parse", s["head"] + "^{tree}"), s["head"])
+            except act.Conflict as c:
+                sys.exit(f"dep {dep} at {s['head'][:7]} conflicts with {d.track}'s {lib['head'][:7]} in {' '.join(c.args[0])}")
+            composite[d.track] = {"head": head, "tree": tree}
     return heads, composite
 
 

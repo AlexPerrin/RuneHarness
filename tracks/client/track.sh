@@ -124,8 +124,9 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   cell='ni\{MOBILE[^ ]* CONNECTED'; until c=$(A shell dumpsys connectivity); [[ $c =~ $cell && $c != *"ni{WIFI"* ]]; do sleep 1; done
   A shell settings put secure immersive_mode_confirmations confirmed >/dev/null   # SystemUI's "Viewing full screen" prompt never shows: no tap
   blocked >&2 || return 1
-  A shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null   # a first start creates files/
-  until [ "$(A shell "[ -d $files ] && echo y")" = y ]; do sleep 1; done; A shell am force-stop "$pkg" >/dev/null
+  r=$(A shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$pkg")   # a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches
+  [[ $r == *"Status: ok"* ]] || { echo "the app did not start: $r" >&2; return 1; }
+  until f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ]; do [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 1; }; sleep 1; done; A shell am force-stop "$pkg" >/dev/null
   A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done
   [ "$(A shell ls -1 "$files/plugins" | LC_ALL=C sort | paste -sd' ')" = "$defaults" ] || { echo "the three default plugins are not in place" >&2; return 1; }

@@ -115,8 +115,8 @@ guest_mb=$(sed -n 's/^hw.ramSize=//p' "$self/Agent_Lite.ini")   # Agent_Lite's g
 hostmem() {  # waits until Windows has the guest's RAM available: an emulator booted on an overcommitted host pages the WSL VM (the live server, Central) out, freezing it past the app's timeouts
   local kb said=
   until kb=$("$ps" -NoProfile -NonInteractive -Command '(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory' | tr -d '\r'); [[ $kb =~ ^[0-9]+$ ]] && [ $((kb / 1024)) -ge $guest_mb ]; do
-    [[ $kb =~ ^[0-9]+$ ]] || { echo "Windows available memory unread: $kb" >&2; return 1; }
-    [ -n "$said" ] || { echo "waiting for $guest_mb MB available on Windows (now $((kb / 1024)) MB)" >&2; said=1; }; sleep 5
+    [[ -z $kb || $kb =~ ^[0-9]+$ ]] || { echo "Windows available memory unread: $kb" >&2; return 1; }   # empty: WSL interop dropped powershell's stdio (accept4 failed), read again
+    [ -n "$said" ] || { echo "waiting for $guest_mb MB available on Windows (now $([ -n "$kb" ] && echo "$((kb / 1024)) MB" || echo unread))" >&2; said=1; }; sleep 5
   done
 }
 emu() {  # an Agent_Lite emulator (Google APIs without Play, -lowram: its 2 GB honoured, the host GPU) on a free even console port behind its own DNS relay, booted;

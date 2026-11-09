@@ -340,6 +340,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         rc, out = s.row("up"); s.assertIn("waiting for 2048 MB available on Windows (now 976 MB)", out)
         calls = log.read_text(); s.assertEqual(calls.count("FreePhysicalMemory"), 2); s.assertLess(calls.rindex("FreePhysicalMemory"), calls.index("emulator -avd"))
         free.write_text("oops oops"); rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("Windows available memory unread: oops", out)
+        free.write_text(" 2097152"); rc, out = s.row("up"); s.assertIn("(now unread)", out); s.assertNotIn("memory unread", out)   # an empty read (WSL interop's accept4 failed) is read again
 
     def test_a_running_emulator_holds_no_lock(s):  # the port lock ends when adb sees the emulator, not when it exits
         log = s.fake_windows(); emu = s.ev / "sdk/emulator/emulator.exe"

@@ -19,7 +19,8 @@
 #                     the head's step; every other head packs on the restored revision (its cache inputs': the head's step);
 #                     each step is timed alone (the job's timeout-minutes on every step), so a timeout names the step that ran
 #                     out; a run failed at a step the head does not touch is re-run once its source answers, and after 3
-#                     attempts the row exits 75: held, no result
+#                     attempts the row exits 75: held, no result; a run GitHub started no job of is dispatched again
+#                     (the head's only when it changes a workflow), held the same after 3 such runs
 #   ci-step STEP      the carry's CI wait (hd.py ci_fault) asks of an upstream CI step that failed: exit 0 when STEP reads nothing
 #                     the head (HEAD over BASE) changes, once its source answers (gate-ci's own classifier); 1 when it is the head's
 . "$(dirname "$0")/../build/build.sh"   # verb slug arg self(tools/build) repo root state dev copy atomic record size hosted box tree central build
@@ -93,15 +94,20 @@ gate_ci() {  # pushes T (gate_sha) to gate/<slug>; the newest run of each workfl
   case ${PR_TCOMMIT:-} in "") ;; conflict:*) echo "the PR's head does not merge with upstream main, $PR_TCOMMIT"; return 1 ;; *) TCOMMIT=$PR_TCOMMIT ;; esac   # the scratch merge: the PR on upstream main, never staging's other heads (G4)
   seed
   sha=$(gate_sha); git -C "$repo" push -q --force fork "$sha:refs/heads/gate/$slug"
-  q="repos/$R/actions/runs?branch=gate/$slug&head_sha=$sha&per_page=100" etag= runs= ran= rr=
+  q="repos/$R/actions/runs?branch=gate/$slug&head_sha=$sha&per_page=100" etag= runs= ran= rr=; declare -A zn=()
   while :; do
     read_runs || return 1; ok=0
     for wf in CI Formatting; do
       read -r _ st id att <<< "$(grep -m1 "^$wf " <<< "$runs" || true)"   # newest first
       case $st in success/*) ok=$((ok + 1)) ;;
-        failure/completed|cancelled/completed|timed_out/completed) case " $rr " in *" $id.$att "*) continue ;; esac   # its re-run asked for: GitHub has not yet shown it
+        failure/completed|cancelled/completed|timed_out/completed|startup_failure/completed) case " $rr " in *" $id.$att "*) continue ;; esac   # its re-run asked for: GitHub has not yet shown it
           f=$(failed_step "$id")
           if ! infra "$f"; then echo "$wf $st at '$f' on gate/$slug at $sha (T $TCOMMIT)"; return 1; fi
+          if [ "$f" = "(no job)" ]; then   # GitHub started no job (an outage): a re-run has no failed job to run, a new dispatch does
+            [ "${zn[$wf]:-0}" -lt 2 ] || { echo "$wf started no job in 3 runs on gate/$slug at $sha: no result"; exit 75; }
+            echo "$wf $st with no job started on gate/$slug at $sha, not the head's: dispatched again"
+            if gh workflow run "$wf" -R "$R" --ref "gate/$slug"; then rr="$rr $id.$att"; zn[$wf]=$((${zn[$wf]:-0} + 1)); fi; continue
+          fi
           [ "$att" -lt 3 ] || { echo "$wf failed at '$f' in $att attempts on gate/$slug at $sha, a step the head does not touch: no result"; exit 75; }
           echo "$wf failed at '$f', a step the head does not touch: re-run once its source answers"; answers "$f"
           if gh run rerun "$id" --failed -R "$R"; then rr="$rr $id.$att"; fi ;;
@@ -146,18 +152,23 @@ seed() {  # the fork release asset game-data-<k> (k: game.example.yml's blob, wh
   gh release view game-data -R "$R" >/dev/null 2>&1 || gh release create game-data -R "$R" --prerelease --title "game data" --notes "The harness gate's game data, one asset per game.example.yml" || true
   gh release upload game-data "$f" -R "$R" || echo "seeding $a failed or another gate's upload stands"; rm -f "$f"
 }
-failed_step() {  # the first step of run $1 that failed or was stopped (a cancel, ci.yml's timeout) (one read per such run)
-  until gh api "repos/$R/actions/runs/$1/jobs" -q '[.jobs[].steps[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name][0] // ""'; do sleep 30; done
+failed_step() {  # the first step of run $1 that failed or was stopped (a cancel, ci.yml's timeout), "(no job)" when GitHub started none (one read per such run)
+  until gh api "repos/$R/actions/runs/$1/jobs" -q 'if .total_count == 0 then "(no job)" else [.jobs[].steps[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name][0] // "" end'; do sleep 30; done
 }
 infra() {  # step $1 reads nothing the head changes: the runner's setup, the cache's download and generation when the head changes no cache input
   case $1 in "Set up job"|"Checkout repository"|"Set up JDK"*|"Set up Gradle"|"Cache game data"|*"(tools/gate/gate.sh gate-ci)"|"Post "*|"Complete job") return 0 ;;
     "Generate cache and gameval sources") ! fresh_input ;;   # it runs on a head's own revision alone
     "Rebuild sources from cached game data") ! cache_input ;;
+    "(no job)") ! workflow_input ;;   # a workflow GitHub cannot start is the head's only when the head changes the workflows
     *) return 1 ;; esac
 }
 cache_input() {  # the head changes a cache input (or BASE...HEAD is unknown): the packing on the revision is the head's
   [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ] || return 0
   grep -qE 'or-cache/|/pack/|gamevals|raw-cache|game\.example\.yml' <<< "$(git -C "$repo" diff --name-only "$BASE...$HEAD")"   # not a pipe: grep -q ending first would fail git under pipefail
+}
+workflow_input() {  # the head changes a workflow (or BASE...HEAD is unknown)
+  [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ] || return 0
+  grep -q '^\.github/workflows/' <<< "$(git -C "$repo" diff --name-only "$BASE...$HEAD")"
 }
 fresh_input() {  # the head changes the revision (or BASE...HEAD is unknown): its download is the head's to run
   [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ] || return 0

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""mobile_login.py <slug>: launches the app on $ANDROID_SERIAL and signs in at Central's form as the slug's own account; prints LOGGED_IN or FAILED: <why>.
+"""mobile_login.py <slug> [browser]: launches the app on $ANDROID_SERIAL signed in as the slug's own account and taps Play Now; prints LOGGED_IN or FAILED: <why>.
+mobile_login.py seed <slug>: before the app's first start, writes its saved sign-in (AppAuth's SharedPreferences AuthState) by run-as: Central's
+tokens and game session for the account, minted as the app's own sign-in mints them. Without it (browser) the start signs in at Central's form.
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
 labels), then waits for the next screen; a screen it does not know, a refused login, the game server losing the session before LOGGED_IN or the app's death is FAILED.
 """
-import datetime, hashlib, json, os, re, subprocess, sys, time
+import base64, datetime, hashlib, http.client, json, os, re, subprocess, sys, time, urllib.parse
+from xml.sax.saxutils import escape
 from pathlib import Path
 
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
@@ -22,6 +25,45 @@ ASK, ASKED_OUT = "Continue", "cr_MessageQueueManager: Removed message with ID \\
 def account(slug):
     """The slug's mobile account, name and password: the fork track's account() names with 'm' for the desktops' N (a run's mobile and live desktop differ)."""
     return "h" + hashlib.sha1(slug.encode()).hexdigest()[:9] + "m"
+
+
+CENTRAL = int(os.environ.get("OPENRUNE_CENTRAL_HTTP_PORT", "8084"))   # the live Central's http on this host: up's adb reverse maps the mobile's 127.0.0.1:8443 to it
+CLIENT, REDIRECT = "com_jagex_auth_mobile_android_osrs", "com.jagex.mobilesdk.android.osrs:/oauth2redirect"   # the app's AppAuth client (logcat's Authorization Request)
+
+
+def central(path, body, **headers):
+    """(status, Location, body) of a POST to the live Central, its redirect not followed (the app's redirect URI is no http one)."""
+    c = http.client.HTTPConnection("127.0.0.1", CENTRAL, timeout=30)
+    c.request("POST", path, body, {"Content-Type": "application/x-www-form-urlencoded", **headers})
+    r = c.getresponse(); out = r.status, r.getheader("Location", ""), r.read(); c.close()
+    return out
+
+
+def auth_state(name):
+    """The app's saved sign-in of `name` (ta.m: SharedPreferences AuthState, key state): Central's form post, code, tokens and game session, as the app's sign-in makes them."""
+    form = lambda **f: urllib.parse.urlencode(f).encode()
+    st, loc, _ = central("/oauth2/auth", form(username=name, password=name, redirect_uri=REDIRECT, client_id=CLIENT, state="up"))   # its first sign-in registers the account
+    code = urllib.parse.parse_qs(urllib.parse.urlsplit(loc).query).get("code", [""])[0]
+    if st != 302 or not code:
+        raise SystemExit(f"FAILED: Central refused the sign-in of {name} ({st})")
+    st, _, b = central("/oauth2/token", form(grant_type="authorization_code", code=code, client_id=CLIENT))
+    t = json.loads(b) if st == 200 else {}
+    st, _, b = central("/game-session/v1/sessions", json.dumps({"idToken": t.get("id_token", "")}).encode(), **{"Content-Type": "application/json"})
+    if st != 200:
+        raise SystemExit(f"FAILED: Central opened no game session for {name} ({st}: {b[:200]!r})")
+    exp = json.loads(base64.urlsafe_b64decode(t["id_token"].split(".")[1] + "==="))["exp"] * 1000   # the app's identity_token_expires: the token's exp
+    state = {"version": "1.0", "access_Token": t["access_token"], "token_expires": int(time.time() * 1000) + t["expires_in"] * 1000, "refresh_Token": t["refresh_token"],
+             "identity_Token": t["id_token"], "identity_token_expires": exp, "session_Id": json.loads(b)["sessionId"]}
+    return ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n    <string name=\"state\">"
+            + escape(json.dumps(state, separators=(",", ":")), {'"': "&quot;"}) + "</string>\n</map>\n")
+
+
+def seed(slug):
+    """The app's saved sign-in written into its data (run-as: the build is debuggable) and read back whole; prints SEEDED or FAILED: <why>."""
+    xml = auth_state(account(slug)); b64 = base64.b64encode(xml.encode()).decode()
+    adb("shell", f"run-as {PKG} sh -c 'mkdir -p shared_prefs && echo {b64} | base64 -d > shared_prefs/AuthState.xml'")
+    back = adb("shell", f"run-as {PKG} cat shared_prefs/AuthState.xml")
+    return "SEEDED" if back == xml else f"FAILED: run-as did not write the app's AuthState ({back.strip()[:200] or 'nothing read back'})"
 
 
 def adb(*a, retries=5):
@@ -84,15 +126,18 @@ def form(lab, fields, name, posted, asked_out=False):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False, lost=False):
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False, lost=False, browser=True):
     """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why).
-    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end)."""
+    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end).
+    browser False: the start is seeded signed in (seed), Play Now its one tap; a sign-in screen or the browser is FAILED."""
     if st == "LOGGED_IN":
         return ("done",)
     if lost:
         return ("fail", f"the game server lost {name}'s session while the app was {st}")
     if raw == START_ERROR:
         return ("fail", "the app's start error page 'Error connecting to server' (gameState 1000)")
+    if not browser and (pkg == "com.android.chrome" or (st == "LOGIN_SCREEN" and ix in (0, 12))):
+        return ("fail", f"the app asks to sign in ({pkg} LoginIndex {ix}): it did not take its seeded sign-in")
     if pkg == "com.android.chrome":
         err = next((t for t in lab if re.search(r"ERR_[A-Z_]+", t)), None)
         if err:
@@ -119,7 +164,7 @@ def lost(name, since):
     return f"Game session lost: user='{name}'" in r.stdout + r.stderr
 
 
-def main(slug):
+def main(slug, browser=True):
     name, posted, since = account(slug), False, None
     adb("logcat", "-c")
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
@@ -131,7 +176,7 @@ def main(slug):
         if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
         since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
-        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since))
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since), browser)
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":
@@ -159,8 +204,10 @@ def recreated(since):
 ROOT = Path(os.environ.get("HD_ROOT") or Path(__file__).resolve().parents[2])
 
 if __name__ == "__main__":
+    if sys.argv[1] == "seed":
+        r = seed(sys.argv[2]); print(r); sys.exit(0 if r == "SEEDED" else 1)
     since = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    r = main(sys.argv[1])
+    r = main(sys.argv[1], sys.argv[2:] == ["browser"])
     if r != "LOGGED_IN" and (gone := recreated(since)):
         r += f" while a deploy recreated the live stack ({', '.join(gone)})"
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it

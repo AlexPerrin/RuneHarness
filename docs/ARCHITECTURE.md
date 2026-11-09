@@ -386,7 +386,8 @@ def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
     `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. The fork's
     deploy version carries the digest of the files the live stack runs from this checkout (the compose, switch.env,
-    the jav_config template), so a shipped one deploys. A track without a `build` line has no build step. A fixed checker
+    the jav_config template) and of the sign-in's secret and certificate it bakes from state/live/token, so a shipped
+    or moved one deploys. A track without a `build` line has no build step. A fixed checker
     re-runs by `hd regate`, never by a moved key."""
 
 def start(db, step, ch, T):

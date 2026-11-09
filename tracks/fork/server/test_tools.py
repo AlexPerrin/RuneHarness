@@ -267,10 +267,16 @@ class ShipFailure(unittest.TestCase):
         s.assertEqual((r.returncode, r.stdout), (0, ""))                          # sweep-80 P5-a: logs past 64 KB after the line: grep -q's SIGPIPE read as not ready
 
     def test_a_file_the_live_stack_runs_from_the_checkout_moves_the_deploy_key(s):  # alert 48: a shipped issuer.py stayed unserved until someone restarted the container
-        recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True).stdout
+        recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True, env={**os.environ, "HD_ROOT": "/nonexistent"}).stdout   # no live token
         import hashlib
         files = b"".join((HERE / f).read_bytes() for f in ("docker-compose.yml", "switch.env", "jav_config.ws.template"))
         s.assertIn(f"deploy fork-3-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+
+    def test_the_live_tokens_certificate_moves_the_deploy_key(s):  # h-live-central-cert-mismatch: state/live/token moved, the stack kept serving the old certificate
+        with tempfile.TemporaryDirectory() as d:
+            t = Path(d, "state/live/token"); t.mkdir(parents=True); (t / "secret").write_text("s"); (t / "tls.pem").write_text("a")
+            recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True, env={**os.environ, "HD_ROOT": d}).stdout
+            a = recipe(); (t / "tls.pem").write_text("b"); s.assertNotEqual(a, recipe())
 
     def test_a_refused_login_holds_the_ci_read(s):  # a cause outside the tree records no result (PRD H3): two heads went back to dev on a 401
         s.assertIn('""|000|401|5??) sleep 30', SRC)

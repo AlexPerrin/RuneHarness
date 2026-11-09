@@ -193,6 +193,17 @@ class Tempo(Base):  # T1, T3, T4
         self.assertEqual(decide.priority(Change("h-x", "harness", priority="P3"), {}), "P1")
         self.assertEqual(decide.priority(Change("a", "client", priority="P3"), {"a": [Change("b", "client", priority="P0")]}), "P0")
 
+    def test_a_listing_its_change_no_longer_plans_is_withdrawn(self):   # T4: run 338 held a slot after its change gained a dep
+        a, b = Change("h-a", "harness"), Change("h-b", "harness")
+        run = decide.plan(self.L, [a], CFG)[0].step
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('h-a', ?, ?, ?, 'b', 't')", (run.role, run.mode, run.input))
+        self.assertIn("listed", decide.plan(self.L, [a], CFG)[0].step.why)   # still planned: it waits for its spawn
+        a = Change("h-a", "harness", deps=("h-b",))   # a dep filed after the listing
+        steps = [x.step for x in decide.plan(self.L, [a, b], Cfg(agents=1, tracks={"harness": T}))]
+        self.assertEqual([x.kind for x in steps], ["withdraw", "run"])   # its slot goes to the dep's run
+        self.db.execute("UPDATE run SET ended_at='t2', end_kind='withdrawn' WHERE change='h-a'")
+        self.assertIsNone(decide.parked(self.L, "h-a", run.input))   # a withdrawal parks nothing: the same input is listed again
+
 
 class Gate(Base):  # G2, G3, H2
     def test_submission_gates_the_candidate_once(self):

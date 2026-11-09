@@ -78,6 +78,7 @@ CREATE TABLE submission (
   id INTEGER PRIMARY KEY, change TEXT NOT NULL, head TEXT NOT NULL,
   tree TEXT NOT NULL, tcommit TEXT NOT NULL,
   composite_json TEXT,                                 -- {central: tree, filestore: tree} built in (§11)
+  head_tree TEXT,                                      -- migration 9: the head's own tree, which the PR's gate tests (decide.key)
   run INTEGER REFERENCES run(id), at TEXT NOT NULL,
   UNIQUE (change, head)
 );
@@ -384,7 +385,9 @@ def candidate(repo, base, heads) -> (tree, tcommit):
 
 def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
-    `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. The fork's
+    `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. A gate's
+    tree carries _h<head_tree12> where the head's tree is not the candidate's: the gate tests the PR (the head on base,
+    CI and spotless) too, so a new head whose staging candidate is the same tree is gated again, its build reused. The fork's
     deploy version carries the digest of the files the live stack runs from this checkout (the compose, switch.env,
     the jav_config template) and of the sign-in's secret and certificate it bakes from state/live/token, so a shipped
     or moved one deploys. A track without a `build` line has no build step. A fixed checker

@@ -271,6 +271,16 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:fork-1",))
         self.assertFalse(store.regate_failed(self.db, TREE))   # a passed gate stays
 
+    def test_a_new_head_of_the_same_candidate_tree_is_gated_again(self):  # G4, fault 395: the gate tests the PR (the head on base) too
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', 'bbbbbbb2')")
+        for head, ht in ((TIP, "1" * 40), ("bbbbbbb2", "2" * 40)):
+            self.db.execute("INSERT INTO submission(change, head, tree, tcommit, at, head_tree) VALUES ('genie', ?, ?, ?, 't1', ?)", (head, TREE, TC, ht))
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('build', ?, 1, 't')", (f"{TREE}:fork-1",))
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'ci', 't')", (f"{TREE}_h{'1' * 12}:fork-1",))
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("gate", f"{TREE}_h{'2' * 12}:fork-1"))   # not the first head's failed gate, and no rebuild
+
     def test_a_newer_head_is_merged_into_staging_again(self):  # M1, H4: a landed row older than the last submission is void
         self.submit()
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")

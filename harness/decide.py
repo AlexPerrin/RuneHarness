@@ -121,8 +121,11 @@ def built(s) -> str:
 
 
 def key(C, ch, kind, s):
-    """<T>:<recipe> (built)."""
-    return f"{built(s)}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
+    """<T>:<recipe> (built); a gate's T carries _h<head tree12> where the head's tree is not the candidate's: the gate
+    also tests the PR (the head on base: CI, spotless), so two heads of one candidate tree are gated each."""
+    h = s["head_tree"] if "head_tree" in s.keys() else None
+    t = built(s) + (f"_h{h[:12]}" if kind == "gate" and h and h != s["tree"] else "")
+    return f"{t}:{C.cfg.tracks[ch.track].recipes.get(kind, '')}"
 
 
 def short(key) -> str:

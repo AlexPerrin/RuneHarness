@@ -43,7 +43,7 @@ checkout() {  # the build copy at the candidate commit
 case "$verb" in
   build) checkout; if gradle assemble -x test; then [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "assembled ${T:-}"; else [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "gradle assemble"; exit 1; fi ;;
   test) copy=${BUILD:-$copy}; gradle test ;;
-  gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:central-1" "$copy" ;;
+  gate) checkout; BUILD=$copy exec $hd gate "$slug" "${HD_KEY:-${T:-$HD_TREE}:central-1}" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}   # the server the test server runs: its token login
       export CENTRAL="$repo:$h" CENTRAL_REPO=$repo
       if git -C "$repo" grep -q 'scheme == "file"' "$h" -- central-app/src/main && git -C "$repo" grep -q 'game-session/v1/sessions' "$h" -- central-app/src/main

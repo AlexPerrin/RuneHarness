@@ -187,20 +187,22 @@ CREATE TABLE run_8 (
 INSERT INTO run_8 SELECT * FROM run; DROP TABLE run; ALTER TABLE run_8 RENAME TO run;
 CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;"""
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8]
+SCHEMA_9 = "ALTER TABLE submission ADD COLUMN head_tree TEXT;"   # the head's own tree: the PR's gate (CI on base) tests it, the candidate's tree does not carry it (decide.key)
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8, SCHEMA_9]
 
 
-def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
+def submit(db, slug, head, tree, tcommit, composite, run, head_tree=None) -> bool:
     """Record a head's candidate; the same head submitted again with another candidate (a dep's head moved, the base
     moved under it) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
     old = db.execute("SELECT tree FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
     if old and old["tree"] == tree:   # the dev stands by this head: criteria added since are for this submission to answer
         db.execute("UPDATE submission SET at=?, run=coalesce(?, run) WHERE change=? AND head=?", (now(), run, slug, head))
         return False
-    db.execute("""INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at) VALUES (?,?,?,?,?,?,?)
+    db.execute("""INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at, head_tree) VALUES (?,?,?,?,?,?,?,?)
                   ON CONFLICT(change, head) DO UPDATE SET tree=excluded.tree, tcommit=excluded.tcommit,
-                  composite_json=excluded.composite_json, run=excluded.run, at=excluded.at""",
-               (slug, head, tree, tcommit, composite, run, now()))
+                  composite_json=excluded.composite_json, run=excluded.run, at=excluded.at, head_tree=excluded.head_tree""",
+               (slug, head, tree, tcommit, composite, run, now(), head_tree))
     return True
 
 

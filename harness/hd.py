@@ -241,7 +241,8 @@ def cmd_submit(a):
         sys.exit(f"hd submit: the candidate on {T.candidate_base()} conflicts in {' '.join(c.args[0])}: make the head merge with it"
                  + (f" (never by merging {T.candidate_base()} into the branch: the PR head holds no other change)" if T.candidate_base() != T.base else f": merge {T.base} into your branch"))
     r = live_run(db, a.slug)
-    new = store.submit(db, a.slug, head, tree, tcommit, json.dumps(composite) if composite else None, r["id"] if r else None)
+    new = store.submit(db, a.slug, head, tree, tcommit, json.dumps(composite) if composite else None, r["id"] if r else None,
+                       act.git(T.path, "rev-parse", head + "^{tree}"))
     db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
                (T.name, ref, head, now()))
     if new:
@@ -448,7 +449,7 @@ def cmd_gate(a):
     tree = a.key.split(":")[0].split("_")[0]   # T less its composite suffix: the submission's tree
     ch = change(a.slug)
     T = track(ch)
-    s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY id DESC LIMIT 1", (a.slug, tree)).fetchone() \
+    s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY head=? DESC, id DESC LIMIT 1", (a.slug, tree, os.environ.get("HD_HEAD", ""))).fetchone() \
         or {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
     env = act.job_env(db, ch, T, s, BUILD=a.dir)
     if T.candidate_base() != T.base and s["head"]:   # proved on staging; the PR's own candidate, on base alone, is what its CI runs (G4)

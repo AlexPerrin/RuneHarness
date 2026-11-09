@@ -45,8 +45,10 @@ case "$verb" in
   test) copy=${BUILD:-$copy}; gradle test ;;
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:central-1" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging); h=${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}   # the server the test server runs: its token login
-      export CENTRAL="$repo:$h" CENTRAL_REPO=$repo   # the fork's up merges a head whose Central reads no file:// jav_config with Central's staging
-      TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"
+      export CENTRAL="$repo:$h" CENTRAL_REPO=$repo
+      if git -C "$repo" grep -q 'scheme == "file"' "$h" -- central-app/src/main && git -C "$repo" grep -q 'game-session/v1/sessions' "$h" -- central-app/src/main
+      then unset T; TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"   # a head serving the file:// jav_config and the sign-in runs as it is
+      else export T=unbuilt; fi   # one without them is never built alone (fork staging needs its tokenLogin): a T with no _c<tree12> makes the fork's up build it merged with Central's staging (central_staged)
       TCOMMIT=$tc HD_REPO=$fork exec bash "$self/../fork/track.sh" up "$slug" "$arg" ;;
   down|log) HD_REPO=$fork exec bash "$self/../fork/track.sh" "$verb" "$slug" "$arg" ;;
   *) echo "verbs: recipe build test gate up down log" >&2; exit 2 ;;

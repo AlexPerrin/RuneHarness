@@ -230,7 +230,7 @@ stateDiagram-v2
   [*] --> WaitDeps : a dep has no landed row for its target
   WaitDeps --> WaitAsk
   [*] --> WaitAsk : ask without answer
-  WaitAsk --> Criteria : a change with a feature and no run(mode=criteria) recorded "criteria agreed"
+  WaitAsk --> Criteria : a server change (not a package) with no run(mode=criteria) recorded "criteria agreed"
   Criteria --> Dev : qa run handed back "criteria agreed"
   WaitAsk --> Dev
   Dev --> Build : submission(head = dev ref tip), no criterion created after it, no failing verdict at head
@@ -244,7 +244,7 @@ stateDiagram-v2
   state Stage <<fork>>
   Stage --> TestServer : tracks with a deploy recipe and the libraries, head not in ref staging → merge, conflict → Dev
   Stage --> Ship : harness or client, not landed(live branch)
-  TestServer --> Done : landed(change, staging) and landed(change, live): the test server runs it
+  TestServer --> Done : landed(change, staging) and landed(change, live): the test server runs it (or landed on upstream main)
   Ship --> Done : landed(change, live branch)
   Judge --> Done : a track with an upstream and no staging (nothing to land on, not a library), verdict ok
   Done --> [*]
@@ -295,7 +295,7 @@ GUARDS = [
                        # off the server tracks: any, a library included; else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
     ask_open,          # an ask with no answer → wait (the question)
-    criteria_due,      # a change with a feature, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
+    criteria_due,      # a server change (not a package), no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate failed twice alike, or a merge conflict at the staging tip / CI failure / missing text
                        # → run dev/code; a first build/gate/ship failure → rerun (store.rerun: the same key once more, event 'rerun' keeps

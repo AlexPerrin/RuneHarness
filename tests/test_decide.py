@@ -103,6 +103,7 @@ class Tempo(Base):  # T1, T3, T4
         for k in ("build", "gate"):
             self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, 't1:c-1', 1, 't')", (k,))
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't', 't')")
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('c-fix', 'qa', 'criteria', 'c', 'b', 't', 't', 'handback', 'run 2: criteria agreed')")
         self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('c-fix', 'h1', 1, 1, 'd', 't')")
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
         self.assertEqual((steps["c-fix"].kind, steps["c-fix"].key), ("merge", "staging:h1"))   # gate and verdict passed: it joins central's staging
@@ -334,7 +335,6 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertIsNone(self.L.landed("genie", "refs/heads/staging"))
 
     def test_criteria_run_first_then_dev_then_build_gate_judge_merge_live(self):
-        self.ch = Change("genie", "fork", feature="content/genie")   # headed upstream: its accuracy before code
         s = self.step()
         self.assertEqual((s.kind, s.role, s.mode), ("run", "qa", "criteria"))
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
@@ -356,9 +356,6 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual(self.step().why, "not yet live on the test server")   # no texts, no card: a change is our work
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'live', 'tr', 't2')")
         self.assertEqual(self.step().kind, "done")
-
-    def test_a_change_without_a_feature_writes_no_criteria_first(self):   # fork-only until the user names its PR
-        self.assertEqual((self.step().role, self.step().mode), ("dev", "code"))
 
     def test_a_head_merges_into_staging_after_its_deps(self):   # staging runs the head, not the candidate that carried the dep
         dep = Change("base", "fork")

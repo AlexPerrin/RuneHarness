@@ -149,15 +149,17 @@ def job_due(C, kind, k):
 
 def done(C, ch) -> bool:
     """A change is done when closed, or landed on staging and live on the test server (on a track without staging:
-    its head's verdict ok; off the server tracks: landed on the live branch). A package is done when landed on
+    its head's verdict ok; off the server tracks: landed on the live branch), or already on upstream main. A package is done when landed on
     upstream main, or closed with its feature, or when no member is left open."""
     T = C.cfg.tracks[ch.track]
     if C.L.closed(ch.slug):
         return True
     if ch.members:
         return bool(C.L.landed(ch.slug, T.base) or C.L.closed(ch.feature) or all(C.L.closed(m) for m in ch.members))
+    if C.L.landed(ch.slug, T.base):
+        return True
     if not T.upstream:
-        return bool(C.L.landed(ch.slug, T.base))
+        return False
     if stages(C, ch):
         return bool(C.L.landed(ch.slug, STAGING) and C.L.landed(ch.slug, "live"))
     t = tip(C, ch)
@@ -239,7 +241,7 @@ def ask_open(C, ch):
 
 def criteria_due(C, ch):
     T = C.cfg.tracks[ch.track]
-    if not (T.upstream and ch.feature and not ch.members):   # a change headed upstream: its accuracy before code
+    if not T.upstream or ch.members:   # a server change: its accuracy before code; a package's are upstream's rules
         return None
     if C.L.runs_with_record(ch.slug, "criteria", "criteria agreed"):
         return None

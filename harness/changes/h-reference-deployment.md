@@ -5,6 +5,7 @@ priority: P0
 deps:
 - h-dep-gate-failed-waits
 - h-desktops-token-login
+- h-ref-apk-jav-config-central
 - h-ref-devtools-upstream
 - h-ref-embedded-central
 - h-ref-pins-audit

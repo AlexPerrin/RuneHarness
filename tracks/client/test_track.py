@@ -117,7 +117,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *dumpsys*) echo '  NetworkAgentInfo{{network{{101}}  ni{{MOBILE[NR] CONNECTED extra: }}' ;;
   *"hello-"*) [ -z "$BOOTS" ] || for h in api.runelite.net static.runelite.net; do echo "$h  16"; done ;;
   *"nc -w 15"*) [ -z "$BOOTS" ] || for h in {HOSTS}; do echo "nc: $h:443: No address associated with hostname"; done ;;
-  *"am start"*) [ -z "$BOOTS" ] || [ -n "$NOSTART" ] || echo "Status: ok" ;; *"echo y"*) [ -z "$BOOTS" ] || [ -n "$DIES" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
+  *"am start"*) [ -z "$BOOTS" ] || [ -n "$NOSTART" ] || echo "Status: ${{AMSTATUS:-ok}}" ;; *"echo y"*) [ -z "$BOOTS" ] || [ -n "$DIES" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
                  sdk / "emulator/emulator.exe": f'echo "emulator $*" >> {log}; echo "emulator: booting on $PWD"',
                  sys32 / "netstat.exe": f"sed -n 's/.*-port \\([0-9]*\\).*/  TCP 127.0.0.1:\\1 0.0.0.0:0 LISTENING 7300/p' {log}; echo '  UDP    0.0.0.0:53             *:*                                    3860'; [ -z \"$STALE\" ] || echo '  UDP    127.0.0.2:53           *:*                                    3070'; for a in $(ls {s.ev}/relays); do echo \"  UDP    $a:53           *:*                                    42${{a##*.}}\"; done",
                  sys32 / "WindowsPowerShell/v1.0/powershell.exe": f'echo "powershell $*" >> {log}; echo "relay $ALLOW_DNS" >> {log}; echo "#< CLIXML"; touch {s.ev}/relays/$ALLOW_DNS; echo listening',   # a relay's pid: 42 and its last octet
@@ -176,6 +176,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         up(); calls = log.read_text()
         s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
         s.assertLess(calls.index("reverse tcp:8443"), calls.index("am start"))   # before the app first starts
+        s.assertIn("am start -W -n com.jagex.oldscape.android/com.jagex.android.MainActivity\n", calls)   # run 330: the LAUNCHER intent never resolves under am's MATCH_DEFAULT_ONLY
         s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)
         apk(s.ev / "t.apk", endpoint=b"http://10.0.2.2:8080/jav_config.ws?m=0&p=jagex.comxxxxxxxxx")
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("does not read jav_config from http://127.0.0.1:8443", out)
@@ -185,6 +186,8 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app did not start", out)
         s.env.pop("NOSTART"); s.env["DIES"] = "1"
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app died before creating /sdcard/Android/data/", out)
+        s.env["AMSTATUS"] = "timeout"   # h-client-up-am-start-default: a launch whose first frame outlasts am's wait is started
+        rc, out = s.row("up"); s.assertNotIn("the app did not start", out); s.assertIn("the app died before creating /sdcard/Android/data/", out)
 
     def test_boot_pushes_the_changes_own_devtools_jar(s):  # built with the APK, kept beside it by T; never the main checkout's
         log = s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")

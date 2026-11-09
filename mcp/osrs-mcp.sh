@@ -7,11 +7,17 @@ set -euo pipefail
 SRC="$(cd "${SERVER_TOOLS:-$HOME/src/openrune-work/server-tools}/src" && pwd)"
 LIB="$SRC/tools/osrs-mcp/build/install/osrs-mcp/lib"
 [[ -d $LIB ]] || { echo "osrs-mcp not built: see the header of $0" >&2; exit 1; }
-exec docker run --rm -i -u 1000:1000 \
+# The container dies with this client: named after this pid, removed when the shell ends however it ends (a session's
+# exit, its scope stopped); without that, every session left its wiki server running.
+name=osrs-mcp-$$
+cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+trap 'cleanup; exit 143' TERM INT HUP; trap cleanup EXIT
+docker run --rm -i --init --name "$name" -u 1000:1000 \
     -v "$LIB":/w/lib:ro \
     -v "$SRC/.data/gamevals-binary":/w/.data/gamevals-binary:ro \
     -v "$SRC/.data/cache":/w/.data/cache:ro \
     -v "$SRC/game.yml":/w/game.yml:ro \
     --tmpfs /w/logs:uid=1000 \
     -e RSPS_ROOT=/w -e LOG_DIR=/w/logs -w /w \
-    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt
+    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt &
+wait $!

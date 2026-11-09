@@ -1,19 +1,21 @@
 ---
 slug: server-content
-track: server
+track: fork
 target: 100
+measure: query
 ---
 ## Goal
 100% of the content inventory 1:1 with the official game. The inventory is `harness/goals/server-content.json`: one
-row per content unit from the cache ({unit, source}). A row passes only by a passing verdict on a live change that
-names its unit (`units:` of harness/changes/<slug>.md, `goal: server-content`); hd hands the passing units to the
-track's `measure` verb as PASSES, which prints the share of rows passing and writes the report. An empty inventory
-measures 0: the first change the orchestrator files is the inventory itself.
+row per content unit from the cache ({unit, source}). A unit passes only by a passing verdict on a change that names
+it (`units:` of harness/changes/<slug>.md, `goal: server-content`) and is landed on staging, the tree the test server
+runs; the pass computes the share whenever staging's tree moves (a `measure` row per tree). An empty inventory
+measures 0: the first change the planning run files is the inventory itself. A change this plan files is P4: content
+upstream for its own sake is the stretch goal (docs/PROBLEM.md §6); a server change the client needs is P1–P2.
 
 ## Unit kinds
 A content unit is one row of a cache dbtable below; its unit is `<kind>:<row name minus the prefix>` and its source
-`dbrow.<name>=<id> dbtable.<table>=<id>`. `harness/goals/server-content.py` regenerates the inventory from the files
-osrs-mcp serves (the LIVE cache's dbrows, gamevals.dat's names).
+`dbrow.<name>=<id> dbtable.<table>=<id>`, from the dbrows and gameval names osrs-mcp serves. A new cache revision
+regenerates it as a change on this goal.
 
 | kind | dbtable | row prefix |
 |---|---|---|

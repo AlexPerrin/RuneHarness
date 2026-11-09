@@ -4,7 +4,9 @@
   mcp/devtools_bridge.py <name> <backend> [args...]   (a backend http://127.0.0.1:<port>/mcp is POSTed to directly)
 
 `initialize` is answered here; `tools/list` and every other request run `<backend> --call <method> <params>` one at a
-time (the Android bridge takes it), or are POSTed to the desktop client's devtools endpoint (the bring-up's ports 7780+;
+time (the Android bridge takes it, its `ANDROID_SERIAL` a call's
+`serial` argument: one bridge serves every run's mobile, so a call naming none is refused; `tools/list` uses any up's
+mobile, state/*/serial), or are POSTed to the desktop client's devtools endpoint (the bring-up's ports 7780+;
 a tool's `port` argument names the client, and a call naming none is refused: one bridge serves every run; each call carries the
 token of the up owning that desktop, the only caller its endpoint answers), so a client started after the session is used
 on its next call. Desktop requests run each in its own thread: one session's runs share this process, and a call
@@ -16,6 +18,7 @@ A desktop call's answer names a dropped session (the client back at the login sc
 Every request with an id is answered: the netstat probe is bounded, its start included, a desktop call is bounded whole
 (ANSWER_WAIT past its own timeoutMs, its token read included), and an exception is an error.
 """
+import glob
 import json
 import math
 import os
@@ -79,7 +82,7 @@ def post(url, method, params):
     # mirrored WSL drops a connect to a closed Windows port instead of refusing it: ask netstat, as the bring-up does
     port = re.search(r":(\d+)/", url).group(1)
     if listening(port) is False:
-        return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tools/track.sh up <slug> starts one)"}}
+        return {"error": {"code": -32000, "message": f"no desktop client listens on {url} (tracks/fork/track.sh up <slug> starts one)"}}
     # the whole call is bounded, its token read on /mnt/c included, not each socket read (a body read is many): a hung
     # client or a hung file read answers no call past it
     limit = ANSWER_WAIT + ((params.get("arguments") or {}).get("timeoutMs") or 0) / 1000
@@ -99,7 +102,7 @@ def post(url, method, params):
     t.start()
     t.join(limit)
     if not out:
-        return {"error": {"code": -32000, "message": f"the desktop client on {url} did not answer within {limit:g} s: it is hung (tools/track.sh restart or down/up <slug>)"}}
+        return {"error": {"code": -32000, "message": f"the desktop client on {url} did not answer within {limit:g} s: it is hung (tracks/fork/track.sh restart or down/up <slug>)"}}
     if isinstance(out[0], OSError):
         return {"error": {"code": -32000, "message": f"no desktop client answers on {url} ({out[0]})"}}
     body = out[0]
@@ -110,12 +113,20 @@ def backend(cmd, method, params):
     """The backend's JSON-RPC reply to one request, or an error when it printed none."""
     if cmd[0].startswith("http"):
         return post(cmd[0], method, params)
-    p = subprocess.run([*cmd, "--call", method, json.dumps(params)], capture_output=True, text=True, timeout=240)
+    serial = (params.get("arguments") or {}).pop("serial", None) or next(iter(mobiles()), "")
+    p = subprocess.run([*cmd, "--call", method, json.dumps(params)], capture_output=True, text=True, timeout=240,
+                       env={**os.environ, "ANDROID_SERIAL": serial})
     for line in reversed(p.stdout.splitlines()):
         if line.startswith("{"):
             return json.loads(line)
     sys.stderr.write(p.stderr[-400:])
     return {"error": {"code": -32000, "message": (p.stderr.strip() or "no reply from the client bridge")[-300:]}}
+
+
+def mobiles():
+    """The serials of the ups' mobiles (track.sh up writes state/<slug>/serial as its emulator starts)."""
+    return [s for f in sorted(glob.glob(os.path.join(os.path.dirname(HERE), "state", "*", "serial")))
+            if (s := open(f).read().strip())]
 
 
 STEP = 12   # tiles per click: inside the minimap circle (48 px from its centre) clear of its orbs
@@ -220,6 +231,10 @@ def listed(name, cmd):
             if x["name"] == "walk_to":
                 x["description"] = ("Walk to the tile at world x,y on the current plane, at any distance: minimap clicks of at most "
                                     f"{STEP} tiles until the player stands on it; an error names where it stopped when a click moves it no closer.")
+    else:
+        for x in t.get("tools", []):
+            x.setdefault("inputSchema", {"type": "object"}).setdefault("properties", {})["serial"] = {
+                "type": "string", "description": "adb serial of your mobile (track.sh up's LOGGED_IN line, state/<slug>/serial); a call naming none is refused"}
     return t
 
 
@@ -250,6 +265,8 @@ def answer(name, cmd, msg):
         port = {"port": a["port"]} if "port" in (a := params.get("arguments") or {}) else {}
         if desk and not port:   # the URL's port is any run's desktop, never the caller's by default
             return reply(msg["id"], error={"code": -32602, "message": "name your desktop's devtools `port` (your change's up.json desktops)"})
+        if not cmd[0].startswith("http") and method == "tools/call" and not a.get("serial"):   # likewise any run's mobile
+            return reply(msg["id"], error={"code": -32602, "message": "name your mobile's adb `serial` (track.sh up's LOGGED_IN line, state/<slug>/serial)"})
         r = walk(cmd, params) if desk and params.get("name") == "walk_to" else backend(cmd, method, params)
         if desk and params.get("name") != "get_client_state" and "result" in r:
             r = session(cmd, port, r)

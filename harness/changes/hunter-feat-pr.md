@@ -1,19 +1,12 @@
 ---
 slug: hunter-feat-pr
-track: server
-kind: change
-title: 'Hunter #408: the entire Hunter skill'
-pr: 408
+track: fork
 priority: P2
-created: '2026-10-25T02:32:09Z'
-branch: feat/hunter
+pr: 408
+public: feat/hunter
+draft: true
 deps:
-- harness-no-powershell
-- harness-server-build-musicrepository
-- harness-desktop-first-login
-- harness-deploy-survives-tools-ship
-- harness-devtools-endpoint-owner
-- harness-gate-sigterm-is-host-fault
+- h-fork-build-stale-pack-state
 ---
 ## Change
 Upstream #408 (draft) is the entire Hunter skill (the user, 2026-10-25: "Scope is entire Hunter Skill"): every Hunter
@@ -44,3 +37,5 @@ clean. Title: "feat: Hunter skill".
 - 2026-10-31T15:23:41Z The user: B. Build the Miscellaneous items (Hunter Kit spell, Leon's Hunter's crossbow and kebbit bolts, sunlight crossbow, Fancy Clothes Store fur trades, meat and fur pouches, Hunter cape teleports) and goat luring (Telekinetic Grab on NPCs and Dark Lure) in #408 now. List drift net fishing, the lucky impling jar's loot, the rumour milestones, wild broav and the Chambers of Xeric bats under 'Not in this PR' as needing content upstream main lacks; 'Matches the OSRS wiki' stays unticked until they land. For the unsourced data, keep the best available (the 10 wiki-mapped Puro-Puro low-tier points, the 200-tick roam, the XP from each creature's own wiki page), each listed as a guess in the PR text. Then finish the texts for the new head and hand over.
 - 2026-10-31T16:41:27Z console: no decision needed; run hunter-feat-pr-17 is already renumbering dbrow.hunter_rumour_swamp_lizard with gameval_ids.py assign. Hand over the renumbered commit; that re-pins dev/hunter-feat-pr in integration (it was dropped at tools 4ce9da788).
 - 2026-10-31T18:18:56Z The user: find sources first for the unsourced values beyond the three already settled (the ferret and jerboa catch curves, the 50-tick respawns, the 200-tick trap collapse, the goat prod distance and respawn, the stymphike rules): search RSProx recordings, the wiki and Mod posts for each, fix what a source settles, and hd ask about the rest. The definition of done now follows answer B: 'Matches the OSRS wiki' unticked and the 'Not in this PR' list are expected, not findings. The Hunter cape's daily reset is 00:00 UTC.
+
+Carried from v8 at the cutover (2026-11-03): its head is dev/hunter-feat-pr on the fork; re-judged under v9's criteria.

@@ -1,50 +1,133 @@
-[
- {
-  "id": "R1",
-  "requirement": "Goals: measured when the target moves, bound to its tree; a server head live on the test server unblocks the client",
-  "check": "python3 -m unittest tests.test_hd.R1 && python3 hd.py | grep -E '^goal .* tree [0-9a-f]{7,}'",
-  "passes": false
- },
- {
-  "id": "R2",
-  "requirement": "Flow: defined to live with no person once deps are live; a change the user closes takes no step; a done or closed change leaves no worktree or local branch; the orchestrator session spawns every run and is the user's chat; the user types the yes and the close",
-  "check": "python3 -m unittest tests.test_hd.R2",
-  "passes": false
- },
- {
-  "id": "R3",
-  "requirement": "Contract: rows before code, every row judged once, verdicts append, text fixed in place; gate bound to T, verdict and approval to head and contract; a limit is fixed in its own mechanism's change, one change per mechanism",
-  "check": "python3 -m unittest tests.test_hd.R3 && for f in evidence/*/contract.md; do grep -qE '^- [a-z0-9-]+ \\|' \"$f\" || exit 1; done",
-  "passes": false
- },
- {
-  "id": "R4",
-  "requirement": "Authority: only the carry writes to OpenRune or releases, only at the head and texts the user approved on its console card",
-  "check": "python3 -m unittest tests.test_hd.R4",
-  "passes": false
- },
- {
-  "id": "R5",
-  "requirement": "Recovery: any failure repaired in one pass; repairs logged on observed effect; the user raised once per change",
-  "check": "python3 -m unittest tests.test_hd.R5",
-  "passes": false
- },
- {
-  "id": "R6",
-  "requirement": "Economy: script before agent before user; nothing checked twice per input; agent count; events on edges; hand-off at the context limit; a desktop up only while played; bring-up as a script",
-  "check": "python3 -m unittest tests.test_hd.R6 && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh up ${SLUG:?} 2 | grep -c LOGGED_IN | grep -qx 2",
-  "passes": false
- },
- {
-  "id": "R7",
-  "requirement": "Visibility: hd prints spawns, cards, questions, runs, goals and change facts, nothing else, no step names as states",
-  "check": "python3 -m unittest tests.test_hd.R7 && python3 hd.py",
-  "passes": false
- },
- {
-  "id": "R8",
-  "requirement": "Trees: T by merge-tree; a merge ref for a resolution against a permanent pin; built once in a copy no agent commits from; cache by input hash; artefacts named by slug or run; a game client is a mobile or a desktop",
-  "check": "python3 -m unittest tests.test_hd.R8 && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh build ${SLUG:?} >/dev/null && ~/src/OpenRune-Server/.worktrees/harness/tools/track.sh build ${SLUG:?} | grep -q cached",
-  "passes": false
- }
-]
+{
+  "_": "docs/PRD.md requirement → what passes it: a test (python3 -m unittest discover -s tests) or a live check; 'pending' names the proof not yet observed",
+  "M1": [
+    "test_store.Store.test_one_live_run_per_change",
+    "test_publish.Publish.test_killed_after_a_step_resumes_with_the_cards_texts",
+    "test_decide.Gate.test_submission_gates_the_candidate_once"
+  ],
+  "M2": [
+    "test_store.Store.test_migrate_reaches_latest_and_is_idempotent",
+    "test_store.Store.test_typed_columns_refuse_unknown_kinds",
+    "test_store.Store.test_one_live_run_per_change"
+  ],
+  "M3": [
+    "test_observe.Observe.test_fetch_records_refs_and_reports_what_moved",
+    "test_observe.Observe.test_landed_when_the_head_is_an_ancestor_of_the_target",
+    "live: lab-hello PR AlexPerrin/pr-lab#1 squash-merged → landed from the PR's merged flag, change done (event 966)"
+  ],
+  "M4": [
+    "live: harness/changes/*.md and evidence/<slug>/ are files; hd commit commits definitions"
+  ],
+  "M5": [
+    "live: state/briefs/<id>.md holds the definition, criteria with results, answers and findings, job detail, the hand-off, the hand-back line"
+  ],
+  "H1": [
+    "live: tracks/harness, tracks/fork, tracks/client, tracks/central, tracks/filestore track.sh; the fork and client suites (tracks/*/test_*.py)"
+  ],
+  "H2": [
+    "test_decide.Gate.test_submission_gates_the_candidate_once",
+    "test_decide.Server.test_a_composite_candidate_is_keyed_by_the_library_tree_too",
+    "live: f-probe's build cached or:<T> for the pass after the dev's build"
+  ],
+  "H3": [
+    "test_observe.Observe.test_dead_job_without_result_is_an_attempt",
+    "test_decide.Gate.test_three_starts_without_result_park_the_job",
+    "test_publish.Publish.test_killed_after_a_step_resumes_with_the_cards_texts"
+  ],
+  "H4": [
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "test_decide.Server.test_merge_conflict_lists_the_dev",
+    "live: staging created from upstream main plus the 11 pins and 2cea3d4 (server-training-bow) merged and landed on it, 2026-11-03T05:47Z (events 340, 342)"
+  ],
+  "H5": [
+    "test_hook.Hook.test_bind_on_the_brief_then_scope_each_command",
+    "test_decide.Tempo.test_agent_count_and_held_band",
+    "live: hd-run-<id>.scope per run, stopped at the hand-back; hd close ends the change's jobs"
+  ],
+  "H6": [
+    "test_decide.Hands.test_gated_change_ships_then_waits_for_landed",
+    "test_decide.Hands.test_one_ship_per_branch",
+    "live: h-kpi-track, h-test-warnings, h-agent-hd shipped by fast-forward of v9"
+  ],
+  "H7": [
+    "tests/test_decide.py Retention, tests/test_observe.py release; live: the ledger's released events (fork worktrees 76 to 28, Linux disk 102 to 76 GB)"
+  ],
+  "H8": [
+    "live: on the deploy of staging 04007706bd6a (upstream's release bundle, embedded Central, the one osrs-openrune container, no issuer or http), javcheck.py passes on Central's /jav_config.ws; a fresh C:\\osrs-test desktop (live-desktop) and the APK (client up, adb reverse to Central and the game) each sign in at Central and reach LOGGED_IN; a fork up of that image (server container alone) logs a fresh desktop in by token (evidence/h-reference-deployment)"
+  ],
+  "G1": [
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "test_decide.Gate.test_criteria_added_after_submission_list_the_dev",
+    "live: the seed criteria of every track (tracks/*/track.md)"
+  ],
+  "G2": [
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "live: f-probe's gate ran gamevals, dupe-tests, spotless, ci once at its tree"
+  ],
+  "G3": [
+    "test_decide.Gate.test_gate_failure_lists_the_dev",
+    "live: hd verdict refuses pass on an unchecked criterion"
+  ],
+  "G4": [
+    "test_decide.Authority.test_dep_waits_until_landed",
+    "live: upstream_dep_wait holds the card until a dep lands upstream"
+  ],
+  "G5": [
+    "live: tracks/harness/replay.sh and the tests criterion gated every harness change shipped"
+  ],
+  "A1": [
+    "test_publish.Publish.test_card_lists_the_acts_and_texts_for_an_existing_draft_pr",
+    "test_publish.Publish.test_new_pr_card"
+  ],
+  "A2": [
+    "test_publish.Publish.test_approve_needs_the_latest_card_at_that_head",
+    "test_publish.Publish.test_killed_after_a_step_resumes_with_the_cards_texts",
+    "test_publish.Publish.test_a_refused_write_spends_the_approval",
+    "test_hook.Hook.test_approve_and_close_denied_to_every_agent",
+    "live: card 1 approved by the user (05:49Z) → publish job: push, draft PR OpenRune/OpenRune-Server#450, CI green, comment 6596558303, ready, 05:52–05:54Z; approval spent 'published'",
+    "live: lab-ci-red card 2: publish stopped at CI red (event ci-failed), approval kept, dev listed (run 75), 2026-11-03T14:39Z",
+    "live: lab-publish-resume-2 card 8 approved by the user (18:15:17Z); its systemd scope SIGKILLed right after the push step (18:15:30Z, pr step undone, no .rc); the pass recorded attempt 84 and started a new job (pid 2380332 → 2383071, 18:16:12Z), which skipped the push and did pr, ci, comment and ready with the card's texts: one PR AlexPerrin/pr-lab#4, one comment 6711201946, approval spent 'published', 2026-11-07"
+  ],
+  "A3": [
+    "test_decide.Server.test_a_finding_needs_a_reply_before_a_new_card",
+    "2026-11-08: eaglepurerocketgrape's finding on #367 (issuecomment-6600852912: the fade overlay left open, the scene run without a free region) became goblin-367-rsprox-dump's criteria, fixed by 0cbfe5236 and qa-passed at 5ef0cd1 (run 168); card 9, on the user's approval, pushed it, waited for green CI, posted one comment naming the head and answering both points (issuecomment-6725056926) and marked #367 ready"
+  ],
+  "A4": [
+    "test_decide.Authority.test_closed_is_done_and_open_ask_waits",
+    "live: hd answer applies dep, waive, accept-difference, reply"
+  ],
+  "A5": [
+    "test_decide.Tempo.test_agent_count_and_held_band",
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge (hold)"
+  ],
+  "T1": [
+    "test_act.Act.test_every_step_kind_the_pass_lists_is_acted_on",
+    "live: hd tick on hd-loop.timer, after every run end and command; ~50 ms before the fetch when nothing moved"
+  ],
+  "T2": [
+    "test_observe.Observe.test_dead_job_without_result_is_an_attempt",
+    "test_publish.Publish.test_killed_after_a_step_resumes_with_the_cards_texts"
+  ],
+  "T3": [
+    "test_hook.Hook.test_handback_ends_the_run_once_and_blocks_a_missing_line",
+    "test_hook.Hook.test_handback_as_a_tool_call_ends_the_run_and_a_wrong_line_is_denied",
+    "test_hook.Hook.test_a_run_waiting_on_a_background_task_is_left_alone",
+    "test_decide.Tempo.test_successor_after_console_death_or_handoff"
+  ],
+  "T4": [
+    "test_decide.Tempo.test_agent_count_and_held_band",
+    "test_decide.Tempo.test_a_live_run_blocks_the_change"
+  ],
+  "T5": [
+    "live: session 1 bound at SessionStart, drained on a moved definition, ended by hd restart; the supervisor loops"
+  ],
+  "T6": [
+    "live: alerts attempts, run-lost, runs-per-head, ask-stale, denied, pin-conflict, quota computed by the pass; hd new --from-alert, hd dismiss"
+  ],
+  "T7": [
+    "live: hd prints spawn, card, question, triage, alert, state, runs, goals as a delta per session"
+  ],
+  "T8": [
+    "test_decide.Goals.test_measure_when_the_target_tree_moves_then_a_plan_run_when_below_target"
+  ]
+}

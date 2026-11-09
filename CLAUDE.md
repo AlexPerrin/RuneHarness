@@ -6,30 +6,39 @@ AlexPerrin/OpenRune-Server, its Central AlexPerrin/OpenRune-Central-Server and i
 AlexPerrin/OpenRune-FileStore, contributed upstream to OpenRune/OpenRune-Server, OpenRune/OpenRune-Central-Server and
 OpenRune/OpenRune-FileStore). It is neither product's code.
 
-**New session: read docs/PROBLEM.md (first principles), docs/PRD.md (R1–R8), docs/ARCHITECTURE.md (how it is built),
-docs/HANDOFF.md (current state) and docs/ISSUES.md (the open ledger).** Every session and agent runs from this repo.
+**New session: read docs/HANDOFF.md first (where things are, what exists, what to build), then docs/PROBLEM.md
+(what the harness is for, the workflow, the goals), docs/PRD.md (M, H, G, A, T requirements) and docs/ARCHITECTURE.md
+(the ledger, the state machine, the modules); docs/V9-PROPOSAL.md records the change from v8 and the build plan,
+docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`, live from `main`.** Every session and agent runs from this repo.
 
 ```
-hd.py          the loop: next(change), the pass, the public act, the commands (hd | new | show | handover | rows | verdict | ask | answer | triage | stop | close | approve | ship | tree | tick | restart)
-hook.py        SubagentStart/Stop, PreToolUse (one rule), PostToolUse (the context limit)
-hd.yaml        the repos, the agent count, the context limit, the permanent pins
+harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | gate | candidate | stack | own | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended
+harness/store.py the ledger: SQLite schema, migrations, the Ledger read view; the only module that opens state/hd.db
+harness/observe.py world → ledger: fetch, refs, landed, GitHub (ETag), processes, docker, alerts
+harness/decide.py ledger → Step: next(change) over the ordered guards, plan() for the pass; no subprocess, no clock
+harness/act.py Step → world: candidates, keys, jobs in systemd scopes, staging merges, briefs, the wake
+harness/publish.py the card (recorded acts and texts) and the publish (logged steps, resume)
+harness/kpi.py hd kpi: one query per harness metric
+harness/hook.py SessionStart/End, PreToolUse/PostToolUse (bind a run on its brief, approve/close denied, the scope line, the context limit), SubagentStop (the hand-back)
+hd.yaml        the repos, the agent count, the context limit, the held band, the pins
 mcp/           osrs-mcp (cache, wiki, gamevals) and the devtools front for mobile and desktop
-tools/         the harness track's script and rules; each product repo has its own tools/track.sh and tools/track.md
-.claude/       agents/ orchestrator (the driver session and the user's chat), dev, qa, planner, reader (a run's read-only lookup); product repos hold the judgment skills
-harness/       goals/ and changes/ (committed definitions); state/ and evidence/ at the root are git-ignored
-docs/          PROBLEM.md, PRD.md, ARCHITECTURE.md, ACCEPTANCE.json, HANDOFF.md, ISSUES.md
-tests/         python3 -m unittest discover -s tests   (one class per requirement)
+tracks/        one directory per repo: track.sh (build | up | down | gate | ship | measure | log | test | recipe), track.md (rules, seed criteria), scripts; the product repos hold product code only
+.claude/       agents/ driver (the user's console: manual), orchestrator (the autonomous loop), dev, qa, reader (a run's read-only lookup); skills/ the judgment skills of every track
+harness/       goals/ and changes/ (committed definitions; the open v8 changes are copied in at the cutover) beside the modules above; state/ and evidence/ at the root are git-ignored
+docs/          HANDOFF.md (the dev's brief); PROBLEM.md, PRD.md, ARCHITECTURE.md (the source of truth); V9-PROPOSAL.md (the change from v8, the plan); V9-BRIEF.md (v8 measured)
+tests/         python3 -m unittest discover -s tests   (decide over recorded ledger snapshots; store, observe, publish, hook small)
 ```
 
-Runs are spawned by the orchestrator session only (`tools/orchestrator.sh`, which runs `claude --agent orchestrator`), each by the path of its brief (a run may spawn its own `reader`);
-the user chats with it directly. A write to OpenRune and a client release is shown as a card in the orchestrator's console
-(its head, acts and exact texts) and carried by `hd ship` only after the user's yes: their own
-`! python3 ~/osrs-harness/hd.py approve <slug> <head>` in the orchestrator's window.
+Runs are spawned by the orchestrator session only (`harness/orchestrator.sh`, which runs `claude --agent orchestrator`, autonomous: no chat), each by the path of its brief (a run may spawn its own `reader`).
+The user chats with the driver console (`claude --agent driver` in the checkout, the pane beside the orchestrator's), which does only what the user says. A write to OpenRune and a client release is shown as a card in the driver's chat
+(its head, acts and exact texts) and published by `hd publish` only after the user's yes: their own
+`! python3 ~/osrs-harness/harness/hd.py approve <slug> <head>` in the driver's window, or, in a remote session where `!`
+cannot be sent, their "approve" in the driver's chat, which the driver runs for that card.
 
 ## Iteration protocol
 docs/PROBLEM.md, docs/PRD.md and docs/ARCHITECTURE.md are the only source of truth. Every iteration reads them first,
 reduces the work surface (fewer concepts, steps, special cases, files, knobs), and updates them last, each fact in the
-one document that owns it. PROBLEM and PRD state the workflow in its simplest terms (agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR), so ARCHITECTURE can change
+one document that owns it. PROBLEM and PRD state the workflow in its simplest terms (agents build a complete PR → the user reviews it as text in the console and says yes → it is published upstream → maintainer feedback becomes changes on that PR), so ARCHITECTURE can change
 without brittleness: every fix finds its root cause against that workflow and fixes it there, rewriting the mechanism
 when the cause is in its design; a limit found is a bug of the change on its mechanism, never passed on. Code, tests, config keys and docs traceable to no requirement are removed.
 
@@ -59,5 +68,5 @@ when the cause is in its design; a limit found is a bug of the change on its mec
 - **The user's own RuneLite** (C:\Users\Alex\.runelite) is never read or modified.
 - **Tester account**: never ::empty it, keep its GE offer (lobster), drop only items you spawned.
 - **Processes**: only stop processes you started; the track script's `down` stops yours.
-- **Builds** go through the track scripts (`<repo>/tools/track.sh build <slug>`), never by hand in a clone.
+- **Builds** go through the track scripts (`tracks/<repo>/track.sh build <slug>`), never by hand in a clone.
 - **Denied actions**: don't work around them; report them in the hand-back.

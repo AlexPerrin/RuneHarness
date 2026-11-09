@@ -214,6 +214,9 @@ Run kinds by the definition's track and kind; tokens = input + output + cache re
 | runs started with nothing to do | 2 empty | 120 of 844 started runs ended without their own record (14%): stopped by the head 41, no record 21, waits (batch, dep, question) 17, step moved 15, console died 7, change done/closed 6; plus 182 of 1,026 listed runs dropped unspawned | <5% |
 | runs with two `ended` events | — | 22 of 859 (fixed by bab772d) | 0 by constraint |
 | tool results backgrounded at 180 s | — | 653 in run transcripts | waits by notification only |
+| build artifacts retained after their change closed (docs/V9-RETENTION.md) | — | all: 830 images (242 GB), 58 per-slug Gradle volumes (65 GB), 157 QA clones (110 GB), 29 contexts (16 GB), 54 GB build cache, none released (2026-11-06) | 0 images, volumes, clones, worktrees per closed change (`hd kpi`: artifacts of closed changes) |
+| images on the host | — | 830 | those of open changes' heads and staging (`hd kpi`: images recorded) |
+| free space on the host drive over a 47 h window | — | C: 94% full (868 of 931 GB) | end = start, within the open changes' artifacts (`hd kpi`: free space) |
 
 Not measured: model time per turn, PreToolUse hook latency, how many of the 39 asks needed the user, a per-change life
 split like V8-BRIEF §2 (phases.py does not parse v8 events). A v9 store should make each of these one query.

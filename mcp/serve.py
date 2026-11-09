@@ -26,6 +26,7 @@ def main():
     init, live, quiet = [], set(), set()   # the session's initialize lines; ids in flight; ids whose answer is dropped
     done = threading.Condition()
     cmd = json.load(open(os.path.join(HERE, "servers.json")))[sys.argv[1]]
+    cmd[0] = os.path.join(HERE, cmd[0])   # a relative program is this mcp/'s own: each checkout serves its own state root
     child = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
     def out():

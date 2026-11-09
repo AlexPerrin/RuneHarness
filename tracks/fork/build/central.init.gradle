@@ -1,0 +1,11 @@
+// A server build with CENTRAL (tools/track.sh build): every Central module is the Central tree's at $CDIR, whatever
+// version libs.versions.toml names; openrune-central is named unlike its project (:central-app), so each is explicit.
+settingsEvaluated { settings ->
+    settings.includeBuild(System.getenv('CDIR')) {
+        dependencySubstitution {
+            substitute module('dev.or2:openrune-central') using project(':central-app')
+            substitute module('dev.or2:central-common') using project(':central-common')
+            substitute module('dev.or2:central-worldlink') using project(':central-worldlink')
+        }
+    }
+}

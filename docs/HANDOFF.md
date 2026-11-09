@@ -1,37 +1,104 @@
-# HANDOFF
+# Hand-off to the v9 harness dev
 
-The brief for a fresh session. `~/osrs-harness` has branch `v8` checked out; `main` still holds v7 (its timer is
-stopped, its state under `harness/state`). v8 runs from here; the merge into `main` and the timer
-are the cutover the user approves.
+Current state as of 2026-11-09 05:35 UTC (00:35 ET). The goal: a harness implemented and tested end to end
+against the workflow, with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
-## Start (one session, in ~/osrs-harness on branch `v8`)
-Its `.claude/settings.json` wires v8's hooks and its `.claude/agents/` holds the roles; a session started elsewhere
-binds no run. The driver and the user's chat: `~/osrs-harness/tools/orchestrator.sh` (it runs `claude --agent orchestrator "drive"` and starts the next session whenever one ends, until the user ends one): it
-arms the watch on `state/wake.orchestrator`, runs `python3 hd.py`, spawns each listed run, handles hand-backs, shows cards,
-questions and alerts and acts on the user's words; the user types the yes and the close themselves
-(`! python3 ~/osrs-harness/hd.py approve <slug> <head>` / `close <slug> <text>`). The planner run the pass lists monitors operations and files harness changes for the issues it finds; a harness change goes through the same
-loop (a dev run in `~/osrs-harness/.worktrees/<slug>`, the gate's tests, a fast-forward of `v8`).
-`python3 -m unittest discover -s tests` must stay green. The track scripts live in the product repos: the fork's branch
-`local/harness` (worktree `~/src/OpenRune-Server/.worktrees/harness`) and the client's branch `client/harness-v8`
-(worktree `~/osrs-plugins-reverse/.worktrees/harness-v8`), each with its own tests; both are local, unpushed.
-Commits pathspec-only, authored as Alex Perrin <44126061+AlexPerrin@users.noreply.github.com>, ending with the
-Co-Authored-By line only. Never leave uncommitted edits in ~/osrs-harness.
+## Do first
 
-## Before the first server change gates
-`pins` in hd.yaml is empty. The integration tree is upstream main plus the pins plus the gated heads, so the first
-test-server deploy would drop every branch v7 carried (40: `local/*`, `fin/*`, `fix/*`, listed in v7's
-`integration.txt` on the fork's `local/integration-tools`). Fill `pins` with the branches the test server must keep,
-or file each as a change, before any server change passes its gate.
+1. **Every requirement in docs/ACCEPTANCE.json is an observed fact**; H8 landed with h-reference-deployment (5e51033,
+   05:32 UTC Nov 9): a fresh desktop and the APK sign in at embedded Central and reach LOGGED_IN on the reference stack,
+   `osrs-openrune` the only game container.
+2. **Ask 21 waits on the user** (h-mobile-login-page-39-again, from alert 70): page 39 is the emulator's discovery GET
+   to Central timing out while the WSL VM freezes under Windows memory overcommit. Options: (a) a mobile up waits for
+   4 GB available on Windows, (b) the user frees host memory, (c) both.
 
-## What is built and what is not
-Built with tests: the loop (`hd.py`, every requirement's class), the hook, the public act (the console card and `hd ship`'s carry), the three track scripts, the
-server's check rows (`gamevals.py`, `text.py`), the client's check rows. `python3 hd.py tick --dry-run` runs against the
-real repos and v7's definitions.
-Not yet run for real: a server `build`, `up`, `gate-ci` and `ship`; a client `build`, `up` and `measure`; `hd ship`
-against a PR. Each acceptance row in docs/ACCEPTANCE.json stays `false` until its live check runs.
+## Where things are
 
-## Cutover, in order
-1. The user: the `pins` list in hd.yaml; the `fix/31` decision.
-2. The sidecar's data dir: `SIDECAR_DATA` (default `~/src/openrune-work/server-tools/sidecar/data`, v7's tools
-   branch) until it moves onto `local/harness`.
-3. Stop v7's timer, merge `v8` into `main`, install the units, resume with `~/osrs-harness/tools/orchestrator.sh`.
+- **v9 runs from this worktree**, `~/osrs-harness/.worktrees/v9`, branch `v9`, pushed to `origin/v9`: `harness/orchestrator.sh` in
+  the user's terminal (peer session, dev and qa on Opus 5.5; `agents: 5`, `builds: 5`), `hd-loop.timer`, `state/hd.db`.
+  Commit here and push as you go. `~/osrs-harness` (`main`) is idle v8: never write there.
+- The product repos: `~/osrs-plugins-reverse` (client), `~/src/OpenRune-Server` (fork), `~/src/OpenRune-Central-Server`,
+  `~/src/OpenRune-FileStore`.
+- **Runs**: read the live ones with `hd tick --dry-run` and the `run` table (`ended_at IS NULL`).
+- `hd` with no argument runs a pass (live): read state with `sqlite3.connect('file:state/hd.db?mode=ro', uri=True)`.
+
+## Read, in this order
+
+`docs/PROBLEM.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, then `docs/ACCEPTANCE.json`. `docs/V9-PROPOSAL.md` and
+`docs/V9-BRIEF.md` hold the v8 context. `docs/ISSUES.md` does not exist: it is created when a root cause is too large for its run.
+
+## The test server
+
+Live is `04007706bd6a28377e7e338abb52660ad52962e2_c022e2f6d72a5` (deployed 19:23 UTC Nov 8 with `hunter-feat-pr`);
+`state/live/tree.json` is what the running stack uses. Container: `osrs-openrune` alone (embedded Central serves jav_config and sign-in).
+
+## Sign-in and login
+
+Upstream OpenRune has password login only (its token login is a TODO stub). Our fork, all live:
+
+- **Server**: `server-token-auth` checks the client's token with Central over the world link (`central-token-login-op`,
+  openruneCentral 2.0.3); `local-android-rsprot-token-gjstr` fixes the Android token decode.
+- **Central, embedded in the server**: `central-game-session` (OIDC and game-session endpoints that mint the token),
+  `central-sign-in-first-account` (a new name registers at sign-in), `central-embedded-jav-config` (a local jav_config, no
+  Jagex hosts), `central-rights-test-mod` (fork-only test fix).
+- **Sessions**: `server-reconnect` and `server-resumed-session-logout` (a resumed session's close removes the player).
+- **Clients**: the LOCAL_AUTH APK signs in through Central (`client-android-central-sign-in`); desktops log in by a
+  Central token, only Accept and Play (`h-desktops-token-login`); a relog after `::drop` and force-stop works
+  (`client-resumed-session-relog`). Mobile login form typing was fixed today (`h-mobile-form-fields-filled`, 2890711).
+
+## Upstream
+
+- Card 9 (`goblin-367-rsprox-dump`, #367) published 18:01 UTC Nov 8; its comment answers only finding 6600852912
+  (the user trimmed the extra replies; db1616e stops a card replying to findings already answered). A3 is proved by it.
+- Card 12 (`hunter-feat-pr`, #408 at 637cedb) waits on the user. #408 is a draft; every card's last step readies a draft.
+- Cards 4 (`central-token-login-op`) and 6 (`central-embedded-jav-config`): held by the Central upstream hold. Card 10
+  (`server-reconnect`): held at the user's word. The user wants a PR's full body and `git diff origin/main...<head>`
+  before approving.
+
+## Awaiting the user
+
+Card 12; question 17 (`h-pin-skip-cs2-spawn`: push fcb452014 to `fork/local/skip-cs2-packs` themselves, or let the next
+run push that one pin ref); the Central and social holds; `hold: P2` in hd.yaml. Asks 1 and 2 show unanswered but their
+changes are closed (`hd close`); they need nothing.
+
+## Lessons from the last sessions
+
+- An edit to this worktree is live at the orchestrator's next `hd`: replay old code against a snapshot before landing a
+  decision change, not after.
+- Derive a card's acts from its `steps_json`, never from the PR's wording.
+- A landed row is void once a newer head of its change is submitted (M1, `Ledger.landed`); the same head after a failed
+  gate is gated again (`store.regate_failed`).
+- `hd answer` cannot close a change; the refusal prints the `hd close` line the user runs.
+- Runs use at most 3 readers each (the user).
+- A piped `track.sh up` needs `exec` for helpers (34aef53); a desktop's fixed-position click can hit a ban page's button,
+  never press its top button; do not quote a success rate from a handful of starts.
+
+## Rules that bind you
+
+- CLAUDE.md "Rules" and "Shared rules" apply unchanged. Two public acts need the user; you never do either.
+- A script of the checkout the loop runs from changes only by a ship (git replaces by rename): an in-place write to a
+  running track script ends it with a syntax error.
+- Keep the tree importable between commits; commit small with `hd commit <paths> -m "<message>"` (it holds
+  `state/ship.lock`); run `python3 -m unittest discover -s tests` before each; check a touched doc's diagrams with
+  `tests/mermaid_parse.mjs` (needs `npm i mermaid jsdom` in `~/.cache/mm`, `NODE_PATH=~/.cache/mm/node_modules`).
+- An alert: fix it as your own commit and `hd dismiss <id>` naming it, or `hd new --from-alert <id>`. Never both.
+- Don't repeat a run's work: read the ledger and message the orchestrator's session instead.
+- No new concept, file, knob or special case without a PRD requirement; a mechanism you change is updated in
+  ARCHITECTURE in the same commit. Decide on facts, never on elapsed time.
+
+## Only the user decides
+
+Every card; the Central upstream hold; the P3 band hold; the default decisions in docs/V9-PROPOSAL.md §5; when the
+runtime move happens.
+
+## The runtime move (the cutover's part 2)
+
+At the user's desk, on their word: the session's `/exit`; stop `hd-loop.timer`; back up `state/hd.db` into
+`~/osrs-harness/state/hd.db` with Python's `sqlite3` backup; `git -C ~/osrs-harness merge v9`; hd.yaml
+`harness.base: refs/heads/main`, commit, push; copy `state/<slug>/`, `state/briefs/`, `state/live/` across; start
+`harness/orchestrator.sh` from `~/osrs-harness`; then `git worktree remove` this worktree.
+
+## Known gaps
+
+- The `kpi` alert is not computed; `hd kpi` prints the metrics; the KPI table holds targets, not measurements.
+- `publish.answered` reads the first 30 comments of a PR and assumes our latest comment answered every finding before it.

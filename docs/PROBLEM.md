@@ -1,156 +1,139 @@
-# Problem
+# The problem
 
-The first principles the harness is derived from: the facts of the world we cannot change (axioms), what follows from them (principles), and what the user wants (goals). docs/PRD.md turns the principles into constraints on any solution;
-docs/ARCHITECTURE.md is the one solution we build.
+What the harness is for, derived from what the work is and what the v7 and v8 runs show. docs/PRD.md turns this into
+requirements; docs/ARCHITECTURE.md is the one solution built to them.
 
-## Axioms
+## 1. The work
 
-### A1
-The user wants outcomes in two products, reached with nobody watching, overnight and across days.
+Two products, worked on by Claude Code agents overnight and across days, with the user absent most of the time.
 
-### A2
-Claude Code agents do the work.
-A top-level session spawns them at a turn boundary, and an agent can spawn its own (its parent named in the agent's meta file), whose hand-back goes to its parent while the parent lives, else to the session;
-a session can vanish at any moment (usage limit, WSL restart, compaction, closed terminal) and its agents die with it.
-Its context is finite.
-A watch can wake it, and every watch expires.
-A top-level session and the agents it spawns show in the user's console with their transcripts;
-a headless one's do not, and the user watches every session.
+| product | repos | what "done" means |
+|---|---|---|
+| **client**: RuneLite plugins inside the official OSRS Android app | AlexPerrin/osrs-plugins-reverse | the change is on `main`; a release is a tagged APK the user approved |
+| **server**: the OpenRune test server the client plays against, and contributions to OpenRune | the fork AlexPerrin/OpenRune-Server and the libraries it depends on, AlexPerrin/OpenRune-Central-Server (accounts, login, world link) and AlexPerrin/OpenRune-FileStore (the cache); each has an upstream under OpenRune/ | live on the test server as soon as it is checked; done when upstream `main` holds it |
+| **harness**: this repo | AlexPerrin/osrs-harness | live on the branch the loop runs from |
 
-### A3
-Agents are fallible and their words are not evidence.
-Evidence is a commit on a ref, a tree, a file on disk, GitHub state, docker state, the process table.
-An agent repeats work it cannot see was done, re-derives know-how written as prose, cannot see its own context size, and fixes a defect where it is named rather than as a rule across a diff.
+Each product is a **track**: a lane with its own base branch, its own scripts (build, bring-up, check, deploy,
+publish) and its own skills (how to reverse the app, how to research accuracy, how to write a PR OpenRune accepts).
 
-### A4
-Two actions are public or irreversible: a write to OpenRune (OpenRune-Server, OpenRune-Central-Server, OpenRune-FileStore) and a client release.
-The user alone authorizes them, each as one complete PR or release they can read on GitHub.
-Everything else is the user's own and reversible.
+The actors:
+- **the user**: defines work, decides scope and accuracy questions, approves every public act, reads everything in
+  the console. Scarce: 12 approvals, 9 holds, 46 closes and 148 answers in v8's 47 hours, most answers spent
+  unblocking agents from the harness itself.
+- **maintainers** of OpenRune: review our PRs on their own schedule, ask for changes, merge. One change per PR, no
+  stacking, no deferral, few tests, rules revised at any time. We have no write access to their repos.
+- **agents**: Claude Code sessions. A **dev** builds a change (the generator); a **qa** writes what "done" means
+  before the code and judges the result after (the evaluator); a **reader** looks things up for them; the
+  **orchestrator** is the one long-lived autonomous session, the meta level over every track: it spawns the others
+  and, seeing all of them, detects and corrects an agent that misbehaves; the
+  **driver** is the console the user chats with: it shows what needs the user and does what the user says, one-off
+  changes included, and nothing on its own. Both are panes of the user's terminal; every run's transcript is open in
+  the orchestrator's.
+- **scripts**: build, bring the server and clients up, deploy, check, publish. They block on facts and return results.
+- **the world**: git remotes, GitHub, docker, an Android emulator and RuneLite desktops on Windows, reached from WSL.
 
-### A5
-Upstream is maintained by others: one change per PR, no stacking, no deferral, no tests unless asked or the change moves items (a dupe test per such flow), a defect reported at any time, rules revised at any time.
-The fork's CI on a merge with current upstream `main` is the same fact as upstream's PR CI.
+## 2. What the runs show
 
-### A6
-A change is live when its target contains it: client `master`, the tree the test server runs, harness the live checkout's branch.
-A server change is done when upstream `main` contains it;
-every other change is done when live.
+v7 (6 days, 132 runs) and v8 (47 hours, 844 runs, 11,800 events) were measured from their own records
+(docs/V8-BRIEF.md, docs/V9-BRIEF.md). The findings that shape the problem:
 
-### A7
-A build is a function of a tree;
-the game cache is a function of its inputs.
-The machine bounds how many agents, builds and clients run at once;
-the live server and the user's own mobile exist once.
+- **A change's life is mostly waiting.** v7: 30% waiting on maintainers, 30% waiting for someone to spawn the next
+  run, 21% queued behind other changes, 10% waiting on the user, 5% an agent working. v8 cut the spawn wait from a
+  median 11 minutes to 0.5 by giving the orchestrator a watch and a one-line spawn.
+- **Agents re-derive what nobody wrote down as a script.** v7 devs spent 52–148 tool calls bringing a server and
+  clients up before the first edit, 12% of all calls polling; one run read 205M tokens. v8's track scripts cut
+  calls-to-first-edit to 15 and polling to 7%.
+- **Agents cannot judge their own work.** Of 108 v7 review findings, 68 repeated an earlier round's rule; the dev
+  fixed a defect where it was named, not as a rule across the diff. v8's contract, agreed before the code, made the
+  first verdict PASS on 19 of 29 judged changes; the one change without a usable contract (Hunter, #408) failed ten
+  rounds. The evaluator run is the costliest thing in the system: median 121 turns and 12M tokens.
+- **Agents' words are not evidence.** A dev's "handed over at sha" was refused 29 of 98 times in v7 because the ref
+  was not there. Everything that counts is a commit on a ref, a tree, a file, GitHub state, a container, a process.
+- **Decisions re-derived from the live world break when the world moves.** v8 compared the user's approval against
+  texts recomputed from the live PR; after the carry edited the PR, its own approval no longer matched and a stopped
+  carry could never resume (goblin-367, finished by hand). Keys that hashed the checker's code re-ran 150 of 275
+  gates on unchanged trees and withdrew approved cards five times.
+- **The harness eats itself when its own repair loop is unbounded.** v8's monitor agent, running continuously with
+  an open mandate, filed 331 harness changes in 47 hours; 38% of its findings were regressions of an earlier harness
+  ship; the harness took 55% of all runs and 38% of all tokens, and interfered with dev and qa work. Nearly half of
+  the user's 148 answers were about the harness.
+- **State without a schema rots.** v8 kept ~40 kinds of JSON files: answers without their question, kinds read from
+  text prefixes, strikes counted from file times, two writers ending one run twice. Half the monitor's findings traced
+  to this.
+- **A session can vanish at any moment** (usage limit, WSL restart, compaction, a closed terminal) and its agents die
+  with it. Nothing may depend on a session staying alive, and a headless session is invisible to the user, who
+  watches every session.
 
-### A8
-Elapsed time says nothing about what happened.
+## 3. What a harness is for
 
-### A9
-Python 3.12 standard library and PyYAML;
-git ≥ 2.38;
-WSL2 with systemd and mirrored networking;
-Docker Desktop and the Android emulator run on Windows and are started by hand;
-GitHub is reached with `gh`.
+Agents are stateless, fallible workers with finite context that act only inside a turn. The world is slow, shared
+and stateful. The user is scarce and holds authority. The harness stands between them with four jobs:
 
-### A10
-No mobile or desktop contacts Jagex;
-the user's own RuneLite and the tester account are never touched.
+1. **Memory.** Hold what agents cannot keep across runs: what is wanted (the change), what "done" means (the
+   criteria), what was decided (the user's decisions, maintainers' findings), what was verified (results bound to
+   the exact tree or commit they checked), what exists (clones, builds, servers, clients). Every run starts where the
+   last ended, and nothing is re-derived from the world once it has been decided.
+2. **Hands.** Do by script what agents do badly by hand: build a tree, bring a server and clients up, deploy, run the
+   checks, publish a PR or release. Know-how is encoded once and blocks on facts; agents read rules and results.
+3. **Gate.** Verify what agents cannot judge about their own work, cheapest first and each check once: scripts, then
+   an independent evaluator, then the user for the two acts that are public. Each verdict binds to the artefact it
+   judged and is void when that moves.
+4. **Tempo.** Notice that a fact changed and start the next step at once, with no person watching: a dev done →
+   check it; a check passed → review it; a review passed → show the user; a yes → publish; a maintainer wrote →
+   a new criterion → a dev. The user's attention is spent only where authority or taste is needed.
 
-## Principles
+Everything in docs/ARCHITECTURE.md serves one of these four. A mechanism that serves none is removed.
 
-### P1 (from A3 A8)
-**Facts decide.** Every decision reads git, GitHub, docker, the process table, or a record bound to the tree or commit it covers.
-An unknown fact stops the step;
-it is never read as false.
-
-### P2 (from A2 A3)
-**Store only what cannot be derived**: definitions (what the user wants, the contract), judgments (a hand-over, a gate, a verdict, an approval (bound to a head and the card's texts), a measurement, an answer) and run starts and ends.
-A judgment is bound to what it covers and void when that moves.
-Everything else is derived on each read.
-
-### P3 (from A2 A8)
-**Every step is rerunnable.** A step is "done when this fact holds" plus "do this";
-any process may die anywhere and the next pass continues from facts.
-Nothing waits on a process or a session;
-nothing is decided from elapsed time.
-
-### P4 (from A4)
-**One authority, at the approved commit.** Only the carry writes to OpenRune or publishes a release, and only what the user approved where they read it: the card in the orchestrator's console, its head and its texts.
-
-### P5 (from A1 A3)
-**Cheapest check first, each check once.** A script before an agent, an agent before the user;
-a check keyed by its input never runs twice for that input;
-a question that needs no decision of the user is not asked.
-
-### P6 (from A7 A3)
-**One tree, one build.** A change is gated, judged and deployed from one tree (its base, its dependencies, its head), built at most once, in a copy nobody commits from.
-
-### P7 (from A3 A5)
-**The contract before the code.** What "done" means for a change is a list of rows written before coding and judged once, every row pass or fail;
-a finding or an answer becomes a row, never a free-text round.
-
-### P8 (from A3 A1)
-**Know-how is a script, judgment is a rule.** Bring-up, builds, in-game scenarios and lookups are scripts that block on facts and return results;
-an agent reads rules and results, never procedures.
-
-### P9 (from A7)
-**Scarce things are counted**, and every artefact is named after the change or run that owns it.
-
-### P10 (from A1 A2 A3)
-**The user sees derived facts only**: what runs, what waits for them, each goal's number, what happened;
-and every agent session, live in their console.
-
-### P11 (from A3)
-**Fix at the root.** A limit is a bug of the mechanism that has it, fixed in the change on that mechanism, one change per mechanism;
-the cause is stated against the workflow below in its simplest terms and fixed there, the mechanism rewritten when the cause is in its design, never a rule stacked on a rule.
-
-## Goals
-
-A **goal** belongs to one track and has a command that prints one number and a target.
-Changes of every track serve it;
-a goal is measured whenever its target moves and stays measured once met.
-
-### Client
-- Delivers: RuneLite plugins in the official OSRS Android app (AlexPerrin/osrs-plugins-reverse);
-  a release is a tagged APK
-- Goal: 100% of the RuneLite API interface methods working in the app, proven by the probe against the live test server
-
-### Server
-- Delivers: the behaviour the client needs, on the test server at once and contributed to OpenRune
-- Goal: 100% of the content inventory 1:1 with the official game: each unit (from the cache) checked against RSProx recordings and the wiki, a pass flag per unit;
-  the client never blocked on the server
-
-### Harness
-- Delivers: the machinery that moves both and itself (this repo)
-- Goal: simpler and faster each iteration: per upstream change at most 5 runs and 1 build per tree;
-  an agent's first edit within 10 tool calls;
-  peak context at most 200k tokens;
-  a due spawn waits one turn of the orchestrator
-
-## Process
-
-The workflow in its simplest terms: agents build a complete PR → the user reviews it as text in the console and says yes → it is carried upstream → maintainer feedback becomes changes on that PR.
-Everything below is how that runs unattended.
-
-Every **change** has one shape on every track: defined, given a contract, built by a dev agent into one commit against a tree built once, gated by scripts, judged once by a reviewer against the contract, and shipped.
-A server change reaches two targets independently: the test server as soon as it is gated, upstream after the user's yes on its card (the console's text of the complete upstream PR: head, acts and exact texts).
-The user is asked only for that yes and for decisions of scope or accuracy;
-a PR round is one change: every maintainer finding on the PR, and every fix filed on it, joins the PR's one open change as a contract row, its fixes stacked as commits on the PR, gated, judged and carried once at its last head.
-Each goal is measured when its target moves, and a planner run files the changes that close the gap, with dependencies across tracks;
-the same role watches operations and files a harness change for each issue it finds.
-The orchestrator, a long-lived session of its own, drives the loop: it spawns and stops every run and handles their hand-backs, and it is the user's chat: it shows cards, questions and alerts and acts on the user's other words at once, while the user's yes and close are the user's own, never an agent's.
+## 4. The workflow
 
 ```mermaid
 flowchart LR
-  g([Goal: target moved]) --> m[(Measurement)]
-  m --> o[Plan: changes with dependencies]
-  o --> k[Contract: rows agreed before code]
-  k --> d[[Dev: one commit, one tree, built once]]
-  d --> c[Gate: scripts on the tree]
-  c --> j[Judge: every row pass or fail]
-  j --> s{OpenRune write or release?}
-  s -- yes --> q[Card in the console] --> u{{User's hd approve}} --> r[Carry upstream]
-  s -- no --> l([Live])
-  r --> l
-  l --> m
+  U([user: a change, P0–P4]) --> C[criteria agreed before code<br/>qa, from accuracy sources and upstream rules]
+  C --> D[dev: one head on the change's branch<br/>built and checked on its candidate tree]
+  D --> S[scripts check the candidate<br/>fork CI, lint, texts, gameval ids]
+  S -->|fail| D
+  S --> Q[qa judges every criterion in game<br/>verdict bound to the head]
+  Q -->|fail| D
+  Q --> ST[(staging: the test server<br/>runs every checked head)]
+  Q --> K{public act?}
+  K -->|client/harness| L([live on the branch])
+  K -->|upstream PR or release| CARD[card in the console:<br/>acts, exact texts, verdict, evidence]
+  CARD --> Y{{user: approve / hold / close}}
+  Y -->|yes| P[publish: push, PR, CI, one comment, ready]
+  P --> M([maintainers])
+  M -->|finding| C
+  M -->|merged| L
 ```
+
+A **change** is one unit of work on one track, defined by the user or by a planning run, with a priority and the
+changes it depends on. Its **criteria** are agreed before code: scripted ones a check runs, judged ones the evaluator
+checks in game. A dev **submits** one head; its **candidate** tree is base plus dependencies plus head, built once.
+The scripts check the candidate; qa judges the head; the test server runs **staging**, every checked server head
+merged into one branch. A change that is public upstream or a release becomes a **card**; the user's **approval**
+is the only thing that lets the harness **publish**, and it publishes exactly the card. A client or harness change needs no card: once checked it **ships**, a fast-forward of its live branch. A maintainer's word becomes
+a criterion on the PR's open change, and the loop runs again from the dev.
+
+## 5. Constraints of the world
+
+- Only two acts are public or irreversible: a write to an OpenRune repo and a client release. The user alone
+  authorizes each, as one complete PR or release they can read. Everything else is the user's own and reversible.
+- A build is a function of a tree. The machine bounds how many agents, builds and clients run at once. The live test
+  server and the user's own mobile exist once.
+- Elapsed time says nothing about what happened; only facts do.
+- Python 3.12 standard library and PyYAML; git; `gh`; WSL2 with systemd and mirrored networking; Docker Desktop and
+  the Android emulator run on Windows and are started by hand.
+- No mobile or desktop ever contacts Jagex. The user's own RuneLite and the tester account are never touched.
+- Claude Code: a top-level session spawns agents at a turn boundary and they die with it; MCP servers and agent
+  definitions load at session start; a session's context is finite; a watch can wake it.
+
+## 6. Goals
+
+| track | goal | measured by |
+|---|---|---|
+| client | 100% of the RuneLite API interface methods working in the app | the probe against the live test server, per method |
+| server | 100% of the content inventory 1:1 with the official game; the client never blocked on the server | units of the cache inventory covered by a landed change with a passing verdict |
+| harness | the same outcomes with less: per upstream change ≤5 runs; the harness <15% of runs and tokens; <20 harness changes a day and falling; one build and one gate per tree; no approved publish lost; a pass that costs under a second when nothing moved; an agent's first edit within 10 tool calls; peak context ≤200k | `hd kpi`, queries over the ledger |
+
+The user's order: the client first, with the server work the client needs (P1–P2); upstream contribution of work that
+overlaps it next (P3); content upstream for its own sake is the stretch goal, P4. The held band (hd.yaml `hold`) says
+which tiers run.

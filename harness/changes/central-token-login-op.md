@@ -1,22 +1,11 @@
 ---
 slug: central-token-login-op
 track: central
-title: Token LOGIN op on the Central world link
-kind: change
-priority: P1
+priority: P0
 deps:
-- harness-central-track
-created: '2026-11-01T04:04:00Z'
+- central-rights-test-mod
+- harness-central-build-gradlew
 ---
-server-token-auth (contract agreed, evidence/server-token-auth/contract.md rows one-change and a4-central) needs OpenRune-Central-Server to map a verified token to its account: a token LOGIN op on the world link, the Central PR of the user's choice (a Central PR plus a server PR). The server PR declares Depends: on this PR and the matching Central dependency version; no Central or sidecar code goes in the server head. Accuracy as server-token-auth: responses match the official login flow. Upstreamable: the PR to OpenRune/OpenRune-Central-Server needs the user's yes on a card.
+# Central: token LOGIN op on the world link (openruneCentral 2.0.3), in the v9 ledger
 
-From central-token-login-op-3 (FAIL c2-checks, c3-session at 0485930ff): both rows required in-game proof through server-token-auth's build, which depends on this change, so they cannot pass before it ships. The code needs no fix; at the world link c2 (same fail codes as password LOGIN for ban, locked, reboot, world full, foreign character) and c3 (one session row, replaced on a second login, removed on LOGOUT) passed (evidence/central-token-login-op/qa3-worldlink-client.py). c2 and c3 are judged at the world link on this change; their in-game proof is server-token-auth's a4-central row.
-
-The user's word (2026-11-01): hold off on this PR until all login flow work is complete (server-token-auth with the compact, official-shaped token; harness-desktop-token-login; client-devtools-login; harness-desktop-login-devtools). The PR text is refreshed for the final token design before its card is asked again.
-
-
-The user (2026-11-01): "No we will bundle the auth pr later when all of our login work clears". Held by the dependency on harness-desktop-login-devtools; the card is not asked again until then.
-
-Orchestrator (2026-11-01): the dependency on harness-desktop-login-devtools was the user's hold on this PR's card, but it closed a cycle (central-token-login-op -> harness-desktop-login-devtools -> client-devtools-login -> server-token-auth -> central-token-login-op) that deadlocked the whole login chain. Removed. The hold stays the user's: this card ships only on their yes, and they bundle the auth PRs when all login work clears.
-
-The user's word (2026-11-01): "central-token-login-op wait for other auth changes to land before considering upstream". Its card is not approved until server-token-auth, client-devtools-login, harness-desktop-login-devtools and harness-live-issuer-cutover have landed; the orchestrator does not ask for it before then.
+server-token-auth (e40d5e9, live) bumps the fork's openruneCentral to 2.0.3, which only Central's dev/central-token-login-op (0485930 feat: token LOGIN op on the world link, on remote fork) provides; it is unpublished and absent from the v9 ledger. server-android-token-login is built on dev/server-token-auth (the verifier it fixes exists nowhere else), so its candidate needs that Central head as a composite (deps), else gradle fails: Could not find dev.or2:openrune-central:2.0.3 (state/server-android-token-login/build-e5399e3be249b7709d38c1e8b4811b3a2c15b0ab-1.log). Adopt the existing dev ref as this change's head (no new code), then server-android-token-login takes it in deps.

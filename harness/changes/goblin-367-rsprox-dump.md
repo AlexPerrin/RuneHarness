@@ -1,22 +1,9 @@
 ---
 slug: goblin-367-rsprox-dump
-track: server
+track: fork
+priority: P1
 pr: 367
-branch: content/goblin-diplomacy
-title: '#367: back to draft while the Goblin Diplomacy RSProx dump is reviewed; accuracy
-  check against it and fix'
-kind: change
-priority: P2
-deps:
-- harness-build-gate-keyed-process
-- harness-deploy-survives-tools-ship
-- harness-ci-latest-run-per-check
-finding:
-- IC_kwDOQBbPT88AAAABeeLlXg
-- IC_kwDOQBbPT88AAAABhyfg1w
-- IC_kwDOQBbPT88AAAABhyf-LQ
-- IC_kwDOQBbPT88AAAABhzI4JQ
-created: '2026-11-01T20:43:57Z'
+public: content/goblin-diplomacy
 ---
 The user's word (2026-11-01): "367 should go in draft for (https://github.com/OpenRune/OpenRune-Server/pull/367#issuecomment-6562504919). Draft comment explaining (reviewing dump), then run an accuracy check and fix if needed."
 
@@ -30,3 +17,5 @@ Steps, in order:
 Step 1 done by the user (2026-11-01): PR 367 converted to draft and the comment posted (issuecomment-6563660994, with the Claude Code attribution). The harness does not repeat it.
 
 Also: #367's one review round. Its head stacks on goblin-diplomacy-review-367-fftgsrq's 019e5a1c4, which it supersedes with the four finding changes goblin-diplomacy-review-367-fftgsrq-c*: answer each finding of its `finding` with a commit on the head where it needs code and pr-reply-<finding>.md quoting it.
+
+Carried from v8 at the cutover (2026-11-03): its head is dev/goblin-367-rsprox-dump on the fork; re-judged under v9's criteria.

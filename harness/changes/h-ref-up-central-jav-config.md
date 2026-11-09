@@ -1,0 +1,8 @@
+---
+slug: h-ref-up-central-jav-config
+track: harness
+priority: P1
+---
+# A fork change's up runs an embedded Central that serves the local jav_config
+
+A fork change's candidate is upstream main plus its head (hd.yaml fork base refs/remotes/origin/main, no pins) and builds with the published dev.or2 Central (libs.versions.toml openruneCentral) unless it depends on a Central change (hd.py dep_inputs). Upstream Central (origin/main d694191) fetches jav_config only over HttpClient (central-app/.../http/JavConfigCache.kt fetchRemote) and merges configProps into the fetched body, so OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:// fails there and the fallback is client.blurite.io (javcheck fails: Privacy). The file:// support is central-embedded-jav-config, live through Central's staging composite but unpublished upstream (card 6; the Central upstream hold). So tracks/fork/track.sh up cannot drop http-<slug> for a fork change: only the central track's up (CENTRAL=<head>, CENTRAL_JAV) and the deploy (store.staging_composite) build a Central that reads file://. Needed: every fork up runs a Central that serves the up's rendered jav_config.ws from file://, the way the deploy does: e.g. an up's or:<T> built with the Central staging head (staging_composite's central) while the gate's CI build keeps the published Central, or the upstream release of central-embedded-jav-config. Done when tracks/fork/track.sh up <a fork change with no Central dep> passes javcheck.py on server-<slug>'s Central /jav_config.ws (port 9090) with no http-<slug> and a desktop reaches LOGGED_IN. Part of h-reference-deployment (PRD H8); found by run 229.

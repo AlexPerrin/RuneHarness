@@ -376,7 +376,7 @@ case "$*" in *push*) ;;
         s.assertNotIn("3070", calls)   # the stale holder is never stopped
 
     def test_allow_answers_only_the_allowed_names(s):  # tools/allow.py: DNS and the TLS relay admit api/static.runelite.net alone
-        import ssl, struct, sys; sys.path.insert(0, str(TRACK.parent)); import allow
+        import ssl, struct, sys; from unittest import mock; sys.path.insert(0, str(TRACK.parent)); import allow
         q = lambda n, t=1: b"\x12\x34\x01\x00\x00\x01\0\0\0\0\0\0" + b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\0" + struct.pack(">HH", t, 1)
         a = allow.answer(q("Static.RuneLite.net")); s.assertEqual((a[:2], a[3] & 15, a[7], a[-4:]), (b"\x12\x34", 0, 1, bytes([10, 0, 2, 2])))
         a = allow.answer(q("api.runelite.net", 28)); s.assertEqual((a[3] & 15, a[7]), (0, 0))   # no AAAA: IPv4 alone reaches the relay
@@ -396,8 +396,11 @@ case "$*" in *push*) ;;
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); c.settimeout(5)
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
-        c.sendall(bytes([15]) + struct.pack(">I", 241) + bytes(16)); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # run 301: the client's js5 handshake on 443 is closed at once, so it goes back to 43594
-        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        g = socket.create_server(("127.0.0.1", 0)); js5 = bytes([15]) + struct.pack(">I", 241) + bytes(16)
+        with mock.patch.object(allow, "GAME", g.getsockname()):   # run 301: the client's js5 on 443, held or closed, stopped its load at 20%: it reaches the game server, as on a world
+            c.sendall(js5); v = g.accept()[0]; s.assertEqual(v.recv(64), js5); v.sendall(b"\0"); s.assertEqual(c.recv(5), b"\0")
+            v.close(); c.close(); t.join(); l.close(); g.close()
+        u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
         def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
             asked.append(a[0])
             if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")

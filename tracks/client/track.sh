@@ -91,7 +91,7 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
     c=$($docker inspect -f '{{.State.Running}} {{index .Config.Labels "allow"}}' mobile-allow 2>/dev/null || true)
     if [ "$c" != "true $sum" ]; then
       [ "${c%% *}" != true ] || $docker rm -f mobile-allow >/dev/null 2>&1 || true
-      $docker run -d --rm --name mobile-allow --label allow="$sum" -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
+      $docker run -d --rm --name mobile-allow --label allow="$sum" --add-host host.docker.internal:host-gateway -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
       until $docker logs mobile-allow 2>&1 | grep '^listening' >/dev/null; do [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" = true ] || break; sleep 1; done
     fi
     "$sys32/nslookup.exe" api.runelite.net "$dns" 2>/dev/null | tr -d '\r' | grep '10\.0\.2\.2' >/dev/null && return 0

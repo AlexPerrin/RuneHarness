@@ -2,6 +2,8 @@
 slug: server-world-switcher
 track: fork
 priority: P2
+deps:
+- h-up-second-world
 ---
 # World Switcher: the logout tab's button opens the world switcher and a world's Switch hops through LOGOUT_TRANSFER
 

@@ -227,12 +227,42 @@ class Gate(Base):  # G2, G3, H2
         self.db.execute("INSERT INTO job(kind, key, pid, pid_start, started_at) VALUES ('gate', ?, 1, 1, 't')", (s.key,))
         self.assertEqual(self.step().kind, "wait")
 
-    def test_gate_failure_lists_the_dev(self):
+    def fail(self, kind, k, detail):
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES (?, ?, 0, ?, 't')", (kind, k, detail))
+
+    def test_a_failure_runs_once_more_at_the_same_head_and_only_its_repeat_lists_the_dev(self):   # a failure outside the head never reaches a dev
         self.submit()
-        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'tests (1 failed)', 't')", (f"{TREE}:harness-1",))
+        k = f"{TREE}:harness-1"
+        self.fail("gate", k, "tests (BUILD FAILED in 7s); ci (401 Bad credentials)")
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("rerun", f"gate {k}"))
+        store.rerun(self.db, "h-one", "gate", k, "tests (BUILD FAILED in 7s); ci (401 Bad credentials)")
+        self.assertEqual(self.step().kind, "gate")   # the same key gates again
+        self.fail("gate", k, "ci (401 Bad credentials); tests (BUILD FAILED in 9s)")   # the same criteria fail: the head's
         s = self.step()
         self.assertEqual((s.kind, s.role), ("run", "dev"))
-        self.assertIn("gate failed: tests", s.why)
+        self.assertIn("gate failed twice: ", s.why)
+
+    def test_a_second_failure_unlike_the_first_raises_an_alert_and_no_dev(self):
+        self.submit()
+        k = f"{TREE}:harness-1"
+        self.fail("gate", k, "ci (remote: error)")
+        store.rerun(self.db, "h-one", "gate", k, "ci (remote: error)")
+        self.fail("gate", k, "tests (FAILED (errors=1))")
+        s = self.step()
+        self.assertEqual((s.kind, s.key), ("alert", f"gate:{k}"))
+        self.db.execute("DELETE FROM job"); self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (k,))
+        self.fail("ship", f"refs/heads/v9:{TC}", "gate failed on the merge with the live tip")   # a ship too runs once more first
+        self.assertEqual(self.step().kind, "rerun")
+
+    def test_a_fail_verdict_with_its_question_open_lists_no_dev(self):   # the rows only a waiver or a dep clears: qa asks before its verdict
+        self.submit()
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
+        self.run_row("j", role="qa", mode="judge", ended_at="t2", end_kind="handback")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, 't2')", (TIP, store.digest([])))
+        self.assertEqual(self.step().role, "dev")
+        self.db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('h-one', 'waive done-stack?', '[]', 't2')")
+        self.assertIn("question", self.step().why)
 
     def test_three_starts_without_result_park_the_job(self):
         self.submit()

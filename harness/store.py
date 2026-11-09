@@ -218,6 +218,16 @@ def regate_failed(db, tree) -> bool:
     return True
 
 
+def rerun(db, slug, kind, key, detail) -> None:
+    """A failed build, gate or ship once more at the same key (decide.dev_due): its result and attempts go, the event
+    'rerun' keeps the first failure for the comparison with the second."""
+    db.execute("DELETE FROM job WHERE kind=? AND key=? AND ended_at IS NOT NULL", (kind, key))
+    db.execute("DELETE FROM attempt WHERE kind=? AND key=?", (kind, key))
+    if kind == "gate":
+        db.execute("DELETE FROM check_result WHERE tree=?", (key.split(":")[0].split("_")[0],))
+    event(db, "rerun", slug, None, f"{kind} {key} {detail or ''}")
+
+
 def own(db, kind: str, key: str, owner: str) -> None:
     """An artifact's owner row (the track scripts through `hd own`, act for the clones it makes). A path is refused
     outside the places builds write (a worktree under .worktrees/, a dir there or under state/): a release removes it."""
@@ -413,6 +423,12 @@ class Ledger:
 
     def latest_card(self, slug):
         return self.one("SELECT * FROM card WHERE change=? ORDER BY id DESC LIMIT 1", slug)
+
+    def rerun(self, slug, kind, key):
+        """The first failure's detail of a rerun of (kind, key), or None when it never ran again."""
+        p = f"{kind} {key} "
+        r = self.one("SELECT detail FROM event WHERE change=? AND kind='rerun' AND substr(detail, 1, ?)=? ORDER BY id DESC LIMIT 1", slug, len(p), p)
+        return r["detail"][len(p):] if r else None
 
     def last_event(self, slug, kind=None):
         sql = "SELECT * FROM event WHERE change=?" + (" AND kind=?" if kind else "") + " ORDER BY id DESC LIMIT 1"

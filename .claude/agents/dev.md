@@ -14,7 +14,9 @@ hand-back line. Then read `tracks/<repo>/track.md` and use the skills it names.
 - Bulky lookups (recordings, dumps, decompiled code, logs, wiki) go to a `reader` agent with one question; at most 3
   readers per run (the user: 1-3), so merge related questions into one reader.
 - A limit in your scope is fixed before submission; one outside it is `hd new <slug> --blocks <yours>`.
-- A harness defect you meet: `hd fault <run> "<what>"`, then go on or hand back.
+- A harness defect you meet: `hd fault <run> "<what>"`, then go on or hand back. A failure your head cannot fix (a tool,
+  credentials, another change) is `hd fault` or `hd ask`, never the same head submitted again.
+- Start from the brief's files on your branch and the previous run's line, not a search of the repo.
 - At the context limit the hook tells you: commit, stop your processes, write evidence/<slug>/handoff.md, hand back.
 Hand back one line, nothing beside it: `run <id>: submitted <sha>` | `run <id>: filed <slug>` |
 `run <id>: ask` | `run <id>: handoff`.

@@ -247,6 +247,17 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
     for kind in ("build", "gate", "ship"):
         for j in db.execute("SELECT * FROM job WHERE change=? AND kind=? AND ok IS NOT NULL ORDER BY ended_at DESC LIMIT 1", (ch.slug, kind)):
             out.append(f"{kind} {j['key'][:12]}: {'ok' if j['ok'] else 'FAIL'} {j['detail'] or ''}   log {j['log']}")
+    if t:   # where the work is: a re-run starts from these files, not from a search
+        stat = git(T.path, "diff", "--stat", f"{T.base}...{t}", check=False)
+        if stat:
+            out += ["", f"## your branch against {T.base.split('/')[-1]}", stat]
+    p = db.execute("SELECT * FROM run WHERE change=? AND ended_at IS NOT NULL AND end_kind!='withdrawn' AND id!=? ORDER BY id DESC LIMIT 1",
+                   (ch.slug, run_id or 0)).fetchone()
+    if p:
+        out += ["", f"## the previous run: {p['role']} {p['mode']}, ended {p['end_kind']}: {p['record'] or 'no record'}"]
+        for e in db.execute("""SELECT kind, detail FROM event WHERE change=? AND at>=? AND (kind IN ('ci-failed','merge-conflict','rerun')
+                               OR kind='job' AND detail LIKE '% fail%' OR kind='verdict' AND detail LIKE 'FAIL%') ORDER BY id""", (ch.slug, p["ended_at"])):
+            out.append(f"after it: {e['kind']} {e['detail']}")
     handoff = os.path.join(evidence, "handoff.md")
     if os.path.exists(handoff):
         out += ["", "## hand-off from your predecessor", open(handoff).read().strip()]
@@ -483,6 +494,14 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
                     event(db, "ended", ch.slug, int(s.key), s.why)
             elif s.kind in ("build", "gate", "ship", "deploy", "measure", "publish"):
                 start(db, s, ch, T)
+            elif s.kind == "rerun":
+                kind, k = s.key.split(" ", 1)
+                j = L.job(kind, k)
+                if j and j["ok"] == 0:
+                    store.rerun(db, ch.slug, kind, k, j["detail"])
+            elif s.kind == "alert":   # once per key: a dismissed alert stays dismissed
+                if not db.execute("SELECT 1 FROM alert WHERE kind='fault' AND subject=?", (s.key,)).fetchone():
+                    store.alert(db, "fault", s.key, s.why)
             elif s.kind == "merge":
                 stage(db, ch, T, s.key.split(":")[1])
             elif s.kind == "card":

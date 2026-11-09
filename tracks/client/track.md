@@ -15,7 +15,8 @@ anything is installable; the APK's login modulus is the live stack's key pair's 
 another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the live server runs
 (`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator (boots go one at a
 time, each waiting until Windows has its 4096 MB guest RAM available, so parallel ups queue on host memory) on the network
-allowlist (checked), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
+allowlist (checked), maps its 127.0.0.1:8443 and :43594 to the live Central's http and game ports (`adb reverse`: the APK
+reads jav_config and signs in at the Central every desktop uses), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
 port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
 `osrs-devtools-mobile` data tools, each call naming `serial` (up's LOGGED_IN line); `adb shell input` only where the emulator refuses injected events. Blocked by the
 server: file the blocker as a server change with the repro (`hd new <slug> --track fork --blocks <yours>`); never
@@ -41,7 +42,8 @@ into the evidence dir. Releases are `vX.Y.Z`; autonomous builds are 0.1.x; a maj
 
 ## Network QA (every release, every change with `network: true`)
 Sample the app's ESTABLISHED sockets every 0.5 s through the sign-out, LOCAL_AUTH sign-in, play, `::drop` relog and
-restart sequence; DNS from logcat's "asked for" lines. Allowed sockets: 10.0.2.2:43594, :8080, :8084 (Central's http: the LOCAL_AUTH sign-in) and :443 only. The
+restart sequence; DNS from logcat's "asked for" lines. Allowed sockets: 127.0.0.1:43594 and :8443 (the game and Central's http: jav_config and the LOCAL_AUTH sign-in, `adb reverse`d by `up` to the live
+stack's 43594 and 8084) and 10.0.2.2:443 only. The
 network allowlist: `up` starts the container `mobile-allow` (`tracks/client/allow.py`, DNS over tcp 127.0.0.1:8053
 and tcp 443) and the emulator with `-dns-server` at its own relay, and turns the mobile's wifi off; the cellular path
 asks `mobile-allow`, which answers `api.runelite.net` and `static.runelite.net` with 10.0.2.2 and every other name
@@ -49,8 +51,8 @@ NXDOMAIN, and relays a TLS connection on 10.0.2.2:443 to its SNI name only when 
 Windows Firewall rules of group `osrs-harness` block the emulator's qemu-system-x86_64.exe and netsimd.exe from every
 address but loopback and the LAN. `check-blocked` (run by `up`) proves both halves. Must not appear, even as a
 lookup: any `jagex.com`, `runescape.com`, `singular.net`, `app-measurement.com`, `*.x.invalid`, ConsentSync or
-Singular log lines. First the jav_config the app loads names local hosts only: `python3
-tracks/fork/server/javcheck.py http://127.0.0.1:8080/jav_config.ws 10.0.2.2` prints `jav_config local only`.
+Singular log lines. First the jav_config the app loads, the live Central's, names local hosts only: `python3
+tracks/fork/server/javcheck.py http://127.0.0.1:8084/jav_config.ws` prints `jav_config local only`.
 Report as `netqa*.md`.
 
 ## Never

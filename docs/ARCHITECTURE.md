@@ -384,7 +384,7 @@ def candidate(repo, base, heads) -> (tree, tcommit):
 def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
     `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. The fork's
-    deploy version carries the digest of the files the live stack runs from this checkout (issuer.py, the compose, switch.env,
+    deploy version carries the digest of the files the live stack runs from this checkout (the compose, switch.env,
     the jav_config template), so a shipped one deploys. A track without a `build` line has no build step. A fixed checker
     re-runs by `hd regate`, never by a moved key."""
 
@@ -406,7 +406,7 @@ def stage(db, ch, T, head):
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
-    live key pair in state/live/key or a sidecar jav_config template naming a foreign host, both before any live container
+    live key pair in state/live/key or a jav_config naming a foreign host, both before any live container
     is recreated; every failed exit records the job failed, so a failed deploy is never started again under the runs on
     the live stack (only a killed one is). A closed change: git revert -m 1 of its merge commit."""
 
@@ -635,14 +635,15 @@ flowchart LR
 - The game image `or:<T>` is upstream's release bundle (release-server.yml's Gradle steps; `server.jar`, `game.yml`,
   `.data/` without raw-cache or key) run by `java -jar server.jar` on update-test-server.yml's ports: 43594 game, 9091
   Central link, 9090 http (the one setting beyond `game.example.yml`, its `central.http-port`).
-- The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
-  template source; the official client's sign-in and game-session endpoints that mint the token the game
-  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
-  deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
-  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both; the APK's
-  `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on
-  the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
-  alone; a fork `up` types the login form until token login is in the fork's base.
+- The live stack is the game image, Central and Postgres, one compose service. Every client takes `jav_config.ws` from
+  Central, the deploy's template file through `OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://`. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
+  `issuer.py key`, which game.yml's token-login block also holds; host ports 8084 http, 8443 https with that key's
+  certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both. Its `jav_config.ws`
+  names 127.0.0.1 hosts, the sign-in params 11, 20, 22 and 28 as `http://127.0.0.1:8443/`: a desktop casts 11 and 22
+  to https, and the APK (repacked with `SERVER=127.0.0.1:8443`, which `LOCAL_AUTH` lets speak http) reads them on its own
+  loopback, where the client track's `up` maps 8443 to Central's http 8084 and 43594 to the game (`adb reverse`). A desktop on the live stack
+  (`live-desktop`) and each desktop of a fork `up` sign in there by password as the slug's own account and log in by
+  token with Play alone. Central keeps sessions in memory, so a fork `restart` is a down and a resumed up.
 - The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's
   `host/plugins/devtools/build.sh` builds upstream's source at its pinned `REV` into the Android jar and the desktop's
   sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
@@ -656,6 +657,16 @@ flowchart LR
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).
+- A test desktop connects as upstream's README Client Setup says: RSProx with a `~/.rsprox/proxy-targets.yaml` entry
+  (id, name, `jav_config_url` the embedded Central's `/jav_config.ws`, `varp_count`, `revision`, the stack's modulus).
+  Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (RSProx maps no RuneLite
+  to 241), `binary_folder` (the recordings' folder), and RSProx run headless by `OsrsTestLauncher.java`, which selects
+  that target and refuses one whose `jav_config_url` is not local (Privacy).
+- The reference deployment's (PRD H8) deviations beyond those above, each kept for its reason: the clients' `jav_config.ws`
+  is the deploy's local template served by Central, not upstream's client.blurite.io (that config names Jagex hosts, and
+  no client contacts Jagex: Privacy); Central's sign-in (OIDC, game-session) and token login are the fork's, not yet
+  upstream's (held until the Central upstream hold lifts); the APK is the official app repacked (telemetry patch,
+  `OPENRUNE=1 LOCAL_AUTH=1`, Central's modulus and loopback hosts), since upstream has no Android client.
 
 ## 12 Roles and alerts
 

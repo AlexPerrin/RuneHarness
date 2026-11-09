@@ -12,9 +12,9 @@ place = lambda tools: (shutil.copy(TRACK, tools / "track.sh"), shutil.copytree(G
 MOD = "8555c56c" + "ab" * 124   # the live stack's modulus in these fixtures
 
 
-def apk(path, modulus=MOD):  # an APK whose game library carries that login modulus, among the byte tables a real one holds
+def apk(path, modulus=MOD, endpoint=b"http://127.0.0.1:8443/jav_config.ws?m=0&p=jagex.comxxxxxxx"):  # an APK whose game library carries that login modulus and jav_config URL, among the byte tables a real one holds
     import zipfile
-    with zipfile.ZipFile(path, "w") as z: z.writestr("lib/arm64-v8a/liblibs.hal.system.osclient.so", b"\x00" + bytes(range(256)).hex().encode()[:256] + b"\x00" + modulus.encode() + b"\x00" + os.urandom(1 << 20))   # bytes after the modulus, as a real one: a reader that stops at the match SIGPIPEs unzip
+    with zipfile.ZipFile(path, "w") as z: z.writestr("lib/arm64-v8a/liblibs.hal.system.osclient.so", b"\x00" + bytes(range(256)).hex().encode()[:256] + b"\x00" + modulus.encode() + b"\x00" + endpoint + b"\x00" + os.urandom(1 << 20))   # bytes after the modulus, as a real one: a reader that stops at the match SIGPIPEs unzip
 
 
 def live(root, modulus=MOD):  # the live stack's key pair (state/live/key) and its record (state/live/tree.json, the server track's ship)
@@ -113,10 +113,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
   *" install "*) echo "${{INSTALL:-Failure [INSTALL_FAILED_DUPLICATE_PACKAGE]}}" ;; *libosrsrl*) echo 1 ;;
+  *"reverse --list"*) [ -n "$NOREVERSE" ] || printf 'emulator-5560 tcp:8443 tcp:8084\nemulator-5560 tcp:43594 tcp:43594\n' ;;
   *dumpsys*) echo '  NetworkAgentInfo{{network{{101}}  ni{{MOBILE[NR] CONNECTED extra: }}' ;;
   *"hello-"*) [ -z "$BOOTS" ] || for h in api.runelite.net static.runelite.net; do echo "$h  16"; done ;;
   *"nc -w 15"*) [ -z "$BOOTS" ] || for h in {HOSTS}; do echo "nc: $h:443: No address associated with hostname"; done ;;
-  *"echo y"*) [ -z "$BOOTS" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
+  *"am start"*) [ -z "$BOOTS" ] || [ -n "$NOSTART" ] || echo "Status: ${{AMSTATUS:-ok}}" ;; *"echo y"*) [ -z "$BOOTS" ] || [ -n "$DIES" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
                  sdk / "emulator/emulator.exe": f'echo "emulator $*" >> {log}; echo "emulator: booting on $PWD"',
                  sys32 / "netstat.exe": f"sed -n 's/.*-port \\([0-9]*\\).*/  TCP 127.0.0.1:\\1 0.0.0.0:0 LISTENING 7300/p' {log}; echo '  UDP    0.0.0.0:53             *:*                                    3860'; [ -z \"$STALE\" ] || echo '  UDP    127.0.0.2:53           *:*                                    3070'; for a in $(ls {s.ev}/relays); do echo \"  UDP    $a:53           *:*                                    42${{a##*.}}\"; done",
                  sys32 / "WindowsPowerShell/v1.0/powershell.exe": f'echo "powershell $*" >> {log}; case "$*" in *FreePhysicalMemory*) n=$(cat "$FREE" 2>/dev/null || echo 9000000); printf "%s\\r\\n" "${{n%% *}}"; [ -z "$FREE" ] || echo "${{n#* }}" > "$FREE"; exit 0 ;; esac; echo "relay $ALLOW_DNS" >> {log}; echo "#< CLIXML"; touch {s.ev}/relays/$ALLOW_DNS; echo listening',   # a relay's pid: 42 and its last octet
@@ -156,6 +157,27 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.row("up")
         calls = log.read_text().splitlines(); i = next(n for n, c in enumerate(calls) if c.startswith("adb -s emulator-5560 install "))
         s.assertEqual(sum("dumpsys package" in c for c in calls[:i]), 5)
+
+    def test_up_maps_the_apks_loopback_to_the_live_central_and_game(s):  # h-ref-apk-jav-config-central: the APK reads Central's jav_config at 127.0.0.1:8443, no sidecar
+        log = s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
+        m = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, m); (m / "tools").mkdir(); place(m / "tools")   # a stub login: never the real adb
+        (m / "tools/mobile_login.py").write_text("raise SystemExit(1)\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)
+        up = lambda: subprocess.run([str(m / "tools/track.sh"), "up", "x"], env=s.env, capture_output=True, text=True)
+        up(); calls = log.read_text()
+        s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
+        s.assertLess(calls.index("reverse tcp:8443"), calls.index("am start"))   # before the app first starts
+        s.assertIn("am start -W -n com.jagex.oldscape.android/com.jagex.android.MainActivity\n", calls)   # run 330: the LAUNCHER intent never resolves under am's MATCH_DEFAULT_ONLY
+        s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)
+        apk(s.ev / "t.apk", endpoint=b"http://10.0.2.2:8080/jav_config.ws?m=0&p=jagex.comxxxxxxxxx")
+        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("does not read jav_config from http://127.0.0.1:8443", out)
+
+    def test_boot_fails_an_app_that_never_starts_or_dies_before_files(s):  # run 321: monkey aborted on another app's ANR, injected 0 events, and boot waited on files/ for 26 min
+        s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1", NOSTART="1")
+        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app did not start", out)
+        s.env.pop("NOSTART"); s.env["DIES"] = "1"
+        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app died before creating /sdcard/Android/data/", out)
+        s.env["AMSTATUS"] = "timeout"   # h-client-up-am-start-default: a launch whose first frame outlasts am's wait is started
+        rc, out = s.row("up"); s.assertNotIn("the app did not start", out); s.assertIn("the app died before creating /sdcard/Android/data/", out)
 
     def test_boot_pushes_the_changes_own_devtools_jar(s):  # built with the APK, kept beside it by T; never the main checkout's
         log = s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
@@ -198,8 +220,8 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
 
     def test_build_takes_the_live_pair_and_rebuilds_an_apk_of_another_key(s):  # a cached APK of the same T kept a stale modulus
         b = BUILD.read_text()
-        s.assertIn("MODULUS=$m OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh", b)
-        s.assertIn('&& carries "$ev/$T.apk" "$m"; then', b.split("\nbuild() {")[1].split("\n}")[0])
+        s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
+        s.assertIn('&& carries "$ev/$T.apk" "$m" && carries "$ev/$T.apk" "http://$server/jav_config.ws"; then', b.split("\nbuild() {")[1].split("\n}")[0])
         fn = "\n".join(l for l in b.splitlines() if l.startswith(("pair=", "modulus()", "carries()")))
         run = lambda f: subprocess.run(["bash", "-c", f"set -euo pipefail\nroot={s.env['HD_ROOT']}\n{fn}\ncarries {f} \"$(modulus)\""], capture_output=True, text=True).returncode
         apk(s.ev / "a.apk"); apk(s.ev / "b.apk", "9fe5d348" + "cd" * 124); live(s.env["HD_ROOT"])
@@ -239,7 +261,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")   # fails at blocked (nc fakes nothing), before any launch
         calls = log.read_text()
         s.assertIn("shell settings put secure immersive_mode_confirmations confirmed", calls)
-        s.assertNotIn("monkey", calls)
+        s.assertNotIn("am start", calls)
         s.assertNotIn('"Got it"', (TRACK.parent / "mobile_login.py").read_text())
 
     def test_login_acts_on_the_screen_it_reads(s):  # the issuer's sign-in by LoginIndex and the focused window; an unknown screen or a refusal is FAILED, never a wait
@@ -379,7 +401,7 @@ case "$*" in *push*) ;;
     def test_network_qa_allows_three_hosts(s):  # the skill's allowed list: the local server and the two RuneLite hosts, nothing else
         skill = (TRACK.parent.parent.parent / ".claude/skills/network-qa/SKILL.md").read_text()
         allowed = skill[skill.index("- Allowed"):skill.index("- Any other host is a FAIL")]
-        s.assertEqual(set(re.findall(r"10\.0\.2\.2|[\w.-]+\.(?:net|com|io)", allowed)), {"10.0.2.2", "api.runelite.net", "static.runelite.net"})
+        s.assertEqual(set(re.findall(r"10\.0\.2\.2|127\.0\.0\.1|[\w.-]+\.(?:net|com|io)", allowed)), {"127.0.0.1", "10.0.2.2", "api.runelite.net", "static.runelite.net"})
         for t in ("Braze", "OneTrust", "Google", "singular", "jagex", "runescape"): s.assertNotIn(t, allowed)
 
     def test_windows_programs_by_absolute_path(s):  # a .ps1 runs as its text (Windows refuses the file from the UNC path); no bare .exe (a lost PATH)
@@ -424,7 +446,7 @@ class Endpoint(unittest.TestCase):
         for bad in ("https://oldschool.config.runescape.com:443", "http://auth.jagex.com:80", "10.0.2.2:8080"):
             with s.assertRaises(SystemExit): ps.padded_url(bad, "/slr.ws?order=LPWM", len(old))
         src = (TRACK.parent / "repack.sh").read_text()
-        s.assertIn("OPENRUNE_ENDPOINT=${OPENRUNE_ENDPOINT:-http://10.0.2.2:8080}", src); s.assertIn('--endpoint "$OPENRUNE_ENDPOINT"', src)
+        s.assertIn("OPENRUNE_ENDPOINT=${OPENRUNE_ENDPOINT:-http://127.0.0.1:8443}", src); s.assertIn('--endpoint "$OPENRUNE_ENDPOINT"', src)
         s.assertNotRegex(src, r"\$\{?SERVER\b")
 
 

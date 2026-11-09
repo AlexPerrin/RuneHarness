@@ -4,7 +4,7 @@
 #                                 the split pair re/out/{base,split}.apk, all signed with re/debug.keystore
 #   tools/repack.sh --install  -> also replaces the app on the connected device (the single APK, `adb install -r`)
 #   tools/repack.sh --install-split -> the same with the split pair (`adb install-multiple -r`)
-#   OPENRUNE_ENDPOINT=http://10.0.2.2:8080 tools/repack.sh
+#   OPENRUNE_ENDPOINT=http://127.0.0.1:8443 tools/repack.sh
 #                              -> also points the game at our server: the jav_config.ws and slr.ws (world list) URLs
 #                                 the game library holds become $OPENRUNE_ENDPOINT/..., and the served jav_config
 #                                 names every other endpoint (params 11 and 22: sign-in and game session); login RSA
@@ -17,7 +17,7 @@
 #                                 jav_config for that; tools/openrune/patch_port.py)
 #   OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh
 #                              -> the build for OpenRune ($SERVER_TOOLS, the fork's local/server-tools):
-#                                 OPENRUNE_ENDPOINT=http://10.0.2.2:8080 (its jav_config sidecar), GAME_PORT=43594,
+#                                 OPENRUNE_ENDPOINT=http://127.0.0.1:8443 (its Central, through adb reverse), GAME_PORT=43594,
 #                                 MODULUS required
 set -euo pipefail
 
@@ -32,7 +32,7 @@ KS_PASS=android
 [[ -f $HOOK_SO ]] || { echo "build native/ first (missing $HOOK_SO)"; exit 1; }
 
 if [[ -n ${OPENRUNE:-} ]]; then
-    OPENRUNE_ENDPOINT=${OPENRUNE_ENDPOINT:-http://10.0.2.2:8080}
+    OPENRUNE_ENDPOINT=${OPENRUNE_ENDPOINT:-http://127.0.0.1:8443}
     GAME_PORT=${GAME_PORT:-43594}
 fi
 mkdir -p "$OUT"

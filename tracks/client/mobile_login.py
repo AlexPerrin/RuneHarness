@@ -109,14 +109,14 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
 def main(slug):
     name, posted = account(slug), False
     adb("logcat", "-c")
-    adb("shell", "monkey", "-p", PKG, "-c", "android.intent.category.LAUNCHER", "1")
-    started, acted = False, None
+    r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
+    if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
+        return "FAILED: the app did not start: " + r.strip()
+    acted = None   # -W returns once the activity is up: the process exists from here
     while True:
         st, ix, pkg, lab, raw, fields = screen()
-        alive = bool(adb("shell", "pidof", PKG).strip())
-        if started and not alive:
+        if not adb("shell", "pidof", PKG).strip():
             return "FAILED: the app died"
-        started |= alive   # monkey returns before the process exists
         act = step(st, ix, pkg, lab, raw, name, fields, posted)
         if act[0] == "done":
             return "LOGGED_IN"

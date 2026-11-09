@@ -1,20 +1,16 @@
 # Hand-off to the v9 harness dev
 
-Current state as of 2026-11-09 02:40 UTC (2026-11-08 21:40 ET). The goal: a harness implemented and tested end to end
+Current state as of 2026-11-09 05:35 UTC (00:35 ET). The goal: a harness implemented and tested end to end
 against the workflow, with the PRD validated. Check every fact here against `hd` and the ledger before acting on it.
 
 ## Do first
 
-1. **Follow H8, the last `pending:` in docs/ACCEPTANCE.json (31 of 32 proved).** The chain:
-   `h-ref-sign-in-no-issuer` → `h-ref-embedded-central` → `h-ref-rsprox-targets` → `h-reference-deployment`.
-   Both leaves' gates passed (02:57 UTC Nov 9, after 10dd128 fixed the regate's key match); every head of the chain
-   now conflicts with v9 (ARCHITECTURE, HANDOFF, tracks/client/track.sh, tracks/fork/track.sh,
-   tracks/fork/server/test_tools.py), so each takes a dev run to merge v9, in chain order, as agent slots free.
-   When H8 is observed, replace its `pending:`.
-2. **Commit the orchestrator's definitions** it left uncommitted (`harness/changes/client-api-*.md`, `h-*.md` and the two
-   modified ones in `git status`) with `hd commit`.
-3. Open alert 66 (fault 284): the fork build reuses or-cache's incremental pack state across trees (`git clean -fd`
-   keeps the ignored `.data/cache/incremental_server`). `h-fork-build-stale-pack-state` is filed for it.
+1. **Every requirement in docs/ACCEPTANCE.json is an observed fact**; H8 landed with h-reference-deployment (5e51033,
+   05:32 UTC Nov 9): a fresh desktop and the APK sign in at embedded Central and reach LOGGED_IN on the reference stack,
+   `osrs-openrune` the only game container.
+2. **Ask 21 waits on the user** (h-mobile-login-page-39-again, from alert 70): page 39 is the emulator's discovery GET
+   to Central timing out while the WSL VM freezes under Windows memory overcommit. Options: (a) a mobile up waits for
+   4 GB available on Windows, (b) the user frees host memory, (c) both.
 
 ## Where things are
 
@@ -23,8 +19,7 @@ against the workflow, with the PRD validated. Check every fact here against `hd`
   Commit here and push as you go. `~/osrs-harness` (`main`) is idle v8: never write there.
 - The product repos: `~/osrs-plugins-reverse` (client), `~/src/OpenRune-Server` (fork), `~/src/OpenRune-Central-Server`,
   `~/src/OpenRune-FileStore`.
-- **Runs live now** (ids 304, 310–313): `h-client-build-shares-apk`, `h-mobile-loading-stall`, `client-api-login-screen-stubs`,
-  `client-api-display-engine-stubs`, `h-devtools-mobile-serial`. `client-api` is measuring (e7ec3a75f909).
+- **Runs**: read the live ones with `hd tick --dry-run` and the `run` table (`ended_at IS NULL`).
 - `hd` with no argument runs a pass (live): read state with `sqlite3.connect('file:state/hd.db?mode=ro', uri=True)`.
 
 ## Read, in this order
@@ -35,7 +30,7 @@ against the workflow, with the PRD validated. Check every fact here against `hd`
 ## The test server
 
 Live is `04007706bd6a28377e7e338abb52660ad52962e2_c022e2f6d72a5` (deployed 19:23 UTC Nov 8 with `hunter-feat-pr`);
-`state/live/tree.json` is what the running stack uses. Containers: `osrs-openrune`, `-http`, `-http-desktop`, `-issuer`.
+`state/live/tree.json` is what the running stack uses. Container: `osrs-openrune` alone (embedded Central serves jav_config and sign-in).
 
 ## Sign-in and login
 
@@ -50,8 +45,6 @@ Upstream OpenRune has password login only (its token login is a TODO stub). Our 
 - **Clients**: the LOCAL_AUTH APK signs in through Central (`client-android-central-sign-in`); desktops log in by a
   Central token, only Accept and Play (`h-desktops-token-login`); a relog after `::drop` and force-stop works
   (`client-resumed-session-relog`). Mobile login form typing was fixed today (`h-mobile-form-fields-filled`, 2890711).
-- **Left**: the old `issuer.py` sidecar (`osrs-openrune-issuer`, `token-<slug>`) still runs; `h-ref-sign-in-no-issuer`
-  removes it (stuck, see Do first).
 
 ## Upstream
 

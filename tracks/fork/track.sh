@@ -11,7 +11,7 @@
 #                     desktop's JX_SESSION_ID a session Central opened for its own account (signed in by its password, its first sign-in
 #                     registering it; an or:<T> whose Central serves no sign-in is rebuilt with Central's staging as above),
 #                     each loading the live client's devtools jar (CLIENT_TRACK: the client track's script, its build of slug live);
-#                     a fresh database, or with RESUME=1 the accounts as the change's last down saved them; the realm as live
+#                     a fresh database, or with RESUME=1 the accounts as the change's last down saved them; the realm as live, world 256 beside 255 (a copy on the same host, a world switch's target)
 #                     (dev_mode off, xp at 1x), every account a member at rank 0, or with STAFF=N[,M...] those desktops' administrators;
 #                     idle logout off (live keeps it); each desktop logged in again after any logout until down (keep); a failed
 #                     up takes down what it started; one up, restart or down of a slug at a time (a second waits)
@@ -251,8 +251,9 @@ up() {
   docker run -d --name "server-$slug" --cpus=4 --memory=4g -p "$game:43594" -v "$state/postgres:/app/.data/postgres" \
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
   ready "server-$slug"
-  # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
-  if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
+  # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted.
+  # Central seeds world 255 only; world 256, a copy of it on the same host and ports, gives a world switch a target (test-only)
+  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as (insert into worlds (world_id, flags, host, activity, location, population, sort_order, enabled, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled) select 256, flags, host, activity, location, 0, 1, 1, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled from worlds where world_id = 255 on conflict (world_id) do nothing returning 1) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
   python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do

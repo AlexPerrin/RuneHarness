@@ -5,15 +5,12 @@ against the workflow, with the PRD validated. Check every fact here against `hd`
 
 ## Do first
 
-1. **Unstick H8, the last `pending:` in docs/ACCEPTANCE.json (31 of 32 proved).** The chain:
-   `h-ref-sign-in-no-issuer` and `h-ref-rsprox-targets` → `h-ref-embedded-central` → `h-reference-deployment`.
-   Both leaves failed their gate on the replay criterion (06:09 and 06:37 UTC Nov 8: "the candidate plans differently from
-   its base and evidence/<slug>/replay.md does not explain it"). `hd regate` ran on both at 17:43 UTC, yet each gate job
-   row still reads failed with its 06:xx times, the gate logs (`state/<slug>/gate-<key12>.log`) were not rewritten, and
-   nothing has run since: `h-reference-deployment` has waited since 17:57. Find why the regate did not take (the DELETE in
-   `cmd_regate`, hd.py:590, matched the key; something put the row back or it never committed), fix it in that mechanism,
-   then the leaves need a dev run to write replay.md or change the plan. `h-ref-embedded-central` passed its own gate;
-   `h-ref-server-bundle` and `h-ref-pins-audit` are landed on v9. When H8 is observed, replace its `pending:`.
+1. **Follow H8, the last `pending:` in docs/ACCEPTANCE.json (31 of 32 proved).** The chain:
+   `h-ref-sign-in-no-issuer` → `h-ref-embedded-central` → `h-ref-rsprox-targets` → `h-reference-deployment`.
+   Both leaves' gates passed (02:57 UTC Nov 9, after 10dd128 fixed the regate's key match); every head of the chain
+   now conflicts with v9 (ARCHITECTURE, HANDOFF, tracks/client/track.sh, tracks/fork/track.sh,
+   tracks/fork/server/test_tools.py), so each takes a dev run to merge v9, in chain order, as agent slots free.
+   When H8 is observed, replace its `pending:`.
 2. **Commit the orchestrator's definitions** it left uncommitted (`harness/changes/client-api-*.md`, `h-*.md` and the two
    modified ones in `git status`) with `hd commit`.
 3. Open alert 66 (fault 284): the fork build reuses or-cache's incremental pack state across trees (`git clean -fd`

@@ -2,7 +2,7 @@
 
 Changes to this repo. The pass creates your worktree `.worktrees/<slug>` on branch `harness/<slug>` from the live
 branch; the dev ref stays local. A test per requirement touched; decide.py is tested over ledger snapshots, never
-fakes. Run `python3 -m unittest discover -s tests` yourself, commit, then `hd submit <slug>`: the pass gates the
+fakes. Run `python3 -m unittest discover -s tests` and `bash tracks/harness/replay.sh` (writing replay.md if it differs) yourself, commit, then `hd submit <slug>`: the pass gates the
 candidate (tests, replay) and ships it by fast-forward of the live branch.
 
 The replay runs the candidate's `hd tick --dry-run --offline` over a snapshot of the live ledger against its base's

@@ -14,7 +14,8 @@ seen only once deployed (the live test server, a mobile) is no criterion but `hd
 Judge: `up` the change's build, check every judged criterion from it, in game for every player-facing claim, `down`, then
 `hd verdict <slug> <head> verdict.json` with every criterion `pass`, `fail: <note>` or `not-judged` (never `pass` on a criterion you
 did not check). A criterion only a deploy could check: file that client change as above and `hd ask <slug> "…"
---option "w:checked by <client-slug> once live:waive <rid>"` before the verdict. A text-only failure: fix the text in the evidence dir and mark it pass. Only the user's answer accepts
+--option "w:checked by <client-slug> once live:waive <rid>"` before the verdict; so too any fail only a waiver, a dep or the user can
+clear (its remedy is another change): the open question holds the dev back. A text-only failure: fix the text in the evidence dir and mark it pass. Only the user's answer accepts
 a difference from the official game. Hand back the line `hd verdict` printed: `run <id>: PASS` | `run <id>: FAIL n criteria`.
 The same wait rule as dev: foreground, 180 s background, `wait_for`, a `reader` for bulky lookups (at most 3 per run), `hd fault` for a
 harness defect, the hook's hand-off at the context limit (`run <id>: handoff`).

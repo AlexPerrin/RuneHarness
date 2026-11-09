@@ -31,6 +31,35 @@ class Act(unittest.TestCase):
         act.tick(store.DB, offline=True)
         self.assertEqual(calls, [("brief", None)] + [("start", k) for k in ("build", "gate", "ship", "deploy", "measure", "publish")] + [("stage", None), ("card", None), ("release", None), ("wake", None)])
 
+    def test_a_rerun_clears_the_failed_job_and_an_alert_is_raised_once(self):
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        self.addCleanup(setattr, act, "STATE", act.STATE); self.addCleanup(setattr, store, "DB", store.DB)
+        store.DB = str(Path(d.name) / "hd.db"); act.STATE = d.name
+        for mod, name, fake in ((act, "wake", lambda *a, **k: None), (act, "changes", lambda: [decide.Change("x", "fork")]),
+                                (act, "goals", lambda: []), (decide, "plan", None)):
+            self.addCleanup(setattr, mod, name, getattr(mod, name))
+            if fake:
+                setattr(mod, name, fake)
+        db = store.connect(store.DB)
+        db.execute("INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES ('gate', 'tr:fork-1', 'x', 0, 'ci (401)', 't')")
+        decide.plan = lambda *a, **k: [decide.Action("x", decide.Step("rerun", "r", key="gate tr:fork-1")),
+                                       decide.Action("x", decide.Step("alert", "twice", key="gate:tr:fork-1"))]
+        act.tick(store.DB, offline=True)
+        act.tick(store.DB, offline=True)
+        self.assertIsNone(db.execute("SELECT 1 FROM job").fetchone())
+        self.assertEqual(store.Ledger(db).rerun("x", "gate", "tr:fork-1"), "ci (401)")
+        self.assertEqual([tuple(r) for r in db.execute("SELECT subject, count FROM alert")], [("gate:tr:fork-1", 1)])
+
+    def test_a_brief_names_the_previous_run_and_what_failed_after_it(self):
+        db = store.connect(":memory:")
+        T = decide.Track("harness", "a/b", "/nowhere", "refs/heads/main", prefix="harness")
+        ch = decide.Change("x", "harness", body="b")
+        db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('x','dev','code','i','b','t','2000-01-01','handback','run 1: submitted abc')")
+        store.event(db, "job", "x", None, "gate abc fail tests (1 failed)")
+        text = act.brief_text(db, ch, T, decide.Step("run", "gate failed twice", role="dev", mode="code"), 2)
+        self.assertIn("## the previous run: dev code, ended handback: run 1: submitted abc", text)
+        self.assertIn("after it: job gate abc fail tests (1 failed)", text)
+
     def test_a_pass_that_raises_leaves_a_fault_alert_not_a_traceback(self):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         self.addCleanup(setattr, act, "STATE", act.STATE); self.addCleanup(setattr, store, "DB", store.DB)
@@ -105,6 +134,19 @@ class Act(unittest.TestCase):
         act.stage(db, decide.Change("third", "fork"), dataclasses.replace(T, pins=(("local/spike", "real"),)), g("rev-parse", "HEAD"))
         self.assertEqual(((wt / "k").read_text(), (wt / "t").read_text()), ("1\n", "t\n"))   # a pin dropped from hd.yaml leaves staging at the next merge
         self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='unpinned'").fetchone()[0], 2)
+
+
+class Kpi(unittest.TestCase):
+    def test_tool_calls_before_the_first_edit_of_a_transcript(self):
+        import json
+        import kpi
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        p = Path(d.name) / "t.jsonl"
+        use = lambda *names: json.dumps({"message": {"content": [{"type": "tool_use", "name": n} for n in names]}})
+        p.write_text("\n".join([use("Read"), '{"type": "user"}', use("Bash", "Grep"), use("Edit", "Bash")]))
+        self.assertEqual(kpi.calls_before_edit(str(p)), 3)
+        p.write_text(use("Read"))
+        self.assertIsNone(kpi.calls_before_edit(str(p)))
 
 
 if __name__ == "__main__":

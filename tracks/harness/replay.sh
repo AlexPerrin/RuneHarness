@@ -3,6 +3,10 @@
 # over a snapshot of the live ledger plans what its base's pass plans (the base: the candidate's merge base with the live
 # branch, so only the change's own effect shows), or evidence/<slug>/replay.md explains the difference.
 set -euo pipefail
+if [ -z "${HD_DB:-}" ]; then   # run by the dev in its worktree before hd submit: the same check on the committed head
+  HD_ROOT=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); HD_REPO=$HD_ROOT; HD_DB=$HD_ROOT/state/hd.db
+  HD_TCOMMIT=$(git rev-parse HEAD); HD_BASE=refs/heads/main; b=$(git rev-parse --abbrev-ref HEAD); HD_SLUG=${b#harness/}
+fi
 work=$(mktemp -d); snap=$work/hd.db; base=$work/base
 python3 -c 'import sqlite3, sys; sqlite3.connect(sys.argv[1]).backup(sqlite3.connect(sys.argv[2]))' "$HD_DB" "$snap"
 mb=$(git -C "$HD_REPO" merge-base "$HD_TCOMMIT" "$HD_BASE")

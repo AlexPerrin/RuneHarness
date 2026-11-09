@@ -282,8 +282,9 @@ GUARDS = [
     ask_open,          # an ask with no answer → wait (the question)
     criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
-                       # or a build/gate/ship job ok 0 at the candidate, or a merge conflict at the staging tip / CI failure / missing text
-                       # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
+                       # or a build/gate/ship job ok 0 at the candidate failed twice alike, or a merge conflict at the staging tip / CI failure / missing text
+                       # → run dev/code; a first build/gate/ship failure → rerun (store.rerun: the same key once more, event 'rerun' keeps
+                       # the first detail); a second unlike the first (a gate: other failing rids) is outside the head → alert (fault, once), no dev; the input digests the tip, the reasons, the answers since the submission and the
                        # deps that have landed, for a change off the server tracks its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict over another criteria set (a waiver since) or older than a dep's landing goes to judge_due first
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
@@ -417,7 +418,8 @@ def stage(db, ch, T, head):
 
 def brief(db, ch, step) -> path:
     """state/briefs/<run id>.md: the definition; the criteria with their latest results and verdict marks; answers
-    and findings since the last submission; job details and log paths; the hand-off file if any; clone, build copy
+    and findings since the last submission; job details and log paths; the files the dev branch touches against base
+    (git diff --stat); the previous run's record and the failures after it; the hand-off file if any; clone, build copy
     and evidence paths; the exact hand-back line expected."""
 
 def wake(db):
@@ -741,7 +743,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 `hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the
 driver, then `hd dismiss <id> <why>` naming it; a harness change, `hd new --track harness --from-alert <id>` (carrying
 the evidence, fixed by a dev run and checked by the replay); or a dismissal. An alert whose subject recurs after its
-fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6); the `kpi` alert is its daily
+fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6), and the median tool calls before a dev run's first edit (read from its transcript); the `kpi` alert is its daily
 roll-up.
 
 ## 13 The orchestrator's lifecycle

@@ -80,7 +80,7 @@ class Cfg:
 
 @dataclass(frozen=True)
 class Step:
-    kind: str               # done|wait|run|withdraw|build|gate|merge|card|publish|ship|measure|release
+    kind: str               # done|wait|run|withdraw|build|gate|rerun|alert|merge|card|publish|ship|measure|release
     why: str                # printed by `hd`; the event detail
     role: str = ""          # dev|qa for kind == run
     mode: str = ""          # code|criteria|judge|plan
@@ -258,7 +258,14 @@ def outdated(C, ch, v) -> bool:
     return any(x and x > v["at"] for x in at)
 
 
+def failed(kind, detail) -> str:
+    """What a failure names: a gate's failing criteria ('rid (note); rid (note)' → the rids), else the whole detail."""
+    return ",".join(sorted(p.split(" (")[0] for p in detail.split("; "))) if kind == "gate" else detail
+
+
 def dev_due(C, ch):
+    """A dev only for what the head can fix: a build, gate or ship failure first runs once more at the same head; the
+    same failure again is the head's (dev), a different one is outside it (alert, no dev)."""
     t, s = tip(C, ch), sub(C, ch)
     why = []
     if not t:
@@ -271,13 +278,17 @@ def dev_due(C, ch):
         v = C.L.last_verdict(ch.slug, t)
         if v and not v["ok"] and not outdated(C, ch, v):
             why.append(f"verdict FAIL at {t[:7]} (run {v['run']})")
-        for kind in ("build", "gate"):
-            j = C.L.job(kind, key(C, ch, kind, s))
-            if j and j["ok"] == 0:
-                why.append(f"{kind} failed: {j['detail']}")
-        j = C.L.job("ship", f"{C.cfg.tracks[ch.track].base}:{s['tcommit']}")
-        if j and j["ok"] == 0:
-            why.append(f"ship failed: {j['detail']}")
+        for kind, k in (("build", key(C, ch, "build", s)), ("gate", key(C, ch, "gate", s)),
+                        ("ship", f"{C.cfg.tracks[ch.track].base}:{s['tcommit']}")):
+            j = C.L.job(kind, k)
+            if not (j and j["ok"] == 0):
+                continue
+            first = C.L.rerun(ch.slug, kind, k)
+            if first is None:   # the head is not known to be at fault until the failure repeats on it
+                return Step("rerun", f"{kind} failed: {j['detail']}; once more at the same head", key=f"{kind} {k}")
+            if failed(kind, first) != failed(kind, j["detail"] or ""):   # it moved without the head moving: outside the head
+                return Step("alert", f"{kind} {short(k)} failed twice, differently: {first} / {j['detail']}", key=f"{kind}:{k}")
+            why.append(f"{kind} failed twice: {j['detail']}")
         e = C.L.last_event(ch.slug, "merge-conflict") if stages(C, ch) else None
         if e and e["detail"].split()[:2] == [t[:7], (C.L.ref(C.cfg.tracks[ch.track].name, STAGING) or "")[:7]]:   # a moved staging is merged again first
             why.append(f"merge conflict on staging: {e['detail']}")

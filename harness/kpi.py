@@ -1,4 +1,5 @@
 """hd kpi: the harness goal's numbers (docs/PROBLEM.md §6), one query per metric. Targets in docs/V9-PROPOSAL.md §2."""
+import json
 
 QUERIES = [
     ("runs per change (median)", "≤5",
@@ -7,6 +8,8 @@ QUERIES = [
      "SELECT printf('%d of %d', sum(end_kind IN ('console','stop') AND record IS NULL), count(*)) FROM run WHERE ended_at IS NOT NULL"),
     ("successor runs", "0",
      "SELECT count(*) FROM run r WHERE EXISTS (SELECT 1 FROM run p WHERE p.change=r.change AND p.id<r.id AND p.input=r.input AND p.end_kind IN ('console','handoff'))"),
+    ("dev runs that resubmitted the same head", "0",
+     "SELECT printf('%d of %d', sum(NOT EXISTS (SELECT 1 FROM event e WHERE e.kind='submitted' AND e.run=r.id)), count(*)) FROM run r WHERE r.role='dev' AND r.record LIKE '%: submitted %'"),   # hd submit's 'submitted' event marks a new head or candidate
     ("harness share of runs", "<15%",
      "SELECT printf('%d of %d', sum(change IN (SELECT value FROM json_each(:harness))), count(*)) FROM run"),
     ("jobs per tree (build, gate)", "1.0",
@@ -30,13 +33,39 @@ QUERIES = [
 ]
 
 
-def report(db) -> str:
-    import json
+EDITS = ("Edit", "Write", "NotebookEdit")
 
+
+def calls_before_edit(path):
+    """The tool calls of a run's transcript before its first edit; None without an edit or a transcript."""
+    n = 0
+    try:
+        for line in open(path, errors="replace"):
+            if '"tool_use"' not in line:
+                continue
+            for b in json.loads(line).get("message", {}).get("content", []):
+                if isinstance(b, dict) and b.get("type") == "tool_use":
+                    if b.get("name") in EDITS:
+                        return n
+                    n += 1
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def median_calls_before_edit(db):
+    xs = sorted(x for (t,) in db.execute("SELECT transcript FROM run WHERE role='dev' AND mode='code' AND ended_at IS NOT NULL AND transcript>''")
+                if (x := calls_before_edit(t)) is not None)
+    return xs[len(xs) // 2] if xs else None
+
+
+def report(db) -> str:
     import act
     harness = json.dumps([c.slug for c in act.changes() if c.track == "harness"])
     out = []
     for name, target, sql in QUERIES:
         row = db.execute(sql, {"harness": harness} if ":harness" in sql else {}).fetchone()
-        out.append(f"{name:<36} {str(row[0]) if row else '-':<12} target {target}")
+        out.append(f"{name:<40} {str(row[0]) if row else '-':<12} target {target}")
+    m = median_calls_before_edit(db)
+    out.append(f"{'dev tool calls before the first edit':<40} {'-' if m is None else m:<12} target ≤10 (median)")
     return "\n".join(out)

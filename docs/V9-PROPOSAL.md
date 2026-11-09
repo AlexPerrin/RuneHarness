@@ -81,6 +81,7 @@ qa-client, network-qa; server: accuracy, dupes, pr-text, probe, qa-server). Seed
 | runs per upstream change (median) | `count(run) group by change` for kind=change, track in (server, central, filestore) | 5 | ≤5; PR round ≤10 |
 | runs ended without own record | `end_kind != 'handback'` / all | 14% | <5% |
 | successor runs | runs listed with the same input after a non-handback end | 49 | 0 |
+| dev runs that resubmitted the same head | dev runs with a `submitted` record and no `submitted` event of their own | — | 0 |
 | harness share of runs / tokens | track=harness / all | 55% / 38% | <15% / <15% |
 | harness changes filed per day | `event kind='new' and track=harness` | 331 / 47 h | <20 |
 | harness changes shipped twice | `job kind='ship'` per change > 1 | 20 of 221 | ~0 |
@@ -89,7 +90,7 @@ qa-client, network-qa; server: accuracy, dupes, pr-text, probe, qa-server). Seed
 | publishes not resumed | approval with undone publish_step and no live publish job | 2 of 12 | 0 |
 | pass CPU, nothing moved | `event kind='tick'` detail cpu | 3–44 s | <1 s |
 | wrong hook denials | `event kind='denied'` dismissed by the orchestrator as wrong | ≥7 | 0 |
-| tool calls to first edit | transcript scan | 15 | ≤10 |
+| tool calls to first edit | transcript scan, dev code runs (median) | 15 | ≤10 |
 | peak context p90 | run.usage_json | 157–196k | ≤200k |
 | loop code | wc -l | 4,508 | ≤1,950 |
 

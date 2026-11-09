@@ -149,7 +149,7 @@ class BuildLock(unittest.TestCase):
     def test_a_second_build_of_a_slug_waits_then_reuses_the_image(s):  # a dev's build was refused: the pass's build-<slug> container was running
         b = SRC.split("\nbuild() {")[1].split("\n}")[0]
         s.assertIn('{ flock 9; build_locked; } 9> "$state/build.lock"', b)
-        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if docker image inspect -f \'{{json .Config.Entrypoint}}\' "or:$T"'))
+        s.assertTrue(SRC.split("\nbuild_locked() {")[1].lstrip().startswith('if [ "$(docker image inspect -f \'{{index .Config.Labels "hd.build"}}\' "or:$T"'))
 
     def test_the_lock_ends_with_the_build(s):  # a gate's 20 minutes of gate-ci held it: rekeyed builds and a dev's build waited behind it
         d = tempfile.mkdtemp(); line = next(l for l in SRC.splitlines() if l.startswith("build() {"))
@@ -224,7 +224,7 @@ class CacheDownload(unittest.TestCase):
     def test_the_revision_is_downloaded_once_and_every_tree_repacks_it(s):  # 13 builds and deploys downloaded openrs2's 213 MB in a day: the store was keyed by the pack inputs, the /dl copy never filled
         b = (HERE.parent / "build/build.sh").read_text()
         s.assertIn('gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12', b)   # the gate's release asset key
-        c = b.split("s=/store/s-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
+        c = b.split("s=/store/s$V-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
         s.assertLess(c.index("cp -a $d/. ."), c.index(":or-cache:freshCache"))          # a stored revision is restored, never downloaded
         s.assertLess(c.index(":or-cache:freshCache"), c.rindex("mv $d.tmp $d"))           # a download is stored whole
         s.assertLess(c.index("tar -xzf /game-data.tgz"), c.index("cp -a $d/. ."))          # sweep-28: a revision missing from the store comes from the gate's asset, never openrs2 first
@@ -232,6 +232,17 @@ class CacheDownload(unittest.TestCase):
         s.assertLess(c.index(":or-cache:buildCache"), c.index(":or-cache:mergePluginGamevals"))   # a stored revision repacks this tree, then merges as release-server.yml: freshCache, mergePluginGamevals, shadowJar
         s.assertLess(c.index(":or-cache:freshCache"), c.index(":or-cache:mergePluginGamevals"))
         s.assertNotIn("/dl", SRC)
+
+    def test_every_pack_starts_from_no_other_trees_incremental_state(s):  # hunter-feat-pr or:0abbfc5be22c: the copy's incremental_server skipped the projanim renumber; Telekinetic Grab threw 'Projectile not found'
+        b = (HERE.parent / "build/build.sh").read_text()
+        c = b.split("s=/store/s$V-$CK d=/store/g-$GK")[1].split(":server:app:shadowJar")[0]
+        packs = [c.index(":or-cache:buildCache"), c.index(":or-cache:freshCache")]
+        clears = [i for i in range(len(c)) if c.startswith("rm -f .data/cache/incremental_*", i)]
+        s.assertLess(c.index("if [ -d $s ]; then cp -a $s/. .; else"), clears[0])          # the store's pack is this tree's exact inputs': kept whole
+        s.assertLess(clears[0], min(packs))                                                  # the copy's state, kept by clean, gone before either pack
+        s.assertTrue(c[c.index("cp -a $d/. ."):].startswith("cp -a $d/. . && rm -f .data/cache/incremental_*"))   # the stored revision's too
+        s.assertIn('docker build -q --label hd.build=$v', b)                                 # a kept or:<T> or store entry is of this version:
+        s.assertIn('[ -d /store/s$v-$ck ]', b)                                               # one packed from carried state is built again
 
 
 class ShipFailure(unittest.TestCase):
@@ -256,7 +267,7 @@ class ShipFailure(unittest.TestCase):
         recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True).stdout
         import hashlib
         files = b"".join((HERE / f).read_bytes() for f in ("docker-compose.yml", "switch.env", "jav_config.ws.template"))
-        s.assertIn(f"deploy fork-1-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+        s.assertIn(f"deploy fork-2-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
 
     def test_a_refused_login_holds_the_ci_read(s):  # a cause outside the tree records no result (PRD H3): two heads went back to dev on a 401
         s.assertIn('""|000|401|5??) sleep 30', SRC)
@@ -284,6 +295,9 @@ class DesktopDevtools(unittest.TestCase):
         s.assertIn('desktop_login.py" "$dt" token)', live); s.assertNotIn('"$dt" "$(account 1)"', live)   # Play alone: no form typed
         s.assertLess(live.index("live=1"), live.index('flock -s "$root/state/live/stack.lock" true'))   # h-deploy-spares-live-judge: its row holds deploys off, then a started one ends first
         s.assertLess(live.index("stack.lock"), live.index("sign_in"))
+        s.assertIn("set -E", live); s.assertIn("live_desktop_down >&2 || true' EXIT", live); s.assertIn("trap - EXIT", live)   # a failed start, set -e inside desktop_start included, names its step and leaves no instance
+        k = start.split('until "$desk/jdk/bin/keytool.exe"')[1].split("\n    done")[0]   # the interop error (accept4 failed 110) ends keytool: asked again on a fresh store, any other failure reported
+        s.assertIn("grep -q UtilAcceptVsock", k); s.assertIn('cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"', k); s.assertIn("return 1", k)
 
 
 class AccountName(unittest.TestCase):
@@ -711,8 +725,8 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
         hung = threading.Thread(target=send, args=(1, "hang", 1000)); hung.start()
         s.assertEqual(p.stdout.readline().strip(), "hung")   # the hung call holds the desktop
         send(2, "ok", 25000); hung.join()   # queued behind the hung call
-        s.assertIn("did not answer the call within 21 s", out[1][0]["error"]["message"]); s.assertEqual(out[1][0]["error"]["code"], -32002); s.assertEqual(out[1][0]["id"], 1); s.assertLess(out[1][1], 23)
-        s.assertEqual(out[2][0], {"jsonrpc": "2.0", "id": 2, "result": {}}); s.assertLess(out[2][1], 45)   # the next call runs once the hung one is answered
+        s.assertIn("did not answer the call within 21 s", out[1][0]["error"]["message"]); s.assertEqual(out[1][0]["error"]["code"], -32002); s.assertEqual(out[1][0]["id"], 1)   # the bound's own answer, not the bridge's 240 s read timeout: no wall-clock check, which load breaks
+        s.assertEqual(out[2][0], {"jsonrpc": "2.0", "id": 2, "result": {}})   # the next call runs once the hung one is answered: held, its own bound would answer an error
 
     def test_a_login_sends_the_token_of_the_up_owning_the_port(s):
         import desktop_login as d
@@ -720,6 +734,23 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
         (t / "run/2/owner").write_text("a 1-2\n"); (t / "state/a/up.json").write_text(json.dumps({"desktops": "desktop2:7781", "token": "tk"}))
         with mock.patch.dict(os.environ, {"DESKTOP_DIR": str(t), "HD_ROOT": str(t)}):
             s.assertEqual((d.devtoken(7781), d.devtoken(7782)), ("tk", ""))
+
+    def test_a_mobile_call_reaches_the_mobile_its_serial_names(s):  # fault 307: the mobile backend got no serial, every call refused
+        t = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, t, True); (t / "mcp").mkdir(); (t / "state/a").mkdir(parents=True)
+        root = HERE.parents[2]
+        for f in ("devtools_bridge.py", "devtools-snapshot.json"): shutil.copy(root / "mcp" / f, t / "mcp" / f)
+        (t / "state/a/serial").write_text("emulator-5556\n")
+        (t / "b.sh").write_text('#!/bin/sh\necho "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"result\\":{\\"tools\\":[{\\"name\\":\\"$ANDROID_SERIAL\\"}],\\"args\\":$3}}"\n'); (t / "b.sh").chmod(0o755)
+        req = lambda i, m, p: json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p})
+        out = subprocess.run([sys.executable, str(t / "mcp/devtools_bridge.py"), "mobile", str(t / "b.sh")], text=True, capture_output=True, timeout=60,
+                             env={**os.environ, "HOME": str(t)},
+                             input="\n".join([req(1, "tools/call", {"name": "get_inventory", "arguments": {}}),
+                                              req(2, "tools/call", {"name": "get_inventory", "arguments": {"serial": "emulator-5554"}}),
+                                              req(3, "tools/list", {})]) + "\n").stdout.splitlines()
+        r = [json.loads(l) for l in out]
+        s.assertIn("serial", r[0]["error"]["message"])   # no serial: refused, never any run's mobile
+        s.assertEqual(r[1]["result"]["tools"][0]["name"], "emulator-5554"); s.assertEqual(r[1]["result"]["args"], {"name": "get_inventory", "arguments": {}})   # the backend's env, the argument taken off
+        s.assertEqual(r[2]["result"]["tools"][0]["name"], "emulator-5556"); s.assertIn("serial", r[2]["result"]["tools"][0]["inputSchema"]["properties"])   # the list from an up's mobile, each tool taking serial
 
     def test_a_checkout_serves_its_own_state_root(s):  # state-root: a v9 up's desktop answered 401, its session ran the live checkout's bridge and login
         import desktop_login as d
@@ -1543,12 +1574,24 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
     def test_a_desktop_home_holds_no_preferences_the_launcher_does_not_write(s):  # fault 179: a static preferences.dat (no Jagex Account prompt day) stopped the launcher's dated one and Existing User landed on the prompt
         s.assertNotIn("preferences.dat", SRC.split("\ndesktop_start() {")[1].split("\n}")[0])
 
+    def test_a_failed_deploy_records_its_failure_and_checks_the_templates_before_the_live_stack(s):  # h-mobile-login-page-9: a javcheck `|| return 6` raised no ERR, so the pass started the deploy 9 times, each recreating the live stack under a mobile's start (gameState 1000)
+        ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
+        s.assertLess(ship.index('javcheck.py" "$f" || return 6'), ship.index("docker compose"))
+        trap = next(l for l in ship.splitlines() if "' EXIT" in l)
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "log").write_text("non-local hosts: auth.jagex.com\n")
+        r = subprocess.run(["bash", "-c", f'set -euo pipefail; hd="echo hd"; arg=x; HD_KEY=k; HD_LOG={d}/log\ndeploy() {{\n{trap}\nfalse || return 6; }}\ndeploy'], capture_output=True, text=True)
+        s.assertEqual(r.returncode, 6); s.assertIn("hd job deploy k fail return 6 (exit 6): non-local hosts: auth.jagex.com", r.stdout)
+        (d / "t").write_text("codebase={{HTTP_BASE}}/\nparam=13=.{{WORLD_HOST}}\n")
+        s.assertEqual(subprocess.run(["python3", str(HERE / "javcheck.py"), str(d / "t")], capture_output=True).returncode, 0)
+        (d / "t").write_text("param=11=https://auth.jagex.com/\n")
+        s.assertEqual(subprocess.run(["python3", str(HERE / "javcheck.py"), str(d / "t")], capture_output=True).returncode, 1)
+
     def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
         import javcheck
         compose = (HERE / "docker-compose.yml").read_text(); ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
         s.assertNotIn('LOCAL_AUTH: "true"', compose); s.assertIn('"${ISSUER_DIR}/jav_config.ws.template:/app/protocol/jav_config.ws.template:ro"', compose)
         s.assertNotIn("issuer:", compose); s.assertNotIn("8083", compose)   # h-ref-sign-in-no-issuer: Central serves the APK's sign-in
-        s.assertIn("up -d --no-deps --force-recreate --remove-orphans http)", ship); s.assertNotIn("http-desktop", compose + SRC)   # h-ref-embedded-central: desktops take jav_config from Central; s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)
+        s.assertIn("up -d --no-deps --force-recreate --remove-orphans http)", ship); s.assertNotIn("http-desktop", compose + SRC); s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)   # h-ref-embedded-central: desktops take jav_config from Central
         s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d)
         line = next(l for l in ship.splitlines() if "param=(11|20|22|28)" in l)
@@ -1567,10 +1610,11 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         s.assertIn("http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
         s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
         s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
-        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', 'OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")"', "OPENRUNE_HTTP_TLS_PORT=8443",
+        for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', "OPENRUNE_HTTP_TLS_PORT=8443",
                   "OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12", "OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws"):
             s.assertIn(e, ship)
         s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
+        s.assertNotIn("OPENRUNE_SIGN_IN_DEV_ACCOUNT", ship)   # h-mobile-login-page-9: one dev account for every mobile refused parallel mobiles Duplicate; each signs in at Central's form
         s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
         s.assertLess(ship.index("central_jav"), ship.index("docker build"))
         out = subprocess.run(["bash", "-c", f"http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout

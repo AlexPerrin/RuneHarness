@@ -1,4 +1,4 @@
-"""javcheck.py <jav_config url> [world host]: fails (exit 1) when the served jav_config names any host but this machine's.
+"""javcheck.py <jav_config url or template file> [world host]: fails (exit 1) when the served jav_config names any host but this machine's.
 Privacy rule: no client ever contacts Jagex, RuneScape or Google. Run by track.sh up and by the client's network QA."""
 import re, sys, urllib.request
 
@@ -12,7 +12,8 @@ def foreign(body, local=LOCAL):
 
 
 if __name__ == "__main__":
-    body = urllib.request.urlopen(sys.argv[1], timeout=10).read().decode("utf-8", "replace")
+    if "://" in sys.argv[1]: body = urllib.request.urlopen(sys.argv[1], timeout=10).read().decode("utf-8", "replace")
+    else: body = re.sub(r"\{\{\w+\}\}", "127.0.0.1", open(sys.argv[1], encoding="utf-8").read())   # a template: its placeholders are the local hosts the server fills in
     bad = foreign(body, LOCAL | set(sys.argv[2:]))
     print("non-local hosts: " + " ".join(bad) if bad else "jav_config local only")
     sys.exit(1 if bad else 0)

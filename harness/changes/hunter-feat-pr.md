@@ -4,6 +4,8 @@ track: fork
 priority: P2
 pr: 408
 public: feat/hunter
+deps:
+- h-fork-build-stale-pack-state
 ---
 ## Change
 Upstream #408 (draft) is the entire Hunter skill (the user, 2026-10-25: "Scope is entire Hunter Skill"): every Hunter

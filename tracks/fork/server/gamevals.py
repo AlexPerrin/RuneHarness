@@ -61,7 +61,7 @@ def ids(ref, mx):
 def members():
     own = f"dev/{os.environ.get('SLUG', '')}"
     cfg = os.path.join(os.environ.get("HD_ROOT") or ROOT, "hd.yaml")
-    out = [("upstream main", "origin/main")] + [(p, f"fork/{p}") for p in yaml.safe_load(open(cfg))["repos"]["fork"].get("pins") or []]
+    out = [("upstream main", "origin/main")] + [(p, f"fork/{p}") for p in (next(iter(p)) if isinstance(p, dict) else p for p in yaml.safe_load(open(cfg))["repos"]["fork"].get("pins") or [])]
     for r in git("for-each-ref", "--format=%(refname:short)", "refs/remotes/fork/dev/").split():
         b = r[len("fork/"):]
         if b != own and subprocess.run(["git", "-C", CLONE, "merge-base", "--is-ancestor", r, "origin/main"]).returncode:

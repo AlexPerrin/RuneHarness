@@ -106,6 +106,13 @@ class Hd(unittest.TestCase):
         self.assertEqual(db.execute("SELECT waived FROM criterion WHERE rid='dupes-3'").fetchone()[0], 1)
         self.assertEqual(db.execute("SELECT by, words FROM answer").fetchone()[1], "the lamp cannot be sold")
 
+    def test_a_user_act_names_its_act_and_its_answer_is_recorded(self):   # A4
+        with self.assertRaises(SystemExit):
+            hd.main(["ask", "x", "pin?", "--option", "a:pin it:user-act"])
+        hd.main(["ask", "x", "pin the fork?", "--option", "a:pin it:user-act push fork tools pin"])
+        hd.main(["answer", "x", "a", "pushed"])
+        self.assertEqual(store.connect().execute("SELECT option, words FROM answer").fetchone()[1], "pushed")
+
     def test_fault_raises_an_alert_and_dismiss_disposes_of_it(self):
         hd.main(["fault", "7", "hd criterion add is unusable"])
         db = store.connect()

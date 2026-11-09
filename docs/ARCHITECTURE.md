@@ -402,11 +402,13 @@ def clone(T, ch) -> path:
 def stage(db, ch, T, head):
     """In <repo>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
     merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
-    is reverted (git revert -m 1) before that change's head merges; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
+    is reverted (git revert -m 1) before that change's head merges, a `local/*` pin hd.yaml no longer lists at the next merge; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
-    live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
+    live key pair in state/live/key or a sidecar jav_config template naming a foreign host, both before any live container
+    is recreated; every failed exit records the job failed, so a failed deploy is never started again under the runs on
+    the live stack (only a killed one is). A closed change: git revert -m 1 of its merge commit."""
 
 def brief(db, ch, step) -> path:
     """state/briefs/<run id>.md: the definition; the criteria with their latest results and verdict marks; answers
@@ -429,7 +431,16 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
 each (Gradle's file locks do not reach across containers).
 Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order; a pin leaves
-it only by the revert of the change that supersedes it.
+it only by a revert: before the head of the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer
+lists, at the next merge. The pins are what the test server needs beyond upstream's release bundle; a change's tree
+is upstream main's, so a pin never serves a change's build or tests:
+- `local/android`: the official Android client (ENHANCED_ANDROID) logs in and plays; upstream serves desktop only.
+- `local/test-commands`: the testers' commands on the test server (stacked on `local/android`).
+- `local/world-settings`: test-server world settings no `game.yml` key gives: every account a member, a new character
+  in Lumbridge, 1x XP whatever the realm, the clan tabs' no-clan state.
+- `local/skip-cs2-packs`: custom clientscripts numbered right after the stock range and the dev spawn menu's left out
+  of the cache; the official Android client crashes at cache sync on groups far above it (upstream numbers its own
+  from 45553).
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
 merges records `ship fail`, the dev's step. The harness ship and `hd commit` both hold `state/ship.lock`: no commit moves
@@ -440,7 +451,7 @@ the live tip between a ship's candidate and its push (the engineer's commits go 
 ```python
 def card(db, ch, T, head, pr, texts) -> card id:
     """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
-    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready
+    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no second reply, publish.answered) → ready
     (if new or draft). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
     texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 
@@ -492,10 +503,10 @@ sequenceDiagram
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
 | `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion (an existing rid corrected in place, its check results dropped) |
-| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; prints the hand-back line |
+| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
-| `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, close (refused: the user's own) |
+| `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
 | `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
@@ -637,7 +648,7 @@ flowchart LR
   sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
   because upstream lacks it: `mcp/devtools_bridge.py` (upstream speaks HTTP on one loopback port; the sessions need a
   stdio server that answers `tools/list` from a snapshot when no client runs, routes each call by `port` to one of many
-  desktops with that up's bearer token, bounds every answer, flags a dropped session after each desktop answer, and
+  desktops with that up's bearer token and by `serial` to one of many mobiles, bounds every answer, flags a dropped session after each desktop answer, and
   walks `walk_to` at any distance in minimap steps, upstream's needing the tile in the loaded scene); the client
   repo's mobile bridge (Android: upstream has no transport off the device, ours is stdio over `adb shell nc`);
   `DevtoolsOwner.java` (below: upstream checks only the Origin header, no token, and opens URLs); the stub of its

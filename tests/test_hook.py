@@ -51,6 +51,7 @@ class Hook(unittest.TestCase):
         self.assertEqual(out, {})
         r = self.db.execute("SELECT * FROM run WHERE id=1").fetchone()
         self.assertEqual((r["end_kind"], r["record"][:18]), ("handback", "run 1: submitted a"))
+        self.assertIn('"first_edit": null', r["usage_json"])   # the first-edit measure is recorded at the run's end
         self.assertEqual(hook.subagent_stop({"agent_id": "ag1", "last_assistant_message": "run 1: PASS"}), {})  # already ended
 
     def test_handback_as_a_tool_call_ends_the_run_and_a_wrong_line_is_denied(self):

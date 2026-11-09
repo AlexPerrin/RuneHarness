@@ -96,10 +96,13 @@ def tool_text(e) -> str:
 
 
 def end(db, r, line, m, tpath=""):
-    """The run ends on its record line: end_kind handback (or handoff), its scope stopped, a pass started."""
+    """The run ends on its record line: end_kind handback (or handoff), its usage recorded (peak context, the first-edit
+    measure), its scope stopped, a pass started."""
+    import kpi
+    tpath = tpath or r["transcript"] or ""
     db.execute("UPDATE run SET ended_at=?, end_kind=?, record=?, usage_json=?, transcript=? WHERE id=?",
                (now(), "handoff" if m.group(2) == "handoff" else "handback", line,
-                json.dumps({"context_tokens": context_tokens(tpath)}), tpath, r["id"]))
+                json.dumps({"context_tokens": context_tokens(tpath), "first_edit": kpi.measure(tpath)}), tpath, r["id"]))
     event(db, "ended", r["change"], r["id"], line)
     act.stop_scope(r["id"])
     act.tick_later()

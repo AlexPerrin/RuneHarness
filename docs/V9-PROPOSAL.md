@@ -90,7 +90,7 @@ qa-client, network-qa; server: accuracy, dupes, pr-text, probe, qa-server). Seed
 | publishes not resumed | approval with undone publish_step and no live publish job | 2 of 12 | 0 |
 | pass CPU, nothing moved | `event kind='tick'` detail cpu | 3–44 s | <1 s |
 | wrong hook denials | `event kind='denied'` dismissed by the orchestrator as wrong | ≥7 | 0 |
-| tool calls to first edit | transcript scan, dev code runs (median) | 15 | ≤10 |
+| tool calls to first edit | run.usage_json first_edit, dev code runs per track (median) | 15 | ≤10 |
 | peak context p90 | run.usage_json | 157–196k | ≤200k |
 | loop code | wc -l | 4,508 | ≤1,950 |
 

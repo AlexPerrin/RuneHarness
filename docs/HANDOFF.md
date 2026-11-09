@@ -14,9 +14,10 @@ against the workflow, with the PRD validated. Check every fact here against `hd`
 
 ## Where things are
 
-- **v9 runs from this worktree**, `~/osrs-harness/.worktrees/v9`, branch `v9`, pushed to `origin/v9`: `harness/orchestrator.sh` in
-  the user's terminal (peer session, dev and qa on Opus 5.5; `agents: 5`, `builds: 5`), `hd-loop.timer`, `state/hd.db`.
-  Commit here and push as you go. `~/osrs-harness` (`main`) is idle v8: never write there.
+- **v9 runs from `~/osrs-harness`, branch `main`**, pushed to `origin/main`: `harness/orchestrator.sh` in the user's
+  terminal (peer session, dev and qa on Opus 5.5; `agents: 5`, `builds: 5`), `hd-loop.timer`, `state/hd.db`. The
+  checkout is live: develop a decision change in a worktree, replay it, then commit here with `hd commit`; push as you go.
+  v8's state and evidence are kept under `state/v8/` and `evidence/v8/`; branches `v8` and `v9` are history.
 - The product repos: `~/osrs-plugins-reverse` (client), `~/src/OpenRune-Server` (fork), `~/src/OpenRune-Central-Server`,
   `~/src/OpenRune-FileStore`.
 - **Runs**: read the live ones with `hd tick --dry-run` and the `run` table (`ended_at IS NULL`).
@@ -88,15 +89,7 @@ changes are closed (`hd close`); they need nothing.
 
 ## Only the user decides
 
-Every card; the Central upstream hold; the P3 band hold; the default decisions in docs/V9-PROPOSAL.md §5; when the
-runtime move happens.
-
-## The runtime move (the cutover's part 2)
-
-At the user's desk, on their word: the session's `/exit`; stop `hd-loop.timer`; back up `state/hd.db` into
-`~/osrs-harness/state/hd.db` with Python's `sqlite3` backup; `git -C ~/osrs-harness merge v9`; hd.yaml
-`harness.base: refs/heads/main`, commit, push; copy `state/<slug>/`, `state/briefs/`, `state/live/` across; start
-`harness/orchestrator.sh` from `~/osrs-harness`; then `git worktree remove` this worktree.
+Every card; the Central upstream hold; the P3 band hold; the default decisions in docs/V9-PROPOSAL.md §5.
 
 ## Known gaps
 

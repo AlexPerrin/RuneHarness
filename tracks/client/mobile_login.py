@@ -15,6 +15,9 @@ REFUSED = 9           # "Unexpected server response", Try again: a login respons
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
 LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
 FORM = ("Username", "Password", "Sign in")   # Central's sign-in form (no dev account): each mobile its slug's own account, never one shared (a second login of one account is refused Duplicate)
+# Chrome's message before it opens the app for a redirect it no longer counts as the user's (the post's answer came more than 15 s after
+# the tap): "Continue to Old School RuneScape?" with its button Continue, removed unanswered after 10 s (logcat: reason 3, its timer)
+ASK, ASKED_OUT = "Continue", "cr_MessageQueueManager: Removed message with ID \\d+ and key \\S+ from queue because of reason 3"
 
 
 def account(slug):
@@ -45,22 +48,27 @@ def labels():
 
 
 def screen():
-    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields)."""
-    log = adb("logcat", "-d", "-s", "osrsrl-host:I")
+    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields, Chrome's message removed by its timer)."""
+    log = adb("logcat", "-d", "-s", "osrsrl-host:I", "cr_MessageQueueManager:W")
     st = re.findall(r"GameStateChanged (\w+)(?: \(raw (-?\d+))?", log); ix = re.findall(r"LoginIndex (\d+)", log)
     focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
     pkg = focus.group(1) if focus else ""
     lab, fields = ({}, {}) if pkg in (PKG, "") else labels()
-    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields
+    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields, bool(re.search(ASKED_OUT, log))
 
 
-def form(lab, fields, name, posted):
+def form(lab, fields, name, posted, asked_out=False):
     """Central's form: each field tapped until focused, the name typed into it, both read back holding the name, then Sign in;
-    after the post the form leaves; a validation tooltip, or the form again with both fields empty (Central's 401), is FAILED naming it."""
+    after the post the form leaves, or Chrome asks to continue to the app (Continue); a validation tooltip, the form again with both fields empty (Central's 401)
+    or Chrome's ask gone unanswered is FAILED naming it."""
     tip = next((t for t in lab if t.startswith("Please ")), None)   # Chrome's validation tooltip: the form did not post
     if tip:
         return ("fail", f"Central's form did not post: {tip}")
     if posted:   # the posted page stays drawn (its fields part cleared) until the redirect hands the app the code; Central's 401 is the same form, both fields empty
+        if ASK in lab and any(t.startswith("Continue to ") for t in lab):
+            return ("tap", f"Chrome's {ASK} to the app", *lab[ASK])
+        if asked_out:
+            return ("fail", "Chrome's message asking to continue to the app after Sign in went unanswered (removed by its timer): the redirect never reaches the app")
         empty = not any(fields.get(f, ("",))[0] for f in FORM[:2])
         return ("fail", f"Central answered its sign-in of {name} with its form again (401)") if empty else ("wait",)
     for f in FORM[:2]:
@@ -77,7 +85,7 @@ def form(lab, fields, name, posted):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False):
     """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why)."""
     if st == "LOGGED_IN":
         return ("done",)
@@ -88,7 +96,7 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
         if err:
             return ("fail", f"the browser's sign-in: {err}")
         if all(l in lab for l in FORM):
-            return form(lab, fields or {}, name, posted)
+            return form(lab, fields or {}, name, posted, asked_out)
         hit = next((l for l in LABELS if l in lab), None)
         return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
     if pkg == LAUNCHER and st in ("", "UNKNOWN"):
@@ -114,10 +122,10 @@ def main(slug):
         return "FAILED: the app did not start: " + r.strip()
     acted = None   # -W returns once the activity is up: the process exists from here
     while True:
-        st, ix, pkg, lab, raw, fields = screen()
-        if not adb("shell", "pidof", PKG).strip():
+        st, ix, pkg, lab, raw, fields, asked_out = screen()
+        if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
-        act = step(st, ix, pkg, lab, raw, name, fields, posted)
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out)
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":

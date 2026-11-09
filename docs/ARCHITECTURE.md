@@ -743,7 +743,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 `hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the
 driver, then `hd dismiss <id> <why>` naming it; a harness change, `hd new --track harness --from-alert <id>` (carrying
 the evidence, fixed by a dev run and checked by the replay); or a dismissal. An alert whose subject recurs after its
-fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6), and the median tool calls before a dev run's first edit (read from its transcript); the `kpi` alert is its daily
+fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6), and, per track, the orientation of dev code runs before their first edit (an Edit, Write or Bash write): calls (median, mean) by category (search, read, `hd show`, git, brief and rules, other), the context tokens at that edit, the search-or-read share, and the runs calling `hd show` and how often, recorded in `run.usage_json` (`first_edit`) when the run ends; the `kpi` alert is its daily
 roll-up.
 
 ## 13 The orchestrator's lifecycle

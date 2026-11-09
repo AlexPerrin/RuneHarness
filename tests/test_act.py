@@ -137,16 +137,28 @@ class Act(unittest.TestCase):
 
 
 class Kpi(unittest.TestCase):
-    def test_tool_calls_before_the_first_edit_of_a_transcript(self):
+    def test_orientation_before_the_first_edit_of_a_transcript(self):   # KPIs 1-5 of h-orientation-before-first-edit
         import json
         import kpi
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         p = Path(d.name) / "t.jsonl"
-        use = lambda *names: json.dumps({"message": {"content": [{"type": "tool_use", "name": n} for n in names]}})
-        p.write_text("\n".join([use("Read"), '{"type": "user"}', use("Bash", "Grep"), use("Edit", "Bash")]))
-        self.assertEqual(kpi.calls_before_edit(str(p)), 3)
-        p.write_text(use("Read"))
-        self.assertIsNone(kpi.calls_before_edit(str(p)))
+        use = lambda tokens, *calls: json.dumps({"message": {"usage": {"input_tokens": 1, "cache_read_input_tokens": tokens},
+                                                             "content": [{"type": "tool_use", "name": n, "input": i} for n, i in calls]}})
+        bash = lambda c: ("Bash", {"command": c})
+        p.write_text("\n".join([
+            use(10, ("Read", {"file_path": "/h/state/briefs/7.md"}), bash("cat /h/tracks/fork/track.md")),
+            '{"type": "user"}',
+            use(20, bash("cd /c && grep -rn foo src"), ("Grep", {"pattern": "x"}), ("Read", {"file_path": "/c/A.kt"}),
+                bash("cd /c; sed -n 1,9p A.kt"), bash("python3 /h/harness/hd.py show s"), bash("git -C /c log -3"), bash("make")),
+            use(30, bash("cat > /c/new.txt <<'EOF'"), ("Edit", {}), bash("hd show s"))]))
+        m = kpi.measure(str(p))
+        self.assertEqual((m["calls"], m["brief"], m["search"], m["read"], m["show"], m["git"], m["other"]), (9, 2, 2, 2, 1, 1, 1))
+        self.assertEqual((m["tokens"], m["shows"]), (31, 2))   # the context at the edit; hd show over the whole run
+        p.write_text(use(5, ("Read", {"file_path": "/x"}), bash("sed -i s/a/b/ f")))
+        self.assertEqual(kpi.measure(str(p))["calls"], 1)   # a Bash write is the first edit
+        p.write_text(use(5, ("Read", {"file_path": "/x"})))
+        self.assertIsNone(kpi.measure(str(p))["calls"])
+        self.assertIsNone(kpi.measure(str(Path(d.name) / "none")))
 
 
 if __name__ == "__main__":

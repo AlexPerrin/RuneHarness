@@ -52,7 +52,8 @@ total. A path that cannot occur is one plain line in the PR notes. QA tries each
 repeat, source removed mid-action, counts read with `get_inventory` and `get_container_history`.
 
 ## The dev
-The brief names your clone (`~/src/OpenRune-Server/.worktrees/<slug>`, branch `dev/<slug>`). Commit;
+The brief names your clone (`~/src/OpenRune-Server/.worktrees/<slug>`, branch `dev/<slug>`). Search it with
+`git grep <pattern> -- ':!.data/raw-cache' ':!content/drops'` (tracked code only, without the cache and drop tables). Commit;
 `tracks/fork/track.sh build <slug>` builds your working copy's candidate in the build copy: your head merged onto
 staging (what the test server runs: the pins, token login, every staged head), while the branch itself stays on
 upstream main and never takes staging in (its PR holds no other change; the fork CI runs it on main alone); a head

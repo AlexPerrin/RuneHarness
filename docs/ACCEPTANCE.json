@@ -35,7 +35,7 @@
     "test_publish.Publish.test_killed_after_a_step_resumes_with_the_cards_texts"
   ],
   "H4": [
-    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge_live",
     "test_decide.Server.test_merge_conflict_lists_the_dev",
     "live: staging created from upstream main plus the 11 pins and 2cea3d4 (server-training-bow) merged and landed on it, 2026-11-03T05:47Z (events 340, 342)"
   ],
@@ -56,12 +56,12 @@
     "live: on the deploy of staging 04007706bd6a (upstream's release bundle, embedded Central, the one osrs-openrune container, no issuer or http), javcheck.py passes on Central's /jav_config.ws; a fresh C:\\osrs-test desktop (live-desktop) and the APK (client up, adb reverse to Central and the game) each sign in at Central and reach LOGGED_IN; a fork up of that image (server container alone) logs a fresh desktop in by token (evidence/h-reference-deployment)"
   ],
   "G1": [
-    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge_live",
     "test_decide.Gate.test_criteria_added_after_submission_list_the_dev",
     "live: the seed criteria of every track (tracks/*/track.md)"
   ],
   "G2": [
-    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge_live",
     "live: f-probe's gate ran gamevals, dupe-tests, spotless, ci once at its tree"
   ],
   "G3": [
@@ -70,14 +70,19 @@
   ],
   "G4": [
     "test_decide.Authority.test_dep_waits_until_landed",
-    "live: upstream_dep_wait holds the card until a dep lands upstream"
+    "test_feature.Feature.test_a_member_on_a_fork_only_change_reaches_no_pr",
+    "test_feature.Feature.test_the_package_candidate_is_on_upstream_main_alone",
+    "test_hd.Hd.test_package_applies_each_member_commit_once_onto_upstream_main"
   ],
   "G5": [
     "live: tracks/harness/replay.sh and the tests criterion gated every harness change shipped"
   ],
   "A1": [
     "test_publish.Publish.test_card_lists_the_acts_and_texts_for_an_existing_draft_pr",
-    "test_publish.Publish.test_new_pr_card"
+    "test_publish.Publish.test_new_pr_card",
+    "test_feature.Feature.test_sister_prs_share_one_card_and_one_approval_publishes_both",
+    "test_feature.Feature.test_a_member_added_after_the_publish_repackages_with_one_comment",
+    "pending: live: the first feature with members on two repos packaged, one card, one approval publishing both PRs"
   ],
   "A2": [
     "test_publish.Publish.test_approve_needs_the_latest_card_at_that_head",
@@ -89,8 +94,8 @@
     "live: lab-publish-resume-2 card 8 approved by the user (18:15:17Z); its systemd scope SIGKILLed right after the push step (18:15:30Z, pr step undone, no .rc); the pass recorded attempt 84 and started a new job (pid 2380332 → 2383071, 18:16:12Z), which skipped the push and did pr, ci, comment and ready with the card's texts: one PR AlexPerrin/pr-lab#4, one comment 6711201946, approval spent 'published', 2026-11-07"
   ],
   "A3": [
-    "test_decide.Server.test_a_finding_needs_a_reply_before_a_new_card",
-    "2026-11-08: eaglepurerocketgrape's finding on #367 (issuecomment-6600852912: the fade overlay left open, the scene run without a free region) became goblin-367-rsprox-dump's criteria, fixed by 0cbfe5236 and qa-passed at 5ef0cd1 (run 168); card 9, on the user's approval, pushed it, waited for green CI, posted one comment naming the head and answering both points (issuecomment-6725056926) and marked #367 ready"
+    "2026-11-08: eaglepurerocketgrape's finding on #367 (issuecomment-6600852912: the fade overlay left open, the scene run without a free region) became goblin-367-rsprox-dump's criteria, fixed by 0cbfe5236 and qa-passed at 5ef0cd1 (run 168); card 9, on the user's approval, pushed it, waited for green CI, posted one comment naming the head and answering both points (issuecomment-6725056926) and marked #367 ready",
+    "test_hd.Hd.test_a_finding_files_a_change_of_the_prs_feature"
   ],
   "A4": [
     "test_decide.Authority.test_closed_is_done_and_open_ask_waits",
@@ -98,7 +103,7 @@
   ],
   "A5": [
     "test_decide.Tempo.test_agent_count_and_held_band",
-    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge (hold)"
+    "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge_live (hold)"
   ],
   "T1": [
     "test_act.Act.test_every_step_kind_the_pass_lists_is_acted_on",
@@ -129,5 +134,9 @@
   ],
   "T8": [
     "test_decide.Goals.test_measure_when_the_target_tree_moves_then_a_plan_run_when_below_target"
+  ],
+  "A6": [
+    "test_hd.Hd.test_only_the_users_answer_bundles_changes_into_a_feature",
+    "test_feature.Feature.test_one_package_per_repo_its_members_in_dependency_order"
   ]
 }

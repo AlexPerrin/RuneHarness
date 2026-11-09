@@ -241,8 +241,8 @@ def ask_open(C, ch):
 
 def criteria_due(C, ch):
     T = C.cfg.tracks[ch.track]
-    if not T.upstream or ch.members:   # a server change: its accuracy before code; a package's are upstream's rules
-        return None
+    if not T.upstream or ch.members or C.L.one("SELECT 1 FROM submission WHERE change=?", ch.slug):
+        return None   # a server change: its accuracy before code (none once code exists); a package's are upstream's rules
     if C.L.runs_with_record(ch.slug, "criteria", "criteria agreed"):
         return None
     return Step("run", "criteria before code", role="qa", mode="criteria", input=digest("criteria", ch.slug))

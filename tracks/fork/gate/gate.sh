@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tracks/fork/gate/gate.sh <verb> <slug> [arg]: the server track's gate and every verb a scripted criterion runs (track.sh dispatches
-# them here); the build is build/build.sh's, sourced. The pass keys a gate by the tree and the recipe version. Env from hd: SLUG HEAD T
+# them here); the build is build/build.sh's, sourced. The pass keys a gate by the tree, the head's tree and the recipe version (HD_KEY). Env from hd: SLUG HEAD T
 # (the tree) TCOMMIT BASE CLONE EVIDENCE CENTRAL HD_ROOT HD_KEY. Verbs:
 #   test [MODULE...]  build, then each module's tests (and integration tests, where it applies integration-test-suite) and spotlessCheck on the build copy (no module: those holding a file
 #                     the change's tree changes from staging, its candidate's base); log evidence/<slug>/test.log, result state/<slug>/test.json
@@ -61,7 +61,7 @@ gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cann
 }
 gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in the build copy; a criterion exiting 75 (its source down) leaves no result and the pass starts the gate again
   tc=${TCOMMIT:-$arg}; OWNER=${HD_KEY:+job:gate:$HD_KEY} HD_KEY= build; git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq   # the build records no job under the gate's key
-  BUILD=$copy exec $hd gate "$slug" "$T:fork-1" "$copy"
+  BUILD=$copy exec $hd gate "$slug" "${HD_KEY:-$T:fork-1}" "$copy"
 }
 gate_sha() {  # a child of TCOMMIT whose workflows move the ephemeral ports off the game port, and with CENTRAL hold that Central tree at .central/ built in
   set -e   # a command substitution does not inherit it

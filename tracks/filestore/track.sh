@@ -47,7 +47,7 @@ case "$verb" in
   build) checkout; if gradle assemble -x test; then [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "assembled ${T:-}"; else [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "gradle assemble"; exit 1; fi ;;
   test) copy=${BUILD:-$copy}; gradle test ;;
   publish) copy=$repo/.worktrees/$slug-filestore; checkout; rm -rf "$copy/.m2"; gradle publish ;;   # to HOSTING_DIRECTORY: $copy/.m2
-  gate) checkout; BUILD=$copy exec $hd gate "$slug" "${T:-$HD_TREE}:filestore-1" "$copy" ;;
+  gate) checkout; BUILD=$copy exec $hd gate "$slug" "${HD_KEY:-${T:-$HD_TREE}:filestore-1}" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging)   # the tree live desktops log in to: token login, built with the Central the deploy carries
       c=$(git -C "$central" rev-parse --verify -q staging) && export CENTRAL="$central:$c"
       FILESTORE="$repo:${HEAD:-$(git -C "$repo" rev-parse "dev/$slug")}" TCOMMIT=$tc HD_KEY= HD_REPO=$fork bash "$self/../fork/track.sh" build "$slug" "$tc"

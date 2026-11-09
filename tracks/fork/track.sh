@@ -39,12 +39,11 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-2-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
+case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-3-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
 live_image=osrs-openrune:241; compose_dir=$self/server
-export SIDECAR_DATA=${SIDECAR_DATA:-$HOME/src/openrune-work/server-tools/sidecar/data}; sidecar_data=$SIDECAR_DATA  # compose mounts ${SIDECAR_DATA}
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 stack() {  # stack KEY=VALUE...: sets each field of the stack record state/<slug>/up.json (KEY:=JSON for a number); one record up writes and every later step reads; mirrored into the ledger's stack row
   python3 -c 'import json, sys
@@ -219,8 +218,9 @@ central_staged() {  # the T of or:<T>'s tree built with Central's staging, the C
     h=$(git -C "$crepo" -c user.name="Alex Perrin" -c user.email=44126061+AlexPerrin@users.noreply.github.com commit-tree "$t" -p "$c" -p "$h" -m "up: $c with staging"); fi
   (unset T; CENTRAL="$crepo:$h" HD_KEY= "$self/build/build.sh" build "$slug" >&2)   # TCOMMIT (the pass's) or the dev's working copy, as the up's own build; cached by its _c<tree12>
   python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json"; }
-central_jav() {  # $state/jav_config.ws for the game's own Central: $tpl filled as the sidecar fills it, its base https://127.0.0.1:$http (the desktop casts 11 and 22 to https)
-  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=https://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
+central_jav() {  # $state/jav_config.ws for the game's own Central, every client's: $tpl filled, its base https://127.0.0.1:$http; the sign-in params 11, 20, 22 and 28
+  # http://127.0.0.1:$http/: a desktop casts 11 and 22 to https (Central's https port), the APK takes them as written on its own 127.0.0.1, which adb reverse maps to Central's http port
+  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#^param=(11|20|22|28)=.*#param=\1=http://127.0.0.1:$http/#; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=https://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
   tok=true; sid=; cid=; who=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || n=1
   T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
@@ -242,7 +242,7 @@ up() {
   # Central's sign-in: game.yml trusts the secret of server/issuer.py key; Central signs tokens with it and serves https with its certificate
   python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"
   openssl pkcs12 -export -in "$state/token/tls.pem" -inkey "$state/token/tls.key" -passout pass:changeit -out "$state/token/tls.p12"
-  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http 9090, the bundle's game.yml, on a docker port), the template filled as the sidecar fills it
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http 9090, the bundle's game.yml, on a docker port)
   sopt=(-p "$http:8443" -p 9090 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
     -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
     -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit
@@ -300,15 +300,13 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   trap 'rc=$?; [ $rc = 0 ] || { echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $rc)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND (exit $rc)${HD_LOG:+: $(grep -v "^deploy of" "$HD_LOG" | tail -1)}"; }' EXIT   # on exit, not ERR: a check's `|| return N` raises no ERR, and a failure without a result is started again
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
   slug=staging; state=$root/state/live; mkdir -p "$state"
-  # the sign-in's key (compose's ISSUER_DIR, from server/issuer.py key): its secret in the image's game.yml and Central's; Central's dev account the APK's tester
-  export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
-  [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
-  sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"   # the APK's sign-in: Central's plain http (LOCAL_AUTH takes http; discovery answers the request's Host)
-  # Central's sign-in for desktops, as up's: the secret, https with its certificate, its own jav_config; no dev account,
+  # the sign-in's key (from server/issuer.py key): its secret in the image's game.yml and Central's
+  ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
+  # Central's sign-in for every client, as up's: the secret, https with its certificate, its own jav_config; no dev account,
   # so every sign-in (each run's mobile and desktop as its slug's own account, the user's phone as tester) goes through Central's form
   http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
   openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
-  for f in "$ISSUER_DIR/jav_config.ws.template" "$self/server/jav_config.ws.template"; do python3 "$self/server/javcheck.py" "$f" || return 6; done   # the sidecars' templates, before any live container is touched
+  python3 "$self/server/javcheck.py" "$state/jav_config.ws" || return 6   # Central's jav_config, before any live container is touched
   [ -f "$state/key/game.key" ] && [ -f "$state/key/client.key" ] || { echo "no live key pair in $state/key"; return 4; }
   modulus=$(modulus_of < "$state/key/game.key")   # the live stack's pair, seeded once with the key every APK carries: no image passes its key to the next
   cat > "$state/Dockerfile" <<EOF
@@ -327,18 +325,15 @@ EOF
   docker rm -f "boot-$T" >/dev/null 2>&1 || true
   docker run -d --name "boot-$T" --tmpfs /app/.data/postgres:uid=1000,gid=1000,mode=0700 "osrs-openrune:$T" >/dev/null
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
-  # recreated, never restarted: a container's file bind mount does not outlive a WSL restart (Docker Desktop remounts it as a directory);
-  # the sidecars first, so a stack that cannot start leaves the game server as it was; a container of a service compose no longer names goes
-  (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans http) >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
   $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
   since=$(date -u +%FT%TZ)
-  (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate openrune) >/dev/null
+  # recreated, never restarted (a container's file bind mount does not outlive a WSL restart); a container of a service compose no longer names goes
+  (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans openrune) >/dev/null
   if ready osrs-openrune "$since"; then  # the record names the stack's containers: hd deploys again while one is not running
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
-    python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port osrs-openrune-http 8080 | head -1 | cut -d: -f2)/jav_config.ws" || return 6   # the APK's sidecar
-    python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, for desktops
+    python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, every client's
     curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6   # its sign-in over https
     curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6   # and over http, the APK's
     [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" ok "live: $T"

@@ -136,15 +136,6 @@ class Central(unittest.TestCase):
         for d in (central, root): shutil.rmtree(d)
 
 
-class SidecarData(unittest.TestCase):
-    def test_compose_gets_the_sidecar_dir_the_script_resolves(s):  # ship's compose mounted ":/data:ro": SIDECAR_DATA was a shell variable only
-        line = next(l for l in SRC.splitlines() if "SIDECAR_DATA:-" in l)
-        env = {k: v for k, v in os.environ.items() if k != "SIDECAR_DATA"}
-        for extra, want in (({"HOME": "/h"}, "/h/src/openrune-work/server-tools/sidecar/data"), ({"SIDECAR_DATA": "/d"}, "/d")):
-            r = subprocess.run(["bash", "-c", line + '\nbash -c \'echo "$SIDECAR_DATA $0"\' "$sidecar_data"'], capture_output=True, text=True, env={**env, **extra})
-            s.assertEqual(r.stdout.split(), [want, want])
-
-
 class BuildLock(unittest.TestCase):
     def test_a_second_build_of_a_slug_waits_then_reuses_the_image(s):  # a dev's build was refused: the pass's build-<slug> container was running
         b = SRC.split("\nbuild() {")[1].split("\n}")[0]
@@ -267,15 +258,14 @@ class ShipFailure(unittest.TestCase):
         recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True).stdout
         import hashlib
         files = b"".join((HERE / f).read_bytes() for f in ("docker-compose.yml", "switch.env", "jav_config.ws.template"))
-        s.assertIn(f"deploy fork-2-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+        s.assertIn(f"deploy fork-3-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
 
     def test_a_refused_login_holds_the_ci_read(s):  # a cause outside the tree records no result (PRD H3): two heads went back to dev on a 401
         s.assertIn('""|000|401|5??) sleep 30', SRC)
 
     def test_ship_recreates_the_stack_and_records_its_containers(s):  # harness-live-http-mount: compose restarted the exited http, whose file mount a WSL restart had turned into a directory
         f = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        side, game = f.index("--force-recreate --remove-orphans http)"), f.index("--force-recreate openrune)")   # h-ref-sign-in-no-issuer, h-ref-embedded-central: the dropped issuer's and http-desktop's containers go
-        s.assertLess(side, f.index('docker tag "osrs-openrune:$T" "$live_image"')); s.assertLess(side, game)   # a sidecar that cannot start leaves the game server as it was
+        s.assertLess(f.index('docker tag "osrs-openrune:$T" "$live_image"'), f.index("--force-recreate --remove-orphans openrune)"))   # the dropped sidecars' containers (issuer, http-desktop, http) go
         s.assertIn('"containers":sys.argv[8].split()', f); s.assertIn("ps -a --format '{{.Name}}'", f)
 
 
@@ -1543,7 +1533,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         fill = JAV + "\ncentral_jav"; s.assertIn("\n  central_jav   #", up)
         out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
-        for line in ("codebase=http://127.0.0.1/", "param=17=https://127.0.0.1:21813/worldslist.ws", "param=11=https://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
+        for line in ("codebase=http://127.0.0.1/", "param=17=https://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
             s.assertIn(line + "\n", out)
         s.assertIn('-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)', up)
         s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertNotIn("http-$slug", up)   # no sidecar: every up's own Central serves it
@@ -1578,7 +1568,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
 
     def test_a_failed_deploy_records_its_failure_and_checks_the_templates_before_the_live_stack(s):  # h-mobile-login-page-9: a javcheck `|| return 6` raised no ERR, so the pass started the deploy 9 times, each recreating the live stack under a mobile's start (gameState 1000)
         ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        s.assertLess(ship.index('javcheck.py" "$f" || return 6'), ship.index("docker compose"))
+        s.assertLess(ship.index('javcheck.py" "$state/jav_config.ws" || return 6'), ship.index("docker compose"))
         trap = next(l for l in ship.splitlines() if "' EXIT" in l)
         d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d); (d / "log").write_text("non-local hosts: auth.jagex.com\n")
         r = subprocess.run(["bash", "-c", f'set -euo pipefail; hd="echo hd"; arg=x; HD_KEY=k; HD_LOG={d}/log\ndeploy() {{\n{trap}\nfalse || return 6; }}\ndeploy'], capture_output=True, text=True)
@@ -1588,22 +1578,13 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         (d / "t").write_text("param=11=https://auth.jagex.com/\n")
         s.assertEqual(subprocess.run(["python3", str(HERE / "javcheck.py"), str(d / "t")], capture_output=True).returncode, 1)
 
-    def test_live_takes_the_apks_tokens_from_the_issuer_whose_secret_its_game_yml_holds(s):  # the sidecar's LOCAL_AUTH tokens were unsigned
-        import javcheck
+    def test_live_runs_central_alone_for_every_client(s):  # h-ref-apk-jav-config-central: the APK's sidecar (osrs-openrune-http) went; the APK reads Central's jav_config
         compose = (HERE / "docker-compose.yml").read_text(); ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        s.assertNotIn('LOCAL_AUTH: "true"', compose); s.assertIn('"${ISSUER_DIR}/jav_config.ws.template:/app/protocol/jav_config.ws.template:ro"', compose)
-        s.assertNotIn("issuer:", compose); s.assertNotIn("8083", compose)   # h-ref-sign-in-no-issuer: Central serves the APK's sign-in
-        s.assertIn("up -d --no-deps --force-recreate --remove-orphans http)", ship); s.assertNotIn("http-desktop", compose + SRC); s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)   # h-ref-embedded-central: desktops take jav_config from Central
-        s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship)
-        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d)
-        line = next(l for l in ship.splitlines() if "param=(11|20|22|28)" in l)
-        subprocess.run(["bash", "-c", line], check=True, env={**os.environ, "self": str(HERE.parent), "ISSUER_DIR": str(d)})
-        t = (d / "jav_config.ws.template").read_text(encoding="utf-8"); orig = (HERE / "jav_config.ws.template").read_text(encoding="utf-8")
-        params = dict(l[6:].split("=", 1) for l in t.splitlines() if l.startswith("param="))
-        s.assertEqual({k: params[k] for k in ("11", "20", "22", "28")}, dict.fromkeys(("11", "20", "22", "28"), "http://{{WORLD_HOST}}:8084/"))   # h-live-apk-central-sign-in: Central's http, not the issuer's 8083
+        s.assertEqual(re.findall(r"^  (\w+):$", compose, re.M), ["openrune"])   # one service: no issuer, http-desktop nor http sidecar
+        for gone in ("SIDECAR_DATA", "ISSUER_DIR", "OPENRUNE_HTTP_PORT", "osrs-openrune-http", "8083"): s.assertNotIn(gone, compose + (HERE / "switch.env").read_text())
+        s.assertNotIn("SIDECAR_DATA", SRC); s.assertNotIn("osrs-openrune-http", SRC); s.assertNotIn("WORLD_HOST}}:", SRC)   # no APK template of its own
+        s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship); s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)
         s.assertIn('curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6', ship)
-        s.assertEqual(len(t.splitlines()), len(orig.splitlines())); s.assertEqual(params["17"], "{{HTTP_BASE}}/slr.ws?order=LPWM")
-        s.assertEqual(javcheck.foreign(t.replace("{{HTTP_BASE}}", "http://10.0.2.2:8080").replace("{{WORLD_HOST}}", "10.0.2.2")), [])
 
     def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use
         import javcheck
@@ -1621,7 +1602,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         s.assertLess(ship.index("central_jav"), ship.index("docker build"))
         out = subprocess.run(["bash", "-c", f"http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
-        for line in ("param=11=https://127.0.0.1:8443/", "param=22=https://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):
+        for line in ("param=11=http://127.0.0.1:8443/", "param=20=http://127.0.0.1:8443/", "param=22=http://127.0.0.1:8443/", "param=28=http://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):   # 11 and 22 the desktop casts to https; the APK takes them as written
             s.assertIn(line + "\n", out)
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):

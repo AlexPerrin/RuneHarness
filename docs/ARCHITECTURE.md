@@ -406,7 +406,7 @@ def stage(db, ch, T, head):
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
-    live key pair in state/live/key or a sidecar jav_config template naming a foreign host, both before any live container
+    live key pair in state/live/key or a jav_config naming a foreign host, both before any live container
     is recreated; every failed exit records the job failed, so a failed deploy is never started again under the runs on
     the live stack (only a killed one is). A closed change: git revert -m 1 of its merge commit."""
 
@@ -635,12 +635,13 @@ flowchart LR
 - The game image `or:<T>` is upstream's release bundle (release-server.yml's Gradle steps; `server.jar`, `game.yml`,
   `.data/` without raw-cache or key) run by `java -jar server.jar` on update-test-server.yml's ports: 43594 game, 9091
   Central link, 9090 http (the one setting beyond `game.example.yml`, its `central.http-port`).
-- The live stack is the game image, Central and Postgres; the compose also runs the APK's sidecar (`http`), which serves
-  its `jav_config.ws` and world list. Desktops take `jav_config.ws` from Central (8443), the deploy's template file through
-  `OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://`. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
+- The live stack is the game image, Central and Postgres, one compose service. Every client takes `jav_config.ws` from
+  Central, the deploy's template file through `OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://`. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
   `issuer.py key`, which game.yml's token-login block also holds; host ports 8084 http, 8443 https with that key's
-  certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both; the APK's
-  `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on the live stack
+  certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both. Its `jav_config.ws`
+  names 127.0.0.1 hosts, the sign-in params 11, 20, 22 and 28 as `http://127.0.0.1:8443/`: a desktop casts 11 and 22
+  to https, and the APK (repacked with `SERVER=127.0.0.1:8443`, which `LOCAL_AUTH` lets speak http) reads them on its own
+  loopback, where the client track's `up` maps 8443 to Central's http 8084 and 43594 to the game (`adb reverse`). A desktop on the live stack
   (`live-desktop`) and each desktop of a fork `up` sign in there by password as the slug's own account and log in by
   token with Play alone. Central keeps sessions in memory, so a fork `restart` is a down and a resumed up.
 - The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's

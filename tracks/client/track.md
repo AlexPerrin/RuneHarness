@@ -1,7 +1,7 @@
 # Client track
 
 RuneLite plugins in the official OSRS Android app (`native/`, `host/`, APK repack) in `~/osrs-plugins-reverse`,
-tested on the Agent_Phone emulator against the test server. The script is `tracks/client/track.sh <verb> <slug>`
+tested on the Agent_Lite emulator (prepared once by `track.sh avd <slug>`, every mobile down) against the test server. The script is `tracks/client/track.sh <verb> <slug>`
 (verbs in its header); `hd` is the exact command the brief names; the evidence dir is `evidence/<slug>/`. Reference
 in the client repo: `docs/app-telemetry.md` (read in full before any build that touches networking),
 `docs/plugin-host.md`, `docs/offsets.md`.
@@ -13,7 +13,8 @@ sends through `tracks/fork/track.sh log`. `tracks/client/track.sh build <slug>` 
 host build, ninja and the repack with `OPENRUNE=1 LOCAL_AUTH=1` in the build copy and checks the repack log before
 anything is installable; the APK's login modulus is the live stack's key pair's (`state/live/key`), and a cached APK of
 another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the live server runs
-(`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator on the network
+(`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator (boots go one at a
+time, each waiting until Windows has its AVD's guest RAM (Agent_Lite.ini hw.ramSize) available, so parallel ups queue on host memory) on the network
 allowlist (checked), maps its 127.0.0.1:8443 and :43594 to the live Central's http and game ports (`adb reverse`: the APK
 reads jav_config and signs in at the Central every desktop uses), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
 port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through

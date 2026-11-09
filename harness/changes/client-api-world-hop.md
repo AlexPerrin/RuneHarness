@@ -3,6 +3,8 @@ slug: client-api-world-hop
 track: client
 priority: P2
 goal: client-api
+deps:
+- server-world-switcher
 ---
 # Client.hopToWorld, openWorldHopper and changeWorld do nothing on Android
 

@@ -3,6 +3,8 @@ slug: client-api-widget-listeners
 track: client
 priority: P2
 goal: client-api
+deps:
+- h-client-up-am-start-default
 ---
 # Widget's 8 STORED listeners are kept but never run on Android
 

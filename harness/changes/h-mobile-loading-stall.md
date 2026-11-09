@@ -2,6 +2,8 @@
 slug: h-mobile-loading-stall
 track: harness
 priority: P1
+deps:
+- h-mobile-signin-no-redirect
 ---
 # mobile_login: a live start sits in LOADING (20%, server tick 0) after the server drops its session, and up waits on it with no end
 

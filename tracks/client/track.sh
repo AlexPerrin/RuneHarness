@@ -63,6 +63,7 @@ pm_idle() {  # the package manager is up (its dump lists the install sessions) a
 # a Windows process a run started through WSL interop outlives the run's Linux processes: each is recorded, its Windows pid
 # and image, under the run's systemd slice (osrs-harness R5: hd ends them with the run); down drops the record
 winpid() { local sl; sl=$(grep -o 'hd-run-[0-9]*\.scope' /proc/self/cgroup) || return 0; mkdir -p "$root/state/winpids/$sl" && echo "$2" > "$root/state/winpids/$sl/$1"; }   # hd stop ends them with the run
+holder() { "$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$1" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true; }   # the Windows pid listening on port $1
 listening() { "$sys32/netstat.exe" -anp TCP | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,a,":");print a[n]}'; }   # the Windows listening ports
 
 up() {
@@ -118,7 +119,7 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Phone -read-only -gpu swiftshader_indirect -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
   echo "$s" > "$state/serial"
   "$adb" -s "$s" wait-for-device; exec 9>&-
-  w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
+  w=$(holder "$port")   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
   poll booted || return 1   # offline while it boots
@@ -170,7 +171,8 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   fi
   rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
-  if [[ $(A get-state) == *"not found"* ]]; then   # the emulator is gone (it exited): nothing on it to restore
+  w=$(cat "$state/emulator.winpid" 2>/dev/null || true)
+  if [[ $(A get-state) == *"not found"* ]] || { [ -n "$w" ] && [ "$(holder "${s#emulator-}")" != "$w" ]; }; then   # the emulator is gone (it exited), or its port is another run's emulator now: nothing of ours to restore or kill
     rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
   fi
   bad=()

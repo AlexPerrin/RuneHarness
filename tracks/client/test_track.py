@@ -153,6 +153,14 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual((s.ev / "seen").read_text(), "qemu-system-x86_64.exe\n")   # recorded once adb saw the emulator
         s.assertFalse(rec.exists())                                              # up failed at its install and its down dropped the record
 
+    def test_down_leaves_another_runs_emulator_on_its_port(s):  # run 331: a run's down sent emu kill to its old serial, now another run's emulator
+        log = s.fake_windows(); log.write_text("emulator -port 5560\n")   # 5560 listens, held by Windows pid 7300
+        st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True)
+        for rec, killed, said in (("9999", False, "restored (the emulator emulator-5560 had exited)"), ("7300", True, "restored")):
+            (st / "serial").write_text("emulator-5560\n"); (st / "emulator.winpid").write_text(rec + "\n")
+            rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, said))
+            s.assertEqual("emu kill" in log.read_text(), killed); s.assertFalse((st / "serial").exists())
+
     def test_install_waits_for_a_pending_install(s):  # INSTALL_FAILED_DUPLICATE_PACKAGE: install once the dump shows no session of the app
         log = s.fake_windows(); s.env["INSTALL"] = "Success"
         pending = s.ev / "pending"; pending.write_text("4"); s.env["PENDING"] = str(pending)   # 2 dumps before the manager is up, 2 with a session

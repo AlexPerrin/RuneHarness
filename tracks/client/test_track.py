@@ -311,6 +311,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual((lab, fields), ({"Username": (5, 5)}, {"Username": ("", True, 30, 5)}))
         s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
 
+    def test_login_takes_only_the_devices_answer_as_the_apps_death(s):  # run 331: under load an adb read came back empty and the live app was called dead
+        adb = s.ev / "adb.exe"; adb.write_text('#!/bin/sh\ncase "$*" in *"am start"*) echo "Status: ok" ;; *logcat*-s*) echo "I osrsrl-host: GameStateChanged LOGGED_IN" ;; *pidof*) [ -z "$DEAD" ] || echo none ;; esac\n'); adb.chmod(0o755)
+        run = lambda **e: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x'))", str(TRACK.parent)],
+                                         env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", **e}, capture_output=True, text=True).stdout.strip()
+        s.assertEqual(run(), "LOGGED_IN"); s.assertEqual(run(DEAD="1"), "FAILED: the app died")
+
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")
         ps = [subprocess.Popen([str(TRACK), "up", g], env=s.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for g in ("x", "y")]

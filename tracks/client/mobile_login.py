@@ -123,7 +123,7 @@ def main(slug):
     acted = None   # -W returns once the activity is up: the process exists from here
     while True:
         st, ix, pkg, lab, raw, fields, asked_out = screen()
-        if not adb("shell", "pidof", PKG).strip():
+        if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
         act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out)
         if act[0] == "done":

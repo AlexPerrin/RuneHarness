@@ -41,8 +41,8 @@ build() {
   if [ -d "$copy" ]; then git -C "$copy" reset -q --hard "$tc" && git -C "$copy" clean -fdq; else git -C "$repo" worktree add -q --detach "$copy" "$tc"; fi
   [ ! -f "$root/harness/changes/$slug.md" ] || python3 "$root/harness/hd.py" own worktree "$copy" "$slug" >/dev/null 2>&1 || true   # a change's build copy; a goal's and the live build's stay
   mkdir -p "$copy/re/host"; for f in base.apk split_config.arm64_v8a.apk; do ln -sfn "$repo/$f" "$copy/$f"; done  # the ignored store APKs
-  for e in "$repo"/re/*; do n=$(basename "$e"); case $n in host|build|out|devtools|devtools-build) ;; *) ln -sfn "$e" "$copy/re/$n" ;; esac; done
-  for n in devtools devtools-build; do [ -L "$copy/re/$n" ] && rm "$copy/re/$n"; done   # a copy made before the change's own devtools linked them
+  for e in "$repo"/re/*; do n=$(basename "$e"); case $n in host|build|out|apk|devtools|devtools-build) ;; *) ln -sfn "$e" "$copy/re/$n" ;; esac; done
+  for n in apk devtools devtools-build; do [ ! -L "$copy/re/$n" ] || rm "$copy/re/$n"; done   # a copy made before linked them; re/apk is the repack's decoded tree, one per copy
   [ -d "$copy/re/devtools/.git" ] || git clone -q --shared "$repo/re/devtools" "$copy/re/devtools"   # its own checkout; the objects stay shared
   mkdir -p "$copy/re/devtools-build"; ln -sfn "$repo/re/devtools-build/lombok-1.18.30.jar" "$copy/re/devtools-build/lombok-1.18.30.jar"
   [ -d "$copy/re/host/plugins-extra" ] || cp -a "$repo/re/host/plugins-extra" "$copy/re/host/"

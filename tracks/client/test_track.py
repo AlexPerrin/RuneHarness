@@ -214,6 +214,16 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertIn('[ -f "$ev/$T.devtools-desktop.jar" ]', b)
         s.assertIn('cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"', b)
 
+    def test_build_copy_owns_its_decoded_apk_tree(s):  # repack.sh rm -rf's and patches re/apk in place: a shared one races
+        b = BUILD.read_text().split("\nbuild() {")[1].split("\n}")[0]
+        lines = "\n".join(l for l in b.splitlines() if l.strip().startswith(("for e in", "for n in")))
+        with tempfile.TemporaryDirectory() as d:
+            repo, copy = Path(d, "repo"), Path(d, "copy")
+            for n in ("apk", "keys", "host"): (repo / "re" / n).mkdir(parents=True)
+            (copy / "re").mkdir(parents=True); (copy / "re/apk").symlink_to(repo / "re/apk")   # a copy made before the change
+            subprocess.run(["bash", "-c", f"set -euo pipefail\nrepo={repo}\ncopy={copy}\n{lines}"], check=True)
+            s.assertFalse((copy / "re/apk").exists()); s.assertTrue((copy / "re/keys").is_symlink()); s.assertFalse((copy / "re/host").exists())
+
     def test_up_holds_deploys_off_until_down(s):  # h-deploy-spares-live-judge: a judge's mobile plays on the live stack from up to down
         t = TRACK.read_text(); up = t.split("\nup() {")[1].split("\n}")[0]; down = t.split("\ndown() {")[1].split("\n}")[0]
         s.assertLess(up.index('{"live": 1'), up.index('flock -s "$root/state/live/stack.lock" true')); s.assertLess(up.index("stack.lock"), up.index("  boot"))

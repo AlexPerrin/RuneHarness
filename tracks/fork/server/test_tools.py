@@ -1489,6 +1489,9 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         block = run(); import base64
         s.assertEqual(base64.b64decode(block.split('secret: "')[1].split('"')[0]), base64.b64decode((d / "secret").read_text())); s.assertEqual(len(base64.b64decode((d / "secret").read_text())), 32)
         s.assertTrue((d / "tls.pem").exists() and (d / "tls.key").exists()); s.assertEqual(run(), block)   # made once
+        nb = subprocess.run(["openssl", "x509", "-noout", "-checkend", "0", "-startdate", "-in", str(d / "tls.pem")], capture_output=True, text=True, check=True).stdout
+        import email.utils, datetime; start = email.utils.parsedate_to_datetime(nb.split("notBefore=")[1].split("\n")[0].replace(" GMT", " +0000"))
+        s.assertLess(start, datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=12))   # fault 332: a WSL clock stepped back must not make the cert "not yet valid"
         s.assertNotIn("def serve", (HERE / "issuer.py").read_text())   # h-ref-sign-in-no-issuer: Central serves the sign-in, no issuer
 
     def test_up_signs_each_desktop_in_through_its_own_central_and_runs_no_issuer(s):  # h-ref-sign-in-no-issuer: token-<slug> went

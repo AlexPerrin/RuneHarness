@@ -662,6 +662,11 @@ flowchart LR
   Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (RSProx maps no RuneLite
   to 241), `binary_folder` (the recordings' folder), and RSProx run headless by `OsrsTestLauncher.java`, which selects
   that target and refuses one whose `jav_config_url` is not local (Privacy).
+- The reference deployment's (PRD H8) deviations beyond those above, each kept for its reason: the clients' `jav_config.ws`
+  is the deploy's local template served by Central, not upstream's client.blurite.io (that config names Jagex hosts, and
+  no client contacts Jagex: Privacy); Central's sign-in (OIDC, game-session) and token login are the fork's, not yet
+  upstream's (held until the Central upstream hold lifts); the APK is the official app repacked (telemetry patch,
+  `OPENRUNE=1 LOCAL_AUTH=1`, Central's modulus and loopback hosts), since upstream has no Android client.
 
 ## 12 Roles and alerts
 

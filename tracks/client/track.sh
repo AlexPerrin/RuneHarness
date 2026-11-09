@@ -124,8 +124,8 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   cell='ni\{MOBILE[^ ]* CONNECTED'; until c=$(A shell dumpsys connectivity); [[ $c =~ $cell && $c != *"ni{WIFI"* ]]; do sleep 1; done
   A shell settings put secure immersive_mode_confirmations confirmed >/dev/null   # SystemUI's "Viewing full screen" prompt never shows: no tap
   blocked >&2 || return 1
-  r=$(A shell am start -W -n "$pkg/com.jagex.android.MainActivity")   # by component: the launcher filter has no category.DEFAULT, which am start's resolve needs; a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches
-  [[ $r =~ Status:\ (ok|timeout) ]] || { echo "the app did not start: $r" >&2; return 1; }   # timeout: launched, its first frame not drawn within am's wait; the loop below watches files/ or its death
+  r=$(A shell am start -W -n "$pkg/com.jagex.android.MainActivity")   # a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches; by component: its launcher filter has no DEFAULT category, so an implicit am start does not resolve
+  [[ $r == *"Status: ok"* || $r == *"Status: timeout"* ]] || { echo "the app did not start: $r" >&2; return 1; }   # timeout: started, its first frame slower than -W waits; the files/ wait below decides
   until f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ]; do [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 1; }; sleep 1; done; A shell am force-stop "$pkg" >/dev/null
   A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done

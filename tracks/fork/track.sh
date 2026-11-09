@@ -116,9 +116,11 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   sed -i "s/^openrunedevtools\.port=.*/openrunedevtools.port=$dp/" "$d"/home/.rlcustom/settings.properties $(ls "$d"/home/.rlcustom/profiles2/*.properties 2>/dev/null)   # a fresh template has no profile yet: RuneLite imports settings.properties
   mkdir -p "$d/home/.rlcustom/sideloaded-plugins" && cp "$jar" "$d/home/.rlcustom/sideloaded-plugins/OpenRune-Developer-Tools.jar"
   for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start
-  ep=https://127.0.0.1:$http   # OPENRUNE_ENDPOINT: the launcher takes jav_config from it alone, and jav_config names every other endpoint
-  printf '%s\n' "- name: OpenRune Test - $slug" "  jav_config_url: $ep/jav_config.ws" "  modulus: $modulus" "  revision: 241.1" \
-    "  game_server_port: $game" "  runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "  binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
+  ep=https://127.0.0.1:$http   # the embedded Central's front: its jav_config.ws names every other endpoint
+  # upstream README's Client Setup entry (id, name, jav_config_url, varp_count, revision, modulus of .data/client.key); beside it:
+  # game_server_port (each up's own host port, not 43594), the RuneLite commit (RSProx maps none for 241), the recordings' folder
+  printf '%s\n' "config:" "  - id: 1" "    name: OpenRune Test - $slug" "    jav_config_url: $ep/jav_config.ws" "    varp_count: 15000" "    revision: 241" "    modulus: $modulus" \
+    "    game_server_port: $game" "    runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "    binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
   t=$(wslpath -w "$desk"); l=launcher-$(sha1sum < "$self/server/OsrsTestLauncher.java" | cut -c1-12)   # this tools tree's launcher, compiled once into the template
   [ -f "$desk/rsprox/$l/OsrsTestLauncher.class" ] || { rm -rf "$desk/rsprox/$l.$$" && mkdir -p "$desk/rsprox/$l.$$" \
     && "$desk/jdk/bin/javac.exe" -nowarn -cp "$t\\rsprox\\lib\\*" -d "$t\\rsprox\\$l.$$" "$(wslpath -w "$self/server/OsrsTestLauncher.java")" >&2 \
@@ -133,7 +135,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   # this up's, or any caller while a live session's bridge predates serve.py (desktop_login.py guard, and its keeper while the desktop is up)
   python3 "$self/server/desktop_login.py" "$dp" guard "$devtoken" >&2
   jo=" -javaagent:$t\\rsprox\\$o.jar -Dcom.sun.net.httpserver.HttpServerProvider=DevtoolsOwner --add-exports=jdk.httpserver/sun.net.httpserver=ALL-UNNAMED -Dosrstest.devtools=$dp:$w\\guard -Dosrstest.refusals=$(wslpath -w "$state/refused-urls.log")"   # no URL reaches the OS: each refused one is a line of that log
-  jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
+  jx=JAVA_TOOL_OPTIONS
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
     jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
     until "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" > /dev/null 2> "$d/keytool.err"; do   # a WSL interop error (accept4 failed 110) ends keytool, before or after it ran: asked again on a fresh store
@@ -153,7 +155,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
     fi
     if [ -z "$pid" ]; then
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
-        OPENRUNE_ENDPOINT=$ep JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
+        JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
         "-Dosrstest.token=${tok:-false}" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!

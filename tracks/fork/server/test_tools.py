@@ -565,16 +565,18 @@ class DesktopInstance(unittest.TestCase):
         p = s.sh("b", "account() { echo h1; }; desktop_start", stderr=subprocess.PIPE); err = p.communicate(timeout=60)[1]
         s.assertEqual(p.returncode, 1); s.assertIn("desktop 2 exited: ", err); s.assertIn("Could not find or load main class", err)   # any other cause fails up
 
-    def test_the_desktop_takes_jav_config_from_openrune_endpoint_alone(s):  # the user's word: one variable points every Jagex endpoint at our server
+    def test_the_desktop_connects_through_the_readmes_proxy_target_alone(s):  # h-ref-rsprox-targets: upstream README's Client Setup entry, no OPENRUNE_ENDPOINT
         java = s.t / "desk/jdk/bin/java.exe"
-        java.write_text(java.read_text().replace("#!/bin/bash\n", f'#!/bin/bash\necho "$OPENRUNE_ENDPOINT $WSLENV" > {s.t}/env; ', 1))   # before its port: desktop_start returns once the port answers
+        java.write_text(java.read_text().replace("#!/bin/bash\n", f'#!/bin/bash\necho "${{OPENRUNE_ENDPOINT:-none}} $WSLENV" > {s.t}/env; ', 1))   # before its port: desktop_start returns once the port answers
         p = s.sh("a", "desktop_start"); p.communicate(timeout=60)
         s.assertEqual(p.returncode, 0)
         ep, wslenv = (s.t / "env").read_text().split()
-        s.assertEqual(ep, "https://127.0.0.1:1");   # Central's https: the desktop casts its sign-in params to https s.assertIn("OPENRUNE_ENDPOINT", wslenv.split(":"))
-        s.assertIn(f"  jav_config_url: {ep}/jav_config.ws\n", (s.t / "desk/run/1/home/.rsprox/proxy-targets.yaml").read_text())
+        s.assertEqual(ep, "none"); s.assertNotIn("OPENRUNE_ENDPOINT", wslenv.split(":"))
+        y = (s.t / "desk/run/1/home/.rsprox/proxy-targets.yaml").read_text().splitlines()
+        s.assertEqual(y[:7], ["config:", "  - id: 1", "    name: OpenRune Test - a", "    jav_config_url: https://127.0.0.1:1/jav_config.ws", "    varp_count: 15000", "    revision: 241", "    modulus: 3"])   # the README's entry, its fields in its order
+        s.assertIn("    game_server_port: 2", y); s.assertIn("    binary_folder: openrune-qa", y)   # the up's own game port; the recordings' folder
         src = (HERE / "OsrsTestLauncher.java").read_text()
-        s.assertIn('System.getenv("OPENRUNE_ENDPOINT")', src); s.assertIn('getJavConfigUrl().equals(endpoint + "/jav_config.ws")', src)
+        s.assertNotIn("OPENRUNE_ENDPOINT", src); s.assertIn('getJavConfigUrl().matches("https?://(127\\\\.0\\\\.0\\\\.1|localhost):[0-9]+/jav_config\\\\.ws")', src)   # a non-local target is refused
 
     def test_a_fresh_home_opens_on_the_welcome_page_and_existing_user_on_the_form(s):  # run 136: the terms page took no key and the Jagex Account prompt ate the typed login; a fixed-coordinate click opened a Jagex page
         src = (HERE / "OsrsTestLauncher.java").read_text()

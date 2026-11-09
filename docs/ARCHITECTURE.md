@@ -656,6 +656,11 @@ flowchart LR
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).
+- A test desktop connects as upstream's README Client Setup says: RSProx with a `~/.rsprox/proxy-targets.yaml` entry
+  (id, name, `jav_config_url` the embedded Central's `/jav_config.ws`, `varp_count`, `revision`, the stack's modulus).
+  Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (RSProx maps no RuneLite
+  to 241), `binary_folder` (the recordings' folder), and RSProx run headless by `OsrsTestLauncher.java`, which selects
+  that target and refuses one whose `jav_config_url` is not local (Privacy).
 
 ## 12 Roles and alerts
 

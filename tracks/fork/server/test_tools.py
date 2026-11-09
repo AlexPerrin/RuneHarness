@@ -270,7 +270,7 @@ class ShipFailure(unittest.TestCase):
         recipe = lambda: subprocess.run(["bash", str(HERE.parent / "track.sh"), "recipe"], capture_output=True, text=True, env={**os.environ, "HD_ROOT": "/nonexistent"}).stdout   # no live token
         import hashlib
         files = b"".join((HERE / f).read_bytes() for f in ("docker-compose.yml", "switch.env", "jav_config.ws.template"))
-        s.assertIn(f"deploy fork-3-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
+        s.assertIn(f"deploy fork-4-{hashlib.sha256(files).hexdigest()[:12]}\n", recipe())
 
     def test_the_live_tokens_certificate_moves_the_deploy_key(s):  # h-live-central-cert-mismatch: state/live/token moved, the stack kept serving the old certificate
         with tempfile.TemporaryDirectory() as d:
@@ -1439,13 +1439,18 @@ class RealmLikeLive(unittest.TestCase):  # Central seeds a dev realm: every logi
     def test_up_turns_the_dev_realm_off_and_restarts_before_any_login(s):
         line = next(l for l in s.up.splitlines() if "dev_mode = 0" in l)
         s.assertLess(s.up.index(line), s.up.index("desktop_start"))
-        call = lambda out: subprocess.run(["bash", "-c", f'set -euo pipefail\nsql() {{ echo "{out}"; }}\ndocker() {{ echo "docker $*" >&2; }}\nready() {{ echo "ready $*" >&2; }}\nslug=s\n{line}'], capture_output=True, text=True)
+        call = lambda out: subprocess.run(["bash", "-c", f'set -euo pipefail\nworld256=w\nsql() {{ echo "{out}"; }}\ndocker() {{ echo "docker $*" >&2; }}\nready() {{ echo "ready $*" >&2; }}\nslug=s\n{line}'], capture_output=True, text=True)
         r = call("1"); s.assertEqual(r.returncode, 0, r.stderr); s.assertIn("docker restart server-s", r.stderr); s.assertRegex(r.stderr, r"ready server-s \d")
         r = call(""); s.assertEqual(r.returncode, 0, r.stderr); s.assertEqual(r.stderr, "")   # already live (RESUME): no restart
 
-    def test_up_adds_world_256_as_a_copy_of_255(s):  # a world switch's target on the same host and ports; a resumed database keeps its row
-        line = next(l for l in s.up.splitlines() if "dev_mode = 0" in l)
-        s.assertRegex(line, r"insert into worlds \(world_id, flags, host, .*\) select 256, flags, host, .* from worlds where world_id = 255 on conflict \(world_id\) do nothing returning 1")
+    def test_up_and_the_live_deploy_add_world_256_as_a_copy_of_255(s):  # a world switch's target on the same host and ports; a resumed database keeps its row. h-live-mobile-world-list: live listed 255 alone
+        defn = next(l for l in SRC.splitlines() if l.startswith("world256="))
+        s.assertRegex(defn, r"insert into worlds \(world_id, flags, host, .*\) select 256, flags, host, .* from worlds where world_id = 255 on conflict \(world_id\) do nothing returning 1")
+        s.assertIn("w as ($world256)", next(l for l in s.up.splitlines() if "dev_mode = 0" in l))
+        deploy = SRC.split("\ndeploy() {")[1].split("\n}")[0]
+        s.assertIn('if ready osrs-openrune "$since" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { since=$(date -u +%FT%TZ); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$since"; }; }; then', deploy)
+        out = subprocess.run(["bash", "-c", "sql() {" + SRC.split("\nsql() {")[1].split("\nlogin()")[0] + "\ndocker() { echo \"$*\"; }\nslug=s; srv=osrs-openrune sql q; sql q"], capture_output=True, text=True).stdout
+        s.assertIn("--network container:osrs-openrune", out); s.assertIn("--network container:server-s", out)   # srv names the live container, else the up's
 
     def test_up_sets_the_realm_xp_rates_to_live(s):  # the dev realm seeds player xp at 15000 hundredths: a reward shows 150x
         line = next(l for l in s.up.splitlines() if "dev_mode = 0" in l)
@@ -1634,7 +1639,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         import javcheck
         ship = SRC.split("\ndeploy() {")[1].split("\n}")[0]; compose = (HERE / "docker-compose.yml").read_text()
         s.assertIn('"${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:9090", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"', compose)
-        s.assertIn("http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
+        s.assertIn("http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; plain=${OPENRUNE_CENTRAL_HTTP_PORT:-8084}; tpl=$self/server/jav_config.ws.template; central_jav", ship)
         s.assertIn('-in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"', ship)
         s.assertIn("COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/", ship)
         for e in ('OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")"', "OPENRUNE_HTTP_TLS_PORT=8443",
@@ -1643,10 +1648,10 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         s.assertIn('javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6', ship)
         s.assertNotIn("OPENRUNE_SIGN_IN_DEV_ACCOUNT", ship)   # h-mobile-login-page-9: one dev account for every mobile refused parallel mobiles Duplicate; each signs in at Central's form
         s.assertIn('curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6', ship)
-        s.assertLess(ship.index("central_jav"), ship.index("docker build"))
-        out = subprocess.run(["bash", "-c", f"http=8443 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        s.assertLess(ship.index("central_jav"), ship.index("docker build"));
+        out = subprocess.run(["bash", "-c", f"http=8443 plain=8084 tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{JAV}\ncentral_jav; cat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
-        for line in ("param=11=http://127.0.0.1:8443/", "param=20=http://127.0.0.1:8443/", "param=22=http://127.0.0.1:8443/", "param=28=http://127.0.0.1:8443/", "param=17=https://127.0.0.1:8443/worldslist.ws"):   # 11 and 22 the desktop casts to https; the APK takes them as written
+        for line in ("param=11=http://127.0.0.1:8443/", "param=20=http://127.0.0.1:8443/", "param=22=http://127.0.0.1:8443/", "param=28=http://127.0.0.1:8443/", "param=17=http://127.0.0.1:8084/worldslist.ws"):   # 11 and 22 the desktop casts to https; the APK takes them as written; 17 both take as written: Central's plain http port (h-live-mobile-world-list)
             s.assertIn(line + "\n", out)
 
     def test_the_launcher_refuses_a_jagex_access_or_refresh_token_in_every_mode(s):

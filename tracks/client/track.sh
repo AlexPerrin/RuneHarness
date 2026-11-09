@@ -44,7 +44,7 @@ pkg=com.jagex.oldscape.android; files=/sdcard/Android/data/$pkg/files; defaults=
 addrs="8.8.8.8 1.1.1.1 142.250.80.46 104.26.8.233"   # public addresses (Google DNS, Cloudflare DNS, google.com, runelite.net): none connects
 allowed="api.runelite.net static.runelite.net"   # tools/allow.py: these resolve to its relay, which reaches them on 443
 hosts="legal.jagex.com auth.jagex.com oldschool.runescape.com www.runescape.com sdk.iad-01.braze.com cdn.cookielaw.org app-measurement.com firebaseinstallations.googleapis.com sdk-api-v1.singular.net google.com connectivitycheck.gstatic.com"
-reverse="8443:${OPENRUNE_CENTRAL_HTTP_PORT:-8084} 43594:${OPENRUNE_GAME_PORT:-43594}"   # the mobile's 127.0.0.1 port: the live stack's host port (Central's http, which the APK's endpoint and Central's jav_config name; the game)
+reverse="8443:${OPENRUNE_CENTRAL_HTTP_PORT:-8084} ${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:${OPENRUNE_CENTRAL_HTTP_PORT:-8084} 43594:${OPENRUNE_GAME_PORT:-43594}"   # the mobile's 127.0.0.1 port: the live stack's host port (Central's http, which the APK's endpoint and Central's jav_config name, and again on its own port, jav_config's world list; the game)
 docker=${DOCKER:-docker}; fork=${FORK_TRACK:-$self/../fork/track.sh}
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 serial() { cat "$state/serial" 2>/dev/null || { echo "no mobile for $slug: run up"; return 1; }; }

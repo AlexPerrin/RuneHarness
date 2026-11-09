@@ -39,7 +39,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-3-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template "$root"/state/live/token/{secret,tls.pem} 2>/dev/null | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout and bakes the sign-in's secret and certificate from state/live/token: a moved one moves the deploy's key
+case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-4-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template "$root"/state/live/token/{secret,tls.pem} 2>/dev/null | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout and bakes the sign-in's secret and certificate from state/live/token: a moved one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
@@ -67,8 +67,9 @@ quests() { case $1 in respect-progress|assume-completed) ;; *) echo "quest-mode 
   y=$(sed -E "/^[[:space:]]*quest-requirements:/,/^[[:space:]]*mode:/ s/(mode:[[:space:]]*).*/\1\"$1\"/"); grep -q "mode: \"$1\"" <<< "$y" || { echo "game.yml has no quest-requirements mode" >&2; return 1; }; printf '%s\n' "$y"; }
 account() { echo "h$(printf %s "$slug" | sha1sum | cut -c1-9)${1:-}"; }   # the Nth desktop's login name and password (no N: the prefix of this slug's names): 11 characters (a login name takes 12 at most), listed in the slug's up.json
 mine="select c.id from account_characters c join accounts a on a.id = c.account_id where lower(a.account_name) like '$(account)%'"   # this slug's characters
-sql() { local pg; pg=$(docker logs "server-$slug" 2>&1 | grep -oE 'jdbc:postgresql://localhost:[0-9]+' | tail -1 | grep -oE '[0-9]+$')
-  docker run --rm --network "container:server-$slug" postgres:16-alpine psql -h 127.0.0.1 -p "$pg" -U postgres -d postgres -tAq -c "$1"; }
+world256="insert into worlds (world_id, flags, host, activity, location, population, sort_order, enabled, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled) select 256, flags, host, activity, location, 0, 1, 1, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled from worlds where world_id = 255 on conflict (world_id) do nothing returning 1"   # Central seeds world 255 only; 256, a copy of it on the same host and ports, gives a world switch a target (an up's and the live stack's)
+sql() { local c=${srv:-server-$slug} pg; pg=$(docker logs "$c" 2>&1 | grep -oE 'jdbc:postgresql://localhost:[0-9]+' | tail -1 | grep -oE '[0-9]+$')   # srv: the live stack's container
+  docker run --rm --network "container:$c" postgres:16-alpine psql -h 127.0.0.1 -p "$pg" -U postgres -d postgres -tAq -c "$1"; }
 login() {  # login <devtools port> <account>: logs that desktop in as the account (a FAILED login fails up and restart: one whose inventory widget does not show container 93 too); a lost key types another name, whose first login makes a stray account (the rights update then missed the real row): until this login made no row but the account's, out and in again
   local m; while :; do m=$(sql "select coalesce(max(id), 0) from accounts")
     python3 "$self/server/desktop_login.py" "$1" token   # Play alone; prints LOGGED_IN or FAILED: reason
@@ -220,7 +221,9 @@ central_staged() {  # the T of or:<T>'s tree built with Central's staging, the C
   python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json"; }
 central_jav() {  # $state/jav_config.ws for the game's own Central, every client's: $tpl filled, its base https://127.0.0.1:$http; the sign-in params 11, 20, 22 and 28
   # http://127.0.0.1:$http/: a desktop casts 11 and 22 to https (Central's https port), the APK takes them as written on its own 127.0.0.1, which adb reverse maps to Central's http port
-  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#^param=(11|20|22|28)=.*#param=\1=http://127.0.0.1:$http/#; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=https://127.0.0.1:$http/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
+  # the world list (17): both take it as written, so with plain (the live stack's plain http host port, the same port on a mobile through adb reverse) http there, else https on $http
+  local wl=https://127.0.0.1:$http; [ -z "${plain:-}" ] || wl=http://127.0.0.1:$plain
+  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#^param=(11|20|22|28)=.*#param=\1=http://127.0.0.1:$http/#; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=$wl/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
   tok=true; sid=; cid=; who=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || n=1
   T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
@@ -252,8 +255,7 @@ up() {
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted.
-  # Central seeds world 255 only; world 256, a copy of it on the same host and ports, gives a world switch a target (test-only)
-  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as (insert into worlds (world_id, flags, host, activity, location, population, sort_order, enabled, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled) select 256, flags, host, activity, location, 0, 1, 1, max_players, world_key_sha256, realm_id, login_restrictions_enabled, login_min_total_level, login_min_rights_token, login_gate_min_level_enabled, login_gate_rights_enabled, login_gate_whitelist_enabled from worlds where world_id = 255 on conflict (world_id) do nothing returning 1) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
+  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as ($world256)) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
   python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
@@ -305,7 +307,7 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   # Central's sign-in for every client, as up's: the secret, https with its certificate, its own jav_config; no dev account,
   # so every sign-in (each run's mobile and desktop as its slug's own account, the user's phone as tester) goes through Central's form
-  http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
+  http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; plain=${OPENRUNE_CENTRAL_HTTP_PORT:-8084}; tpl=$self/server/jav_config.ws.template; central_jav
   openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
   python3 "$self/server/javcheck.py" "$state/jav_config.ws" || return 6   # Central's jav_config, before any live container is touched
   [ -f "$state/key/game.key" ] && [ -f "$state/key/client.key" ] || { echo "no live key pair in $state/key"; return 4; }
@@ -331,7 +333,7 @@ EOF
   since=$(date -u +%FT%TZ)
   # recreated, never restarted (a container's file bind mount does not outlive a WSL restart); a container of a service compose no longer names goes
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans openrune) >/dev/null
-  if ready osrs-openrune "$since"; then  # the record names the stack's containers: hd deploys again while one is not running
+  if ready osrs-openrune "$since" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { since=$(date -u +%FT%TZ); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$since"; }; }; then  # world 256 once into the live database (its volume keeps it), read at boot; the record names the stack's containers: hd deploys again while one is not running
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
     python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, every client's

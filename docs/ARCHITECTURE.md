@@ -643,7 +643,7 @@ flowchart LR
   certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both. Its `jav_config.ws`
   names 127.0.0.1 hosts, the sign-in params 11, 20, 22 and 28 as `http://127.0.0.1:8443/`: a desktop casts 11 and 22
   to https, and the APK (repacked with `SERVER=127.0.0.1:8443`, which `LOCAL_AUTH` lets speak http) reads them on its own
-  loopback, where the client track's `up` maps 8443 to Central's http 8084 and 43594 to the game (`adb reverse`). A desktop on the live stack
+  loopback, where the client track's `up` maps 8443 to Central's http 8084 and 43594 to the game (`adb reverse`); the world list (param 17), which both take as written, is `http://127.0.0.1:8084/worldslist.ws`, 8084 mapped to itself on a mobile. The deploy adds world 256 beside 255 (as each fork `up` does), a world switch's target. A desktop on the live stack
   (`live-desktop`) and each desktop of a fork `up` sign in there by password as the slug's own account and log in by
   token with Play alone. Central keeps sessions in memory, so a fork `restart` is a down and a resumed up.
 - The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's

@@ -118,7 +118,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
   *" install "*) echo "${{INSTALL:-Failure [INSTALL_FAILED_DUPLICATE_PACKAGE]}}" ;; *libosrsrl*) echo 1 ;;
-  *"reverse --list"*) [ -n "$NOREVERSE" ] || printf 'emulator-5560 tcp:8443 tcp:8084\nemulator-5560 tcp:43594 tcp:43594\n' ;;
+  *"reverse --list"*) [ -n "$NOREVERSE" ] || printf 'emulator-5560 tcp:8443 tcp:8084\nemulator-5560 tcp:8084 tcp:8084\nemulator-5560 tcp:43594 tcp:43594\n' ;;
   *dumpsys*) echo '  NetworkAgentInfo{{network{{101}}  ni{{MOBILE[NR] CONNECTED extra: }}' ;;
   *"hello-"*) [ -z "$BOOTS" ] || for h in api.runelite.net static.runelite.net; do echo "$h  16"; done ;;
   *"nc -w 15"*) [ -z "$BOOTS" ] || for h in {HOSTS}; do echo "nc: $h:443: No address associated with hostname"; done ;;
@@ -180,7 +180,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         (m / "tools/mobile_login.py").write_text("raise SystemExit(1)\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)
         up = lambda: subprocess.run([str(m / "tools/track.sh"), "up", "x"], env=s.env, capture_output=True, text=True)
         up(); calls = log.read_text()
-        s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
+        s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:8084 tcp:8084\n", calls)   # h-live-mobile-world-list: jav_config's world list on Central's plain http port
         s.assertLess(calls.index("reverse tcp:8443"), calls.index("files/plugins"))   # before the app first starts
         s.assertNotIn("am start", calls)   # boot makes files/ itself: the app starts once, in mobile_login
         s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)

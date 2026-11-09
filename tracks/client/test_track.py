@@ -290,6 +290,10 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(on(f(name, False, name, False), True), ("wait",))                                     # posted: the form leaves next
         s.assertEqual(on(f("", False, name, False), True), ("wait",))                                       # the posted page while the redirect hands over (seen live: Username cleared)
         s.assertEqual(on(f("", False, "", False), True)[0], "fail")                                         # Central's 401 answers its form again
+        ask = {**form, name: (5, 1), "Continue to Old School RuneScape?": (5, 9), "This site wants to open the Old School RuneScape app": (5, 10), "Continue": (9, 11)}
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, ask, None, name, f(name, False, name, False), True), ("tap", "Chrome's Continue to the app", 9, 11))   # run 310 start 6: the post answered after 15 s
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {**form, name: (5, 1)}, None, name, f(name, False, name, False), True, True)[0], "fail")   # its message gone by its timer: never a wait with no end
+        s.assertTrue(re.search(m.ASKED_OUT, "W cr_MessageQueueManager: Removed message with ID 31 and key org.chromium.ui.modelutil.PropertyModel@42bf7b9 from queue because of reason 3."))
         tip = m.step("LOGIN_SCREEN", 30, chrome, {**form, "Please fill out this field.": (1, 1)}, None, name, f("", True, name, False), True)
         s.assertEqual(tip, ("fail", "Central's form did not post: Please fill out this field."))           # run 289's stuck form
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name, {})[0], "fail")                  # a form without its fields

@@ -3,6 +3,8 @@ slug: client-api-probe-self-setup
 track: client
 priority: P2
 goal: client-api
+deps:
+- h-mobile-login-page-39-again
 ---
 # api-probe: the measure reaches every set-up-dependent instance by itself, on the slug's own fresh account
 

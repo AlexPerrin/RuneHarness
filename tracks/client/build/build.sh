@@ -4,7 +4,7 @@
 # Env from hd: SLUG HEAD T (the tree) TCOMMIT BASE CLONE EVIDENCE BUILD HD_ROOT HD_KEY. Verbs:
 #   build [TCOMMIT]   the devtools plugin (host/plugins/devtools/build.sh on the copy's own re/devtools, a shared clone of the
 #                     main one, re/devtools-build and re/host/plugins-extra), host build, ninja and the repack with OPENRUNE=1
-#                     LOCAL_AUTH=1 in the build copy, SERVER $server (the mobile's own loopback: up's adb reverse maps it to the live Central's http), the login modulus the live stack's key pair's (state/live/key/client.key of
+#                     LOCAL_AUTH=1 DEBUGGABLE=1 (a dev build is debuggable; the release never) in the build copy, SERVER $server (the mobile's own loopback: up's adb reverse maps it to the live Central's http), the login modulus the live stack's key pair's (state/live/key/client.key of
 #                     osrs-harness, the key every live image carries); the APK is kept only when its repack log passes check-log; cached by T
 #                     while it carries that modulus and endpoint (evidence/<slug>/<T>.apk, <T>.devtools.jar, the jar boot pushes, and <T>.devtools-desktop.jar, its
 #                     classes before dexing, the jar the server track's desktops load from the build of slug live)
@@ -50,7 +50,7 @@ build() {
   [ -f "$copy/re/build/build.ninja" ] || cmake -S "$copy/native" -B "$copy/re/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 >/dev/null
   log=$ev/repack-$T.log
-  (cd "$copy" && host/plugins/devtools/build.sh && host/build.sh && ninja -C re/build && MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh) > "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
+  (cd "$copy" && host/plugins/devtools/build.sh && host/build.sh && ninja -C re/build && MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh) > "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
   EVIDENCE=$ev check_log >/dev/null || { record false build <<< "repack log fails the privacy check: $log"; rm -f "$copy/re/out/osrs-runelite.apk"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "the repack log fails the privacy check"; return 1; }
   cp "$copy/re/host/plugins-extra/devtools.jar" "$ev/$T.devtools.jar"; cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"; cp "$copy/re/out/osrs-runelite.apk" "$ev/$T.apk"; record true build < "$log"; echo "built $ev/$T.apk"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "$ev/$T.apk"
 }

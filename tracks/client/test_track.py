@@ -122,7 +122,8 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *dumpsys*) echo '  NetworkAgentInfo{{network{{101}}  ni{{MOBILE[NR] CONNECTED extra: }}' ;;
   *"hello-"*) [ -z "$BOOTS" ] || for h in api.runelite.net static.runelite.net; do echo "$h  16"; done ;;
   *"nc -w 15"*) [ -z "$BOOTS" ] || for h in {HOSTS}; do echo "nc: $h:443: No address associated with hostname"; done ;;
-  *"am start"*) [ -z "$BOOTS" ] || [ -n "$NOSTART" ] || echo "Status: ${{AMSTATUS:-ok}}" ;; *"echo y"*) [ -z "$BOOTS" ] || [ -n "$DIES" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
+  *"am start"*) [ -z "$BOOTS" ] || [ -n "$NOSTART" ] || echo "Status: ${{AMSTATUS:-ok}}" ;; *"echo y"*) [ -z "$BOOTS" ] || [ -n "$DIES" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;;
+  *"exec-out screencap"*) python3 -c 'import sys;n=300*300;sys.stdout.buffer.write((300).to_bytes(4,"little")*2+bytes(8)+b"".join((0 if sys.argv[1] else i).to_bytes(3,"little")+b"\\xff" for i in range(n)))' "$BLACK" ;; esac""",   # a raw frame: every pixel its own colour, or all black
                  sdk / "emulator/emulator.exe": f'echo "emulator $*" >> {log}; echo "emulator: booting on $PWD"',
                  sys32 / "netstat.exe": f"sed -n 's/.*-port \\([0-9]*\\).*/  TCP 127.0.0.1:\\1 0.0.0.0:0 LISTENING 7300/p' {log}; echo '  UDP    0.0.0.0:53             *:*                                    3860'; [ -z \"$STALE\" ] || echo '  UDP    127.0.0.2:53           *:*                                    3070'; for a in $(ls {s.ev}/relays); do echo \"  UDP    $a:53           *:*                                    42${{a##*.}}\"; done",
                  sys32 / "WindowsPowerShell/v1.0/powershell.exe": f'echo "powershell $*" >> {log}; case "$*" in *FreePhysicalMemory*) n=$(cat "$FREE" 2>/dev/null || echo 9000000); printf "%s\\r\\n" "${{n%% *}}"; [ -z "$FREE" ] || echo "${{n#* }}" > "$FREE"; exit 0 ;; esac; echo "relay $ALLOW_DNS" >> {log}; echo "#< CLIXML"; touch {s.ev}/relays/$ALLOW_DNS; echo listening',   # a relay's pid: 42 and its last octet
@@ -271,7 +272,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         (s.ev / "sys32/tasklist.exe").write_text(f'#!/bin/sh\ngrep -q "emu kill" {log} || printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\'\n')   # gone once killed
         rc, out = s.row("avd"); s.assertEqual(rc, 0, out); calls = log.read_text()
         s.assertEqual((home / "Agent_Lite.avd/config.ini").read_text(), (TRACK.parent / "Agent_Lite.ini").read_text())
-        s.assertIn("emulator -avd Agent_Lite -lowram -no-boot-anim -gpu host -port 5560", calls)   # writable: no -read-only
+        s.assertIn("emulator -avd Agent_Lite -lowram -no-boot-anim -gpu host -feature GuestAngle -port 5560", calls)   # writable: no -read-only
         for c in ("settings put secure immersive_mode_confirmations confirmed", "settings put global hide_error_dialogs 1", "settings put global animator_duration_scale 0",
                   "pm disable-user --user 0 com.google.android.apps.nexuslauncher", "am set-debug-app --persistent com.android.chrome", "--disable-fre", "svc wifi disable"):
             s.assertIn(c, calls)
@@ -367,6 +368,13 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
             args.write_text(""); r = subprocess.run([str(m / "tools/track.sh"), "up", "x", *extra], env=s.env, capture_output=True, text=True)
             s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertEqual(args.read_text(), want)
             subprocess.run([str(m / "tools/track.sh"), "down", "x"], env=s.env, capture_output=True)
+
+    def test_up_fails_on_a_black_scene(s):  # h-lite-avd-black-scene: logged in, the scene must draw; only the overlays' colours fail the up
+        s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1", BLACK="1")
+        m = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, m); (m / "tools").mkdir(); place(m / "tools")
+        (m / "tools/mobile_login.py").write_text("print('LOGGED_IN')\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)
+        r = subprocess.run([str(m / "tools/track.sh"), "up", "x"], env=s.env, capture_output=True, text=True)
+        s.assertEqual(r.returncode, 1, r.stdout + r.stderr); s.assertIn("the game scene draws black on emulator-5560", r.stderr); s.assertNotIn("LOGGED_IN emulator", r.stdout)
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")

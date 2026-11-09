@@ -7,7 +7,7 @@
 #                     jav_config from http://127.0.0.1:8443; boots the change's emulator once Windows has its guest RAM available, one boot at a time (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), maps the mobile's 127.0.0.1:8443 and :43594 to the live Central's http and game ports (adb reverse), installs the APK once no install of the app is pending, logs
 #                     in as the slug's own account: its Central session seeded as the app's saved sign-in before the app's one start (run-as: the build is debuggable), Play Now
-#                     the one tap (tools/mobile_login.py: each screen read, acted on once; a sign-in screen, the browser, an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#                     the one tap (tools/mobile_login.py: each screen read, acted on once; a sign-in screen, the browser, an unknown one or a refusal fails); once the game scene draws (a black one fails), prints LOGGED_IN <serial> <devtools port>;
 #   up <slug> browser the same without the seed: the start signs in at Central's form in the browser (the check of a change that touches sign-in)
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
 #   avd               prepares the agents' AVD Agent_Lite once (avd() names the state every start inherits); every mobile down first
@@ -78,8 +78,13 @@ up() {
   mkdir -p "$root/state/live"; flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   boot
   ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug" ${arg:+"$arg"}   # its command line names the change: down stops it when up's caller died
+  drawn || { echo "the game scene draws black on $(serial): the screen holds only the overlays' colours" >&2; return 1; }
   date +%s.000 > "$state/log-mark"   # epoch: logcat -T reads a date-time as the device's local time
   echo "LOGGED_IN $(serial) 7780"
+}
+drawn() {  # the screen holds the scene's many colours, not only RuneLite's boxes and text over black (a guest GL the game cannot render with); raw screencap: a header, then RGBA
+  "$adb" -s "$s" exec-out screencap | python3 -c 'import sys;d=sys.stdin.buffer.read();w,h=(int.from_bytes(d[i:i+4],"little") for i in (0,4));p=d[len(d)-w*h*4:]
+sys.exit(w*h==0 or len({p[i:i+3] for i in range(0,len(p),4*97)})<256)'
 }
 udp53() { "$sys32/netstat.exe" -anop UDP | tr -d '\r' | awk '$1=="UDP" && $2 ~ /:53$/ {print $2, $NF}'; }   # each Windows udp 53 bind: address:53 pid
 allow() {  # the mobile's resolver and relay (tools/allow.py), one container for every mobile, outliving the run, and the mobile's own
@@ -128,7 +133,8 @@ emu() {  # an Agent_Lite emulator (Google APIs without Play, -lowram: its 2 GB h
   hostmem || return 1
   allow || return 1
   port=$(comm -23 <(seq 5560 2 5598 | sort) <(listening | sort -u) | sort -n | head -1); s=emulator-$port; [ -n "$port" ] || { echo "no free even port in 5560-5598" >&2; return 1; }
-  (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Lite "$@" -lowram -no-boot-anim -gpu host -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
+  (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Lite "$@" -lowram -no-boot-anim -gpu host -feature GuestAngle -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
+  # GuestAngle: the guest's GLES is ANGLE over the host GPU's Vulkan (the emulator turns it off above API 35; its gfxstream GLES offers ES 3.1 but makes only 3.0 contexts, and the game draws a black scene)
   echo "$s" > "$state/serial"
   "$adb" -s "$s" wait-for-device
   w=$(holder "$port")   # the emulator's Windows pid: its console port's holder

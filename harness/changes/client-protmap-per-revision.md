@@ -27,3 +27,6 @@ Per-revision record: protmap/<rev>/ keeps that revision's extracted tables, the 
 3. one live run on the emulator: a scripted play sequence (login, walk, chat, interfaces, bank, npc/loc/obj ops) with the server's IncomingPacketTrace/OutgoingPacketTrace on: zero decode failures, no disconnect; for the packets it triggers, the devtools MCP checks the effect (varp, widget text, inventory).
 
 Done when: tools/protmap regenerates 241 from the 241 .so to the same mapping as the hand-made one (the bench: every difference explained), protmap/241/ and protmap/PROCESS.md exist, and the 242 mapping is produced through it with static and round-trip checks green, handed to fork-android-rsprot-242.
+
+## retry after run 418
+The user (2026-11-09): retry. Run 418 handed back 'ask' with no question recorded, after a safety classifier stopped its response twice while it read rsprot's byte-transform helpers (JagexByteBufExtensions.kt); its withheld output and tool calls never ran. Start from the brief's findings; ask with hd ask (a recorded question) if a decision is needed.

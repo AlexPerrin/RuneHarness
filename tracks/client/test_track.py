@@ -199,7 +199,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
     def test_down_stops_the_login_of_a_killed_up(s):  # up's caller died mid-login: down leaves no mobile_login.py of the change alive, and stops no other change's
         s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
         m = Path(tempfile.mkdtemp()); (m / "tools").mkdir(); place(m / "tools")
-        (m / "tools/mobile_login.py").write_text("import time\ntime.sleep(600)\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)
+        (m / "tools/mobile_login.py").write_text("import sys, time\nif sys.argv[1] != 'seed': time.sleep(600)\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)   # the seed passes, the login hangs
         other = subprocess.Popen(["python3", str(m / "tools/mobile_login.py"), "x-2"])   # another change's login
         up = subprocess.Popen([str(m / "tools/track.sh"), "up", "x"], env=s.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         alive = lambda p: Path(f"/proc/{p}/stat").exists() and Path(f"/proc/{p}/stat").read_text().split(") ")[1][0] != "Z"
@@ -326,6 +326,47 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         run = lambda **e: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x'))", str(TRACK.parent)],
                                          env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", **e}, capture_output=True, text=True).stdout.strip()
         s.assertEqual(run(), "LOGGED_IN"); s.assertEqual(run(DEAD="1"), "FAILED: the app died")
+
+    def test_a_seeded_start_taps_play_now_alone(s):  # h-mobile-token-login: the app starts signed in; a sign-in screen or the browser means the seed was not taken
+        import importlib.util; spec = importlib.util.spec_from_file_location("mobile_login", TRACK.parent / "mobile_login.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        app, on = m.PKG, lambda st, ix, pkg=m.PKG: m.step(st, ix, pkg, {}, browser=False)[:2]
+        flow = [("UNKNOWN", -1), ("LOGIN_SCREEN", 30), ("LOGIN_SCREEN", 10), ("LOGIN_SCREEN", 37), ("LOGIN_SCREEN", 30), ("LOGGING_IN", 30), ("LOADING", 30), ("LOGGED_IN", 30)]   # logcat-seeded-up.txt
+        s.assertEqual([on(*f) for f in flow], [("wait",), ("wait",), ("tap", "Play Now"), ("wait",), ("wait",), ("wait",), ("wait",), ("done",)])
+        for ix in (0, 12):
+            s.assertEqual(on("LOGIN_SCREEN", ix)[0], "fail")                                                  # Existing User, Accept: never tapped
+        s.assertEqual(on("LOGIN_SCREEN", 30, "com.android.chrome")[0], "fail")                                # no browser
+
+    def test_seed_writes_centrals_session_as_the_apps_saved_sign_in(s):  # ta/m: SharedPreferences AuthState, key state; minted as the app's sign-in mints it
+        import http.server, threading, json, base64, xml.etree.ElementTree as ET
+        idt = "h." + base64.urlsafe_b64encode(json.dumps({"sub": "n", "exp": 1794323671}).encode()).decode().rstrip("=") + ".s"; seen = []
+        class Central(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"])).decode(); seen.append((self.path, body))
+                if self.path == "/oauth2/auth":
+                    ok = "username=hn&password=hn" in body
+                    self.send_response(302 if ok else 401); ok and self.send_header("Location", "com.jagex.mobilesdk.android.osrs:/oauth2redirect?code=c1&state=up"); self.end_headers(); return
+                out = {"/oauth2/token": {"access_token": "a1", "expires_in": 86400, "refresh_token": "r1", "id_token": idt}, "/game-session/v1/sessions": {"sessionId": "s1"}}[self.path]
+                self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(out).encode())
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Central); threading.Thread(target=srv.serve_forever, daemon=True).start(); s.addCleanup(srv.shutdown)
+        import importlib.util; spec = importlib.util.spec_from_file_location("mobile_login", TRACK.parent / "mobile_login.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        m.CENTRAL = srv.server_address[1]
+        st = json.loads(ET.fromstring(m.auth_state("hn").split("?>", 1)[1]).find("string[@name='state']").text)
+        s.assertEqual({k: st[k] for k in ("version", "access_Token", "refresh_Token", "identity_Token", "identity_token_expires", "session_Id")},
+                      {"version": "1.0", "access_Token": "a1", "refresh_Token": "r1", "identity_Token": idt, "identity_token_expires": 1794323671000, "session_Id": "s1"})
+        s.assertGreater(st["token_expires"], time.time() * 1000 + 86000 * 1000)   # fresh: the SDK hands it out without a refresh
+        s.assertIn("client_id=com_jagex_auth_mobile_android_osrs", seen[0][1]); s.assertEqual(seen[2], ("/game-session/v1/sessions", json.dumps({"idToken": idt})))
+        with s.assertRaises(SystemExit) as e: m.auth_state("other")
+        s.assertIn("Central refused the sign-in of other (401)", str(e.exception))
+
+    def test_up_seeds_before_the_apps_start_and_browser_skips_it(s):  # the seed after the plugins, the login after it; up <slug> browser signs in at the form
+        s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
+        m = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, m); (m / "tools").mkdir(); place(m / "tools"); args = m / "args"
+        (m / "tools/mobile_login.py").write_text(f"import sys\nopen({str(args)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\nprint('LOGGED_IN')\n"); subprocess.run(["git", "init", "-q", str(m)], check=True)
+        for extra, want in (([], "seed x\nx\n"), (["browser"], "x browser\n")):
+            args.write_text(""); r = subprocess.run([str(m / "tools/track.sh"), "up", "x", *extra], env=s.env, capture_output=True, text=True)
+            s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertEqual(args.read_text(), want)
+            subprocess.run([str(m / "tools/track.sh"), "down", "x"], env=s.env, capture_output=True)
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")

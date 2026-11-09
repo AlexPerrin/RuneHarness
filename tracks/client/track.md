@@ -16,8 +16,10 @@ another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the
 (`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator (boots go one at a
 time, each waiting until Windows has its AVD's guest RAM (Agent_Lite.ini hw.ramSize) available, so parallel ups queue on host memory) on the network
 allowlist (checked), maps its 127.0.0.1:8443 and :43594 to the live Central's http and game ports (`adb reverse`: the APK
-reads jav_config and signs in at the Central every desktop uses), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
-port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
+reads jav_config and signs in at the Central every desktop uses), installs the APK and pushes the devtools jar built with it, seeds the app's saved sign-in (a Central session of the slug's own
+account, written by run-as: the build is debuggable), taps Play Now alone and prints the devtools
+port; `up <slug> browser` signs in at Central's form in the browser instead (the check of a change that touches sign-in);
+`down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
 `osrs-devtools-mobile` data tools, each call naming `serial` (up's LOGGED_IN line); `adb shell input` only where the emulator refuses injected events. Blocked by the
 server: file the blocker as a server change with the repro (`hd new <slug> --track fork --blocks <yours>`); never
 work around it. Run the scripted criteria yourself (`check-log`, `check-evidence`, `check-probe`), push

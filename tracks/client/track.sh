@@ -6,7 +6,9 @@
 #   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both, or not reading
 #                     jav_config from http://127.0.0.1:8443; boots the change's emulator once Windows has its guest RAM available, one boot at a time (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), maps the mobile's 127.0.0.1:8443 and :43594 to the live Central's http and game ports (adb reverse), installs the APK once no install of the app is pending, logs
-#                     in at Central's form as the slug's own account (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#                     in as the slug's own account: its Central session seeded as the app's saved sign-in before the app's one start (run-as: the build is debuggable), Play Now
+#                     the one tap (tools/mobile_login.py: each screen read, acted on once; a sign-in screen, the browser, an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#   up <slug> browser the same without the seed: the start signs in at Central's form in the browser (the check of a change that touches sign-in)
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
 #   avd               prepares the agents' AVD Agent_Lite once (avd() names the state every start inherits); every mobile down first
 #   down              stops every login the change's ups started (mobile_login.py <slug>), removes devtools, clears the debug props, checks the plugins dir (when up made one) is the three defaults;
@@ -75,7 +77,7 @@ up() {
   printf '{"live": 1, "started": "%s"}\n' "$(date -u +%FT%TZ)" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"   # the stack row: no deploy is planned while this mobile plays on the live stack, until down
   mkdir -p "$root/state/live"; flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   boot
-  ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug"   # its command line names the change: down stops it when up's caller died
+  ANDROID_SERIAL=$(serial) python3 "$self/mobile_login.py" "$slug" ${arg:+"$arg"}   # its command line names the change: down stops it when up's caller died
   date +%s.000 > "$state/log-mark"   # epoch: logcat -T reads a date-time as the device's local time
   echo "LOGGED_IN $(serial) 7780"
 }
@@ -152,6 +154,7 @@ boot() {  # a -read-only start of the prepared Agent_Lite (avd), the APK in plac
   [ "$(A shell ls -1 "$files/plugins" | LC_ALL=C sort | paste -sd' ')" = "$defaults" ] || { echo "the three default plugins are not in place" >&2; return 1; }
   A push "$(win "$ev/$T.devtools.jar")" "$files/plugins/devtools.jar" >/dev/null
   A shell setprop debug.osrsrl.devtools 1 >/dev/null
+  [ "$arg" = browser ] || ANDROID_SERIAL=$s python3 "$self/mobile_login.py" seed "$slug" >&2 || return 1   # the app's saved sign-in, the slug's own account's Central session, before its one start
 }
 avd() {  # prepares Agent_Lite once (its config tracks/client/Agent_Lite.ini, the google_apis image): one writable boot sets the state every -read-only start
   # inherits: no launcher (the system's fallback home), no animations, error/ANR dialogs, heads-up or autofill, no IME over the hardware keyboard,
@@ -195,7 +198,7 @@ except ssl.SSLWantReadError: sys.stdout.buffer.write(o.read())' "$h" > "$state/h
 down() {  # judges what the harness put on the mobile (the default plugins, the debug props) against its baseline; the
   # app's own writes (settings.properties, cache) are not checked: they differ after any login and the read-only AVD drops them
   local p v w s bad   # measure calls down between its value and its report: a global v here emptied it
-  for p in $(pgrep -f "mobile_login\.py $slug\$" || true); do kill $p $(pgrep -P "$p") 2>/dev/null || true; done   # every login of the change's ups, with its adb children; never another change's
+  for p in $(pgrep -f "mobile_login\.py (seed )?$slug( browser)?\$" || true); do kill $p $(pgrep -P "$p") 2>/dev/null || true; done   # every login of the change's ups, with its adb children; never another change's
   if w=$(cat "$state/allow-relay.winpid" 2>/dev/null); then   # the mobile's DNS relay, by its pid and image (a reused pid is left alone)
     "$sys32/taskkill.exe" /F /PID "$w" /FI "IMAGENAME eq ${ps##*/}" >/dev/null 2>&1 || true; rm -f "$root"/state/winpids/*/"$w" "$state/allow-relay.winpid"
   fi

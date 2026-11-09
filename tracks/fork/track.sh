@@ -242,7 +242,7 @@ up() {
   # Central's sign-in: game.yml trusts the secret of server/issuer.py key; Central signs tokens with it and serves https with its certificate
   python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"
   openssl pkcs12 -export -in "$state/token/tls.pem" -inkey "$state/token/tls.key" -passout pass:changeit -out "$state/token/tls.p12"
-  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http on a docker port), the template filled as the sidecar fills it
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http 9090, the bundle's game.yml, on a docker port), the template filled as the sidecar fills it
   sopt=(-p "$http:8443" -p 9090 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
     -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
     -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit

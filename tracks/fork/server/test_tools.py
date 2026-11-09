@@ -735,6 +735,23 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
         with mock.patch.dict(os.environ, {"DESKTOP_DIR": str(t), "HD_ROOT": str(t)}):
             s.assertEqual((d.devtoken(7781), d.devtoken(7782)), ("tk", ""))
 
+    def test_a_mobile_call_reaches_the_mobile_its_serial_names(s):  # fault 307: the mobile backend got no serial, every call refused
+        t = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, t, True); (t / "mcp").mkdir(); (t / "state/a").mkdir(parents=True)
+        root = HERE.parents[2]
+        for f in ("devtools_bridge.py", "devtools-snapshot.json"): shutil.copy(root / "mcp" / f, t / "mcp" / f)
+        (t / "state/a/serial").write_text("emulator-5556\n")
+        (t / "b.sh").write_text('#!/bin/sh\necho "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"result\\":{\\"tools\\":[{\\"name\\":\\"$ANDROID_SERIAL\\"}],\\"args\\":$3}}"\n'); (t / "b.sh").chmod(0o755)
+        req = lambda i, m, p: json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p})
+        out = subprocess.run([sys.executable, str(t / "mcp/devtools_bridge.py"), "mobile", str(t / "b.sh")], text=True, capture_output=True, timeout=60,
+                             env={**os.environ, "HOME": str(t)},
+                             input="\n".join([req(1, "tools/call", {"name": "get_inventory", "arguments": {}}),
+                                              req(2, "tools/call", {"name": "get_inventory", "arguments": {"serial": "emulator-5554"}}),
+                                              req(3, "tools/list", {})]) + "\n").stdout.splitlines()
+        r = [json.loads(l) for l in out]
+        s.assertIn("serial", r[0]["error"]["message"])   # no serial: refused, never any run's mobile
+        s.assertEqual(r[1]["result"]["tools"][0]["name"], "emulator-5554"); s.assertEqual(r[1]["result"]["args"], {"name": "get_inventory", "arguments": {}})   # the backend's env, the argument taken off
+        s.assertEqual(r[2]["result"]["tools"][0]["name"], "emulator-5556"); s.assertIn("serial", r[2]["result"]["tools"][0]["inputSchema"]["properties"])   # the list from an up's mobile, each tool taking serial
+
     def test_a_checkout_serves_its_own_state_root(s):  # state-root: a v9 up's desktop answered 401, its session ran the live checkout's bridge and login
         import desktop_login as d
         root = HERE.parents[2]

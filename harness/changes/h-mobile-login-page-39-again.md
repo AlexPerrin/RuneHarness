@@ -1,7 +1,7 @@
 ---
 slug: h-mobile-login-page-39-again
 track: harness
-priority: P1
+priority: P0
 ---
 # mobile start ends before LOGGED_IN: page 39 again and 'Error connecting to server' under host load
 

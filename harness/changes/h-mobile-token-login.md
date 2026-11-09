@@ -1,7 +1,7 @@
 ---
 slug: h-mobile-token-login
 track: harness
-priority: P1
+priority: P0
 ---
 # the mobile starts signed in: a Central session for the slug's account seeded before the app's start, Play Now its one tap
 

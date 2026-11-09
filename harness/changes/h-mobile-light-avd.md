@@ -1,7 +1,7 @@
 ---
 slug: h-mobile-light-avd
 track: harness
-priority: P1
+priority: P0
 ---
 # the agents' emulator: no Play Store image at 2 GB guest RAM, rendered on the host GPU
 

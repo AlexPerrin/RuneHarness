@@ -648,7 +648,7 @@ flowchart LR
   sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
   because upstream lacks it: `mcp/devtools_bridge.py` (upstream speaks HTTP on one loopback port; the sessions need a
   stdio server that answers `tools/list` from a snapshot when no client runs, routes each call by `port` to one of many
-  desktops with that up's bearer token, bounds every answer, flags a dropped session after each desktop answer, and
+  desktops with that up's bearer token and by `serial` to one of many mobiles, bounds every answer, flags a dropped session after each desktop answer, and
   walks `walk_to` at any distance in minimap steps, upstream's needing the tile in the loaded scene); the client
   repo's mobile bridge (Android: upstream has no transport off the device, ours is stdio over `adb shell nc`);
   `DevtoolsOwner.java` (below: upstream checks only the Origin header, no token, and opens URLs); the stub of its

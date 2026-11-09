@@ -3,6 +3,7 @@ slug: h-reference-deployment
 track: harness
 priority: P0
 deps:
+- h-dep-gate-failed-waits
 - h-desktops-token-login
 - h-ref-devtools-upstream
 - h-ref-embedded-central

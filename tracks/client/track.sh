@@ -5,7 +5,7 @@
 # tree are build/build.sh's (the code a build runs); gate and the other check-* criteria but check-blocked gate/gate.sh's. Verbs:
 #   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both; boots the change's emulator (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), installs the APK once no install of the app is pending, logs
-#                     in through the stack's Central sign-in (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#                     in at Central's form as the slug's own account (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
 #   down              stops every login the change's ups started (mobile_login.py <slug>), removes devtools, clears the debug props, checks the plugins dir (when up made one) is the three defaults;
 #                     stops the emulator and its DNS relay
@@ -108,7 +108,7 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
-  until [ "$(A shell getprop sys.boot_completed)" = 1 ]; do sleep 2; done
+  until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
   A uninstall "$pkg" >/dev/null
   until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
@@ -154,6 +154,9 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   fi
   rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
+  if [[ $(A get-state) == *"not found"* ]]; then   # the emulator is gone (it exited): nothing on it to restore
+    rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
+  fi
   bad=()
   A shell rm -f "$files/plugins/devtools.jar" >/dev/null
   for p in devtools probe set; do A shell setprop "debug.osrsrl.$p" '""' >/dev/null; done

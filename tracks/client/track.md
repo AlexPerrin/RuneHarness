@@ -16,7 +16,7 @@ another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the
 (`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator on the network
 allowlist (checked), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
 port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
-`osrs-devtools-mobile` data tools; `adb shell input` only where the emulator refuses injected events. Blocked by the
+`osrs-devtools-mobile` data tools, each call naming `serial` (up's LOGGED_IN line); `adb shell input` only where the emulator refuses injected events. Blocked by the
 server: file the blocker as a server change with the repro (`hd new <slug> --track fork --blocks <yours>`); never
 work around it. Run the scripted criteria yourself (`check-log`, `check-evidence`, `check-probe`), push
 `origin/client/<slug>`, then `hd submit <slug>`.

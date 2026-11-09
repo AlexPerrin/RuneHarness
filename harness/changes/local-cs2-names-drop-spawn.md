@@ -4,6 +4,7 @@ track: fork
 priority: P1
 upstream: false
 deps:
+- h-pin-skip-cs2-spawn
 - h-ref-pins-audit
 ---
 # local: NameCs2Groups removes the spawn menu's clientscripts from the cache

@@ -39,7 +39,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
-case $verb in recipe) printf 'build fork-1\ngate fork-1\ndeploy fork-1-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
+case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-2-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout: a shipped one moves the deploy's key
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
@@ -136,7 +136,10 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   jx=JAVA_TOOL_OPTIONS:OPENRUNE_ENDPOINT
   if [ -n "${tok:-}" ]; then  # the client's Jagex session variables; the JDK's CAs plus the issuer's certificate (RSProx fetches RuneLite over public https)
     jx+=:JX_SESSION_ID:JX_CHARACTER_ID:JX_DISPLAY_NAME; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"; cp "$ca" "$d/home/token-tls.pem"
-    "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" >/dev/null
+    until "$desk/jdk/bin/keytool.exe" -importcert -noprompt -alias harness-issuer -storepass changeit -keystore "$w\\home\\token-trust.p12" -file "$w\\home\\token-tls.pem" > /dev/null 2> "$d/keytool.err"; do   # a WSL interop error (accept4 failed 110) ends keytool, before or after it ran: asked again on a fresh store
+      grep -q UtilAcceptVsock "$d/keytool.err" || { echo "keytool failed: $(cat "$d/keytool.err")" >&2; return 1; }
+      until "$desk/jdk/bin/jps.exe" > /dev/null 2>&1; do sleep 1; done; cp "$desk/jdk/lib/security/cacerts" "$d/home/token-trust.p12"
+    done
     jo+=" -Djavax.net.ssl.trustStore=$w\\home\\token-trust.p12 -Djavax.net.ssl.trustStorePassword=changeit"
   fi
   pid=
@@ -237,8 +240,8 @@ up() {
   # Central's sign-in: game.yml trusts the secret of server/issuer.py key; Central signs tokens with it and serves https with its certificate
   python3 "$self/server/issuer.py" key "$state/token" >> "$state/game.yml"
   openssl pkcs12 -export -in "$state/token/tls.pem" -inkey "$state/token/tls.key" -passout pass:changeit -out "$state/token/tls.p12"
-  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http on a docker port), the template filled as the sidecar fills it
-  sopt=(-p "$http:8443" -p 8080 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
+  central_jav   # the game's own Central serves /jav_config.ws on the up's http port (https on 8443 with its sign-in; plain http 9090, the bundle's game.yml, on a docker port), the template filled as the sidecar fills it
+  sopt=(-p "$http:8443" -p 9090 -v "$state/token/tls.p12:/app/.data/central-tls.p12:ro"
     -e "OPENRUNE_SIGN_IN_TOKEN_SECRET=$(cat "$state/token/secret")" -e "OPENRUNE_SIGN_IN_DEV_ACCOUNT=$(account 1)" -e OPENRUNE_HTTP_TLS_PORT=8443
     -e OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 -e OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit
     -v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)
@@ -248,7 +251,7 @@ up() {
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted
   if [ -n "$(sql "update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
-  python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 8080 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
+  python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
     who=$(account "$i"); sign_in "$who"   # this desktop's own account and session, after the realm's restart (Central keeps sessions in memory)
@@ -292,16 +295,18 @@ image_key() {  # image_key IMAGE: its game.key and client.key carry the live pai
 }
 # deploy runs holding state/live/stack.lock (act.start's, inherited): a flock of its own on that file would wait on itself
 deploy() {  # staging's tree → the live test server; a failing step names itself and records the job failed
-  set -E; trap 'echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $?)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND"' ERR
+  trap 'rc=$?; [ $rc = 0 ] || { echo "deploy of ${T:-$arg} failed: $BASH_COMMAND (exit $rc)"; [ -z "${HD_KEY:-}" ] || $hd job deploy "$HD_KEY" fail "$BASH_COMMAND (exit $rc)${HD_LOG:+: $(grep -v "^deploy of" "$HD_LOG" | tail -1)}"; }' EXIT   # on exit, not ERR: a check's `|| return N` raises no ERR, and a failure without a result is started again
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
   slug=staging; state=$root/state/live; mkdir -p "$state"
   # the sign-in's key (compose's ISSUER_DIR, from server/issuer.py key): its secret in the image's game.yml and Central's; Central's dev account the APK's tester
   export ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
   [ -s "$ISSUER_DIR/account" ] || echo tester > "$ISSUER_DIR/account"
   sed -E "s#^param=(11|20|22|28)=.*#param=\1=http://{{WORLD_HOST}}:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/#" "$self/server/jav_config.ws.template" > "$ISSUER_DIR/jav_config.ws.template"   # the APK's sign-in: Central's plain http (LOCAL_AUTH takes http; discovery answers the request's Host)
-  # Central's sign-in for desktops, as up's: the secret and account, https with its certificate, its own jav_config
+  # Central's sign-in for desktops, as up's: the secret, https with its certificate, its own jav_config; no dev account,
+  # so every sign-in (each run's mobile and desktop as its slug's own account, the user's phone as tester) goes through Central's form
   http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; tpl=$self/server/jav_config.ws.template; central_jav
   openssl pkcs12 -export -in "$ISSUER_DIR/tls.pem" -inkey "$ISSUER_DIR/tls.key" -passout pass:changeit -out "$state/central-tls.p12"
+  for f in "$ISSUER_DIR/jav_config.ws.template" "$self/server/jav_config.ws.template"; do python3 "$self/server/javcheck.py" "$f" || return 6; done   # the sidecars' templates, before any live container is touched
   [ -f "$state/key/game.key" ] && [ -f "$state/key/client.key" ] || { echo "no live key pair in $state/key"; return 4; }
   modulus=$(modulus_of < "$state/key/game.key")   # the live stack's pair, seeded once with the key every APK carries: no image passes its key to the next
   cat > "$state/Dockerfile" <<EOF
@@ -309,7 +314,7 @@ FROM or:$T
 COPY --chown=1000:1000 key/game.key key/client.key /app/.data/
 COPY --chown=1000:1000 game.yml /app/game.yml
 COPY --chown=1000:1000 central-tls.p12 jav_config.ws /app/.data/
-ENV OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")" OPENRUNE_SIGN_IN_DEV_ACCOUNT="$(cat "$ISSUER_DIR/account")" OPENRUNE_HTTP_TLS_PORT=8443 \
+ENV OPENRUNE_SIGN_IN_TOKEN_SECRET="$(cat "$ISSUER_DIR/secret")" OPENRUNE_HTTP_TLS_PORT=8443 \
     OPENRUNE_HTTP_TLS_KEYSTORE=/app/.data/central-tls.p12 OPENRUNE_HTTP_TLS_KEYSTORE_PASSWORD=changeit OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/.data/jav_config.ws
 EOF
   $hd own image "osrs-openrune:$T" "staging@$T"   # released once staging moves on (the live tag keeps the running one)
@@ -363,12 +368,13 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; ca=$root/state/live/token/tls.pem
   modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
-  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; trap 'live_desktop_down >&2 || true' ERR   # live: no deploy is planned while it is up
+  devtools_jar; stack token="$devtoken" desktops= accounts= live=1; set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # live: no deploy is planned while it is up; why: the step set -e ends at, in the function it failed in
+  trap 'echo "live-desktop ended before it was logged in, at: ${why:-$BASH_COMMAND}" >&2; live_desktop_down >&2 || true' EXIT   # a failed start names its step and leaves no instance
   flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   sign_in "$(account 1)"; desktop_start; stack desktops="$inst:$dt" accounts="$(account 1)"   # the account is this slug's own, never the tester's (the live Central's dev account)
   login_live=$(python3 "$self/server/desktop_login.py" "$dt" token) || true; echo "$login_live" >&2
   [[ $login_live == *LOGGED_IN* ]] || return 1
-  trap - ERR; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
+  trap - EXIT; echo "LIVE_DESKTOP $dt $desk/run/${inst#desktop}"
 }
 live_desktop_down() { unkeep; desktops_remove; rm -f "$state/up.json"; $hd stack "$slug" --clear; echo "down"; }
 case $verb in up|restart|down) [ "${DESKTOPS_LOCK:-}" = "$slug" ] || {   # one up, restart or down of a slug at a time: none acts on desktops another is starting or removing

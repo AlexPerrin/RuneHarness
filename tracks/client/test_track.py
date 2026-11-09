@@ -108,6 +108,7 @@ case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
         HOSTS = re.search(r'^hosts="([^"]+)"', TRACK.read_text(), re.M).group(1)
         progs = {sdk / "platform-tools/adb.exe": f"""printf "%s\\n" "adb $*" >> {log}
+[ -z "$GONE" ] || case "$*" in *boot_completed*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
 case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
@@ -132,6 +133,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         log = s.fake_windows()
         rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("install failed", out)
         s.assertIn("adb -s emulator-5560 emu kill", log.read_text())
+        s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
+
+    def test_an_emulator_gone_while_booting_ends_up_and_down_restores_nothing(s):  # run 222 start 5: the emulator shut down mid-boot and up waited on boot_completed for 41 minutes
+        log = s.fake_windows(); s.env["GONE"] = "1"
+        rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("the emulator emulator-5560 exited while booting", out)
+        s.assertIn("restored (the emulator emulator-5560 had exited)", out); s.assertNotIn("RESTORE FAILED", out)
         s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
@@ -207,6 +214,16 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertIn('[ -f "$ev/$T.devtools-desktop.jar" ]', b)
         s.assertIn('cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"', b)
 
+    def test_build_copy_owns_its_decoded_apk_tree(s):  # repack.sh rm -rf's and patches re/apk in place: a shared one races
+        b = BUILD.read_text().split("\nbuild() {")[1].split("\n}")[0]
+        lines = "\n".join(l for l in b.splitlines() if l.strip().startswith(("for e in", "for n in")))
+        with tempfile.TemporaryDirectory() as d:
+            repo, copy = Path(d, "repo"), Path(d, "copy")
+            for n in ("apk", "keys", "host"): (repo / "re" / n).mkdir(parents=True)
+            (copy / "re").mkdir(parents=True); (copy / "re/apk").symlink_to(repo / "re/apk")   # a copy made before the change
+            subprocess.run(["bash", "-c", f"set -euo pipefail\nrepo={repo}\ncopy={copy}\n{lines}"], check=True)
+            s.assertFalse((copy / "re/apk").exists()); s.assertTrue((copy / "re/keys").is_symlink()); s.assertFalse((copy / "re/host").exists())
+
     def test_up_holds_deploys_off_until_down(s):  # h-deploy-spares-live-judge: a judge's mobile plays on the live stack from up to down
         t = TRACK.read_text(); up = t.split("\nup() {")[1].split("\n}")[0]; down = t.split("\ndown() {")[1].split("\n}")[0]
         s.assertLess(up.index('{"live": 1'), up.index('flock -s "$root/state/live/stack.lock" true')); s.assertLess(up.index("stack.lock"), up.index("  boot"))
@@ -235,10 +252,31 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 4, app, {})[0], "fail")                                      # a login screen it does not know
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
         s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
+        s.assertEqual(m.step("UNKNOWN", -1, "Application", {"Pixel Launcher isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)})[:2], ("tap", "Wait"))   # the system's ANR dialog
         s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
+        form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
+        f = lambda u, uf, p, pf: {"Username": (u, uf, 5, 1), "Password": (p, pf, 5, 2)}
+        on = lambda fields, posted=False: m.step("LOGIN_SCREEN", 30, chrome, {**form, **{t: (5, 1) for t, *_ in fields.values() if t}}, None, name, fields, posted)
+        s.assertEqual(on(f("", False, "", False))[:2], ("tap", "Username field"))                          # the field itself, never its label
+        s.assertEqual(on(f("", True, "", False)), ("type", "Username"))                                     # typed once focused
+        s.assertEqual(on(f(name[:4], True, "", False)), ("type", "Username"))                               # still landing: main types once per screen
+        s.assertEqual(on(f(name, True, "", False))[:2], ("tap", "Password field"))
+        s.assertEqual(on(f(name, False, "", True)), ("type", "Password"))
+        s.assertEqual(on(f(name, False, name, True))[:2], ("tap", "Sign in"))                              # both read back holding the name
+        s.assertEqual(on(f("", False, name, False))[:2], ("tap", "Username field"))                        # run 289: the name among the labels, the Username empty: not posted
+        s.assertEqual(on(f("x", True, "", False))[0], "fail")                                               # a field holding another text
+        s.assertEqual(on(f(name, False, name, False), True), ("wait",))                                     # posted: the form leaves next
+        s.assertEqual(on(f("", False, name, False), True), ("wait",))                                       # the posted page while the redirect hands over (seen live: Username cleared)
+        s.assertEqual(on(f("", False, "", False), True)[0], "fail")                                         # Central's 401 answers its form again
+        tip = m.step("LOGIN_SCREEN", 30, chrome, {**form, "Please fill out this field.": (1, 1)}, None, name, f("", True, name, False), True)
+        s.assertEqual(tip, ("fail", "Central's form did not post: Please fill out this field."))           # run 289's stuck form
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name, {})[0], "fail")                  # a form without its fields
+        lab, fields = m.views('<node text="Username " class="android.widget.TextView" bounds="[0,0][10,10]" /><node NAF="true" text="" class="android.widget.EditText" focused="true" bounds="[20,0][40,10]" hint="Username" />')
+        s.assertEqual((lab, fields), ({"Username": (5, 5)}, {"Username": ("", True, 30, 5)}))
+        s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")
@@ -321,6 +359,16 @@ case "$*" in *push*) ;;
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname())
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
+        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
+            asked.append(a[0])
+            if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")
+            return real("127.0.0.1", u.getsockname()[1], socket.AF_INET, socket.SOCK_STREAM)
+        l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); h = hello("api.runelite.net")
+        with mock.patch("socket.getaddrinfo", flaky):
+            t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start(); c.sendall(h)
+            v = u.accept()[0]; s.assertEqual(allow.record(v), h); v.close(); c.close(); t.join(); l.close(); u.close()
+        s.assertEqual(asked, ["api.runelite.net", "api.runelite.net"])   # resolved again after EAI_AGAIN, relayed the hello
 
     def test_network_qa_allows_three_hosts(s):  # the skill's allowed list: the local server and the two RuneLite hosts, nothing else
         skill = (TRACK.parent.parent.parent / ".claude/skills/network-qa/SKILL.md").read_text()

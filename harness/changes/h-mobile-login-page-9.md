@@ -3,6 +3,7 @@ slug: h-mobile-login-page-9
 track: harness
 priority: P1
 deps:
+- central-sign-in-first-account
 - client-host-initial-gamestate
 - server-reconnect
 ---

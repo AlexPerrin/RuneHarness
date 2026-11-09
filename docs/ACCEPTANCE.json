@@ -53,7 +53,7 @@
     "tests/test_decide.py Retention, tests/test_observe.py release; live: the ledger's released events (fork worktrees 76 to 28, Linux disk 102 to 76 GB)"
   ],
   "H8": [
-    "pending: a fresh desktop and the APK, by the same sign-in path, reach LOGGED_IN on a stack built by upstream's release steps, with embedded Central serving jav_config and sign-in, the cache built by OpenRune-FileStore, OpenRune-Developer-Tools on the desktop, and no issuer or http sidecar (h-reference-deployment)"
+    "live: on the deploy of staging 04007706bd6a (upstream's release bundle, embedded Central, the one osrs-openrune container, no issuer or http), javcheck.py passes on Central's /jav_config.ws; a fresh C:\\osrs-test desktop (live-desktop) and the APK (client up, adb reverse to Central and the game) each sign in at Central and reach LOGGED_IN; a fork up of that image (server container alone) logs a fresh desktop in by token (evidence/h-reference-deployment)"
   ],
   "G1": [
     "test_decide.Server.test_criteria_run_first_then_dev_then_build_gate_judge_merge",

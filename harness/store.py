@@ -170,7 +170,24 @@ INSERT INTO alert_6 SELECT * FROM alert; DROP TABLE alert; ALTER TABLE alert_6 R
 
 SCHEMA_7 = "ALTER TABLE stack ADD COLUMN live INTEGER NOT NULL DEFAULT 0;"   # the stack plays on the live test server (a mobile, live-desktop): no deploy under it
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7]
+SCHEMA_8 = """  -- run end_kind gains withdrawn: a listing its change no longer plans, ended before it started (frees its slot, parks nothing)
+CREATE TABLE run_8 (
+  id          INTEGER PRIMARY KEY,
+  change      TEXT NOT NULL,
+  role        TEXT NOT NULL CHECK (role IN ('dev','qa')),
+  mode        TEXT NOT NULL CHECK (mode IN ('code','criteria','judge','plan')),
+  input       TEXT NOT NULL,
+  brief       TEXT NOT NULL,
+  agent_id    TEXT UNIQUE,
+  listed_at   TEXT NOT NULL, started_at TEXT, ended_at TEXT,
+  end_kind    TEXT CHECK (end_kind IN ('handback','stop','close','console','handoff','withdrawn')),
+  record      TEXT,
+  usage_json  TEXT, transcript TEXT
+);
+INSERT INTO run_8 SELECT * FROM run; DROP TABLE run; ALTER TABLE run_8 RENAME TO run;
+CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;"""
+
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8]
 
 
 def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
@@ -231,9 +248,14 @@ def connect(path: str = None) -> sqlite3.Connection:
 def migrate(db: sqlite3.Connection) -> int:
     """Apply every migration above the file's user_version; returns the version reached."""
     version = db.execute("PRAGMA user_version").fetchone()[0]
+    if version < len(MIGRATIONS):
+        db.execute("PRAGMA foreign_keys=OFF")   # a table rebuild drops a referenced table; the references are checked after
     for n, sql in enumerate(MIGRATIONS[version:], start=version + 1):
         db.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={n};\nCOMMIT;")  # one transaction per migration
         version = n
+    if db.execute("PRAGMA foreign_key_check").fetchone():
+        raise sqlite3.IntegrityError("migration left a broken reference")
+    db.execute("PRAGMA foreign_keys=ON")
     return version
 
 

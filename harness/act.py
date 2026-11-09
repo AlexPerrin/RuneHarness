@@ -478,6 +478,9 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
         try:
             if s.kind == "run" and not draining:
                 brief(db, ch, T, s)
+            elif s.kind == "withdraw":   # never started: no agent, no scope; the slot frees and the change lists a run again when it plans one
+                if db.execute("UPDATE run SET ended_at=?, end_kind='withdrawn' WHERE id=? AND started_at IS NULL AND ended_at IS NULL", (now(), int(s.key))).rowcount:
+                    event(db, "ended", ch.slug, int(s.key), s.why)
             elif s.kind in ("build", "gate", "ship", "deploy", "measure", "publish"):
                 start(db, s, ch, T)
             elif s.kind == "merge":

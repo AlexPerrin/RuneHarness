@@ -57,7 +57,7 @@ CREATE TABLE run (
   brief       TEXT NOT NULL,                           -- state/briefs/<id>.md
   agent_id    TEXT UNIQUE,                             -- bound by the SubagentStart hook
   listed_at   TEXT NOT NULL, started_at TEXT, ended_at TEXT,
-  end_kind    TEXT CHECK (end_kind IN ('handback','stop','close','console','handoff')),
+  end_kind    TEXT CHECK (end_kind IN ('handback','stop','close','console','handoff','withdrawn')),
   record      TEXT,                                    -- the one hand-back line
   usage_json  TEXT, transcript TEXT
 );
@@ -304,7 +304,8 @@ def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
     """next() per open change in priority order (harness, then PR rounds, then new content; each at the best
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
     and no run with that input parks it (one that ended by hand-back, or a listing stopped before it started, does: a new
-    fact makes a new input; one that died with its console, handed off or was stopped once started gets a successor); a job Step only while no job of its key (a ship: of its branch) is in flight; a card
+    fact makes a new input; one that died with its console, handed off, was stopped once started or was withdrawn gets a successor); a listing not yet
+    started whose change no longer plans a run (it now waits on a dep, a job or the user) is withdrawn, its slot freed; a job Step only while no job of its key (a ship: of its branch) is in flight; a card
     only when not shown at its digest. A harness change is P1 at least. Besides the changes, one deploy per staging
     tree of each server track whose script has a deploy recipe (Action change "<track>:staging"), waiting while a stack
     row marked live has a live run or job (Ledger.live_users: a deploy recreates the stack under it). Below hd.yaml

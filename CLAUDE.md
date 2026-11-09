@@ -9,7 +9,7 @@ OpenRune/OpenRune-FileStore). It is neither product's code.
 **New session: read docs/HANDOFF.md first (where things are, what exists, what to build), then docs/PROBLEM.md
 (what the harness is for, the workflow, the goals), docs/PRD.md (M, H, G, A, T requirements) and docs/ARCHITECTURE.md
 (the ledger, the state machine, the modules); docs/V9-PROPOSAL.md records the change from v8 and the build plan,
-docs/V9-BRIEF.md v8 measured; v8 itself is branch `v8`, live from `main`.** Every session and agent runs from this repo.
+docs/V9-BRIEF.md v8 measured; v8 is branch `v8`; v9 runs from `main`, this checkout.** Every session and agent runs from this repo.
 
 ```
 harness/hd.py  the commands: hd | tick | new | fold | show | criterion | submit | verdict | ask | answer | triage | hold | approve | close | publish | job | gate | candidate | stack | own | step | fault | dismiss | stop | scope | regate | kpi | commit | restart | session-ended

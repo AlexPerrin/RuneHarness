@@ -1,7 +1,7 @@
 # Client track
 
 RuneLite plugins in the official OSRS Android app (`native/`, `host/`, APK repack) in `~/osrs-plugins-reverse`,
-tested on the Agent_Phone emulator against the test server. The script is `tracks/client/track.sh <verb> <slug>`
+tested on the Agent_Lite emulator (prepared once by `track.sh avd <slug>`, every mobile down) against the test server. The script is `tracks/client/track.sh <verb> <slug>`
 (verbs in its header); `hd` is the exact command the brief names; the evidence dir is `evidence/<slug>/`. Reference
 in the client repo: `docs/app-telemetry.md` (read in full before any build that touches networking),
 `docs/plugin-host.md`, `docs/offsets.md`.
@@ -14,7 +14,7 @@ host build, ninja and the repack with `OPENRUNE=1 LOCAL_AUTH=1` in the build cop
 anything is installable; the APK's login modulus is the live stack's key pair's (`state/live/key`), and a cached APK of
 another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the live server runs
 (`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator (boots go one at a
-time, each waiting until Windows has its 4096 MB guest RAM available, so parallel ups queue on host memory) on the network
+time, each waiting until Windows has its AVD's guest RAM (Agent_Lite.ini hw.ramSize) available, so parallel ups queue on host memory) on the network
 allowlist (checked), maps its 127.0.0.1:8443 and :43594 to the live Central's http and game ports (`adb reverse`: the APK
 reads jav_config and signs in at the Central every desktop uses), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
 port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
@@ -28,7 +28,8 @@ The mobile side is Windows programs run from bash through WSL interop by absolut
 `/mnt/c/Windows/System32`); a missing program fails naming its variable. The emulator runs with no console window,
 its log in `state/<slug>/emulator.log`; `down` is the only stop; the emulator's Windows pid and image are recorded
 under the run's scope (`state/winpids/`), which `hd stop` ends with the run, and down drops the record. `DOCKER`
-(default `docker`) runs the allowlist container `mobile-allow`, one for every mobile, left running. Each mobile asks
+(default `docker`) runs the allowlist container `mobile-allow`, one for every mobile, left running, replaced by `up` when it
+runs another text of `allow.py` (its label `allow`, the file's sha256). Each mobile asks
 DNS of its own relay on Windows (`tracks/client/allow-relay.ps1`, its log `state/<slug>/allow-relay.log`); before
 booting, `up` proves `nslookup api.runelite.net <that address>` from Windows gets 10.0.2.2, replacing the container
 once when it does not, then fails naming the Windows holders of udp 53.
@@ -47,7 +48,8 @@ stack's 43594 and 8084) and 10.0.2.2:443 only. The
 network allowlist: `up` starts the container `mobile-allow` (`tracks/client/allow.py`, DNS over tcp 127.0.0.1:8053
 and tcp 443) and the emulator with `-dns-server` at its own relay, and turns the mobile's wifi off; the cellular path
 asks `mobile-allow`, which answers `api.runelite.net` and `static.runelite.net` with 10.0.2.2 and every other name
-NXDOMAIN, and relays a TLS connection on 10.0.2.2:443 to its SNI name only when that name is one of the two. The
+NXDOMAIN, and relays a TLS connection on 10.0.2.2:443 to its SNI name only when that name is one of the two, closing any
+other TLS one at once, and relays a connection whose first byte is not TLS to the game server's 43594 (the game client's js5 and login fall back to port 443 after errors on 43594, as a world answers on both; held or closed, its load stops at 20%). The
 Windows Firewall rules of group `osrs-harness` block the emulator's qemu-system-x86_64.exe and netsimd.exe from every
 address but loopback and the LAN. `check-blocked` (run by `up`) proves both halves. Must not appear, even as a
 lookup: any `jagex.com`, `runescape.com`, `singular.net`, `app-measurement.com`, `*.x.invalid`, ConsentSync or

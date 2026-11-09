@@ -80,7 +80,7 @@ class Cfg:
 
 @dataclass(frozen=True)
 class Step:
-    kind: str               # done|wait|run|build|gate|merge|card|publish|ship|measure|release
+    kind: str               # done|wait|run|withdraw|build|gate|merge|card|publish|ship|measure|release
     why: str                # printed by `hd`; the event detail
     role: str = ""          # dev|qa for kind == run
     mode: str = ""          # code|criteria|judge|plan
@@ -517,7 +517,7 @@ def parked(L: Ledger, slug, input):
     before it started (a new fact makes a new input). One that died with its console, handed off or was stopped once
     started did not do the work: it gets a successor, None; repeats are the run-lost alert."""
     p = L.run_for(slug, input)
-    return p if p and p["end_kind"] not in ("console", "handoff") and not (p["end_kind"] == "stop" and p["started_at"]) else None
+    return p if p and p["end_kind"] not in ("console", "handoff", "withdrawn") and not (p["end_kind"] == "stop" and p["started_at"]) else None
 
 
 def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
@@ -569,6 +569,10 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
             continue
         s = next(C, c)
         r = L.live_run(c.slug)
+        if r and s is not DONE and not r["started_at"] and s.kind != "run":   # a listing its change no longer plans (it waits on a dep, a job, the user)
+            actions.append(Action(c.slug, Step("withdraw", f"run {r['id']} withdrawn before it started: {s.why}", key=str(r["id"]))))
+            live -= 1
+            continue
         if r and s is not DONE:
             actions.append(Action(c.slug, Step("wait", f"run {r['id']} {r['role']} {'live' if r['started_at'] else 'listed'}")))
             continue

@@ -8,6 +8,7 @@
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), maps the mobile's 127.0.0.1:8443 and :43594 to the live Central's http and game ports (adb reverse), installs the APK once no install of the app is pending, logs
 #                     in at Central's form as the slug's own account (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
+#   avd               prepares the agents' AVD Agent_Lite once (avd() names the state every start inherits); every mobile down first
 #   down              stops every login the change's ups started (mobile_login.py <slug>), removes devtools, clears the debug props, checks the plugins dir (when up made one) is the three defaults;
 #                     stops the emulator and its DNS relay
 #   check-blocked     the running mobile gets a TLS answer from api.runelite.net and static.runelite.net (resolved to the
@@ -22,6 +23,7 @@
 # Windows locations, run through WSL interop (override in the environment):
 #   ANDROID_SDK       /mnt/c/Users/Alex/AppData/Local/Android/Sdk   platform-tools/adb.exe (ADB overrides adb alone), emulator/emulator.exe
 #   WINDOWS_SYSTEM32  /mnt/c/Windows/System32                      netstat.exe, nslookup.exe, tasklist.exe, taskkill.exe, WindowsPowerShell/v1.0/powershell.exe
+#   ANDROID_AVD_HOME  /mnt/c/Users/Alex/.android/avd                Agent_Lite.ini, Agent_Lite.avd/
 #   DOCKER            docker                                       the allowlist container (mobile-allow)
 set -euo pipefail
 verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exports SLUG
@@ -52,10 +54,6 @@ poll() {  # poll CMD...: until CMD succeeds (1: not yet; any other failure ends 
 }
 booted() { [ "$(A shell getprop sys.boot_completed)" = 1 ]; }
 cellular() { local c; c=$(A shell dumpsys connectivity); [[ $c =~ ni\{MOBILE[^\ ]*\ CONNECTED && $c != *"ni{WIFI"* ]]; }   # the cellular path up, the wifi one off
-app_files() {  # the app's first start made its files dir; 2 when the app died before
-  local f; f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ] && return 0
-  [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 2; }; return 1
-}
 pm_idle() {  # the package manager is up (its dump lists the install sessions) and no active or legacy session installs $pkg
   local d; d=$(A shell "dumpsys package | sed -n '/^Active install sessions:/,/^Finalized install sessions:/p;/^Legacy install sessions:/,+1p'" | tr -d ' \n')
   [[ $d == "Activeinstallsessions:"* && $d != *"$pkg"* ]]   # the dump wraps long lines: joined, the package name is whole
@@ -97,9 +95,12 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
   w=$(udp53 | awk -v a="$dns:53" '$1==a{print $2; exit}')
   [ -n "$w" ] || { echo "the DNS relay did not bind $dns:53: $(head -c 500 "$state/allow-relay.log")" >&2; return 1; }
   winpid "$w" "${ps##*/}"; echo "$w" > "$state/allow-relay.winpid"
+  sum=$(sha256sum < "$self/allow.py" | cut -c1-12)   # the container runs the allow.py it started with: one of another text is replaced
   for n in 1 2; do
-    if [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" != true ]; then
-      $docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
+    c=$($docker inspect -f '{{.State.Running}} {{index .Config.Labels "allow"}}' mobile-allow 2>/dev/null || true)
+    if [ "$c" != "true $sum" ]; then
+      [ "${c%% *}" != true ] || $docker rm -f mobile-allow >/dev/null 2>&1 || true
+      $docker run -d --rm --name mobile-allow --label allow="$sum" --add-host host.docker.internal:host-gateway -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
       until $docker logs mobile-allow 2>&1 | grep '^listening' >/dev/null; do [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" = true ] || break; sleep 1; done
     fi
     "$sys32/nslookup.exe" api.runelite.net "$dns" 2>/dev/null | tr -d '\r' | grep '10\.0\.2\.2' >/dev/null && return 0
@@ -110,22 +111,22 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
   echo "mobile-allow does not answer DNS at $dns from Windows (nslookup api.runelite.net $dns; the relay's log: $state/allow-relay.log); Windows udp 53 held by: ${h:-none}" >&2
   return 1
 }
-guest_mb=4096   # the Agent_Phone image's guest RAM (the emulator raises it to 4096 MB)
+guest_mb=$(sed -n 's/^hw.ramSize=//p' "$self/Agent_Lite.ini")   # Agent_Lite's guest RAM (-lowram: the emulator keeps it)
 hostmem() {  # waits until Windows has the guest's RAM available: an emulator booted on an overcommitted host pages the WSL VM (the live server, Central) out, freezing it past the app's timeouts
   local kb said=
   until kb=$("$ps" -NoProfile -NonInteractive -Command '(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory' | tr -d '\r'); [[ $kb =~ ^[0-9]+$ ]] && [ $((kb / 1024)) -ge $guest_mb ]; do
-    [[ $kb =~ ^[0-9]+$ ]] || { echo "Windows available memory unread: $kb" >&2; return 1; }
-    [ -n "$said" ] || { echo "waiting for $guest_mb MB available on Windows (now $((kb / 1024)) MB)" >&2; said=1; }; sleep 5
+    [[ -z $kb || $kb =~ ^[0-9]+$ ]] || { echo "Windows available memory unread: $kb" >&2; return 1; }   # empty: WSL interop dropped powershell's stdio (accept4 failed), read again
+    [ -n "$said" ] || { echo "waiting for $guest_mb MB available on Windows (now $([ -n "$kb" ] && echo "$((kb / 1024)) MB" || echo unread))" >&2; said=1; }; sleep 5
   done
 }
-boot() {  # an Agent_Phone emulator on a free even console port, the APK in place of the official app, Chrome granted the
-  # local network, the change's own devtools jar and the three default plugins pushed; the serial goes to state/<slug>/serial as the emulator starts
+emu() {  # an Agent_Lite emulator (Google APIs without Play, -lowram: its 2 GB honoured, the host GPU) on a free even console port behind its own DNS relay, booted;
+  # $@ the start's own flags; the serial goes to state/<slug>/serial as the emulator starts
   need "$adb" ANDROID_SDK; need "$sdk/emulator/emulator.exe" ANDROID_SDK; need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/nslookup.exe" WINDOWS_SYSTEM32; need "$sys32/tasklist.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; need "$ps" WINDOWS_SYSTEM32
   exec 9> "$root/state/emulator-port.lock"; flock 9   # one boot at a time, from its memory wait until its emulator has booted
   hostmem || return 1
   allow || return 1
   port=$(comm -23 <(seq 5560 2 5598 | sort) <(listening | sort -u) | sort -n | head -1); s=emulator-$port; [ -n "$port" ] || { echo "no free even port in 5560-5598" >&2; return 1; }
-  (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Phone -read-only -gpu swiftshader_indirect -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
+  (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Lite "$@" -lowram -no-boot-anim -gpu host -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
   echo "$s" > "$state/serial"
   "$adb" -s "$s" wait-for-device
   w=$(holder "$port")   # the emulator's Windows pid: its console port's holder
@@ -133,26 +134,45 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
   poll booted || return 1   # offline while it boots
   exec 9>&-   # booted: its guest RAM is taken, the next boot's memory wait sees it
+}
+boot() {  # a -read-only start of the prepared Agent_Lite (avd), the APK in place of the official app, the change's own devtools jar and the three default plugins pushed
+  emu -read-only || return 1
   A uninstall "$pkg" >/dev/null
   poll pm_idle || return 1   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
   path=$(A shell pm path "$pkg"); path=${path#package:}
   [ "$(A shell "unzip -l $path | grep -c libosrsrl")" = 1 ] || { echo "the APK carries no libosrsrl" >&2; return 1; }
-  A shell pm grant com.android.chrome android.permission.ACCESS_LOCAL_NETWORK >/dev/null
   for r in $reverse; do A reverse "tcp:${r%:*}" "tcp:${r#*:}" >/dev/null   # the APK's servers on its own loopback, through adb: no address of the host's network
     A reverse --list | grep -qF " tcp:${r%:*} tcp:${r#*:}" || { echo "adb reverse did not map tcp:${r%:*} to tcp:${r#*:} on $s" >&2; return 1; }; done
   A shell svc wifi disable >/dev/null   # the wifi path (netsimd) resolves through Windows; the cellular one asks -dns-server
   poll cellular || return 1
-  A shell settings put secure immersive_mode_confirmations confirmed >/dev/null   # SystemUI's "Viewing full screen" prompt never shows: no tap
   blocked >&2 || return 1
-  r=$(A shell am start -W -n "$pkg/com.jagex.android.MainActivity")   # a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches; by component: its launcher filter has no DEFAULT category, so an implicit am start does not resolve
-  [[ $r == *"Status: ok"* || $r == *"Status: timeout"* ]] || { echo "the app did not start: $r" >&2; return 1; }   # timeout: started, its first frame slower than -W waits; the files/ wait below decides
-  poll app_files || return 1; A shell am force-stop "$pkg" >/dev/null
-  A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null
+  A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null   # made before the app's first start (mobile_login's): the app starts once
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done
   [ "$(A shell ls -1 "$files/plugins" | LC_ALL=C sort | paste -sd' ')" = "$defaults" ] || { echo "the three default plugins are not in place" >&2; return 1; }
   A push "$(win "$ev/$T.devtools.jar")" "$files/plugins/devtools.jar" >/dev/null
   A shell setprop debug.osrsrl.devtools 1 >/dev/null
+}
+avd() {  # prepares Agent_Lite once (its config tracks/client/Agent_Lite.ini, the google_apis image): one writable boot sets the state every -read-only start
+  # inherits: no launcher (the system's fallback home), no animations, error/ANR dialogs, heads-up or autofill, no IME over the hardware keyboard,
+  # wifi off (the cellular path asks the relay), Chrome's first run and prompts off and the local network granted; the boot's quickboot snapshot is saved
+  local home=${ANDROID_AVD_HOME:-/mnt/c/Users/Alex/.android/avd} k
+  [ -d "$sdk/system-images/android-37.0/google_apis/x86_64" ] || { echo "no system-images/android-37.0/google_apis/x86_64 in $sdk (sdkmanager 'system-images;android-37.0;google_apis;x86_64')" >&2; return 1; }
+  rm -rf "$home/Agent_Lite.avd" && mkdir -p "$home/Agent_Lite.avd" || { echo "$home/Agent_Lite.avd is in use: down every mobile first" >&2; return 1; }
+  cp "$self/Agent_Lite.ini" "$home/Agent_Lite.avd/config.ini"
+  printf 'avd.ini.encoding=UTF-8\r\npath=%s\r\npath.rel=avd\\Agent_Lite.avd\r\ntarget=android-37.0\r\n' "$(win "$home/Agent_Lite.avd")" > "$home/Agent_Lite.ini"
+  emu || return 1
+  for k in "global window_animation_scale 0" "global transition_animation_scale 0" "global animator_duration_scale 0" "global hide_error_dialogs 1" \
+      "secure anr_show_background 0" "global heads_up_notifications_enabled 0" "secure show_ime_with_hard_keyboard 0" "secure autofill_service null" \
+      "secure immersive_mode_confirmations confirmed"; do A shell settings put $k >/dev/null; done   # immersive: SystemUI's "Viewing full screen" prompt
+  A shell svc wifi disable >/dev/null   # the wifi path (netsimd) resolves through Windows
+  A shell "echo '_ --disable-fre --no-first-run --no-default-browser-check --disable-features=SigninPromo,PasswordManagerOnAndroid' > /data/local/tmp/chrome-command-line" >/dev/null
+  A shell am set-debug-app --persistent com.android.chrome >/dev/null   # Chrome reads the command line file as the debug app
+  A shell pm grant com.android.chrome android.permission.ACCESS_LOCAL_NETWORK >/dev/null
+  A shell pm disable-user --user 0 com.google.android.apps.nexuslauncher >/dev/null
+  A emu kill >/dev/null; rm -f "$state/serial"; w=$(cat "$state/emulator.winpid" 2>/dev/null || true)
+  while [ -n "$w" ] && "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | grep -q qemu; do sleep 1; done   # its snapshot is saved as it exits: a start before that finds none
+  rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; echo "prepared $home/Agent_Lite.avd"
 }
 check_blocked() { s=$(serial) && need "$adb" ANDROID_SDK && blocked; }
 blocked() {  # each allowed host answers a TLS ClientHello with a handshake record (0x16); every other host fails to resolve
@@ -246,6 +266,6 @@ print("\n".join(sorted(seen)))' "$uid"
   fi
 }
 
-case $verb in up|measure|measure-desktop) trap '[ $? = 0 ] || down >&2 || true' EXIT ;; esac   # a failed boot leaves no mobile behind
-case $verb in up|down|check-blocked|ship|measure|measure-desktop|log|netqa) "${verb//-/_}" ;;
-  *) echo "verbs: build up down gate check-blocked check-log check-evidence check-probe check-netqa check-state-doc tree ship measure log netqa" >&2; exit 2 ;; esac
+case $verb in up|avd|measure|measure-desktop) trap '[ $? = 0 ] || down >&2 || true' EXIT ;; esac   # a failed boot leaves no mobile behind
+case $verb in up|down|avd|check-blocked|ship|measure|measure-desktop|log|netqa) "${verb//-/_}" ;;
+  *) echo "verbs: build avd up down gate check-blocked check-log check-evidence check-probe check-netqa check-state-doc tree ship measure log netqa" >&2; exit 2 ;; esac

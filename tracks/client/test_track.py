@@ -8,7 +8,7 @@ for k in [k for k in os.environ if k.startswith("HD_")] + ["SLUG", "HEAD", "T", 
 
 TRACK = Path(__file__).resolve().parent / "track.sh"
 GATE, BUILD = TRACK.parent / "gate/gate.sh", TRACK.parent / "build/build.sh"   # the code a gate runs, the code a build runs
-place = lambda tools: (shutil.copy(TRACK, tools / "track.sh"), shutil.copytree(GATE.parent, tools / "gate"), shutil.copytree(BUILD.parent, tools / "build"))   # the track script with its gate and build dirs
+place = lambda tools: (shutil.copy(TRACK, tools / "track.sh"), shutil.copy(TRACK.parent / "Agent_Lite.ini", tools), shutil.copytree(GATE.parent, tools / "gate"), shutil.copytree(BUILD.parent, tools / "build"))   # the track script with its AVD config, gate and build dirs
 MOD = "8555c56c" + "ab" * 124   # the live stack's modulus in these fixtures
 
 
@@ -131,7 +131,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
                  sys32 / "tasklist.exe": 'case "$*" in *"PID eq 3860"*) printf \'"svchost.exe","3860","SharedAccess"\\r\\n\' ;; *"PID eq 7300"*) printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\' ;; esac'}
         for f, body in progs.items(): f.write_text("#!/bin/sh\n" + body + "\n"); f.chmod(0o755)
         apk(s.ev / "t.apk"); live(s.env["HD_ROOT"]); (s.ev / "t.devtools.jar").write_text(""); (s.ev / "repack-t.log").write_text(GOOD)
-        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; esac\n'); docker.chmod(0o755)
+        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; inspect) [ -z "$ALLOW" ] || echo "true $ALLOW" ;; esac\n'); docker.chmod(0o755)
         s.env.update(ANDROID_SDK=str(sdk), WINDOWS_SYSTEM32=str(sys32), DOCKER=str(docker)); s.env.pop("ADB", None)
         return log
 
@@ -180,19 +180,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         up = lambda: subprocess.run([str(m / "tools/track.sh"), "up", "x"], env=s.env, capture_output=True, text=True)
         up(); calls = log.read_text()
         s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
-        s.assertLess(calls.index("reverse tcp:8443"), calls.index("am start"))   # before the app first starts
-        s.assertIn("am start -W -n com.jagex.oldscape.android/com.jagex.android.MainActivity\n", calls)   # run 330: the LAUNCHER intent never resolves under am's MATCH_DEFAULT_ONLY
+        s.assertLess(calls.index("reverse tcp:8443"), calls.index("files/plugins"))   # before the app first starts
+        s.assertNotIn("am start", calls)   # boot makes files/ itself: the app starts once, in mobile_login
         s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)
         apk(s.ev / "t.apk", endpoint=b"http://10.0.2.2:8080/jav_config.ws?m=0&p=jagex.comxxxxxxxxx")
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("does not read jav_config from http://127.0.0.1:8443", out)
-
-    def test_boot_fails_an_app_that_never_starts_or_dies_before_files(s):  # run 321: monkey aborted on another app's ANR, injected 0 events, and boot waited on files/ for 26 min
-        s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1", NOSTART="1")
-        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app did not start", out)
-        s.env.pop("NOSTART"); s.env["DIES"] = "1"
-        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app died before creating /sdcard/Android/data/", out)
-        s.env["AMSTATUS"] = "timeout"   # h-client-up-am-start-default: a launch whose first frame outlasts am's wait is started
-        rc, out = s.row("up"); s.assertNotIn("the app did not start", out); s.assertIn("the app died before creating /sdcard/Android/data/", out)
 
     def test_boot_pushes_the_changes_own_devtools_jar(s):  # built with the APK, kept beside it by T; never the main checkout's
         log = s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
@@ -235,7 +227,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
 
     def test_build_takes_the_live_pair_and_rebuilds_an_apk_of_another_key(s):  # a cached APK of the same T kept a stale modulus
         b = BUILD.read_text()
-        s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
+        s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
         s.assertIn('&& carries "$ev/$T.apk" "$m" && carries "$ev/$T.apk" "http://$server/jav_config.ws"; then', b.split("\nbuild() {")[1].split("\n}")[0])
         fn = "\n".join(l for l in b.splitlines() if l.startswith(("pair=", "modulus()", "carries()")))
         run = lambda f: subprocess.run(["bash", "-c", f"set -euo pipefail\nroot={s.env['HD_ROOT']}\n{fn}\ncarries {f} \"$(modulus)\""], capture_output=True, text=True).returncode
@@ -269,31 +261,41 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
     def test_emulator_has_no_console_window(s):  # started directly, not through cmd's start; its output is the run's log
         log = s.fake_windows(); s.row("up")
         s.assertNotIn("cmd.exe", TRACK.read_text())
-        s.assertIn("emulator -avd Agent_Phone", log.read_text())
+        s.assertIn("emulator -avd Agent_Lite", log.read_text())
         s.assertIn("emulator: booting", (Path(s.env["HD_ROOT"]) / "state/x/emulator.log").read_text())
 
-    def test_immersive_prompt_confirmed_before_launch(s):  # the setting replaces a "Got it" tap: no tap, no wait
-        log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")   # fails at blocked (nc fakes nothing), before any launch
-        calls = log.read_text()
-        s.assertIn("shell settings put secure immersive_mode_confirmations confirmed", calls)
-        s.assertNotIn("am start", calls)
+    def test_avd_prepares_the_state_every_start_inherits(s):  # h-mobile-light-avd: one writable boot; no tap of a prompt or the launcher's ANR at any start
+        log = s.fake_windows(); home = s.ev / "avd"; s.env["ANDROID_AVD_HOME"] = str(home)
+        rc, out = s.row("avd"); s.assertEqual(rc, 1); s.assertIn("no system-images/android-37.0/google_apis/x86_64", out)
+        (s.ev / "sdk/system-images/android-37.0/google_apis/x86_64").mkdir(parents=True)
+        (s.ev / "sys32/tasklist.exe").write_text(f'#!/bin/sh\ngrep -q "emu kill" {log} || printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\'\n')   # gone once killed
+        rc, out = s.row("avd"); s.assertEqual(rc, 0, out); calls = log.read_text()
+        s.assertEqual((home / "Agent_Lite.avd/config.ini").read_text(), (TRACK.parent / "Agent_Lite.ini").read_text())
+        s.assertIn("emulator -avd Agent_Lite -lowram -no-boot-anim -gpu host -port 5560", calls)   # writable: no -read-only
+        for c in ("settings put secure immersive_mode_confirmations confirmed", "settings put global hide_error_dialogs 1", "settings put global animator_duration_scale 0",
+                  "pm disable-user --user 0 com.google.android.apps.nexuslauncher", "am set-debug-app --persistent com.android.chrome", "--disable-fre", "svc wifi disable"):
+            s.assertIn(c, calls)
+        s.assertLess(calls.index("--disable-fre"), calls.index("emu kill"))
         s.assertNotIn('"Got it"', (TRACK.parent / "mobile_login.py").read_text())
 
     def test_login_acts_on_the_screen_it_reads(s):  # the issuer's sign-in by LoginIndex and the focused window; an unknown screen or a refusal is FAILED, never a wait
         import importlib.util; spec = importlib.util.spec_from_file_location("mobile_login", TRACK.parent / "mobile_login.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
         app, chrome = m.PKG, "com.android.chrome"
-        flow = [("LOGIN_SCREEN", 0, app, {}), ("LOGIN_SCREEN", 12, app, {}), ("LOGIN_SCREEN", 30, chrome, {"Use without an account": (540, 2085)}),
+        flow = [("LOGIN_SCREEN", 0, app, {}), ("LOGIN_SCREEN", 12, app, {}),
                 ("LOGIN_SCREEN", 30, chrome, {}), ("LOGIN_SCREEN", 10, app, {}), ("LOGGING_IN", 30, app, {}), ("LOGGED_IN", 30, app, {})]
-        s.assertEqual([m.step(*f)[:2] for f in flow], [("tap", "Existing User"), ("tap", "Accept"), ("tap", "Use without an account"), ("wait",), ("tap", "Play Now"), ("wait",), ("done",)])
+        s.assertEqual([m.step(*f)[:2] for f in flow], [("tap", "Existing User"), ("tap", "Accept"), ("wait",), ("tap", "Play Now"), ("wait",), ("done",)])
         s.assertEqual(m.step("LOGIN_SCREEN", 9, app, {})[0], "fail")                                      # the server's refusal
         s.assertEqual(m.step("LOGIN_SCREEN", 4, app, {})[0], "fail")                                      # a login screen it does not know
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
-        s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
-        s.assertEqual(m.step("UNKNOWN", -1, "Application", {"Pixel Launcher isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)})[:2], ("tap", "Wait"))   # the system's ANR dialog
-        s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
+        s.assertEqual(m.step("UNKNOWN", -1, m.HOME, {})[0], "wait")                                       # the app's window has not taken focus yet
+        s.assertEqual(m.step("LOGIN_SCREEN", 0, "", {})[0], "wait")                                        # no focused window: never the app's canvas tapped blind
+        s.assertEqual(m.step("LOGIN_SCREEN", 10, m.HOME, {})[0], "fail")                                  # the app left for the home
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"Use without an account": (540, 2085)})[0], "wait")   # no first-run tap: the prepared AVD's Chrome skips it
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, "Application", {"Chrome isn't responding": (1, 1), "Wait": (1, 3)})[0], "fail")   # no Wait tap: the prepared AVD hides ANR dialogs; one shown is FAILED
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
+        s.assertEqual(m.step("LOADING", 30, app, {}, 25, "h1m", lost=True), ("fail", "the game server lost h1m's session while the app was LOADING"))   # run 293: LOADING (20%) for 78 min after it
         form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
         f = lambda u, uf, p, pf: {"Username": (u, uf, 5, 1), "Password": (p, pf, 5, 2)}
         on = lambda fields, posted=False: m.step("LOGIN_SCREEN", 30, chrome, {**form, **{t: (5, 1) for t, *_ in fields.values() if t}}, None, name, fields, posted)
@@ -334,10 +336,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(sorted(re.findall(r"-dns-server (\S+)", log.read_text())), ["127.0.0.2", "127.0.0.3"])   # each its own relay
 
     def test_a_boot_waits_for_its_guest_ram_on_windows(s):  # h-mobile-login-page-39-again: emulators past Windows' memory paged the WSL VM out, freezing the server past the app's 10 s timeouts
-        log = s.fake_windows(); free = s.ev / "free"; free.write_text("2000000 4194304"); s.env["FREE"] = str(free)   # KB: 1953 MB, then 4096 MB
-        rc, out = s.row("up"); s.assertIn("waiting for 4096 MB available on Windows (now 1953 MB)", out)
+        log = s.fake_windows(); free = s.ev / "free"; free.write_text("1000000 2097152"); s.env["FREE"] = str(free)   # KB: 976 MB, then 2048 MB (Agent_Lite.ini hw.ramSize)
+        rc, out = s.row("up"); s.assertIn("waiting for 2048 MB available on Windows (now 976 MB)", out)
         calls = log.read_text(); s.assertEqual(calls.count("FreePhysicalMemory"), 2); s.assertLess(calls.rindex("FreePhysicalMemory"), calls.index("emulator -avd"))
         free.write_text("oops oops"); rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("Windows available memory unread: oops", out)
+        free.write_text(" 2097152"); rc, out = s.row("up"); s.assertIn("(now unread)", out); s.assertNotIn("memory unread", out)   # an empty read (WSL interop's accept4 failed) is read again
 
     def test_a_running_emulator_holds_no_lock(s):  # the port lock ends when adb sees the emulator, not when it exits
         log = s.fake_windows(); emu = s.ev / "sdk/emulator/emulator.exe"
@@ -372,7 +375,7 @@ case "$*" in *push*) ;;
     def test_up_puts_the_mobile_on_the_allowlist(s):  # the allowlist container, the emulator asking it, the wifi path off
         log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")
         calls = log.read_text()
-        s.assertIn("docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
+        s.assertIn("-p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
         s.assertIn("-dns-server 127.0.0.2", calls); s.assertIn("shell svc wifi disable", calls)
         s.assertNotIn("private_dns", TRACK.read_text())
 
@@ -384,6 +387,10 @@ case "$*" in *push*) ;;
         s.assertNotIn("emulator -avd", calls)
         s.env.pop("NODNS"); log.write_text(""); s.row("up"); calls = log.read_text()
         s.assertLess(calls.index("nslookup api.runelite.net 127.0.0.2"), calls.index("emulator -avd")); s.assertNotIn("docker rm", calls)
+        s.env["ALLOW"] = subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]
+        log.write_text(""); s.row("up"); s.assertNotIn("docker run", log.read_text())   # the running container carries this allow.py: kept
+        s.env["ALLOW"] = "0" * 12; log.write_text(""); s.row("up"); calls = log.read_text()   # run 301: it ran an older allow.py for days: replaced
+        s.assertLess(calls.index("docker rm -f mobile-allow"), calls.index("docker run -d --rm --name mobile-allow --label allow=" + subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]))
 
     def test_the_mobiles_dns_is_its_own_relay_at_an_address_no_windows_process_holds(s):  # ICS holds 0.0.0.0:53, a stale relay 127.0.0.2:53
         log = s.fake_windows(); s.env.update(INSTALL="Success", STALE="1"); st = Path(s.env["HD_ROOT"]) / "state/x"
@@ -394,7 +401,7 @@ case "$*" in *push*) ;;
         s.assertNotIn("3070", calls)   # the stale holder is never stopped
 
     def test_allow_answers_only_the_allowed_names(s):  # tools/allow.py: DNS and the TLS relay admit api/static.runelite.net alone
-        import ssl, struct, sys; sys.path.insert(0, str(TRACK.parent)); import allow
+        import ssl, struct, sys; from unittest import mock; sys.path.insert(0, str(TRACK.parent)); import allow
         q = lambda n, t=1: b"\x12\x34\x01\x00\x00\x01\0\0\0\0\0\0" + b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\0" + struct.pack(">HH", t, 1)
         a = allow.answer(q("Static.RuneLite.net")); s.assertEqual((a[:2], a[3] & 15, a[7], a[-4:]), (b"\x12\x34", 0, 1, bytes([10, 0, 2, 2])))
         a = allow.answer(q("api.runelite.net", 28)); s.assertEqual((a[3] & 15, a[7]), (0, 0))   # no AAAA: IPv4 alone reaches the relay
@@ -412,7 +419,13 @@ case "$*" in *push*) ;;
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname())
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
-        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); c.settimeout(5)
+        t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
+        g = socket.create_server(("127.0.0.1", 0)); js5 = bytes([15]) + struct.pack(">I", 241) + bytes(16)
+        with mock.patch.object(allow, "GAME", g.getsockname()):   # run 301: the client's js5 on 443, held or closed, stopped its load at 20%: it reaches the game server, as on a world
+            c.sendall(js5); v = g.accept()[0]; s.assertEqual(v.recv(64), js5); v.sendall(b"\0"); s.assertEqual(c.recv(5), b"\0")
+            v.close(); c.close(); t.join(); l.close(); g.close()
+        u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
         def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
             asked.append(a[0])
             if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")

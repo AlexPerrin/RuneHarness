@@ -1060,6 +1060,25 @@ class Text(Repo):
         s.assertEqual(s.row("text.py", "dupes", HEAD=head)[0], 0)
         shutil.rmtree(ev)
 
+    def test_a_head_merging_staging_owns_only_what_neither_main_nor_staging_has(s):  # run 369: staging's untested TestCommands.kt counted as a staging repair's own
+        git(s.repo, "checkout", "-q", "-b", "staging")
+        s.write("cmd/src/main/kotlin/C.kt", "fun c() { invAdd(x) }\n")
+        s.commit("staging: a fork-only command")
+        git(s.repo, "checkout", "-q", "main")
+        s.write("up/U.kt", "upstream moved on\n")
+        main = s.commit("feat: upstream")
+        git(s.repo, "checkout", "-q", "-b", "repair", "staging"); git(s.repo, "merge", "-q", "--no-edit", main)   # the repair head; staging not moved yet
+        head = git(s.repo, "rev-parse", "HEAD")
+        s.assertEqual(s.row("text.py", "dupes", HEAD=head, BASE=main), (0, "dupes: ok\n"))
+        s.assertEqual(s.row("text.py", "commits", HEAD=head, BASE=main)[0], 0)
+        git(s.repo, "checkout", "-q", "-b", "h", main)   # a head off upstream main, untested, still fails
+        s.write("mod/src/main/kotlin/A.kt", "fun a() { invDel(x) }\n")
+        head = s.commit("feat: a flow")
+        rc, out = s.row("text.py", "dupes", HEAD=head, BASE=main)
+        s.assertEqual(rc, 1); s.assertIn("mod moves items with no test", out)
+        git(s.repo, "checkout", "-q", "staging"); git(s.repo, "merge", "-q", "--no-edit", head)   # staged: a regate still sees it
+        s.assertEqual(s.row("text.py", "dupes", HEAD=head, BASE=main)[0], 1)
+
     def test_commits_after_an_existing_prs_head(s):
         s.write("mod/src/test/kotlin/T.kt", "x\n")
         public = s.commit("test: already public on the PR")

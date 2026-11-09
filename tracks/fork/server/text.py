@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """The server track's scripted criteria that read text. Exit 1 names every miss.
   text.py evidence   accuracy.md, pr-comment.md and, for a new PR (no $PR), pr-title.txt and pr-body.md present and non-empty in $EVIDENCE
-  text.py commits    every commit $BASE..$HEAD not on an existing PR's head fork/$PUBLIC_BRANCH: subject feat:/fix:, no Claude-Session trailer, only a Co-Authored-By trailer
+  text.py commits    every commit $BASE..$HEAD not on an existing PR's head fork/$PUBLIC_BRANCH nor on staging (unless staging holds $HEAD): subject feat:/fix:, no Claude-Session trailer, only a Co-Authored-By trailer
   text.py texts      a new PR's pr-body.md has upstream's template sections (read live from origin/main), no fork PR link in any text the carry posts (each pr-reply-*.md too),
                      pr-comment.md names $HEAD unless it is a reply in a review thread (it quotes the finding: '> ')
   text.py dupes      a module whose main sources gain an item-moving call has a test source added or changed ($BASE...$HEAD,
-                     on an existing PR fork/$PUBLIC_BRANCH...$HEAD)
+                     on an existing PR fork/$PUBLIC_BRANCH...$HEAD; for a head merging staging, only what staging...$HEAD adds too)
 Env: EVIDENCE, CLONE, BASE, HEAD, PR, PUBLIC_BRANCH.
 """
 import os, re, subprocess, sys
@@ -34,9 +34,17 @@ def live():
     return f"fork/{os.environ['PUBLIC_BRANCH']}" if os.environ.get("PR") and os.environ.get("PUBLIC_BRANCH") else ""
 
 
+def staging():
+    # a head that merges staging (a staging repair) carries staging's own content over upstream main: none of it is the change's.
+    # Unless staging already holds HEAD (then staging...HEAD is empty and would hide the change).
+    s = "refs/heads/staging"
+    held = subprocess.run(["git", "-C", CLONE, "merge-base", "--is-ancestor", HEAD, s], capture_output=True).returncode == 0
+    return s if git("rev-parse", "--verify", "-q", s).strip() and not held else ""
+
+
 def commits():
     bad = []
-    for c in git("log", "--no-merges", "--format=%H%x01%s%x01%b%x02", HEAD, f"^{BASE}", *([f"^{live()}"] if live() else [])).split("\x02"):
+    for c in git("log", "--no-merges", "--format=%H%x01%s%x01%b%x02", HEAD, f"^{BASE}", *(f"^{r}" for r in (live(), staging()) if r)).split("\x02"):
         if not c.strip():
             continue
         sha, subject, body = (c.strip("\n") + "\x01\x01").split("\x01")[:3]
@@ -65,14 +73,27 @@ def texts():
     return bad
 
 
+def added(base):
+    """The files and the added (path, line)s of base...HEAD."""
+    files, lines, path = set(), set(), None
+    for line in git("diff", "--unified=0", f"{base}...{HEAD}").splitlines():
+        if line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else None
+            files.add(path)
+        elif line.startswith("+") and path:
+            lines.add((path, line[1:]))
+    return files, lines
+
+
 def dupes():
-    flows, tested, path = {}, set(), None
-    for line in git("diff", "--unified=0", f"{live() or BASE}...{HEAD}").splitlines():
-        if line.startswith("+++ b/"):
-            path = line[6:]
-            if m := re.search("/src/(test|integration)/", path):
-                tested.add(path[:m.start()])
-        elif line.startswith("+") and path and "/src/main/" in path and path.endswith(".kt"):
+    files, lines = added(live() or BASE)
+    if staging():   # the change's own: in neither upstream main (or the PR's live head) nor staging
+        f2, l2 = added(staging())
+        files, lines = files & f2, lines & l2
+    flows = {}
+    tested = {p[:m.start()] for p in files if p and (m := re.search("/src/(test|integration)/", p))}
+    for path, line in lines:
+        if "/src/main/" in path and path.endswith(".kt"):
             for m in MOVES.finditer(line):
                 flows.setdefault(path, set()).add(m.group(1))
     bad = []

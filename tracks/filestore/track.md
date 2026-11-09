@@ -34,11 +34,11 @@ criterion once, `hd verdict <slug> <head> rows.json`; a text-only failure is fix
 Push any ref but yours; open or edit PRs; connect to Jagex; the live server; a process you did not start.
 
 ## Seed criteria
-- claims | every PR claim, file and test name is true of the exact head | judge: pr-text
+- claims | every PR claim, file and test name is true of the exact head | judge: pr-text | upstream
 - no-deferral | no Not-done list, no unticked item, no open ask; every reported defect fixed in this PR | judge: pr-text | upstream
 - one-change | one feature, nothing unrelated, no open upstream PR for the same content, Depends stated | judge: pr-text | upstream
-- style | no added comments or KDoc, nothing public for a test | judge: qa-server
-- serves | a server built with the head boots and serves its cache to a client | judge: qa-server
+- style | no added comments or KDoc, nothing public for a test | judge: qa-server | upstream
+- serves | a server built with the head boots and serves its cache to a client | judge: qa-server | change
 - tests | every module's tests pass at the candidate | script: bash $HD_ROOT/tracks/filestore/track.sh test
 - evidence | pr-title.txt, pr-body.md, pr-comment.md present and non-empty | script: python3 $HD_ROOT/tracks/fork/server/text.py evidence | upstream
 - subject | commit subjects start with feat: or fix:; no Claude-Session trailer; the co-author line only | script: python3 $HD_ROOT/tracks/fork/server/text.py commits | upstream

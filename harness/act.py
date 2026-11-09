@@ -71,16 +71,17 @@ def parse_change(path) -> Change:
     y = yaml.safe_load(fm) or {}
     title = next((l[2:] for l in body.splitlines() if l.startswith("# ")), "")
     return Change(slug=y.get("slug") or os.path.basename(path)[:-3], track=y["track"], kind=y.get("kind", "change"),
-                  upstream=y.get("upstream", True), priority=tier(y.get("priority", "P2")), deps=tuple(y.get("deps") or ()),
-                  goal=y.get("goal", ""), units=tuple(y.get("units") or ()), pr=y.get("pr", 0) or 0,
-                  public=y.get("public", ""), draft=bool(y.get("draft", False)), branch=y.get("branch", ""), title=title, body=body)
+                  priority=tier(y.get("priority", "P2")), deps=tuple(y.get("deps") or ()), goal=y.get("goal", ""),
+                  units=tuple(y.get("units") or ()), feature=y.get("feature") or "", branch=y.get("branch", ""), title=title, body=body)
 
 
 DEFS = os.path.join(ROOT, "harness")   # the definitions: changes/ and goals/; `hd tick --defs` reads another tree's (the replay, the fixtures)
 
 
 def changes() -> list:
-    return [parse_change(p) for p in sorted(glob.glob(os.path.join(DEFS, "changes", "*.md")))]
+    """Every definition, then a package per (feature, upstream track) of them (decide.packages)."""
+    defs = [parse_change(p) for p in sorted(glob.glob(os.path.join(DEFS, "changes", "*.md")))]
+    return defs + decide.packages(defs, cfg().tracks)
 
 
 def goals() -> list:
@@ -191,8 +192,8 @@ def seed(db, ch, T):
         kind, _, cmd = how.partition(":")
         if kind == "judge" and not cmd.strip():
             cmd = None
-        if "upstream" in flags and not (T.upstream and ch.upstream):
-            continue
+        if "upstream" in flags and not ch.members or "change" in flags and ch.members:
+            continue   # upstream: the package's (upstream's rules, the PR texts); change: the member's (accuracy, in game)
         db.execute("INSERT OR IGNORE INTO criterion(change, rid, kind, text, cmd, source, upstream_only, created_at) VALUES (?,?,?,?,?,'seed',?,?)",
                    (ch.slug, rid, kind, text, cmd.strip() if cmd else None, int("upstream" in flags), now()))
 
@@ -290,6 +291,7 @@ def db_path(db) -> str:
 def job_env(db, ch, T, s, **more) -> dict:
     """The environment of a job and of every scripted criterion: HD_* and the short names the scripts read."""
     base = git(T.path, "rev-parse", T.base)
+    pr = store.Ledger(db).pr_on_branch(T.upstream, ch.feature) if ch.members else None
     cl = T.path if ch.slug == "staging" or ch.kind == "goal" else clone(T, ch)   # a job of staging or a goal has no dev clone
     if cl != T.path:
         store.own(db, "worktree", cl, ch.slug)
@@ -297,7 +299,7 @@ def job_env(db, ch, T, s, **more) -> dict:
                HD_HEAD=s["head"], HD_BASE=T.base, HD_REPO=T.path, HD_CLONE=cl, HD_BUILDS=str(cfg().builds),
                SLUG=ch.slug, HEAD=s["head"], T=decide.built(s), TCOMMIT=s["tcommit"], BASE=base, CLONE=cl,
                BUILD=os.path.join(T.path, ".worktrees", f"{ch.slug}-build"), EVIDENCE=os.path.join(ROOT, "evidence", ch.slug),
-               PR=str(ch.pr or ""), PUBLIC_BRANCH=ch.public or "")
+               PR=str((pr or {}).get("number", "")), PUBLIC_BRANCH=ch.feature if ch.members else "")
     comp = json.loads(s["composite_json"] or "{}") if "composite_json" in s.keys() else {}
     for lib in ("central", "filestore"):
         if lib in comp:
@@ -318,7 +320,8 @@ def start(db, step: Step, ch, T) -> None:
         if ch.slug == "staging":
             s["composite_json"] = L.staging_composite(decide.STAGING)
     elif step.kind == "publish":
-        s = L.submission(ch.slug, L.latest_card(ch.slug)["head"])
+        h = L.latest_card(ch.feature)["head"]
+        s = {"tree": "", "tcommit": "", "head": h}
     else:
         s = L.submission(ch.slug, L.ref(T.name, T.dev_ref(ch)))
     k12 = step.key.replace(":", "-")[:12] if step.kind != "ship" else step.key.split(":")[-1][:12]
@@ -440,11 +443,9 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
             for target in targets & moved:
                 observe.landed(db, T, target, [x for x in open_ if x.track == T.name])
         for ch in open_:
-            T = c.tracks[ch.track]
-            if T.upstream and ch.upstream:
+            if ch.members:
                 observe.texts(db, ch.slug)
-                if ch.pr:
-                    observe.pr(db, T, ch, ours=(publish.OWNER,))
+                observe.pr(db, c.tracks[ch.track], ch, ours=(store.OWNER,))
         observe.procs(db)
         observe.sessions(db, definition_blob())
         observe.runs(db)
@@ -475,11 +476,11 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
             continue
         if a.change.endswith(":staging"):
             T = c.tracks[a.change.split(":")[0]]
-            ch = Change("staging", T.name, upstream=False)
+            ch = Change("staging", T.name)
         elif a.change.startswith("goal:"):
             g = next(x for x in gs if x.slug == a.change[5:])
             T = c.tracks[g.track]
-            ch = Change(g.slug, g.track, kind="goal", upstream=False, body=g.body)
+            ch = Change(g.slug, g.track, kind="goal", body=g.body)
             if s.kind == "measure" and g.measure == "query":
                 measure_query(db, g, T, s.key.split(":")[0])
                 continue
@@ -505,7 +506,10 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
             elif s.kind == "merge":
                 stage(db, ch, T, s.key.split(":")[1])
             elif s.kind == "card":
-                publish.card(db, ch, T, s.key, L.pr(T.upstream, ch.pr) if ch.pr else None, L.texts(ch.slug), s.input)
+                C = decide.Ctx(L, c, {x.slug: x for x in defs})
+                pkgs = [{"slug": p.slug, "track": p.track, "head": decide.tip(C, p), "pr": decide.pr_of(C, p), "texts": L.texts(p.slug)}
+                        for p in decide.feature_pkgs(C, ch.feature)]
+                publish.card(db, ch.feature, pkgs, c.tracks, s.key, s.input)
         except Exception as e:   # one change's act failing never stops the others'
             store.alert(db, "fault", f"act:{ch.slug}", f"{s.kind} raised {type(e).__name__}: {e}"[:300])
             continue

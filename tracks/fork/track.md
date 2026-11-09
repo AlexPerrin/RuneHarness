@@ -1,19 +1,22 @@
 # Server track (the fork)
 
 The fork AlexPerrin/OpenRune-Server (of OpenRune/OpenRune-Server) is the test server; a checked change reaches it on
-`staging` and, independently, upstream as a PR after the user's yes. The script is `tracks/fork/track.sh <verb> <slug>`
+`staging` and is done once the test server runs it; upstream it goes as part of a feature (`feature:` in its front
+matter, the user's bundle), whose package is one PR after the user's yes. The script is `tracks/fork/track.sh <verb> <slug>`
 (verbs in its header); `hd` is the exact command the brief names; the evidence dir is `evidence/<slug>/`.
 
 ## Branches on the fork
 In the clone `origin` is upstream and `fork` the fork. `fork/main` mirrors upstream. `dev/<slug>` is the dev's ref, the
-only one a dev pushes; the change's head is its tip on the fork. `content/<slug>` and `fix/<slug>` are the public PR
-branches, moved only by a publish after the user's yes. `local/*` are test-only pieces that never go upstream.
+only one a dev pushes; the change's head is its tip on the fork. A feature's name is its public PR branch
+(`content/<x>`, `feat/<x>`, `fix/<x>`), moved only by a publish after the user's yes; its package's dev ref is
+`dev/pr-<feature>-fork`. `local/*` are test-only pieces that never go upstream.
 `gate/<slug>` holds the gate's CI commit. `staging` holds upstream `main`, the pins and every checked head, merged
 once each; the live test server runs it.
 
 ## Rules for upstream (re-read AGENTS.md, CONTRIBUTING.md and the PR template on upstream `main` every run; the criteria record their blob shas)
-- One change per PR: one quest, feature or fix, off current upstream `main`, never stacked, no commit of another
-  open PR. Shared code is its own change that merges first; dependencies are `Depends:` in the PR text.
+- One feature per PR: the package is upstream `main` plus its member changes' commits, never stacked, no commit of
+  another open PR nor of a fork-only change. Shared code is its own feature that merges first; dependencies are
+  `Depends:` in the PR text.
 - Check upstream first (gh pr list on OpenRune/OpenRune-Server with --search, and the issues). Theirs wins.
 - A PR is ready only when every reported defect is fixed in it; nothing is promised for a later PR, no Not-done list,
   no unticked checklist item.
@@ -56,7 +59,7 @@ The brief names your clone (`~/src/OpenRune-Server/.worktrees/<slug>`, branch `d
 `git grep <pattern> -- ':!.data/raw-cache' ':!content/drops'` (tracked code only, without the cache and drop tables). Commit;
 `tracks/fork/track.sh build <slug>` builds your working copy's candidate in the build copy: your head merged onto
 staging (what the test server runs: the pins, token login, every staged head), while the branch itself stays on
-upstream main and never takes staging in (its PR holds no other change; the fork CI runs it on main alone); a head
+upstream main and never takes staging in (its commits are what its feature's package applies to main); a head
 that does not merge onto staging is yours to make merge. `up <slug> [N]` starts the server from that build with N
 desktops logged in by token through the server's own Central sign-in (Play alone, each its own account) and prints their devtools ports (the server's own Central serves
 their `jav_config.ws` from a file: a build whose Central reads none, the published one, is first rebuilt with Central's
@@ -71,7 +74,8 @@ makes those desktops' accounts administrators. `live-desktop <slug>` signs one d
 The server `up` starts runs game.yml with `quest-requirements` `mode` from the front matter `quest-mode:`
 (`respect-progress` by default, or `assume-completed`); `QUEST_MODE=<mode>` on one `up` overrides it; PR notes name
 it as the verification setting. Every server run goes through track.sh, never a container by hand. Test through
-`osrs-devtools-desktop` data tools; a screenshot only for how something is drawn. Write `pr-title.txt`, `pr-body.md`
+`osrs-devtools-desktop` data tools; a screenshot only for how something is drawn. A change writes no PR texts; a
+package's dev (its brief says how: `hd package`) writes `pr-title.txt`, `pr-body.md`
 (on an open PR they replace the live ones that differ), `pr-comment.md` (the push summary: names the head and every
 commit the push carries since the PR's live head, no quote, no @) and, for each finding answered, `pr-reply-<finding
 id>.md` (the reply alone: the finding quoted with `> `, @ only its author). Run the scripted criteria yourself
@@ -99,24 +103,24 @@ live server (`osrs-openrune*`); push any ref but yours; open or edit PRs; connec
 stop a process you did not start; use the DB tool for writes.
 
 ## Seed criteria
-A judged criterion names the skill that judges it; `upstream` marks one that applies only to a change that opens a PR.
+A judged criterion names the skill that judges it; `upstream` marks one of the feature's package (upstream's rules and the PR texts, judged on its net diff), `change` one of the member change (accuracy, in game); unmarked, both.
 Scripted criteria run with SLUG, HEAD, T, TCOMMIT, BASE, CLONE, BUILD, EVIDENCE, PR, PUBLIC_BRANCH in the env, cwd the build copy.
-- claims | every PR claim, id, file, test name and ticked box is true of the exact head | judge: pr-text
-- rsprox | timings, steps and messages checked against RSProx recordings tick by tick before the wiki | judge: accuracy
+- claims | every PR claim, id, file, test name and ticked box is true of the exact head | judge: pr-text | upstream
+- rsprox | timings, steps and messages checked against RSProx recordings tick by tick before the wiki | judge: accuracy | change
 - no-deferral | no Not-done list, no unticked item, no open ask; every reported defect fixed in this PR | judge: pr-text | upstream
 - net-change | on an existing PR, pr-comment.md covers only the commits since the PR's live head | judge: pr-text | upstream
-- unsourced | the PR notes name every reconstruction and every cheat used to verify | judge: accuracy
-- no-raw-data | no game data or raw ids in Kotlin; gameval symbols; state in varbits and varps | judge: qa-server
-- playable | every flow playable without a cheat; in-game evidence in the evidence dir | judge: qa-server
+- unsourced | the PR notes name every reconstruction and every cheat used to verify | judge: accuracy | upstream
+- no-raw-data | no game data or raw ids in Kotlin; gameval symbols; state in varbits and varps | judge: qa-server | change
+- playable | every flow playable without a cheat; in-game evidence in the evidence dir | judge: qa-server | change
 - one-change | one feature, nothing unrelated, no open upstream PR for the same content, Depends stated | judge: pr-text | upstream
-- style | no added comments or KDoc, no test but a dupe test, a multi-case rule or a reviewer's request, nothing public for a test, no quirk entries | judge: qa-server
-- dupes | each item-moving flow's four paths tested with totals, or a reason that holds | judge: dupes
-- accuracy | each rule of accuracy.md matches in game; a difference no answer of the user accepts fails it | judge: accuracy
-- evidence | accuracy.md, pr-title.txt, pr-body.md, pr-comment.md present and non-empty | script: python3 $HD_ROOT/tracks/fork/server/text.py evidence | upstream
+- style | no added comments or KDoc, no test but a dupe test, a multi-case rule or a reviewer's request, nothing public for a test, no quirk entries | judge: qa-server | upstream
+- dupes | each item-moving flow's four paths tested with totals, or a reason that holds | judge: dupes | upstream
+- accuracy | each rule of accuracy.md matches in game; a difference no answer of the user accepts fails it | judge: accuracy | change
+- evidence | pr-title.txt, pr-body.md, pr-comment.md present and non-empty | script: python3 $HD_ROOT/tracks/fork/server/text.py evidence | upstream
 - subject | commit subjects (on an existing PR, those after its live head) start with feat: or fix:; no Claude-Session trailer; the co-author line only | script: python3 $HD_ROOT/tracks/fork/server/text.py commits | upstream
 - texts | template sections present; no fork PR link; pr-comment.md names HEAD | script: python3 $HD_ROOT/tracks/fork/server/text.py texts | upstream
-- gamevals | custom gameval ids unique across upstream main, the pins and open dev heads | script: python3 $HD_ROOT/tracks/fork/server/gamevals.py check
-- dupe-tests | every module whose main sources gain an item-moving call has a test source added or changed | script: python3 $HD_ROOT/tracks/fork/server/text.py dupes
+- gamevals | custom gameval ids unique across upstream main, the pins and open dev heads | script: python3 $HD_ROOT/tracks/fork/server/gamevals.py check | change
+- dupe-tests | every module whose main sources gain an item-moving call has a test source added or changed | script: python3 $HD_ROOT/tracks/fork/server/text.py dupes | upstream
 - spotless | spotlessCheck passes on every module the head changes from main | script: bash $HD_ROOT/tracks/fork/track.sh spotless
 - ci | fork CI and Formatting green on gate/<slug> at the candidate | script: bash $HD_ROOT/tracks/fork/track.sh gate-ci | upstream
 

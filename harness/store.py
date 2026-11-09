@@ -192,6 +192,13 @@ SCHEMA_9 = "ALTER TABLE submission ADD COLUMN head_tree TEXT;"   # the head's ow
 MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8, SCHEMA_9]
 
 
+OWNER = "AlexPerrin"   # our GitHub login: the fork, the PR heads' owner, the comments that are ours
+
+
+def pulls_on(upstream, branch) -> str:
+    return f"repos/{upstream}/pulls?head={OWNER}:{branch}&state=all"
+
+
 def submit(db, slug, head, tree, tcommit, composite, run, head_tree=None) -> bool:
     """Record a head's candidate; the same head submitted again with another candidate (a dep's head moved, the base
     moved under it) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
@@ -409,6 +416,14 @@ class Ledger:
         p = json.loads(row["body"])
         return {"number": p["number"], "state": p["state"], "draft": p["draft"], "head": p["head"]["sha"], "title": p["title"],
                 "body": p["body"] or "", "merged_at": p["merged_at"], "merge_commit": p.get("merge_commit_sha")}
+
+    def pr_on_branch(self, upstream, branch):
+        """The feature's PR, observed by its branch (observe.prs): the open one, else the latest; None before any."""
+        row = self.one("SELECT body FROM gh WHERE url=?", pulls_on(upstream, branch))
+        ps = json.loads(row["body"]) if row and row["body"] else []
+        p = next((p for p in ps if p["state"] == "open"), ps[0] if ps else None)
+        return p and (self.pr(upstream, p["number"]) or {"number": p["number"], "state": p["state"], "draft": p["draft"], "head": p["head"]["sha"],
+                                                          "title": p["title"], "body": p["body"] or "", "merged_at": p.get("merged_at"), "merge_commit": None})
 
     def texts(self, slug):
         return {r["name"]: r["body"] for r in self.all("SELECT name, body FROM text WHERE change=?", slug)}

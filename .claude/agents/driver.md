@@ -12,6 +12,8 @@ autonomous and none of their work is yours.
    --from-alert <id>` (a dev run), `hd dismiss <id> "<why>"`, or a one-off fix. Their yes and close are theirs
    (`! hd approve|close`); in a remote session, where `!` cannot be sent, their "approve" or "close" in this chat is
    that command: run it for the card or change they named, nothing more. Commit definitions with `hd commit`.
+   How PRs are bundled is the user's alone: a change's `feature:` (its PR branch, e.g. `feat/friends`) is set by their
+   answer to a proposal (`hd answer`, effect `feature`) or a definition edit they direct; a card is per feature.
 3. A one-off change the user directs (a fix, a doc, a definition): make it in the checkout, `python3 -m unittest discover
    -s tests` green, the touched doc in the same pathspec commit, pushed; a running track script is never edited in place.
 Never on your own: a fix, a file, a dismissal, a spawn, approve, close, product code, EnterWorktree, a blocking question.

@@ -18,14 +18,12 @@ class Change:
     slug: str
     track: str              # client | fork | central | filestore | devtools | harness
     kind: str = "change"    # change | release
-    upstream: bool = True   # False: fork only, never a PR
     priority: str = "P2"    # P0..P4
     deps: tuple = ()
     goal: str = ""
     units: tuple = ()
-    pr: int = 0
-    public: str = ""        # the PR branch on the fork (content/<x>, fix/<x>), moved only by a publish
-    draft: bool = False     # the user's word: its card leaves the PR a draft (no ready step)
+    feature: str = ""       # the user's PR bundle: the fork branch the feature's PRs are opened from (feat/<x>, content/<x>)
+    members: tuple = ()     # a package (decide.packages): the member changes of its feature on its track, in dependency order
     branch: str = ""        # the dev ref; default refs/heads/<track prefix>/<slug>
     title: str = ""
     body: str = ""
@@ -59,14 +57,14 @@ class Track:
             return ch.branch
         return f"refs/remotes/{self.remote}/{self.prefix}/{ch.slug}" if self.remote else f"refs/heads/{self.prefix}/{ch.slug}"
 
-    def candidate_base(self):
+    def candidate_base(self, ch=None):
         """The ref a candidate starts from: staging on a track that deploys the test server (proved on what the server
-        runs, H4), else base; the PR head itself stays on base (G4)."""
-        return STAGING if self.upstream and "deploy" in self.recipes else self.base
+        runs, H4), else base; a package is self-contained on base (G4)."""
+        return STAGING if self.upstream and "deploy" in self.recipes and not (ch and ch.members) else self.base
 
     def done_ref(self, ch):
-        """Where a landed row means done: the live branch, upstream main, or staging for a fork-only change."""
-        return self.base if (not self.upstream or ch.upstream) else "refs/heads/staging"
+        """Where a landed row means done: the live branch, upstream main for a package, staging for a change."""
+        return self.base if (not self.upstream or ch.members) else "refs/heads/staging"
 
 
 @dataclass(frozen=True)
@@ -150,16 +148,23 @@ def job_due(C, kind, k):
 # --- guards: each returns a Step or None; first non-None wins ---------------------------------------------------
 
 def done(C, ch) -> bool:
-    """A change is done when closed, landed where its track says done, or, fork-only on a track that does not stage
-    (nothing to land on), when its head's verdict is ok."""
+    """A change is done when closed, or landed on staging and live on the test server (on a track without staging:
+    its head's verdict ok; off the server tracks: landed on the live branch), or already on upstream main. A package is done when landed on
+    upstream main, or closed with its feature, or when no member is left open."""
     T = C.cfg.tracks[ch.track]
-    if C.L.closed(ch.slug) or C.L.landed(ch.slug, T.done_ref(ch)):
+    if C.L.closed(ch.slug):
         return True
-    if T.upstream and not ch.upstream and not stages(C, ch):
-        t = tip(C, ch)
-        v = C.L.last_verdict(ch.slug, t) if t else None
-        return bool(v and v["ok"])
-    return False
+    if ch.members:
+        return bool(C.L.landed(ch.slug, T.base) or C.L.closed(ch.feature) or all(C.L.closed(m) for m in ch.members))
+    if C.L.landed(ch.slug, T.base):
+        return True
+    if not T.upstream:
+        return False
+    if stages(C, ch):
+        return bool(C.L.landed(ch.slug, STAGING) and C.L.landed(ch.slug, "live"))
+    t = tip(C, ch)
+    v = C.L.last_verdict(ch.slug, t) if t else None
+    return bool(v and v["ok"])
 
 
 def closed(C, ch):
@@ -236,8 +241,8 @@ def ask_open(C, ch):
 
 def criteria_due(C, ch):
     T = C.cfg.tracks[ch.track]
-    if not (T.upstream and ch.upstream):
-        return None
+    if not T.upstream or ch.members or C.L.one("SELECT 1 FROM submission WHERE change=?", ch.slug):
+        return None   # a server change: its accuracy before code (none once code exists); a package's are upstream's rules
     if C.L.runs_with_record(ch.slug, "criteria", "criteria agreed"):
         return None
     return Step("run", "criteria before code", role="qa", mode="criteria", input=digest("criteria", ch.slug))
@@ -295,6 +300,10 @@ def dev_due(C, ch):
         e = C.L.last_event(ch.slug, "ci-failed")
         if e and e["detail"].startswith(t[:7]):
             why.append(f"CI failed at {t[:7]}: {e['detail'][8:]}")
+        if ch.members:
+            m, e = members_digest(C, ch), C.L.last_event(ch.slug, "packaged")
+            if not e or e["detail"].split()[0] != m:
+                why.append(f"members moved since the package ({m[:12]})")
     if not why:
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
@@ -336,7 +345,7 @@ def stages(C, ch):
     """Staging exists to deploy the test server: a track with an upstream and a deploy recipe merges into it, and so
     does a library the server builds in (its own staging is the deploy's composite, store.staging_composite)."""
     T = C.cfg.tracks[ch.track]
-    return bool(T.upstream and ("deploy" in T.recipes or ch.track in LIBRARY))
+    return bool(T.upstream and not ch.members and ("deploy" in T.recipes or ch.track in LIBRARY))
 
 
 def stage_due(C, ch):
@@ -351,84 +360,162 @@ def stage_due(C, ch):
     return Step("merge", f"merge {t[:7]} into staging", key=f"staging:{t}")
 
 
-def upstream_dep_wait(C, ch):
-    """A public act or a ship waits until every same-track dep is landed where it is done (G4: a PR holds no other PR's
-    commits); a library dep holds a public act too. A dep on another track holds neither: deps_live already waited for
-    it to land or go live, and its PR may wait in the outbound queue meanwhile."""
-    for dep in ch.deps:
-        d = C.defs.get(dep)
-        if d and not done(C, d) and (d.track == ch.track or is_public(C, ch) and d.track in LIBRARY):
-            return Step("wait", f"dep {dep} not yet landed on {C.cfg.tracks[d.track].done_ref(d).split('/')[-1]}")
+def live_wait(C, ch):
+    """On staging, not yet run by the test server: the deploy is the pass's (one per staging tree)."""
+    return Step("wait", "not yet live on the test server") if stages(C, ch) and not C.L.landed(ch.slug, "live") else None
+
+
+# --- features: a change names its PR bundle by `feature:`; one package per (feature, upstream track) ---------------
+
+def pkg_slug(feature, track) -> str:
+    return f"pr-{feature.replace('/', '-')}-{track}"
+
+
+def packages(defs, tracks) -> list:
+    """A Change per (feature, track with an upstream): its members in dependency order, its tier their best. Its dev
+    ref holds the package (upstream main or the published PR head, plus the members' commits: `hd package`)."""
+    by = {}
+    for c in defs:
+        if c.feature and not c.members and c.track in tracks and tracks[c.track].upstream:
+            by.setdefault((c.feature, c.track), []).append(c)
+    out = []
+    for (f, t), ms in sorted(by.items()):
+        get = {m.slug: m for m in ms}.get
+        order = []
+        def walk(m):
+            for d in m.deps:
+                if get(d) and d not in order:
+                    walk(get(d))
+            if m.slug not in order:
+                order.append(m.slug)
+        for m in sorted(ms, key=lambda m: m.slug):
+            walk(m)
+        slug = pkg_slug(f, t)
+        out.append(Change(slug, t, priority=min((m.priority for m in ms), key=TIERS.index), feature=f, members=tuple(order),
+                          title=f"PR {f} on {tracks[t].upstream}", body=PACKAGE_BODY.format(slug=slug, feature=f, track=t, members="\n".join(f"- {m}" for m in order))))
+    return out
+
+
+PACKAGE_BODY = """# PR {feature} on {track}
+
+The package of feature `{feature}`: upstream main (or the PR's published head) plus the members' commits in dependency
+order, never squashed. In your clone run `hd package {slug}`: it applies every member commit the branch lacks; on a
+conflict resolve it, `git cherry-pick --continue` and run it again; then push and `hd submit {slug}`. Write
+evidence/{slug}/pr-title.txt and pr-body.md (upstream's template) for a new PR, and pr-comment.md covering the net change
+since the PR's published head, each true of the package's net diff. A code defect (CI, a failing verdict, a finding) is
+fixed in a member, never here: `hd new <slug> --track {track} --feature {feature} ...`, then hand back `filed <slug>`.
+
+Members:
+{members}
+"""
+
+
+def members_digest(C, P) -> str:
+    """The open members and their heads: a package is made again when it moves."""
+    return digest([(m, tip(C, C.defs[m])) for m in P.members if m in C.defs and not C.L.closed(m)])
+
+
+def members_wait(C, P):
+    """Every open member live on staging before its package; a member's same-track dep outside the feature must be
+    merged upstream first (G4: the PR holds no other PR's commits nor a fork-only one)."""
+    T = C.cfg.tracks[P.track]
+    for m in P.members:
+        ch = C.defs.get(m)
+        if ch is None or C.L.closed(m):
+            continue
+        if not done(C, ch):
+            return Step("wait", f"member {m}: {next(C, ch).why}")
+        for dep in ch.deps:
+            d = C.defs.get(dep)
+            if not d or d.track != P.track or d.feature == P.feature or C.L.closed(dep):
+                continue
+            if not d.feature:
+                return Step("wait", f"member {m} depends on {dep}, which names no feature: its commits reach no PR")
+            if not C.L.landed(pkg_slug(d.feature, d.track), T.base):
+                return Step("wait", f"member {m} depends on {dep} of {d.feature}, not yet merged upstream")
     return None
 
 
-def is_public(C, ch):
-    T = C.cfg.tracks[ch.track]
-    return bool(T.upstream and ch.upstream)
+def pr_of(C, P):
+    return C.L.pr_on_branch(C.cfg.tracks[P.track].upstream, P.feature)
 
 
-def texts_due(C, ch):
-    """An upstream change needs its texts before a card: title and body for a new PR, the comment for every head, a
-    reply file per finding → run dev (text work only)."""
-    if not is_public(C, ch):
-        return None
-    t, texts = tip(C, ch), C.L.texts(ch.slug)
-    missing = [n for n in (("pr-comment.md",) if ch.pr else ("pr-title.txt", "pr-body.md", "pr-comment.md")) if not texts.get(n, "").strip()]
-    missing += [f"pr-reply-{f['comment_id']}.md" for f in C.L.findings(ch.slug) if f"pr-reply-{f['comment_id']}.md" not in texts]
+def texts_due(C, P):
+    """A package needs its texts before a card: title and body for a new PR, the comment for every head, a reply file
+    per finding → run dev (text work only)."""
+    t, texts = tip(C, P), C.L.texts(P.slug)
+    missing = [n for n in (("pr-comment.md",) if pr_of(C, P) else ("pr-title.txt", "pr-body.md", "pr-comment.md")) if not texts.get(n, "").strip()]
+    missing += [f"pr-reply-{f['comment_id']}.md" for f in C.L.findings(P.slug) if f"pr-reply-{f['comment_id']}.md" not in texts]
     if not missing:
         return None
     return Step("run", "texts: " + ", ".join(missing), role="dev", mode="code", input=digest(t, missing))
 
 
-def card_due(C, ch):
-    """No card at this head, or its approval spent by a refusal, or texts observed since it was shown, or its ready step
-    disagrees with the change's draft → card
-    (publish.card computes the acts and texts; the same digest is the same card)."""
-    if not is_public(C, ch):
-        return None
-    t = tip(C, ch)
-    c = C.L.latest_card(ch.slug)
-    if c and c["head"] == t:
-        a = C.L.one("SELECT spent_why FROM approval WHERE card=?", c["id"])
-        texts_moved = C.L.one("SELECT 1 FROM text WHERE change=? AND at>?", ch.slug, c["shown_at"])
+def pre_card(C, P):
+    for guard in (members_wait, ask_open, dev_due, build_due, gate_due, judge_due, texts_due):
+        step = guard(C, P)
+        if step:
+            return step
+    return None
+
+
+def feature_pkgs(C, feature) -> list:
+    return [p for p in C.defs.values() if p.members and p.feature == feature and not done(C, p)]
+
+
+def sisters_wait(C, P):
+    """Sister PRs (one feature across repos) share one card: each waits until every sister is ready for it."""
+    for p in feature_pkgs(C, P.feature):
+        s = p.slug != P.slug and pre_card(C, p)
+        if s:
+            return Step("wait", f"sister {p.slug}: {s.why}")
+    return None
+
+
+def card_head(C, pkgs) -> str:
+    """The card's head: the package's, or for sister PRs a digest of every package head."""
+    heads = [tip(C, p) for p in pkgs]
+    return heads[0] if len(heads) == 1 else digest([(p.slug, h) for p, h in zip(pkgs, heads)])
+
+
+def held(C, feature, head, slugs):
+    """A hold on the feature's card, or a standing hold (every head) on a package or member."""
+    for s in slugs:
+        if h := C.L.hold(s, ""):
+            return h
+    return C.L.hold(feature, head)
+
+
+def feature_card(C, P):
+    """The feature's one card, approval and publish, listed on its first open package; the sisters wait on it.
+    No card at the packages' heads, its approval spent by a refusal, or texts observed since shown → card."""
+    pkgs = feature_pkgs(C, P.feature)
+    head, F = card_head(C, pkgs), P.feature
+    c = C.L.latest_card(F)
+    a = c and C.L.one("SELECT spent_why FROM approval WHERE card=?", c["id"])
+    published = a and a["spent_why"] == "published" and all((pr_of(C, p) or {}).get("head") == tip(C, p) for p in pkgs)   # a sister merged since
+    step = None
+    if not c or c["head"] != head and not published:
+        step = Step("card", f"card {F} at {head[:7]}", key=head)
+    else:
         refused = a and a["spent_why"] and a["spent_why"] != "published"
-        pr = C.L.pr(C.cfg.tracks[ch.track].upstream, ch.pr) if ch.pr else None
-        draft_moved = not a and ('"ready"' in c["steps_json"]) != ((not pr or pr["draft"]) and not ch.draft)   # the user's draft word changed since the card; an approved card's PR moved by its own publish
-        if not refused and not texts_moved and not draft_moved:
-            return None
+        moved = any(C.L.one("SELECT 1 FROM text WHERE change=? AND at>?", p.slug, c["shown_at"]) for p in pkgs)
         if refused:
-            return Step("card", f"card at {t[:7]} after a refusal", key=t, input=a["spent_why"])
-    return Step("card", f"card at {t[:7]}", key=t)
+            step = Step("card", f"card {F} at {head[:7]} after a refusal", key=head, input=a["spent_why"])
+        elif moved:
+            step = Step("card", f"card {F} at {head[:7]}", key=head)
+        elif not a:
+            h = held(C, F, c["head"], [p.slug for p in pkgs] + [m for p in pkgs for m in p.members])
+            step = Step("wait", f"held: card {c['id']} hidden ({h['change']})" if h else f"the user: card {c['id']} {F} at {head[:7]}")
+        elif C.L.approval(c["id"]) and C.L.undone_steps(c["id"]):
+            step = job_due(C, "publish", str(c["id"]))
+    if step and P.slug != pkgs[0].slug:
+        return Step("wait", f"{F}: {step.why} (on {pkgs[0].slug})")
+    return step
 
 
-def approval_wait(C, ch):
-    if not is_public(C, ch):
-        return None
-    c = C.L.latest_card(ch.slug)
-    if not c or C.L.one("SELECT 1 FROM approval WHERE card=?", c["id"]):
-        return None
-    if C.L.hold(ch.slug, c["head"]):
-        return Step("wait", f"held: card {c['id']} hidden")
-    return Step("wait", f"the user: card {c['id']} at {c['head'][:7]}")
-
-
-def publish_due(C, ch):
-    if not is_public(C, ch):
-        return None
-    c = C.L.latest_card(ch.slug)
-    if not c or not C.L.approval(c["id"]) or not C.L.undone_steps(c["id"]):
-        return None
-    e = C.L.last_event(ch.slug, "ci-failed")
-    if e and e["detail"].startswith(c["head"][:7]):
-        return None   # dev_due lists the dev; the approval stays
-    return job_due(C, "publish", str(c["id"]))
-
-
-def published_wait(C, ch):
-    T = C.cfg.tracks[ch.track]
-    if not (T.upstream and ch.upstream):
-        return None
-    return None if C.L.landed(ch.slug, T.done_ref(ch)) else Step("wait", "maintainers")
+def published_wait(C, P):
+    return None if C.L.landed(P.slug, C.cfg.tracks[P.track].base) else Step("wait", "maintainers")
 
 
 def ship_due(C, ch):
@@ -505,14 +592,13 @@ def release_due(C) -> list:
             for kind, key, owners in C.L.artifacts() if not any(owner_live(C, o) for o in owners)]
 
 
-GUARDS = [
-    closed, deps_live, ask_open, criteria_due, dev_due, build_due, gate_due, judge_due, stage_due,
-    upstream_dep_wait, texts_due, card_due, approval_wait, publish_due, published_wait, ship_due,
-]
+GUARDS = [closed, deps_live, ask_open, criteria_due, dev_due, build_due, gate_due, judge_due, stage_due, live_wait, ship_due]
+PACKAGE_GUARDS = [closed, members_wait, ask_open, dev_due, build_due, gate_due, judge_due, texts_due, sisters_wait,
+                  feature_card, published_wait]
 
 
 def next(C, ch) -> Step:
-    for guard in GUARDS:
+    for guard in PACKAGE_GUARDS if ch.members else GUARDS:
         step = guard(C, ch)
         if step:
             return step
@@ -542,7 +628,7 @@ def parked(L: Ledger, slug, input):
 
 
 def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
-    """The pass's action list: next() per open change in priority order (harness, then PR rounds, then new content;
+    """The pass's action list: next() per open change and package in priority order (harness, then packages, then new content;
     below cfg.hold skipped); a run Step listed only while live runs < cfg.agents and no run with this input parks it
     (parked); a job Step only while no job of its key (a ship: of its branch) is in flight."""
     C = Ctx(L, cfg, {c.slug: c for c in changes})
@@ -552,7 +638,7 @@ def plan(L: Ledger, changes: list, cfg: Cfg, goals: list = ()) -> list:
         for d in c.deps:
             blocked.setdefault(d, []).append(c)
     tier = {c.slug: priority(c, blocked) for c in open_}
-    open_.sort(key=lambda c: (0 if c.track == "harness" else 1 if c.pr else 2, TIERS.index(tier[c.slug]), c.slug))
+    open_.sort(key=lambda c: (0 if c.track == "harness" else 1 if c.members else 2, TIERS.index(tier[c.slug]), c.slug))
     live = len(L.live_runs())
     low = L.disk_below(cfg.free) if cfg.free else []   # below the level no new build starts (a gate builds)
     actions = []

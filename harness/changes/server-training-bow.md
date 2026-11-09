@@ -2,8 +2,7 @@
 slug: server-training-bow
 track: fork
 priority: P2
-pr: 450
-public: content/server-training-bow
+feature: content/server-training-bow
 ---
 # Training bow fires training arrows (OpenRune #444)
 

@@ -10,7 +10,7 @@ Two products, worked on by Claude Code agents overnight and across days, with th
 | product | repos | what "done" means |
 |---|---|---|
 | **client**: RuneLite plugins inside the official OSRS Android app | AlexPerrin/osrs-plugins-reverse | the change is on `main`; a release is a tagged APK the user approved |
-| **server**: the OpenRune test server the client plays against, and contributions to OpenRune | the fork AlexPerrin/OpenRune-Server and the libraries it depends on, AlexPerrin/OpenRune-Central-Server (accounts, login, world link) and AlexPerrin/OpenRune-FileStore (the cache); each has an upstream under OpenRune/ | live on the test server as soon as it is checked; done when upstream `main` holds it |
+| **server**: the OpenRune test server the client plays against, and contributions to OpenRune | the fork AlexPerrin/OpenRune-Server and the libraries it depends on, AlexPerrin/OpenRune-Central-Server (accounts, login, world link) and AlexPerrin/OpenRune-FileStore (the cache); each has an upstream under OpenRune/ | a change: live on the test server as soon as it is checked; a feature (the changes the user bundles into one PR per repo): done when upstream `main` holds it |
 | **harness**: this repo | AlexPerrin/osrs-harness | live on the branch the loop runs from |
 
 Each product is a **track**: a lane with its own base branch, its own scripts (build, bring-up, check, deploy,
@@ -20,7 +20,7 @@ The actors:
 - **the user**: defines work, decides scope and accuracy questions, approves every public act, reads everything in
   the console. Scarce: 12 approvals, 9 holds, 46 closes and 148 answers in v8's 47 hours, most answers spent
   unblocking agents from the harness itself.
-- **maintainers** of OpenRune: review our PRs on their own schedule, ask for changes, merge. One change per PR, no
+- **maintainers** of OpenRune: review our PRs on their own schedule, ask for changes, merge. One feature per PR, no
   stacking, no deferral, few tests, rules revised at any time. We have no write access to their repos.
 - **agents**: Claude Code sessions. A **dev** builds a change (the generator); a **qa** writes what "done" means
   before the code and judges the result after (the evaluator); a **reader** looks things up for them; the
@@ -95,13 +95,14 @@ flowchart LR
   S --> Q[qa judges every criterion in game<br/>verdict bound to the head]
   Q -->|fail| D
   Q --> ST[(staging: the test server<br/>runs every checked head)]
-  Q --> K{public act?}
-  K -->|client/harness| L([live on the branch])
-  K -->|upstream PR or release| CARD[card in the console:<br/>acts, exact texts, verdict, evidence]
+  Q -->|client/harness| L([live on the branch])
+  ST -->|"the user's feature:"| PK[package: upstream main + the members' commits<br/>gated and judged for upstream's rules]
+  PK --> CARD[one card per feature, its sister PRs:<br/>acts, exact texts, verdict, evidence]
+  Q -->|release| CARD
   CARD --> Y{{user: approve / hold / close}}
   Y -->|yes| P[publish: push, PR, CI, one comment, ready]
   P --> M([maintainers])
-  M -->|finding| C
+  M -->|finding: a new change of the feature| C
   M -->|merged| L
 ```
 
@@ -109,9 +110,12 @@ A **change** is one unit of work on one track, defined by the user or by a plann
 changes it depends on. Its **criteria** are agreed before code: scripted ones a check runs, judged ones the evaluator
 checks in game. A dev **submits** one head; its **candidate** tree is base plus dependencies plus head, built once.
 The scripts check the candidate; qa judges the head; the test server runs **staging**, every checked server head
-merged into one branch. A change that is public upstream or a release becomes a **card**; the user's **approval**
-is the only thing that lets the harness **publish**, and it publishes exactly the card. A client or harness change needs no card: once checked it **ships**, a fast-forward of its live branch. A maintainer's word becomes
-a criterion on the PR's open change, and the loop runs again from the dev.
+merged into one branch, and a server change is done once the test server runs it: a change is our work. Upstream
+contribution is second: the user names a change's **feature** (its PR bundle: Central's auth rework, friends, a
+quest), and per repo the feature's **package** is upstream main plus its member changes' commits, checked and judged
+for upstream's rules. A feature (its sister PRs across repos together) or a release becomes a **card**; the user's
+**approval** is the only thing that lets the harness **publish**, and it publishes exactly the card. A client or harness change needs no card: once checked it **ships**, a fast-forward of its live branch. A maintainer's word becomes
+a new change of that feature; once it lands on staging the PR is packaged again.
 
 ## 5. Constraints of the world
 
@@ -132,7 +136,7 @@ a criterion on the PR's open change, and the loop runs again from the dev.
 |---|---|---|
 | client | 100% of the RuneLite API interface methods working in the app | the probe against the live test server, per method |
 | server | 100% of the content inventory 1:1 with the official game; the client never blocked on the server | units of the cache inventory covered by a landed change with a passing verdict |
-| harness | the same outcomes with less: per upstream change ≤5 runs; the harness <15% of runs and tokens; <20 harness changes a day and falling; one build and one gate per tree; no approved publish lost; a pass that costs under a second when nothing moved; an agent's first edit within 10 tool calls; peak context ≤200k | `hd kpi`, queries over the ledger |
+| harness | the same outcomes with less: per change ≤5 runs; the harness <15% of runs and tokens; <20 harness changes a day and falling; one build and one gate per tree; no approved publish lost; a pass that costs under a second when nothing moved; an agent's first edit within 10 tool calls; peak context ≤200k | `hd kpi`, queries over the ledger |
 
 The user's order: the client first, with the server work the client needs (P1–P2); upstream contribution of work that
 overlaps it next (P3); content upstream for its own sake is the stretch goal, P4. The held band (hd.yaml `hold`) says

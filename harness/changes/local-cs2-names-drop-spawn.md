@@ -2,7 +2,6 @@
 slug: local-cs2-names-drop-spawn
 track: fork
 priority: P1
-upstream: false
 deps:
 - h-pin-skip-cs2-spawn
 - h-ref-pins-audit

@@ -13,6 +13,18 @@ import store  # noqa: E402
 
 
 class Act(unittest.TestCase):
+    def test_upstream_seeds_go_to_the_package_and_in_game_ones_to_the_change(self):   # a change carries no upstream criteria
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        db = store.connect(str(Path(d.name) / "hd.db"))
+        T = decide.Track("fork", "a/b", "/nowhere", "refs/heads/main", "up/b")
+        act.seed(db, decide.Change("m", "fork", feature="feat/x"), T)
+        act.seed(db, decide.Change("pr-feat-x-fork", "fork", feature="feat/x", members=("m",)), T)
+        rids = lambda c: {r[0] for r in db.execute("SELECT rid FROM criterion WHERE change=?", (c,))}
+        self.assertTrue({"accuracy", "playable", "gamevals", "spotless"} <= rids("m"))
+        self.assertFalse({"claims", "texts", "ci", "dupes", "style"} & rids("m"))
+        self.assertTrue({"claims", "texts", "ci", "dupes", "style", "spotless"} <= rids("pr-feat-x-fork"))
+        self.assertFalse({"accuracy", "playable", "gamevals"} & rids("pr-feat-x-fork"))
+
     def test_every_step_kind_the_pass_lists_is_acted_on(self):
         d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
         self.addCleanup(setattr, act, "STATE", act.STATE); self.addCleanup(setattr, store, "DB", store.DB)
@@ -91,7 +103,7 @@ class Act(unittest.TestCase):
             return mock.Mock(pid=1)
         with mock.patch.object(act, "job_env", lambda *a, **k: {}), mock.patch.object(act.subprocess, "run"), \
              mock.patch.object(act.subprocess, "Popen", popen), mock.patch.object(act.observe, "pid_start", lambda p: 0):
-            act.start(db, decide.Step("deploy", "staging moved", key="tr1:fork-1"), decide.Change("staging", "fork", upstream=False),
+            act.start(db, decide.Step("deploy", "staging moved", key="tr1:fork-1"), decide.Change("staging", "fork"),
                       decide.Track("fork", "o/fork", "/nonexistent", "refs/heads/main", upstream="o/r", recipes={"deploy": "fork-1"}))
         self.assertTrue(seen["held"]); self.assertEqual(len(seen["fds"]), 1)
         probe = open(Path(d.name) / "live" / "stack.lock"); fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)   # the pass's own copy is gone: only the deploy's held it

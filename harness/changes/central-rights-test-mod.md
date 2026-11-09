@@ -2,7 +2,6 @@
 slug: central-rights-test-mod
 track: central
 priority: P1
-upstream: false
 ---
 # Central: RightsTest compiles against Rights.MOD (upstream main's tests fail to compile)
 

@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import store
 from store import ROOT, alert, event, now
 
 
@@ -188,21 +189,26 @@ def gh(db, url: str):
 
 
 def pr(db, T, ch, ours=()) -> None:
-    """The PR's state and comments: the gh row (the Ledger reads it), finding rows for comments by others, and a landed
+    """A package's PR, found by its feature's branch on the fork (the open one, else the latest), then its state
+    and comments: the gh row (the Ledger reads it), finding rows for comments by others, and a landed
     row on the upstream base once merged (a squash or rebase merge is seen only here)."""
-    p = gh(db, f"repos/{T.upstream}/pulls/{ch.pr}")
+    ps = gh(db, store.pulls_on(T.upstream, ch.feature))
+    if not ps:
+        return
+    n = next((p for p in ps if p["state"] == "open"), ps[0])["number"]
+    p = gh(db, f"repos/{T.upstream}/pulls/{n}")
     if p is None:
         return
     if p.get("merged_at") and not db.execute("SELECT 1 FROM landed WHERE change=? AND target=?", (ch.slug, T.base)).fetchone():
         db.execute("INSERT INTO landed(change, target, sha, at) VALUES (?,?,?,?)", (ch.slug, T.base, p.get("merge_commit_sha") or p["head"]["sha"], now()))
-        event(db, "landed", ch.slug, None, f"PR {T.upstream}#{ch.pr} merged")
-    for url in (f"repos/{T.upstream}/issues/{ch.pr}/comments", f"repos/{T.upstream}/pulls/{ch.pr}/comments"):
+        event(db, "landed", ch.slug, None, f"PR {T.upstream}#{n} merged")
+    for url in (f"repos/{T.upstream}/issues/{n}/comments", f"repos/{T.upstream}/pulls/{n}/comments"):
         for c in gh(db, url) or []:
             if c["user"]["type"] == "Bot" or c["user"]["login"] in ours:
                 continue
             if db.execute("INSERT OR IGNORE INTO finding(comment_id, repo, pr, author, body, url, seen_at, change) VALUES (?,?,?,?,?,?,?,?)",
-                          (c["id"], T.upstream, ch.pr, c["user"]["login"], c["body"], c["html_url"], now(), ch.slug)).rowcount:
-                event(db, "triage", ch.slug, None, f"#{ch.pr} comment {c['id']} by {c['user']['login']}: {c['body'][:200]!r}   → hd triage {c['id']} finding|ask|ack")
+                          (c["id"], T.upstream, n, c["user"]["login"], c["body"], c["html_url"], now(), ch.slug)).rowcount:
+                event(db, "triage", ch.slug, None, f"#{n} comment {c['id']} by {c['user']['login']}: {c['body'][:200]!r}   → hd triage {c['id']} finding|ask|ack")
 
 
 def checks(db, upstream, sha) -> list | None:

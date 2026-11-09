@@ -9,11 +9,10 @@ from pathlib import Path
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
 PKG = "com.jagex.oldscape.android"
 CANVAS = {0: ("Existing User", 1370, 625), 12: ("Accept", 1027, 668), 10: ("Play Now", 1197, 540)}   # LoginIndex: the button that leaves it, on the AVD's 2400x1080 landscape canvas
-LAUNCHER = "com.google.android.apps.nexuslauncher"
+HOME = "com.android.settings"   # FallbackHome: the prepared AVD has no launcher (track.sh avd)
 WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to the world: the next screen comes from the app, the browser or the server
 REFUSED = 9           # "Unexpected server response", Try again: a login response without a page of its own, or a failed reconnect after a lost connection
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
-LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
 FORM = ("Username", "Password", "Sign in")   # Central's sign-in form (no dev account): each mobile its slug's own account, never one shared (a second login of one account is refused Duplicate)
 
 
@@ -89,13 +88,10 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
             return ("fail", f"the browser's sign-in: {err}")
         if all(l in lab for l in FORM):
             return form(lab, fields or {}, name, posted)
-        hit = next((l for l in LABELS if l in lab), None)
-        return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
-    if pkg == LAUNCHER and st in ("", "UNKNOWN"):
-        return ("wait",)   # the process runs before its window takes focus from the launcher; main() fails a death
-    if "Wait" in lab and any(t.endswith("isn't responding") for t in lab):
-        return ("tap", "Wait", *lab["Wait"])   # the system's ANR dialog (the emulator's launcher while the app starts): the app goes on behind it
-    if pkg not in (PKG, ""):
+        return ("wait",)   # the issuer's page redirects back to the app by itself (the prepared AVD's Chrome shows no first run or prompt)
+    if pkg == "" or (pkg == HOME and st in ("", "UNKNOWN")):
+        return ("wait",)   # no focused window, or the process runs before its window takes focus from the home: main() fails a death
+    if pkg != PKG:
         return ("fail", f"an unknown window {pkg}: {', '.join(lab) or 'no labels'}")
     if st != "LOGIN_SCREEN":
         return ("wait",)   # starting, LOGGING_IN, LOADING: the next state comes from the app or the server

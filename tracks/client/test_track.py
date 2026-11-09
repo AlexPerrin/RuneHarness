@@ -165,19 +165,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         up = lambda: subprocess.run([str(m / "tools/track.sh"), "up", "x"], env=s.env, capture_output=True, text=True)
         up(); calls = log.read_text()
         s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
-        s.assertLess(calls.index("reverse tcp:8443"), calls.index("am start"))   # before the app first starts
-        s.assertIn("am start -W -n com.jagex.oldscape.android/com.jagex.android.MainActivity\n", calls)   # run 330: the LAUNCHER intent never resolves under am's MATCH_DEFAULT_ONLY
+        s.assertLess(calls.index("reverse tcp:8443"), calls.index("files/plugins"))   # before the app first starts
+        s.assertNotIn("am start", calls)   # boot makes files/ itself: the app starts once, in mobile_login
         s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)
         apk(s.ev / "t.apk", endpoint=b"http://10.0.2.2:8080/jav_config.ws?m=0&p=jagex.comxxxxxxxxx")
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("does not read jav_config from http://127.0.0.1:8443", out)
-
-    def test_boot_fails_an_app_that_never_starts_or_dies_before_files(s):  # run 321: monkey aborted on another app's ANR, injected 0 events, and boot waited on files/ for 26 min
-        s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1", NOSTART="1")
-        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app did not start", out)
-        s.env.pop("NOSTART"); s.env["DIES"] = "1"
-        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the app died before creating /sdcard/Android/data/", out)
-        s.env["AMSTATUS"] = "timeout"   # h-client-up-am-start-default: a launch whose first frame outlasts am's wait is started
-        rc, out = s.row("up"); s.assertNotIn("the app did not start", out); s.assertIn("the app died before creating /sdcard/Android/data/", out)
 
     def test_boot_pushes_the_changes_own_devtools_jar(s):  # built with the APK, kept beside it by T; never the main checkout's
         log = s.fake_windows(); s.env.update(INSTALL="Success", BOOTS="1")
@@ -254,28 +246,36 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
     def test_emulator_has_no_console_window(s):  # started directly, not through cmd's start; its output is the run's log
         log = s.fake_windows(); s.row("up")
         s.assertNotIn("cmd.exe", TRACK.read_text())
-        s.assertIn("emulator -avd Agent_Phone", log.read_text())
+        s.assertIn("emulator -avd Agent_Lite", log.read_text())
         s.assertIn("emulator: booting", (Path(s.env["HD_ROOT"]) / "state/x/emulator.log").read_text())
 
-    def test_immersive_prompt_confirmed_before_launch(s):  # the setting replaces a "Got it" tap: no tap, no wait
-        log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")   # fails at blocked (nc fakes nothing), before any launch
-        calls = log.read_text()
-        s.assertIn("shell settings put secure immersive_mode_confirmations confirmed", calls)
-        s.assertNotIn("am start", calls)
+    def test_avd_prepares_the_state_every_start_inherits(s):  # h-mobile-light-avd: one writable boot; no tap of a prompt or the launcher's ANR at any start
+        log = s.fake_windows(); home = s.ev / "avd"; s.env["ANDROID_AVD_HOME"] = str(home)
+        rc, out = s.row("avd"); s.assertEqual(rc, 1); s.assertIn("no system-images/android-37.0/google_apis/x86_64", out)
+        (s.ev / "sdk/system-images/android-37.0/google_apis/x86_64").mkdir(parents=True)
+        (s.ev / "sys32/tasklist.exe").write_text(f'#!/bin/sh\ngrep -q "emu kill" {log} || printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\'\n')   # gone once killed
+        rc, out = s.row("avd"); s.assertEqual(rc, 0, out); calls = log.read_text()
+        s.assertEqual((home / "Agent_Lite.avd/config.ini").read_text(), (TRACK.parent / "Agent_Lite.ini").read_text())
+        s.assertIn("emulator -avd Agent_Lite -lowram -no-boot-anim -gpu host -port 5560", calls)   # writable: no -read-only
+        for c in ("settings put secure immersive_mode_confirmations confirmed", "settings put global hide_error_dialogs 1", "settings put global animator_duration_scale 0",
+                  "pm disable-user --user 0 com.google.android.apps.nexuslauncher", "am set-debug-app --persistent com.android.chrome", "--disable-fre", "svc wifi disable"):
+            s.assertIn(c, calls)
+        s.assertLess(calls.index("--disable-fre"), calls.index("emu kill"))
         s.assertNotIn('"Got it"', (TRACK.parent / "mobile_login.py").read_text())
 
     def test_login_acts_on_the_screen_it_reads(s):  # the issuer's sign-in by LoginIndex and the focused window; an unknown screen or a refusal is FAILED, never a wait
         import importlib.util; spec = importlib.util.spec_from_file_location("mobile_login", TRACK.parent / "mobile_login.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
         app, chrome = m.PKG, "com.android.chrome"
-        flow = [("LOGIN_SCREEN", 0, app, {}), ("LOGIN_SCREEN", 12, app, {}), ("LOGIN_SCREEN", 30, chrome, {"Use without an account": (540, 2085)}),
+        flow = [("LOGIN_SCREEN", 0, app, {}), ("LOGIN_SCREEN", 12, app, {}),
                 ("LOGIN_SCREEN", 30, chrome, {}), ("LOGIN_SCREEN", 10, app, {}), ("LOGGING_IN", 30, app, {}), ("LOGGED_IN", 30, app, {})]
-        s.assertEqual([m.step(*f)[:2] for f in flow], [("tap", "Existing User"), ("tap", "Accept"), ("tap", "Use without an account"), ("wait",), ("tap", "Play Now"), ("wait",), ("done",)])
+        s.assertEqual([m.step(*f)[:2] for f in flow], [("tap", "Existing User"), ("tap", "Accept"), ("wait",), ("tap", "Play Now"), ("wait",), ("done",)])
         s.assertEqual(m.step("LOGIN_SCREEN", 9, app, {})[0], "fail")                                      # the server's refusal
         s.assertEqual(m.step("LOGIN_SCREEN", 4, app, {})[0], "fail")                                      # a login screen it does not know
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
-        s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
-        s.assertEqual(m.step("UNKNOWN", -1, "Application", {"Pixel Launcher isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)})[:2], ("tap", "Wait"))   # the system's ANR dialog
-        s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
+        s.assertEqual(m.step("UNKNOWN", -1, m.HOME, {})[0], "wait")                                       # the app's window has not taken focus yet
+        s.assertEqual(m.step("LOGIN_SCREEN", 0, "", {})[0], "wait")                                        # no focused window: never the app's canvas tapped blind
+        s.assertEqual(m.step("LOGIN_SCREEN", 10, m.HOME, {})[0], "fail")                                  # the app left for the home
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"Use without an account": (540, 2085)})[0], "wait")   # no first-run tap: the prepared AVD's Chrome skips it
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for

@@ -2,11 +2,13 @@
 emulator asks DNS of its own tools/allow-relay.ps1 on Windows, which hands each query to it over TCP): DNS on udp and tcp 53
 answers the allowed names with the address the mobile sees
 the host at, every other name NXDOMAIN; tcp 443 relays a TLS connection to its SNI name when that name is allowed and
-closes any other. python3 allow.py [dns port] [tls port]"""
+closes any other TLS one; a connection whose first byte is not TLS is the game client falling back to port 443 (js5 or
+login, after errors on 43594, as a world answers on both), relayed to the game server. python3 allow.py [dns port] [tls port]"""
 import socket, struct, sys, threading
 
 ALLOWED = {"api.runelite.net", "static.runelite.net"}
 HOST = bytes([10, 0, 2, 2])   # the emulator's alias of the Windows loopback, where this listens
+GAME = ("host.docker.internal", 43594)   # the game server's published port, seen from this container
 
 
 def qname(q):  # the question's name and the offset after it
@@ -44,8 +46,8 @@ def pipe(a, b):  # a's bytes to b; a's end (or error) ends b's writing, the othe
 
 
 def record(c):  # the first TLS record whole: a ClientHello with a post-quantum key share spans TCP segments
-    r = c.recv(16384)
-    while 5 <= len(r) < 5 + struct.unpack(">H", r[3:5])[0] and (d := c.recv(16384)): r += d
+    r = c.recv(16384)   # a first byte not a TLS handshake (the game client's js5 or login on port 443) is returned as is
+    while r[:1] == b"\x16" and 5 <= len(r) < 5 + struct.unpack(">H", r[3:5])[0] and (d := c.recv(16384)): r += d
     return r
 
 
@@ -60,18 +62,18 @@ def serve(l, f):  # each connection to l handled by f on its own thread
     threading.Thread(target=lambda: [threading.Thread(target=f, args=(l.accept()[0],), daemon=True).start() for _ in iter(int, 1)], daemon=True).start()
 
 
-def upstream(name):  # EAI_AGAIN is the resolver's "not now", not an answer: ask again until an address or a definite failure
+def upstream(addr):  # EAI_AGAIN is the resolver's "not now", not an answer: ask again until an address or a definite failure
     while True:
-        try: return socket.create_connection((name, 443))
+        try: return socket.create_connection(addr)
         except socket.gaierror as e:
             if e.errno != socket.EAI_AGAIN: raise
 
 
 def relay(c):
     with c:
-        hello = record(c); name = sni(hello)
-        if name not in ALLOWED: return
-        with upstream(name) as u:
+        hello = record(c); tls = hello[:1] == b"\x16"; name = sni(hello)
+        if not hello or tls and name not in ALLOWED: return
+        with upstream((name, 443) if tls else GAME) as u:
             u.sendall(hello); t = threading.Thread(target=pipe, args=(u, c)); t.start(); pipe(c, u); t.join()
 
 

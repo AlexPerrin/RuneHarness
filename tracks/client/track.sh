@@ -97,9 +97,12 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
   w=$(udp53 | awk -v a="$dns:53" '$1==a{print $2; exit}')
   [ -n "$w" ] || { echo "the DNS relay did not bind $dns:53: $(head -c 500 "$state/allow-relay.log")" >&2; return 1; }
   winpid "$w" "${ps##*/}"; echo "$w" > "$state/allow-relay.winpid"
+  sum=$(sha256sum < "$self/allow.py" | cut -c1-12)   # the container runs the allow.py it started with: one of another text is replaced
   for n in 1 2; do
-    if [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" != true ]; then
-      $docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
+    c=$($docker inspect -f '{{.State.Running}} {{index .Config.Labels "allow"}}' mobile-allow 2>/dev/null || true)
+    if [ "$c" != "true $sum" ]; then
+      [ "${c%% *}" != true ] || $docker rm -f mobile-allow >/dev/null 2>&1 || true
+      $docker run -d --rm --name mobile-allow --label allow="$sum" --add-host host.docker.internal:host-gateway -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
       until $docker logs mobile-allow 2>&1 | grep '^listening' >/dev/null; do [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" = true ] || break; sleep 1; done
     fi
     "$sys32/nslookup.exe" api.runelite.net "$dns" 2>/dev/null | tr -d '\r' | grep '10\.0\.2\.2' >/dev/null && return 0

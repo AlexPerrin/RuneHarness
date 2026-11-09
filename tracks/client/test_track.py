@@ -131,7 +131,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
                  sys32 / "tasklist.exe": 'case "$*" in *"PID eq 3860"*) printf \'"svchost.exe","3860","SharedAccess"\\r\\n\' ;; *"PID eq 7300"*) printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\' ;; esac'}
         for f, body in progs.items(): f.write_text("#!/bin/sh\n" + body + "\n"); f.chmod(0o755)
         apk(s.ev / "t.apk"); live(s.env["HD_ROOT"]); (s.ev / "t.devtools.jar").write_text(""); (s.ev / "repack-t.log").write_text(GOOD)
-        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; esac\n'); docker.chmod(0o755)
+        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; inspect) [ -z "$ALLOW" ] || echo "true $ALLOW" ;; esac\n'); docker.chmod(0o755)
         s.env.update(ANDROID_SDK=str(sdk), WINDOWS_SYSTEM32=str(sys32), DOCKER=str(docker)); s.env.pop("ADB", None)
         return log
 
@@ -290,10 +290,14 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
         s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
         s.assertEqual(m.step("UNKNOWN", -1, "Application", {"Pixel Launcher isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)})[:2], ("tap", "Wait"))   # the system's ANR dialog
+        anr, dlg = {}, {"Chrome isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)}
+        s.assertEqual([m.step("LOGIN_SCREEN", 30, "Application", dlg, win=w, anr=anr)[:2] for w in ("83b074d", "83b074d")], [("tap", "Wait")] * 2)   # the same dialog: Wait again
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, "Application", dlg, win="8876fbe", anr=anr), ("fail", "Chrome isn't responding again after Wait"))   # run 301: Chrome hung 30 min
         s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
+        s.assertEqual(m.step("LOADING", 30, app, {}, 25, "h1m", lost=True), ("fail", "the game server lost h1m's session while the app was LOADING"))   # run 293: LOADING (20%) for 78 min after it
         form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
         f = lambda u, uf, p, pf: {"Username": (u, uf, 5, 1), "Password": (p, pf, 5, 2)}
         on = lambda fields, posted=False: m.step("LOGIN_SCREEN", 30, chrome, {**form, **{t: (5, 1) for t, *_ in fields.values() if t}}, None, name, fields, posted)
@@ -366,7 +370,7 @@ case "$*" in *push*) ;;
     def test_up_puts_the_mobile_on_the_allowlist(s):  # the allowlist container, the emulator asking it, the wifi path off
         log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")
         calls = log.read_text()
-        s.assertIn("docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
+        s.assertIn("-p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
         s.assertIn("-dns-server 127.0.0.2", calls); s.assertIn("shell svc wifi disable", calls)
         s.assertNotIn("private_dns", TRACK.read_text())
 
@@ -378,6 +382,10 @@ case "$*" in *push*) ;;
         s.assertNotIn("emulator -avd", calls)
         s.env.pop("NODNS"); log.write_text(""); s.row("up"); calls = log.read_text()
         s.assertLess(calls.index("nslookup api.runelite.net 127.0.0.2"), calls.index("emulator -avd")); s.assertNotIn("docker rm", calls)
+        s.env["ALLOW"] = subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]
+        log.write_text(""); s.row("up"); s.assertNotIn("docker run", log.read_text())   # the running container carries this allow.py: kept
+        s.env["ALLOW"] = "0" * 12; log.write_text(""); s.row("up"); calls = log.read_text()   # run 301: it ran an older allow.py for days: replaced
+        s.assertLess(calls.index("docker rm -f mobile-allow"), calls.index("docker run -d --rm --name mobile-allow --label allow=" + subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]))
 
     def test_the_mobiles_dns_is_its_own_relay_at_an_address_no_windows_process_holds(s):  # ICS holds 0.0.0.0:53, a stale relay 127.0.0.2:53
         log = s.fake_windows(); s.env.update(INSTALL="Success", STALE="1"); st = Path(s.env["HD_ROOT"]) / "state/x"
@@ -388,7 +396,7 @@ case "$*" in *push*) ;;
         s.assertNotIn("3070", calls)   # the stale holder is never stopped
 
     def test_allow_answers_only_the_allowed_names(s):  # tools/allow.py: DNS and the TLS relay admit api/static.runelite.net alone
-        import ssl, struct, sys; sys.path.insert(0, str(TRACK.parent)); import allow
+        import ssl, struct, sys; from unittest import mock; sys.path.insert(0, str(TRACK.parent)); import allow
         q = lambda n, t=1: b"\x12\x34\x01\x00\x00\x01\0\0\0\0\0\0" + b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\0" + struct.pack(">HH", t, 1)
         a = allow.answer(q("Static.RuneLite.net")); s.assertEqual((a[:2], a[3] & 15, a[7], a[-4:]), (b"\x12\x34", 0, 1, bytes([10, 0, 2, 2])))
         a = allow.answer(q("api.runelite.net", 28)); s.assertEqual((a[3] & 15, a[7]), (0, 0))   # no AAAA: IPv4 alone reaches the relay
@@ -406,7 +414,13 @@ case "$*" in *push*) ;;
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname())
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
-        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); c.settimeout(5)
+        t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
+        g = socket.create_server(("127.0.0.1", 0)); js5 = bytes([15]) + struct.pack(">I", 241) + bytes(16)
+        with mock.patch.object(allow, "GAME", g.getsockname()):   # run 301: the client's js5 on 443, held or closed, stopped its load at 20%: it reaches the game server, as on a world
+            c.sendall(js5); v = g.accept()[0]; s.assertEqual(v.recv(64), js5); v.sendall(b"\0"); s.assertEqual(c.recv(5), b"\0")
+            v.close(); c.close(); t.join(); l.close(); g.close()
+        u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
         def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
             asked.append(a[0])
             if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")

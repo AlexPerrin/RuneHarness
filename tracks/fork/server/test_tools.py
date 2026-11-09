@@ -1583,7 +1583,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         s.assertEqual(re.findall(r"^  (\w+):$", compose, re.M), ["openrune"])   # one service: no issuer, http-desktop nor http sidecar
         for gone in ("SIDECAR_DATA", "ISSUER_DIR", "OPENRUNE_HTTP_PORT", "osrs-openrune-http", "8083"): s.assertNotIn(gone, compose + (HERE / "switch.env").read_text())
         s.assertNotIn("SIDECAR_DATA", SRC); s.assertNotIn("osrs-openrune-http", SRC); s.assertNotIn("WORLD_HOST}}:", SRC)   # no APK template of its own
-        s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship)
+        s.assertIn('python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"', ship); s.assertIn("COPY --chown=1000:1000 game.yml /app/game.yml", ship)
         s.assertIn('curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6', ship)
 
     def test_live_serves_centrals_sign_in_to_desktops_over_https(s):  # h-live-central-sign-in: the live stack had no sign-in a desktop could use

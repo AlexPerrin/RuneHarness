@@ -1623,12 +1623,14 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         run = lambda: subprocess.run(["bash", "-c", f"set -euo pipefail; state={st}\n{fn}\nrev=$(revision); echo $rev"], capture_output=True, text=True)
         (st / "game.yml").write_text("# revision: 1\nname: x\nrevision: 242\nnetwork:\n  revision: 7\n")
         s.assertEqual(run().stdout, "242\n")   # the top-level key alone
+        other = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, other); (other / "game.yml").write_text("revision: 243\n")
+        s.assertEqual(subprocess.run(["bash", "-c", f"set -euo pipefail; state={st}\n{fn}\nrevision {other}"], capture_output=True, text=True).stdout, "243\n")   # fault 420: another state dir's (live-desktop's state/live)
         (st / "game.yml").write_text("name: x\n"); out = run()
         s.assertEqual((out.returncode, out.stdout), (1, "")); s.assertIn("no revision:", out.stderr)   # no tree's revision: no literal stands in
         s.assertNotRegex(Path(HERE / "jav_config.ws.template").read_text() + Path(HERE / "docker-compose.yml").read_text() + SRC + Path(HERE / "OsrsTestLauncher.java").read_text(), r"\b24[0-9]\b")
         up = SRC.split("\nup() {")[1].split("\n}")[0]; dep = SRC.split("\ndeploy() {")[1].split("\n}")[0]; live = SRC.split("\nlive_desktop() {")[1].split("\n}")[0]
         s.assertLess(up.index('idle_off > "$state/game.yml"; rev=$(revision)'), up.index("central_jav"))   # up, deploy and live-desktop each from the game.yml they run
-        s.assertLess(dep.index('> "$state/game.yml"; rev=$(revision)'), dep.index("central_jav")); s.assertLess(live.index("rev=$(revision)"), live.index("desktop_start"))
+        s.assertLess(dep.index('> "$state/game.yml"; rev=$(revision)'), dep.index("central_jav")); s.assertLess(live.index('rev=$(revision "$root/state/live")'), live.index("desktop_start"))   # fault 420: the live stack's game.yml, never the slug's
 
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck

@@ -52,7 +52,7 @@ except (OSError, ValueError): d = {}
 for a in sys.argv[2:]:
     k, v = a.split("=", 1); d[k.rstrip(":")] = json.loads(v) if k.endswith(":") else v
 print(json.dumps(d))' "$state/up.json" "$@" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"; }
-revision() { sed -nE 's/^revision:[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' "$state/game.yml" | grep -m1 . || { echo "no revision: in $state/game.yml" >&2; return 1; }; }   # the client revision of the tree being run (its game.yml, from game.example.yml)
+revision() { local f=${1:-$state}/game.yml; sed -nE 's/^revision:[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' "$f" | grep -m1 . || { echo "no revision: in $f" >&2; return 1; }; }   # the client revision of the tree being run (its game.yml, from game.example.yml; $1: another state dir's)
 modulus_of() { openssl rsa -noout -modulus 2>/dev/null | cut -d= -f2 | tr A-F a-f; }   # stdin a private key: its public modulus, lowercase hex as client.key and the APK carry it
 started() { docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null || true; }   # the container's start, by the docker daemon's clock (none: empty)
 ready() {  # ready <container> [was]: blocks until "Server ready in" since its own start or it stops; fails at once when its start is still was, the one seen before a restart or recreate
@@ -369,7 +369,7 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 
 live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; ca=$root/state/live/token/tls.pem
-  modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16); rev=$(revision)   # state/live/game.yml, the deployed tree's
+  modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16); rev=$(revision "$root/state/live")   # state/live/game.yml, the deployed tree's
   devtools_jar; stack token="$devtoken" desktops= accounts= live=1; set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # live: no deploy is planned while it is up; why: the step set -e ends at, in the function it failed in
   trap 'echo "live-desktop ended before it was logged in, at: ${why:-$BASH_COMMAND}" >&2; live_desktop_down >&2 || true' EXIT   # a failed start names its step and leaves no instance
   flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first

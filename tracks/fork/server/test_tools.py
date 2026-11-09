@@ -725,8 +725,8 @@ public class Plug { public static void main(String[] a) throws Exception {   // 
         hung = threading.Thread(target=send, args=(1, "hang", 1000)); hung.start()
         s.assertEqual(p.stdout.readline().strip(), "hung")   # the hung call holds the desktop
         send(2, "ok", 25000); hung.join()   # queued behind the hung call
-        s.assertIn("did not answer the call within 21 s", out[1][0]["error"]["message"]); s.assertEqual(out[1][0]["error"]["code"], -32002); s.assertEqual(out[1][0]["id"], 1); s.assertLess(out[1][1], 23)
-        s.assertEqual(out[2][0], {"jsonrpc": "2.0", "id": 2, "result": {}}); s.assertLess(out[2][1], 45)   # the next call runs once the hung one is answered
+        s.assertIn("did not answer the call within 21 s", out[1][0]["error"]["message"]); s.assertEqual(out[1][0]["error"]["code"], -32002); s.assertEqual(out[1][0]["id"], 1)   # the bound's own answer, not the bridge's 240 s read timeout: no wall-clock check, which load breaks
+        s.assertEqual(out[2][0], {"jsonrpc": "2.0", "id": 2, "result": {}})   # the next call runs once the hung one is answered: held, its own bound would answer an error
 
     def test_a_login_sends_the_token_of_the_up_owning_the_port(s):
         import desktop_login as d

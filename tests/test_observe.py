@@ -164,7 +164,10 @@ class Observe(unittest.TestCase):
             act.start(self.db, Step("measure", "t", key=key), self.ch, self.T)
         finally:
             act.ROOT, act.STATE, act.job_env = saved
-        os.waitpid(self.db.execute("SELECT pid FROM job").fetchone()[0], 0)
+        try:
+            os.waitpid(self.db.execute("SELECT pid FROM job").fetchone()[0], 0)
+        except ChildProcessError:   # already reaped by subprocess's cleanup of the dropped Popen (any later Popen in the suite): it exited, so its rc is written
+            pass
         self.assertEqual(Path(root, "state/h-one", f"measure-{k12}.rc").read_text(), "0\n")
     def test_disk_free_is_a_fact_and_below_the_level_an_alert_naming_the_compaction(self):
         observe.disk(self.db, 0, (self.dir.name, "/no/such/path"))

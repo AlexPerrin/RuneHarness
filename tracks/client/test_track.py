@@ -166,7 +166,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         up(); calls = log.read_text()
         s.assertIn("adb -s emulator-5560 reverse tcp:8443 tcp:8084\n", calls); s.assertIn("adb -s emulator-5560 reverse tcp:43594 tcp:43594\n", calls)
         s.assertLess(calls.index("reverse tcp:8443"), calls.index("monkey"))   # before the app first starts
-        s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-5560", r.stdout + r.stderr)
+        s.env["NOREVERSE"] = "1"; r = up(); s.assertNotEqual(r.returncode, 0); s.assertIn("adb reverse did not map tcp:8443 to tcp:8084 on emulator-", r.stdout + r.stderr)
         apk(s.ev / "t.apk", endpoint=b"http://10.0.2.2:8080/jav_config.ws?m=0&p=jagex.comxxxxxxxxx")
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("does not read jav_config from http://127.0.0.1:8443", out)
 

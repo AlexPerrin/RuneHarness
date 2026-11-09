@@ -135,6 +135,18 @@ class Central(unittest.TestCase):
         s.assertRegex(T, r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")   # docker's tag grammar
         for d in (central, root): shutil.rmtree(d)
 
+    def test_a_dev_tree_keeps_the_build_version(s):  # alert 74: tree()'s read of hd candidate --composite and composite_suffix's loop set v, so every dev build printed 'cached'
+        central = tempfile.mkdtemp(); git(central, "init", "-q"); (Path(central) / "a").write_text("a")
+        git(central, "add", "."); git(central, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"); c = git(central, "rev-parse", "HEAD")
+        git(central, "worktree", "add", "-q", str(Path(central) / ".worktrees/s1"))   # the dev's working copy
+        root = tempfile.mkdtemp(); change(root, "s1")
+        hd = Path(root) / "harness/hd.py"; hd.write_text(f"import sys\nif '--composite' in sys.argv: print('CENTRAL={central}:{c}'); sys.exit()\n" + hd.read_text())
+        r = subprocess.run(["bash", "-c", '. "$1" tree s1 && v0=$v && tree && [ "$v" = "$v0" ] && [ -n "$CENTRAL" ] && echo "$v $T"', "_", str(HERE.parent / "build/build.sh")],
+                           capture_output=True, text=True, env={**os.environ, "HD_ROOT": root, "CLONE": central, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        s.assertRegex(r.stdout, r"^2 [0-9a-f]{40}_c[0-9a-f]{12}\n$")
+        for d in (central, root): shutil.rmtree(d)
+
 
 class BuildLock(unittest.TestCase):
     def test_a_second_build_of_a_slug_waits_then_reuses_the_image(s):  # a dev's build was refused: the pass's build-<slug> container was running

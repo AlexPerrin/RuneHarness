@@ -42,11 +42,11 @@ tree() {  # TCOMMIT and T: the pass gives them; a dev's build snapshots the work
   [ -d "$dev" ] || { git -C "$repo" worktree add -q "$dev" -B "dev/$slug" "$(git -C "$repo" rev-parse -q --verify "fork/dev/$slug" || echo origin/main)"; $hd own worktree "$dev" "$slug"; }
   idx=$(git -C "$dev" rev-parse --git-path snapshot-index); rm -f "$idx"   # from HEAD: add -A alone drops tracked files under ignored paths
   GIT_INDEX_FILE=$idx git -C "$dev" read-tree HEAD && GIT_INDEX_FILE=$idx git -C "$dev" add -A . && snap=$(git -C "$dev" commit-tree "$(GIT_INDEX_FILE=$idx git -C "$dev" write-tree)" -p HEAD -m snapshot)
-  while IFS='=' read -r k v; do [ -n "${!k:-}" ] || export "$k=$v"; done < <($hd candidate "$slug" --composite)   # the libraries the candidate builds in (on staging: the test server's), unless the dev names one
+  while IFS='=' read -r name val; do [ -n "${!name:-}" ] || export "$name=$val"; done < <($hd candidate "$slug" --composite)   # the libraries the candidate builds in (on staging: the test server's), unless the dev names one
   read -r T tc < <($hd candidate "$slug" --head "$snap"); T=$T$(composite_suffix)
 }
 composite_suffix() {  # the image of a composite build is its own: _c<central tree12>, _f<filestore tree12> (decide.built; docker refuses '+' in a tag)
-  local p c; for v in CENTRAL FILESTORE; do [ -n "${!v:-}" ] || continue; IFS=: read -r p c <<< "${!v}"; printf '_%s%s' "${v:0:1}" "$(git -C "$p" rev-parse "$c^{tree}" | cut -c1-12)" | tr CF cf; done; echo
+  local p c r; for r in CENTRAL FILESTORE; do [ -n "${!r:-}" ] || continue; IFS=: read -r p c <<< "${!r}"; printf '_%s%s' "${r:0:1}" "$(git -C "$p" rev-parse "$c^{tree}" | cut -c1-12)" | tr CF cf; done; echo
 }
 filestore() {  # the change's FileStore head, published by its own track to a Maven directory (Gradle 9 cannot configure its build, nor include it):
   # every dev.or2 module it holds resolves from there alone (build/filestore.init.gradle); fdir (that directory) and fvols for build and tests

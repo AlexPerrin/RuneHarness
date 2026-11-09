@@ -25,6 +25,7 @@ class Change:
     units: tuple = ()
     pr: int = 0
     public: str = ""        # the PR branch on the fork (content/<x>, fix/<x>), moved only by a publish
+    draft: bool = False     # the user's word: its card leaves the PR a draft (no ready step)
     branch: str = ""        # the dev ref; default refs/heads/<track prefix>/<slug>
     title: str = ""
     body: str = ""

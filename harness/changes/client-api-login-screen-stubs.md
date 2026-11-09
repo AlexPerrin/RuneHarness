@@ -3,6 +3,8 @@ slug: client-api-login-screen-stubs
 track: client
 priority: P2
 goal: client-api
+deps:
+- h-mobile-signin-no-redirect
 ---
 # Client login-screen setters still ClientStub throws on Android
 

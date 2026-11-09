@@ -181,7 +181,8 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   fi
   rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
-  if [[ $(A get-state) == *"not found"* ]]; then   # the emulator is gone (it exited): nothing on it to restore
+  w=$(cat "$state/emulator.winpid" 2>/dev/null || true); port=${s#emulator-}
+  if [[ $(A get-state) == *"not found"* ]] || { [ -n "$w" ] && [ "$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}')" != "$w" ]; }; then   # gone, or its port held by another pid than the one boot recorded: another change's emulator, never killed
     rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
   fi
   bad=()

@@ -43,7 +43,7 @@ case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-4-%s\n' "$(
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
-live_image=osrs-openrune:241; compose_dir=$self/server
+live_image=osrs-openrune:live; compose_dir=$self/server   # the tag the live stack runs; its revision is its tree's
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 stack() {  # stack KEY=VALUE...: sets each field of the stack record state/<slug>/up.json (KEY:=JSON for a number); one record up writes and every later step reads; mirrored into the ledger's stack row
   python3 -c 'import json, sys
@@ -52,6 +52,7 @@ except (OSError, ValueError): d = {}
 for a in sys.argv[2:]:
     k, v = a.split("=", 1); d[k.rstrip(":")] = json.loads(v) if k.endswith(":") else v
 print(json.dumps(d))' "$state/up.json" "$@" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"; }
+revision() { sed -nE 's/^revision:[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' "$state/game.yml" | grep -m1 . || { echo "no revision: in $state/game.yml" >&2; return 1; }; }   # the client revision of the tree being run (its game.yml, from game.example.yml)
 modulus_of() { openssl rsa -noout -modulus 2>/dev/null | cut -d= -f2 | tr A-F a-f; }   # stdin a private key: its public modulus, lowercase hex as client.key and the APK carry it
 started() { docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null || true; }   # the container's start, by the docker daemon's clock (none: empty)
 ready() {  # ready <container> [was]: blocks until "Server ready in" since its own start or it stops; fails at once when its start is still was, the one seen before a restart or recreate
@@ -119,8 +120,8 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   for x in ${EXTRA_PLUGINS:-}; do cp "$x" "$d/home/.rlcustom/sideloaded-plugins/"; done   # more plugin jars (the client track's probe), loaded at this start
   ep=https://127.0.0.1:$http   # the embedded Central's front: its jav_config.ws names every other endpoint
   # upstream README's Client Setup entry (id, name, jav_config_url, varp_count, revision, modulus of .data/client.key); beside it:
-  # game_server_port (each up's own host port, not 43594), the RuneLite commit (RSProx maps none for 241), the recordings' folder
-  printf '%s\n' "config:" "  - id: 1" "    name: OpenRune Test - $slug" "    jav_config_url: $ep/jav_config.ws" "    varp_count: 15000" "    revision: 241" "    modulus: $modulus" \
+  # game_server_port (each up's own host port, not 43594), the RuneLite commit (RSProx maps none for our revisions), the recordings' folder
+  printf '%s\n' "config:" "  - id: 1" "    name: OpenRune Test - $slug" "    jav_config_url: $ep/jav_config.ws" "    varp_count: 15000" "    revision: $rev" "    modulus: $modulus" \
     "    game_server_port: $game" "    runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "    binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
   t=$(wslpath -w "$desk"); l=launcher-$(sha1sum < "$self/server/OsrsTestLauncher.java" | cut -c1-12)   # this tools tree's launcher, compiled once into the template
   [ -f "$desk/rsprox/$l/OsrsTestLauncher.class" ] || { rm -rf "$desk/rsprox/$l.$$" && mkdir -p "$desk/rsprox/$l.$$" \
@@ -158,7 +159,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
         JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
-        "-Dosrstest.token=${tok:-false}" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
+        "-Dosrstest.token=${tok:-false}" "-Dosrstest.revision=$rev" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!
     fi
     b=$(grep -m1 -A1 "Failed to start MCP server on port $dp" "$d/home/.runelite/logs/client.log" 2>/dev/null | tr '\n' ' ') || true   # logs/ is never copied into a claim: the line is this start's
@@ -224,7 +225,7 @@ central_jav() {  # $state/jav_config.ws for the game's own Central, every client
   # http://127.0.0.1:$http/: a desktop casts 11 and 22 to https (Central's https port), the APK takes them as written on its own 127.0.0.1, which adb reverse maps to Central's http port
   # the world list (17): both take it as written, so with plain (the live stack's plain http host port, the same port on a mobile through adb reverse) http there, else https on $http
   local wl=https://127.0.0.1:$http; [ -z "${plain:-}" ] || wl=http://127.0.0.1:$plain
-  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#^param=(11|20|22|28)=.*#param=\1=http://127.0.0.1:$http/#; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=$wl/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
+  sed -E "s#\{\{HTTP_BASE\}\}#https://127.0.0.1:$http#g; s#\{\{REVISION\}\}#$rev#g; s#^param=(11|20|22|28)=.*#param=\1=http://127.0.0.1:$http/#; s#\{\{WORLD_HOST\}\}#127.0.0.1#g; s#\{\{WORLD_ID\}\}#255#g; s#\{\{WORLD_FLAGS\}\}#1#g; s#\{\{MEMBERS_WORLD\}\}#true#g; s#^param=17=.*#param=17=$wl/worldslist.ws#" "$tpl" > "$state/jav_config.ws"; }
 up() {
   tok=true; sid=; cid=; who=; ca=$state/token/tls.pem; n=${arg:-1}; [ "$n" != token ] || n=1
   T=${T:-$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["T"])' "$state/build.json")}
@@ -235,7 +236,7 @@ up() {
   down >/dev/null   # a previous up's desktops and containers
   set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # the step set -e ends at, in the function it failed in (it may print nothing)
   trap 'echo "up ended before it was up, at: ${why:-$BASH_COMMAND} (the server log: $state/failed-up.log)" >&2; { docker logs "server-$slug" > "$state/failed-up.log" 2>&1; [ -z "${inst:-}" ] || cp "$desk/run/${inst#desktop}/home/.runelite/logs/client.log" "$state/failed-up-client.log"; } 2>/dev/null || true; down >/dev/null 2>&1' EXIT   # a failed or stopped up names the step it ended at and keeps the server's log, then leaves no half-up instance: its desktops and containers go
-  docker run --rm --entrypoint cat "or:$T" /app/game.yml | quests "$(quest_mode)" | idle_off > "$state/game.yml"   # upstream's default assume-completed skips every quest check
+  docker run --rm --entrypoint cat "or:$T" /app/game.yml | quests "$(quest_mode)" | idle_off > "$state/game.yml"; rev=$(revision)   # upstream's default assume-completed skips every quest check
   keys   # never a missing mount source: docker would make it a directory
   modulus=$(modulus_of < "$state/key/game.key"); devtoken=$(openssl rand -hex 16)   # the up's devtools token: its desktops' endpoints answer no other caller
   staff=$(for i in $(tr , ' ' <<< "${STAFF:-}"); do account "$i"; done | paste -sd' ')   # STAFF=1,2: those desktops' accounts administrators
@@ -305,7 +306,7 @@ deploy() {  # staging's tree → the live test server; a failing step names itse
   arg=${TCOMMIT:-$arg}; "$self/build/build.sh" build staging "$arg"; T=${T:-$(git -C "$repo" rev-parse "$arg^{tree}")}
   slug=staging; state=$root/state/live; mkdir -p "$state"
   # the sign-in's key (from server/issuer.py key): its secret in the image's game.yml and Central's
-  ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"
+  ISSUER_DIR=$state/token; { docker run --rm --entrypoint cat "or:$T" /app/game.yml; echo; python3 "$self/server/issuer.py" key "$ISSUER_DIR"; } > "$state/game.yml"; rev=$(revision)
   # Central's sign-in for every client, as up's: the secret, https with its certificate, its own jav_config; no dev account,
   # so every sign-in (each run's mobile and desktop as its slug's own account, the user's phone as tester) goes through Central's form
   http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; plain=${OPENRUNE_CENTRAL_HTTP_PORT:-8084}; tpl=$self/server/jav_config.ws.template; central_jav
@@ -330,7 +331,7 @@ EOF
   docker run -d --name "boot-$T" --tmpfs /app/.data/postgres:uid=1000,gid=1000,mode=0700 "osrs-openrune:$T" >/dev/null
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
-  $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
+  $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$(docker inspect -f '{{.Image}}' osrs-openrune 2>/dev/null || echo "$live_image")" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"   # rollback: the running image, whatever tag it ran under
   was=$(started osrs-openrune)
   # recreated, never restarted (a container's file bind mount does not outlive a WSL restart); a container of a service compose no longer names goes
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans openrune) >/dev/null
@@ -368,7 +369,7 @@ transcribe() {  # a fresh RSProx home: one filter set, active, naming every Prop
 
 live_desktop() {  # one desktop logged in on the LIVE stack (its Central's https jav_config and sign-in, game port and cache: srv), for the client track's probe; prints LIVE_DESKTOP <devtools port> <instance dir>
   srv=osrs-openrune; http=${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}; game=${OPENRUNE_GAME_PORT:-43594}; tok=true; ca=$root/state/live/token/tls.pem
-  modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16)
+  modulus=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["modulus"])' "$root/state/live/tree.json"); devtoken=$(openssl rand -hex 16); rev=$(revision)   # state/live/game.yml, the deployed tree's
   devtools_jar; stack token="$devtoken" desktops= accounts= live=1; set -E; trap 'why="$BASH_COMMAND (status $?)"' ERR   # live: no deploy is planned while it is up; why: the step set -e ends at, in the function it failed in
   trap 'echo "live-desktop ended before it was logged in, at: ${why:-$BASH_COMMAND}" >&2; live_desktop_down >&2 || true' EXIT   # a failed start names its step and leaves no instance
   flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first

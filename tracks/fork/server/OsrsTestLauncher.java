@@ -7,7 +7,7 @@
 //
 // Run on Windows with -Duser.home=C:\osrs-test<N>\home (JAVA_TOOL_OPTIONS). -Dosrstest.portskip=<n> (default 0)
 // moves this instance's ports up by n: RSProx serves jav_config on 43600+n and proxies on proxy.port.min (43701)+n.
-// -Dosrstest.token=true: a token login; the client inherits JX_SESSION_ID, JX_CHARACTER_ID and JX_DISPLAY_NAME
+// -Dosrstest.revision=<n>: the client revision of the tree served (its game.yml's). -Dosrstest.token=true: a token login; the client inherits JX_SESSION_ID, JX_CHARACTER_ID and JX_DISPLAY_NAME
 // (set by track.sh) and fetches its token from the sign-in jav_config param 11 names (the server's embedded Central). A Jagex access or
 // refresh token is refused in every mode. The target (~/.rsprox/proxy-targets.yaml, upstream README's Client Setup entry)
 // must name a local http(s)://127.0.0.1:<port>/jav_config.ws, our server's embedded Central, which names every other endpoint.
@@ -34,6 +34,7 @@ import net.rsprox.shared.property.RootProperty;
 public final class OsrsTestLauncher
 {
 	static final String TARGET = System.getProperty("osrstest.target", "OpenRune Test");
+	static final int REVISION = Integer.getInteger("osrstest.revision", 0); // the served tree's client revision: the preferences file's encoding follows it
 
 	static void log(String s)
 	{
@@ -72,6 +73,10 @@ public final class OsrsTestLauncher
 		{
 			die("RSPS_* overrides are set");
 		}
+		if (REVISION <= 0)
+		{
+			die("osrstest.revision is not set");
+		}
 		boolean token = Boolean.getBoolean("osrstest.token");
 		for (String v : new String[]{"JX_ACCESS_TOKEN", "JX_REFRESH_TOKEN", "JX_SESSION_ID", "JX_CHARACTER_ID", "JX_DISPLAY_NAME"})
 		{
@@ -89,7 +94,7 @@ public final class OsrsTestLauncher
 		if (!Files.exists(prefs))
 		{
 			ClientPreferencesFile.INSTANCE.write(new ClientPreferences(false, false, 1, Map.of(), null, false, 0.8, 127, 127, 127, 1, false, 25, 0, false,
-				(int) (LocalDate.now(ZoneOffset.UTC).toEpochDay() - 11745)), 241, prefs);
+				(int) (LocalDate.now(ZoneOffset.UTC).toEpochDay() - 11745)), REVISION, prefs);
 			log("terms accepted in " + prefs);
 		}
 

@@ -63,7 +63,8 @@ publish → maintainers' findings become criteria.
   run; the evaluator runs only where judged criteria exist and judges every one, pass or fail, never passing one it
   did not check; nothing is checked twice for the same tree, head and criteria.
 - **G3** A failing verdict lists the dev before anything is built, gated or judged again; a text-only failure is
-  fixed in place and re-marked without a new dev run.
+  fixed in place and re-marked without a new dev run; a failing verdict over criteria since waived or over a dep since
+  landed is judged again first.
 - **G4** An upstream PR is self-contained: its head holds no unmerged commit of another PR nor any staged commit, and
   its CI runs it on upstream main; a dependency in another PR holds only the card until merged there, never the dev work.
 - **G5** A harness change is checked against reality before it ships: its tests, and its pass replayed over a
@@ -82,7 +83,8 @@ publish → maintainers' findings become criteria.
   a finding is a criterion on the PR's one open change; one comment per published head answers every finding; CI is
   never re-run at a head but by the user's word.
 - **A4** A question to the user carries typed options, each with its effect (a dependency, a waived criterion, an
-  accepted difference, a close, a repo move, an act only the user may take); the decision applies the effect. Only the user's decision accepts a
+  accepted difference, a close, a repo move, an act only the user may take); the decision takes one option or several
+  and applies each effect. Only the user's decision accepts a
   difference from the official game.
 - **A5** The user's standing holds (a track held from upstream, a priority band held) are records the loop obeys
   until the user lifts them.

@@ -284,7 +284,7 @@ GUARDS = [
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate, or a merge conflict at the staging tip / CI failure / missing text
                        # → run dev/code; the input digests the tip, the reasons, the answers since the submission and the
-                       # deps that have landed, for a change off the server tracks its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict older than a dep's landing goes to judge_due first
+                       # deps that have landed, for a change off the server tracks its server deps live (a blocker filed by the dev lands → the dev runs again); a FAIL verdict over another criteria set (a waiver since) or older than a dep's landing goes to judge_due first
     build_due,         # tracks whose recipe has build: job(build, key) missing → build; running → wait; 3 attempts → wait
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
@@ -511,7 +511,7 @@ sequenceDiagram
 | `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
-| `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
+| `hd answer <slug> <option>[,<option>…] [words]` | orchestrator (the user's words) | answer, and each chosen option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
 | `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |

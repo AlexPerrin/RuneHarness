@@ -70,14 +70,28 @@ class Tempo(Base):  # T1, T3, T4
         ch = Change("h-one", "harness", priority="P2", deps=["h-dep"])
         self.submit()
         self.run_row("i1", ended_at="t", end_kind="stop"); self.run_row("i2", ended_at="t", end_kind="stop")
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, 'd', '2')", (TIP,))
+        d = store.digest([])
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, '2')", (TIP, d))
         C = mock.Mock(L=self.L)
         v = self.L.last_verdict("h-one", TIP)
         self.assertFalse(decide.outdated(C, ch, v))
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 's', '3')")
         self.assertTrue(decide.outdated(C, ch, v))
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, 'd', '4')", (TIP,))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, ?, '4')", (TIP, d))
         self.assertFalse(decide.outdated(C, ch, self.L.last_verdict("h-one", TIP)))   # judged again and failed: a dev's now
+
+    def test_a_waiver_after_a_failed_verdict_rejudges_the_same_head_not_a_dev(self):   # fork-presence-push-not-delivered: acc-4 waived, the dev could only resubmit
+        self.submit()
+        for rid in ("acc-4", "done-stack"):
+            self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('h-one', ?, 'judge', 't', 'seed', 't0')", (rid,))
+        d = decide.digest([(c["rid"], c["text"]) for c in self.L.criteria("h-one", "judge")])
+        self.run_row("j1", role="qa", mode="judge", ended_at="t", end_kind="handback")
+        self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, '2')", (TIP, d))
+        self.assertEqual(self.step().role, "dev")
+        self.db.execute("UPDATE criterion SET waived=1 WHERE rid='acc-4'")
+        s = self.step()
+        self.assertEqual((s.role, s.mode), ("qa", "judge"))
 
     def test_a_checked_library_change_stages_on_its_own_and_its_staging_moves_the_deploy(self):   # central-game-session: no fork dependent, never live
         C = Track("central", "x/c", "/nowhere", "refs/remotes/origin/main", "Up/c", "dev", {"build": "c-1", "gate": "c-1"}, "fork")

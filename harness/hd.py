@@ -312,32 +312,34 @@ def cmd_answer(a):
     q = Ledger(db).open_ask(a.slug)
     if not q:
         sys.exit("hd answer: no open question")
-    opt = next((o for o in json.loads(q["options_json"]) if o["id"] == a.option), None)
-    if not opt:
-        sys.exit(f"hd answer: options are {[o['id'] for o in json.loads(q['options_json'])]}")
-    effect, _, arg = opt["effect"].partition(" ")
-    if effect == "close":
-        sys.exit(f"hd answer: a close is the user's own: ! python3 {os.path.abspath(__file__)} close {a.slug} {shlex.quote(a.words or opt['text'])}")
+    by_id = {o["id"]: o for o in json.loads(q["options_json"])}
+    chosen = [by_id.get(i.strip()) for i in a.option.split(",")]   # "a,d": the user took several options (two waivers at once)
+    if not all(chosen):
+        sys.exit(f"hd answer: options are {list(by_id)}, one or several comma-separated")
+    if any(o["effect"].split()[0] == "close" for o in chosen):
+        sys.exit(f"hd answer: a close is the user's own: ! python3 {os.path.abspath(__file__)} close {a.slug} {shlex.quote(a.words or chosen[0]['text'])}")
     db.execute("BEGIN")
     db.execute("INSERT INTO answer(ask, option, words, by, at) VALUES (?,?,?,?,?)", (q["id"], a.option, a.words, "user", now()))
-    if effect == "dep":
-        fm, body = read_change(a.slug)
-        fm["deps"] = sorted(set(fm.get("deps") or []) | {arg})
-        write_change(a.slug, fm, body)
-    elif effect == "waive":
-        db.execute("UPDATE criterion SET waived=1 WHERE change=? AND rid=?", (a.slug, arg))
-    elif effect == "reply" and arg:   # a bare reply (an ask from before hd ask checked options) records the words only
-        d = os.path.join(ROOT, "evidence", a.slug)
-        os.makedirs(d, exist_ok=True)
-        f = db.execute("SELECT * FROM finding WHERE comment_id=?", (int(arg),)).fetchone()
-        quoted = "\n".join("> " + l for l in f["body"].strip().splitlines())
-        open(os.path.join(d, f"pr-reply-{arg}.md"), "w").write(f"{quoted}\n\n@{f['author']} {a.words or ''}\n")
-    elif effect == "accept-difference":
-        db.execute("INSERT INTO criterion(change, rid, kind, text, source, source_id, created_at) VALUES (?,?,?,?,?,?,?)",
-                   (a.slug, f"accepted-{q['id']}", "judge", f"accepted difference: {arg}", "answer", q["id"], now()))
+    for opt in chosen:
+        effect, _, arg = opt["effect"].partition(" ")
+        if effect == "dep":
+            fm, body = read_change(a.slug)
+            fm["deps"] = sorted(set(fm.get("deps") or []) | {arg})
+            write_change(a.slug, fm, body)
+        elif effect == "waive":
+            db.execute("UPDATE criterion SET waived=1 WHERE change=? AND rid=?", (a.slug, arg))
+        elif effect == "reply" and arg:   # a bare reply (an ask from before hd ask checked options) records the words only
+            d = os.path.join(ROOT, "evidence", a.slug)
+            os.makedirs(d, exist_ok=True)
+            f = db.execute("SELECT * FROM finding WHERE comment_id=?", (int(arg),)).fetchone()
+            quoted = "\n".join("> " + l for l in f["body"].strip().splitlines())
+            open(os.path.join(d, f"pr-reply-{arg}.md"), "w").write(f"{quoted}\n\n@{f['author']} {a.words or ''}\n")
+        elif effect == "accept-difference":
+            db.execute("INSERT INTO criterion(change, rid, kind, text, source, source_id, created_at) VALUES (?,?,?,?,?,?,?)",
+                       (a.slug, f"accepted-{q['id']}", "judge", f"accepted difference: {arg}", "answer", q["id"], now()))
     # user-act: the user took (or declined) the named act themselves; the answer row is the record the run is re-briefed with
     db.execute("COMMIT")
-    event(db, "answer", a.slug, None, f"ask {q['id']}: option {a.option} ({opt['effect']}) {a.words or ''}")
+    event(db, "answer", a.slug, None, f"ask {q['id']}: option {a.option} ({', '.join(o['effect'] for o in chosen)}) {a.words or ''}")
     act.tick_later()
 
 

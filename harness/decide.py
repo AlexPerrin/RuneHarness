@@ -243,10 +243,17 @@ def criteria_due(C, ch):
     return Step("run", "criteria before code", role="qa", mode="criteria", input=digest("criteria", ch.slug))
 
 
+def judged_digest(C, ch):
+    return digest([(c["rid"], c["text"]) for c in C.L.criteria(ch.slug, "judge")])
+
+
 def outdated(C, ch, v) -> bool:
-    """A FAIL verdict older than a dep's landing: what it failed on may be the dep, so the head is judged again before a dev re-runs."""
+    """A FAIL verdict over another criteria set (a waiver since) or older than a dep's landing: what it failed on may be
+    gone, so the head is judged again before a dev re-runs."""
     if not v or v["ok"]:
         return False
+    if v["criteria_digest"] != judged_digest(C, ch):
+        return True
     at = [C.L.one("SELECT max(at) a FROM landed WHERE change=?", d)["a"] for d in ch.deps]
     return any(x and x > v["at"] for x in at)
 
@@ -303,7 +310,7 @@ def judge_due(C, ch):
     if not judged:
         return None
     t = tip(C, ch)
-    d = digest([(c["rid"], c["text"]) for c in judged])
+    d = judged_digest(C, ch)
     v = C.L.last_verdict(ch.slug, t)
     if v and v["criteria_digest"] == d and not outdated(C, ch, v):
         return None

@@ -106,6 +106,16 @@ class Hd(unittest.TestCase):
         self.assertEqual(db.execute("SELECT waived FROM criterion WHERE rid='dupes-3'").fetchone()[0], 1)
         self.assertEqual(db.execute("SELECT by, words FROM answer").fetchone()[1], "the lamp cannot be sold")
 
+    def test_one_answer_takes_several_options(self):   # "waive both": the second waiver was lost to a one-option answer
+        for rid in ("acc-4", "done-stack"):
+            hd.main(["criterion", "add", "x", rid, "--kind", "judge", "--text", "t", "--source", "seed"])
+        hd.main(["ask", "x", "waive?", "--option", "a:acc-4 later:waive acc-4", "--option", "d:done-stack later:waive done-stack"])
+        with self.assertRaises(SystemExit):
+            hd.main(["answer", "x", "a,z"])
+        hd.main(["answer", "x", "a,d", "waive both"])
+        db = store.connect()
+        self.assertEqual([r[0] for r in db.execute("SELECT waived FROM criterion ORDER BY id")], [1, 1])
+
     def test_a_user_act_names_its_act_and_its_answer_is_recorded(self):   # A4
         with self.assertRaises(SystemExit):
             hd.main(["ask", "x", "pin?", "--option", "a:pin it:user-act"])

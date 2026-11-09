@@ -280,6 +280,9 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 30, "com.android.settings", {"x": (1, 1)})[0], "fail")       # a window it does not know
         s.assertEqual(m.step("UNKNOWN", -1, m.LAUNCHER, {})[0], "wait")                                   # the app's window has not taken focus yet
         s.assertEqual(m.step("UNKNOWN", -1, "Application", {"Pixel Launcher isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)})[:2], ("tap", "Wait"))   # the system's ANR dialog
+        anr, dlg = {}, {"Chrome isn't responding": (1, 1), "Close app": (1, 2), "Wait": (1, 3)}
+        s.assertEqual([m.step("LOGIN_SCREEN", 30, "Application", dlg, win=w, anr=anr)[:2] for w in ("83b074d", "83b074d")], [("tap", "Wait")] * 2)   # the same dialog: Wait again
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, "Application", dlg, win="8876fbe", anr=anr), ("fail", "Chrome isn't responding again after Wait"))   # run 301: Chrome hung 30 min
         s.assertEqual(m.step("LOGIN_SCREEN", 10, m.LAUNCHER, {})[0], "fail")                              # the app left for the launcher
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page

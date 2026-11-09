@@ -45,13 +45,13 @@ def labels():
 
 
 def screen():
-    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields)."""
+    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields, the focused window's id)."""
     log = adb("logcat", "-d", "-s", "osrsrl-host:I")
     st = re.findall(r"GameStateChanged (\w+)(?: \(raw (-?\d+))?", log); ix = re.findall(r"LoginIndex (\d+)", log)
-    focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
-    pkg = focus.group(1) if focus else ""
+    focus = re.search(r"mCurrentFocus=Window\{(\S+) \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
+    win, pkg = focus.groups() if focus else ("", "")
     lab, fields = ({}, {}) if pkg in (PKG, "") else labels()
-    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields
+    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields, win
 
 
 def form(lab, fields, name, posted):
@@ -77,9 +77,10 @@ def form(lab, fields, name, posted):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, lost=False):
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, lost=False, win="", anr=None):
     """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why).
-    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end)."""
+    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end);
+    anr: {the system's "<app> isn't responding": the dialog window Wait was tapped on}, kept across screens by main."""
     if st == "LOGGED_IN":
         return ("done",)
     if lost:
@@ -96,7 +97,10 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, lost=Fa
         return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
     if pkg == LAUNCHER and st in ("", "UNKNOWN"):
         return ("wait",)   # the process runs before its window takes focus from the launcher; main() fails a death
-    if "Wait" in lab and any(t.endswith("isn't responding") for t in lab):
+    who = next((t for t in lab if t.endswith("isn't responding")), None) if "Wait" in lab else None
+    if who:   # Wait again on the same dialog (a tap dropped while it draws); a new dialog of the same app after Wait: it hangs (run 301: Chrome's first run, 30 min)
+        if (anr := {} if anr is None else anr).setdefault(who, win) != win:
+            return ("fail", f"{who} again after Wait")
         return ("tap", "Wait", *lab["Wait"])   # the system's ANR dialog (the emulator's launcher while the app starts): the app goes on behind it
     if pkg not in (PKG, ""):
         return ("fail", f"an unknown window {pkg}: {', '.join(lab) or 'no labels'}")
@@ -121,13 +125,13 @@ def main(slug):
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
     if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
         return "FAILED: the app did not start: " + r.strip()
-    acted = None   # -W returns once the activity is up: the process exists from here
+    acted, anr = None, {}   # -W returns once the activity is up: the process exists from here
     while True:
-        st, ix, pkg, lab, raw, fields = screen()
+        st, ix, pkg, lab, raw, fields, win = screen()
         if not adb("shell", "pidof", PKG).strip():
             return "FAILED: the app died"
         since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
-        act = step(st, ix, pkg, lab, raw, name, fields, posted, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since))
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since), win, anr)
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":
@@ -135,7 +139,7 @@ def main(slug):
         here = (st, ix, pkg, act[:2])
         # one act per screen, then the next screen is read: a second tap on one screen toggles panels, a second typing doubles the name;
         # a field's tap alone again while it is not focused (it only focuses it; Chrome drops a tap while its custom tab settles)
-        if act[0] in ("tap", "type") and (here != acted or act[1].endswith(" field")):
+        if act[0] in ("tap", "type") and (here != acted or act[1].endswith(" field") or act[1] == "Wait"):
             print(f"Central's sign-in: {name}" if act == ("type", FORM[0]) else f"{st} LoginIndex {ix} {pkg}: {act[1]}", file=sys.stderr, flush=True)
             adb("shell", "input", *(("text", name) if act[0] == "type" else ("tap", str(act[2]), str(act[3])))); acted = here
             posted |= act[1:2] == (FORM[2],)

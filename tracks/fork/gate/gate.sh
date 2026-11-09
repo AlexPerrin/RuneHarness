@@ -4,7 +4,8 @@
 # (the tree) TCOMMIT BASE CLONE EVIDENCE CENTRAL HD_ROOT HD_KEY. Verbs:
 #   test [MODULE...]  build, then each module's tests (and integration tests, where it applies integration-test-suite) and spotlessCheck on the build copy (no module: those holding a file
 #                     the change's tree changes from staging, its candidate's base); log evidence/<slug>/test.log, result state/<slug>/test.json
-#   spotless          spotlessCheck alone on those modules at TCOMMIT (a contract row; no TCOMMIT: the working copy's T), no build;
+#   spotless          spotlessCheck alone on those modules at PR_TCOMMIT, the tree CI's Formatting checks (unset or a conflict: TCOMMIT;
+#                     no TCOMMIT: the working copy's head on upstream main), no build;
 #                     log evidence/<slug>/spotless.log, result state/<slug>/spotless.json
 #   gate TCOMMIT      the build, then every scripted criterion of the change from the build copy (`hd gate`), which records the job
 #   gate-ci           fork CI and Formatting green on gate/<slug> (blocks until both conclude: one conditional read of the
@@ -25,8 +26,12 @@
 projects() { local f d; for f; do d=$(dirname "$f"); while [ "$d" != . ] && [ ! -f "$copy/$d/build.gradle.kts" ]; do d=$(dirname "$d"); done; [ "$d" = . ] || { [ "${d##*/}" = pack ] && d=${d%/pack}/$(basename "${d%/pack}")-pack; echo ":${d//\//:}"; }; done | sort -u; }   # the Gradle projects holding these files: settings.gradle.kts names a pack directory <parent>-pack
 projdir() { local d=${1#:}; d=${d//://}; [ "${d##*/}" = "$(basename "$(dirname "$d")")-pack" ] && d=$(dirname "$d")/pack; echo "$d"; }   # a project's directory
 tests() { build; gradle_check test "$@"; }
-spotless() {  # the check row: spotlessCheck on every module T changes from staging, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)
-  tree; [ -d "$copy" ] || { git -C "$repo" worktree add -q --detach "$copy" "$tc"; $hd own worktree "$copy" "$slug"; }; gradle_check spotless
+spotless() {  # the check row: spotlessCheck on every module the head changes, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)
+  tree; [ -d "$copy" ] || { git -C "$repo" worktree add -q --detach "$copy" "$tc"; $hd own worktree "$copy" "$slug"; }
+  # on the tree CI's Formatting checks: the PR's candidate on upstream main (a dev: its own head), never the merge with staging, whose imports differ
+  trap "git -C '$copy' reset -q --hard '$tc'" EXIT   # the build copy back at the gate's tree for the criteria after this one (a trap: errexit holds in gradle_check)
+  case ${PR_TCOMMIT:-} in ""|conflict:*) tc=${snap:-$tc} ;; *) tc=$PR_TCOMMIT ;; esac
+  gradle_check spotless
 }
 gradle_check() {  # gradle_check test|spotless [MODULE...]: spotless's JGit cannot open a linked worktree: the container sees the copy's .git as a plain repo of T, its objects borrowed
   local kind=$1; shift; git -C "$copy" reset -q --hard "$tc"; git -C "$copy" clean -fdq   # apart: a failed reset in an && list would not stop the verb

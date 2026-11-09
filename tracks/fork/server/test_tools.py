@@ -1197,6 +1197,13 @@ for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 
         r = run()
         s.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         s.assertTrue(json.loads((root / "st/spotless.json").read_text())["ok"])
+        # fork-spotless-wrong-tree: the staging merge (tc2) is clean, the PR's candidate on upstream main (what CI's Formatting checks) is not
+        s.write("mod/src/main/kotlin/B.kt", "fun  b() {}\nfun c() {}\n"); pr = s.commit("feat: the PR on main")
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PR_TCOMMIT": pr, "PATH": f"{root}/bin:{os.environ['PATH']}"})
+        s.assertEqual(r.returncode, 1, r.stderr + r.stdout)
+        s.assertEqual(git(str(copy), "rev-parse", "HEAD"), tc2)   # the build copy back at the gate's tree
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PR_TCOMMIT": "conflict: a.kt", "PATH": f"{root}/bin:{os.environ['PATH']}"})
+        s.assertEqual(r.returncode, 0, r.stderr + r.stdout)   # a conflict is the ci row's to fail: spotless checks TCOMMIT
 
     def test_a_pack_directory_is_the_project_settings_names(s):  # quest-ernestthechicken: no module named ran :content:areas:city:draynor:pack:test, a project settings names draynor-pack
         fns = "\n".join(l for l in SRC.splitlines() if l.startswith(("projects()", "projdir()")))

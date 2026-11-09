@@ -32,7 +32,7 @@ state/hd.db  state/<slug>/*.log  state/briefs/<run>.md  state/wake.orchestrator 
 
 A change definition's front matter: `slug`, `track` (client | fork | central | filestore | harness), `kind` (change |
 release), `upstream` (false: fork only), `priority` (P0–P4), `deps`, `goal`, `units`, `pr`, `public` (the PR branch on
-the fork), `branch`; other keys are the track script's. Definitions are parsed each pass; the ledger holds runtime rows
+the fork), `draft` (the user's word: its card leaves the PR a draft), `branch`; other keys are the track script's. Definitions are parsed each pass; the ledger holds runtime rows
 only. hd.yaml's repos carry `base` (the full ref a candidate starts from; a track with a `deploy` recipe starts it from
 its staging, `Track.candidate_base`, and its PR head stays on `base`), `prefix` (dev branches) and `remote` (where
 dev refs are pushed; in the product clones `origin` is upstream and `fork` the fork; none: the dev ref stays local).
@@ -452,7 +452,7 @@ the live tip between a ship's candidate and its push (the engineer's commits go 
 def card(db, ch, T, head, pr, texts) -> card id:
     """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
     or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no second reply, publish.answered) → ready
-    (if new or draft). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
+    (if new or draft, unless the change says `draft`). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
     texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 
 def approve(db, slug, head):

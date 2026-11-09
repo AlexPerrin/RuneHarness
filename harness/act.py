@@ -73,7 +73,7 @@ def parse_change(path) -> Change:
     return Change(slug=y.get("slug") or os.path.basename(path)[:-3], track=y["track"], kind=y.get("kind", "change"),
                   upstream=y.get("upstream", True), priority=tier(y.get("priority", "P2")), deps=tuple(y.get("deps") or ()),
                   goal=y.get("goal", ""), units=tuple(y.get("units") or ()), pr=y.get("pr", 0) or 0,
-                  public=y.get("public", ""), branch=y.get("branch", ""), title=title, body=body)
+                  public=y.get("public", ""), draft=bool(y.get("draft", False)), branch=y.get("branch", ""), title=title, body=body)
 
 
 DEFS = os.path.join(ROOT, "harness")   # the definitions: changes/ and goals/; `hd tick --defs` reads another tree's (the replay, the fixtures)

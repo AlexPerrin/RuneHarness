@@ -32,6 +32,17 @@ class Slug(unittest.TestCase):
         s.assertFalse((root / "state").exists())
         shutil.rmtree(root)
 
+    def test_a_package_slug_is_known_by_its_members_feature(s):  # pr-feat-hunter-fork has no definition file: test and spotless exited 2
+        root = Path(tempfile.mkdtemp()); (root / "bin").mkdir(); (root / "bin/docker").write_text("#!/bin/sh\nexit 1\n"); (root / "bin/docker").chmod(0o755)
+        change(root, "m"); (root / "harness/changes/m.md").write_text("---\nfeature: feat/hunter\n---\n")
+        env = {**os.environ, "HD_ROOT": str(root), "PATH": f"{root / 'bin'}:{os.environ['PATH']}"}
+        for script in ("track.sh", "build/build.sh"):
+            r = subprocess.run(["bash", str(HERE.parent / script), "log", "pr-feat-hunter-fork", "x"], capture_output=True, text=True, env=env)
+            s.assertNotIn("no change or goal", r.stderr)
+        r = subprocess.run(["bash", str(HERE.parent / "track.sh"), "log", "pr-feat-other-fork", "x"], capture_output=True, text=True, env=env)
+        s.assertEqual(r.returncode, 2)
+        shutil.rmtree(root)
+
 
 
 class Log(unittest.TestCase):

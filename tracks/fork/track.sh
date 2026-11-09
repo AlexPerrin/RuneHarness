@@ -40,7 +40,7 @@ self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$(dirname "$(git -C "${CLONE:-$HOME/src/OpenRune-Server}" rev-parse --path-format=absolute --git-common-dir)")}   # the main checkout, also when CLONE names a worktree of it (a brief's clone)
 case $verb in recipe) printf 'build fork-3\ngate fork-1\ndeploy fork-4-%s\n' "$(cd "$self/server" && cat docker-compose.yml switch.env jav_config.ws.template "$root"/state/live/token/{secret,tls.pem} 2>/dev/null | sha256sum | cut -c1-12)"; exit 0 ;; esac   # the stack runs these files from this checkout and bakes the sign-in's secret and certificate from state/live/token: a moved one moves the deploy's key
-[ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
+[ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || grep -qxF -- "${slug%-*}" <(sed -n 's#^feature: *#pr-#p' "$root"/harness/changes/*.md 2>/dev/null | tr / -) || case $slug in live|staging) ;; *) echo "no change or goal \"$slug\": tracks/fork/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case $verb in build|tree) exec "$self/build/build.sh" "$@" ;; test|spotless|gate|gate-ci|ci-step) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
 live_image=osrs-openrune:live; compose_dir=$self/server   # the tag the live stack runs; its revision is its tree's

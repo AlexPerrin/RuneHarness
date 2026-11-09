@@ -35,7 +35,7 @@ host/build.sh > "$work/host.log" 2>&1 || { tail -20 "$work/host.log"; die "host/
 ninja -C re/build > "$work/ninja.log" 2>&1 || { tail -20 "$work/ninja.log"; die "ninja failed"; }
 pair=${HD_ROOT:-$HOME/osrs-harness}/state/live/key   # the live stack's key pair: the APK's modulus, its private exponent never in the APK
 MODULUS=$(sed -n 's/^Modulus: //p' "$pair/client.key" 2>/dev/null); [[ ${#MODULUS} -eq 256 ]] || die "no live key pair in $pair"
-MODULUS=$MODULUS OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh > "$work/repack.log" 2>&1 || { tail -20 "$work/repack.log"; die "repack failed"; }
+MODULUS=$MODULUS SERVER=127.0.0.1:8443 OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh > "$work/repack.log" 2>&1 || { tail -20 "$work/repack.log"; die "repack failed"; }
 t=$(grep -c '^telemetry:' "$work/repack.log" || true)
 [[ $t -eq 7 ]] || die "expected 7 telemetry: lines in the repack log, found $t"
 
@@ -90,9 +90,9 @@ are checked by client QA on a device; dev builds pass only the build's machine c
 present, no secrets in the APKs).
 
 **What it is.** The official Old School RuneScape Android app (build 241.4), repacked to load this repo's
-\`libosrsrl.so\` and RuneLite plugin host. It connects only to an OpenRune test server
-(\`10.0.2.2:43594\`, the host as seen from an Android emulator) and signs in with the server's local
-sign-in (LOCAL_AUTH); it cannot sign in to Jagex. The app's analytics (Singular, Firebase, Crashlytics) and the
+\`libosrsrl.so\` and RuneLite plugin host. It connects only to an OpenRune test server on the device's own
+\`127.0.0.1\` (game 43594, Central 8443: \`adb reverse tcp:43594 tcp:43594\` and \`adb reverse tcp:8443 tcp:8084\` map them
+to the server's machine) and signs in with its Central (LOCAL_AUTH); it cannot sign in to Jagex. The app's analytics (Singular, Firebase, Crashlytics) and the
 consent sync are patched out (docs/app-telemetry.md). Signed with the repo's debug key.
 
 **Licences.** \`THIRD_PARTY_NOTICES.md\` (attached) lists the third-party code inside \`libosrsrl.so\` and its

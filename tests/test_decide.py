@@ -290,7 +290,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
             self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', ?, 'x', 'text')", (n,))
         self.assertEqual(self.step().kind, "card")
-        self.db.execute("INSERT INTO card(change, head, steps_json, texts_json, digest) VALUES ('genie', ?, '[{\"name\":\"push\"}]', '{}', 'd')", (TIP,))
+        self.db.execute("INSERT INTO card(change, head, steps_json, texts_json, digest) VALUES ('genie', ?, '[{\"name\":\"push\"}, {\"name\":\"ready\"}]', '{}', 'd')", (TIP,))
         self.assertIn("the user: card 1", self.step().why)
         self.db.execute("INSERT INTO hold(change, head, at) VALUES ('genie', ?, 't')", (TIP,))
         self.assertIn("held", self.step().why)
@@ -328,6 +328,19 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO finding(comment_id, pr, author, body, triage, change) VALUES (77, 5, 'm', 'why?', 'finding', 'genie')")
         self.assertEqual(self.step().why, "texts: pr-reply-77.md")
         self.db.execute("INSERT INTO text(change, name, sha, body) VALUES ('genie', 'pr-reply-77.md', 'x', '> why?\n\n@m because')")
+        self.assertEqual(self.step().kind, "card")
+
+    def test_a_card_is_made_again_when_the_user_keeps_the_pr_a_draft(self):   # A1: card 12 readied #408 against its "still a draft" texts
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.submit()
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{TREE}:fork-1"))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")
+        for n in ("pr-title.txt", "pr-body.md", "pr-comment.md"):
+            self.db.execute("INSERT INTO text(change, name, sha, body, at) VALUES ('genie', ?, 'x', 'text', 't1')", (n,))
+        self.db.execute("""INSERT INTO card(change, head, steps_json, texts_json, digest, shown_at) VALUES ('genie', ?, '[{"name": "push"}, {"name": "ready"}]', '{}', 'd', 't9')""", (TIP,))
+        self.assertIn("the user: card", self.step().why)
+        self.ch = Change("genie", "fork", draft=True)
         self.assertEqual(self.step().kind, "card")
 
     def test_a_composite_candidate_is_keyed_by_the_library_tree_too(self):

@@ -27,7 +27,7 @@ def answered(db, upstream: str, number: int) -> set:
 
 def card(db, ch, T, head: str, pr: dict | None, texts: dict, refusal: str = "") -> int:
     """Steps from the PR's state and the texts: push (unless the PR is at head) → pr (open a draft) | edit (title or body
-    differ) → ci (if pushed or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready (if draft or new).
+    differ) → ci (if pushed or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready (if draft or new, unless the change says draft).
     INSERT OR IGNORE card and its publish_step rows; returns the card id."""
     public = ch.public or f"content/{ch.slug}"
     steps, t = [], {"title": texts.get("pr-title.txt", "").strip(), "body": texts.get("pr-body.md", "")}
@@ -51,7 +51,7 @@ def card(db, ch, T, head: str, pr: dict | None, texts: dict, refusal: str = "") 
         steps.append({"name": "ci", "head": head})
     if comment:
         steps.append({"name": "comment", "findings": [k[9:-3] for k in replies]})
-    if not pr or pr["draft"]:
+    if (not pr or pr["draft"]) and not ch.draft:   # draft: the user keeps the PR a draft
         steps.append({"name": "ready"})
     digest = store.digest(steps, t)
     row = db.execute("SELECT id FROM card WHERE change=? AND head=? AND digest=?", (ch.slug, head, digest)).fetchone()

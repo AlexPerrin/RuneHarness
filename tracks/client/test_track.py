@@ -113,7 +113,7 @@ case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
         HOSTS = re.search(r'^hosts="([^"]+)"', TRACK.read_text(), re.M).group(1)
         progs = {sdk / "platform-tools/adb.exe": f"""printf "%s\\n" "adb $*" >> {log}
-[ -z "$GONE" ] || case "$*" in *boot_completed*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
+[ -z "$GONE" ] || case "$*" in *$GONE*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
 case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
@@ -142,10 +142,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     def test_an_emulator_gone_while_booting_ends_up_and_down_restores_nothing(s):  # run 222 start 5: the emulator shut down mid-boot and up waited on boot_completed for 41 minutes
-        log = s.fake_windows(); s.env["GONE"] = "1"
-        rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("the emulator emulator-5560 exited while booting", out)
-        s.assertIn("restored (the emulator emulator-5560 had exited)", out); s.assertNotIn("RESTORE FAILED", out)
-        s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
+        log = s.fake_windows()
+        for gone in ("boot_completed", "dumpsys package", "dumpsys connectivity"):   # run 331 start 8: gone after its boot, up polled the package manager for 15 min
+            s.env.update(GONE=gone, INSTALL="Success")
+            rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertRegex(out, r"the emulator emulator-55\d\d exited while booting")
+            s.assertRegex(out, r"restored \(the emulator emulator-55\d\d had exited\)"); s.assertNotIn("RESTORE FAILED", out)
+            s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
     def test_the_emulator_is_recorded_under_the_runs_slice_until_down(s):  # osrs-harness R5: a run's end stops its Linux processes; the Windows emulator outlives them
@@ -155,6 +157,14 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         subprocess.run(["systemctl", "--user", "stop", sl])
         s.assertEqual((s.ev / "seen").read_text(), "qemu-system-x86_64.exe\n")   # recorded once adb saw the emulator
         s.assertFalse(rec.exists())                                              # up failed at its install and its down dropped the record
+
+    def test_down_leaves_another_runs_emulator_on_its_port(s):  # run 331: a run's down sent emu kill to its old serial, now another run's emulator
+        log = s.fake_windows(); log.write_text("emulator -port 5560\n")   # 5560 listens, held by Windows pid 7300
+        st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True)
+        for rec, killed, said in (("9999", False, "restored (the emulator emulator-5560 had exited)"), ("7300", True, "restored")):
+            (st / "serial").write_text("emulator-5560\n"); (st / "emulator.winpid").write_text(rec + "\n")
+            rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, said))
+            s.assertEqual("emu kill" in log.read_text(), killed); s.assertFalse((st / "serial").exists())
 
     def test_install_waits_for_a_pending_install(s):  # INSTALL_FAILED_DUPLICATE_PACKAGE: install once the dump shows no session of the app
         log = s.fake_windows(); s.env["INSTALL"] = "Success"
@@ -302,12 +312,22 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(on(f(name, False, name, False), True), ("wait",))                                     # posted: the form leaves next
         s.assertEqual(on(f("", False, name, False), True), ("wait",))                                       # the posted page while the redirect hands over (seen live: Username cleared)
         s.assertEqual(on(f("", False, "", False), True)[0], "fail")                                         # Central's 401 answers its form again
+        ask = {**form, name: (5, 1), "Continue to Old School RuneScape?": (5, 9), "This site wants to open the Old School RuneScape app": (5, 10), "Continue": (9, 11)}
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, ask, None, name, f(name, False, name, False), True), ("tap", "Chrome's Continue to the app", 9, 11))   # run 310 start 6: the post answered after 15 s
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {**form, name: (5, 1)}, None, name, f(name, False, name, False), True, True)[0], "fail")   # its message gone by its timer: never a wait with no end
+        s.assertTrue(re.search(m.ASKED_OUT, "W cr_MessageQueueManager: Removed message with ID 31 and key org.chromium.ui.modelutil.PropertyModel@42bf7b9 from queue because of reason 3."))
         tip = m.step("LOGIN_SCREEN", 30, chrome, {**form, "Please fill out this field.": (1, 1)}, None, name, f("", True, name, False), True)
         s.assertEqual(tip, ("fail", "Central's form did not post: Please fill out this field."))           # run 289's stuck form
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name, {})[0], "fail")                  # a form without its fields
         lab, fields = m.views('<node text="Username " class="android.widget.TextView" bounds="[0,0][10,10]" /><node NAF="true" text="" class="android.widget.EditText" focused="true" bounds="[20,0][40,10]" hint="Username" />')
         s.assertEqual((lab, fields), ({"Username": (5, 5)}, {"Username": ("", True, 30, 5)}))
         s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
+
+    def test_login_takes_only_the_devices_answer_as_the_apps_death(s):  # run 331: under load an adb read came back empty and the live app was called dead
+        adb = s.ev / "adb.exe"; adb.write_text('#!/bin/sh\ncase "$*" in *"am start"*) echo "Status: ok" ;; *logcat*-s*) echo "I osrsrl-host: GameStateChanged LOGGED_IN" ;; *pidof*) [ -z "$DEAD" ] || echo none ;; esac\n'); adb.chmod(0o755)
+        run = lambda **e: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x'))", str(TRACK.parent)],
+                                         env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", **e}, capture_output=True, text=True).stdout.strip()
+        s.assertEqual(run(), "LOGGED_IN"); s.assertEqual(run(DEAD="1"), "FAILED: the app died")
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")

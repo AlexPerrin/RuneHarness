@@ -132,6 +132,21 @@ def first_edit_rows(db) -> list:
     return rows
 
 
+def feature_rows(db, changes) -> list:
+    """Per feature (the user's PR bundle): the runs of its member changes and its packages, and its cards."""
+    by = {}
+    for c in changes:
+        if c.feature:
+            by.setdefault(c.feature, []).append(c.slug)
+    rows = []
+    for f, slugs in sorted(by.items()):
+        q = ",".join("?" * len(slugs))
+        runs = db.execute(f"SELECT count(*) FROM run WHERE change IN ({q}) AND end_kind IS NOT 'withdrawn'", slugs).fetchone()[0]
+        cards = db.execute("SELECT count(*) FROM card WHERE change=?", (f,)).fetchone()[0]
+        rows.append(f"feature {f}: {runs} runs over {len(slugs)} changes and packages, {cards} cards")
+    return rows
+
+
 def report(db) -> str:
     import act
     harness = json.dumps([c.slug for c in act.changes() if c.track == "harness"])
@@ -139,5 +154,5 @@ def report(db) -> str:
     for name, target, sql in QUERIES:
         row = db.execute(sql, {"harness": harness} if ":harness" in sql else {}).fetchone()
         out.append(f"{name:<40} {str(row[0]) if row else '-':<12} target {target}")
-    out += first_edit_rows(db)
+    out += first_edit_rows(db) + feature_rows(db, act.changes())
     return "\n".join(out)

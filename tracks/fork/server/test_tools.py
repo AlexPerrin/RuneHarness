@@ -1058,7 +1058,7 @@ class Text(Repo):
         rc, out = s.row("text.py", "dupes", HEAD=head)
         s.assertEqual(rc, 1); s.assertIn("item flow in mod/src/main/kotlin/A.kt: invAdd", out); s.assertIn("mod moves items with no test", out)
         rc, out = s.row("text.py", "evidence", EVIDENCE=ev)
-        s.assertEqual(rc, 1); s.assertIn("accuracy.md missing", out)
+        s.assertEqual(rc, 1); s.assertIn("pr-comment.md missing", out)
         for n, t in (("accuracy.md", "spec"), ("pr-title.txt", "feat: x"), ("pr-body.md", "## Summary\nsee AlexPerrin/OpenRune-Server#9"), ("pr-comment.md", "Updated to " + head[:9])):
             (Path(ev) / n).write_text(t)
         rc, out = s.row("text.py", "texts", EVIDENCE=ev, HEAD=head)

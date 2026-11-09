@@ -2,7 +2,6 @@
 slug: local-android-rsprot-token-gjstr
 track: fork
 priority: P1
-upstream: false
 ---
 # local/android: RSProt decodes the Android token (auth type 7) as a jstr, without its 0x00 terminator
 

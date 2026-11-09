@@ -42,10 +42,14 @@ def session_of(db):
 
 
 def change(slug) -> decide.Change:
+    """A definition, or a package (decide.packages) by its slug."""
     path = os.path.join(CHANGES, f"{slug}.md")
-    if not os.path.exists(path):
+    if os.path.exists(path):
+        return act.parse_change(path)
+    ch = next((c for c in act.changes() if c.slug == slug), None)
+    if not ch:
         sys.exit(f"hd: no change {slug}")
-    return act.parse_change(path)
+    return ch
 
 
 def track(ch, cfg=None):
@@ -86,7 +90,7 @@ def view(db, cfg):
         else:
             for r in db.execute("SELECT * FROM run WHERE started_at IS NULL AND ended_at IS NULL ORDER BY id"):
                 head = open(os.path.join(ROOT, r["brief"])).readline().split("step: ", 1)
-                pri = change(r["change"]).priority if os.path.exists(os.path.join(CHANGES, f"{r['change']}.md")) else "goal"
+                pri = next((c.priority for c in act.changes() if c.slug == r["change"]), "goal")
                 out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {pri}  {r["role"]}: {head[-1].strip()}')
     kinds = ("ended", "alert") if role == "orchestrator" else DRIVER_KINDS
     for e in db.execute(f"SELECT * FROM event WHERE id>? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id", (seen, *kinds)):
@@ -142,10 +146,8 @@ def cmd_new(a):
         fm["units"] = a.units
     if [d for d in a.deps or [] if d]:
         fm["deps"] = [d for d in a.deps if d]
-    if a.pr:
-        fm["pr"] = a.pr
-    if a.upstream is False:
-        fm["upstream"] = False
+    if a.feature:
+        fm["feature"] = a.feature
     write_change(a.slug, fm, body)
     for b in a.blocks or ():
         bfm, bbody = read_change(b)
@@ -219,9 +221,9 @@ def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
     return heads, composite
 
 
-def candidate_base(T) -> str:
-    """The commit a candidate starts from: T.candidate_base(), or base while staging is not yet made."""
-    return act.git(T.path, "rev-parse", "--verify", "-q", T.candidate_base(), check=False) or act.git(T.path, "rev-parse", T.base)
+def candidate_base(T, ch) -> str:
+    """The commit a candidate starts from: T.candidate_base(ch), or base while staging is not yet made."""
+    return act.git(T.path, "rev-parse", "--verify", "-q", T.candidate_base(ch), check=False) or act.git(T.path, "rev-parse", T.base)
 
 
 def cmd_submit(a):
@@ -240,18 +242,21 @@ def cmd_submit(a):
         sys.exit(f"hd submit: no commit on {ref}")
     if act.is_ancestor(T.path, head, act.git(T.path, "rev-parse", T.base)):
         sys.exit(f"hd submit: {ref} at {head[:7]} adds nothing to {T.base}: commit your work on it first")
-    base = candidate_base(T)
-    heads, composite = dep_inputs(db, cfg, ch, base, T.candidate_base() != T.base)
+    base = candidate_base(T, ch)
+    heads, composite = dep_inputs(db, cfg, ch, base, T.candidate_base(ch) != T.base)
     try:
         tree, tcommit = act.candidate(T.path, base, heads + [head])
     except act.Conflict as c:
-        sys.exit(f"hd submit: the candidate on {T.candidate_base()} conflicts in {' '.join(c.args[0])}: make the head merge with it"
-                 + (f" (never by merging {T.candidate_base()} into the branch: the PR head holds no other change)" if T.candidate_base() != T.base else f": merge {T.base} into your branch"))
+        sys.exit(f"hd submit: the candidate on {T.candidate_base(ch)} conflicts in {' '.join(c.args[0])}: make the head merge with it"
+                 + (f" (never by merging {T.candidate_base(ch)} into the branch: a feature's package holds its members' commits alone)" if T.candidate_base(ch) != T.base else f": merge {T.base} into your branch"))
     r = live_run(db, a.slug)
     new = store.submit(db, a.slug, head, tree, tcommit, json.dumps(composite) if composite else None, r["id"] if r else None,
                        act.git(T.path, "rev-parse", head + "^{tree}"))
     db.execute("INSERT INTO ref(repo, name, sha, seen_at) VALUES (?,?,?,?) ON CONFLICT(repo, name) DO UPDATE SET sha=excluded.sha, seen_at=excluded.seen_at",
                (T.name, ref, head, now()))
+    if ch.members:   # the members it packages: a member moving makes it again (decide.dev_due)
+        C = decide.Ctx(Ledger(db), cfg, {c.slug: c for c in act.changes()})
+        event(db, "packaged", a.slug, r["id"] if r else None, f"{decide.members_digest(C, ch)} {head[:7]}")
     if new:
         event(db, "submitted", a.slug, r["id"] if r else None, f"{head[:7]} candidate {tcommit[:7]} tree {tree[:12]}")
     elif store.regate_failed(db, tree):
@@ -294,7 +299,7 @@ def cmd_verdict(a):
     print(line)
 
 
-EFFECTS = ("dep", "waive", "accept-difference", "close", "reply", "move-repo", "user-act")   # what hd answer applies (ARCHITECTURE §8)
+EFFECTS = ("dep", "waive", "accept-difference", "close", "reply", "move-repo", "user-act", "feature")   # what hd answer applies (ARCHITECTURE §8)
 
 
 def cmd_ask(a):
@@ -303,7 +308,7 @@ def cmd_ask(a):
         sys.exit("hd ask: a question of this change is already open")
     opts = [dict(zip(("id", "text", "effect"), (p.strip() for p in o.split(":", 2)))) for o in a.option]
     bad = [o for o in opts if len(o) < 3 or not all(o.values()) or o["effect"].split()[0] not in EFFECTS
-           or (o["effect"] in ("dep", "waive", "reply", "user-act"))]   # these act on a named target: a bare one wrote a blank dep
+           or (o["effect"] in ("dep", "waive", "reply", "user-act", "feature"))]   # these act on a named target: a bare one wrote a blank dep
     if bad:   # refused before any row: a malformed question would never show and never answer
         sys.exit(f"hd ask: each --option is id:text:effect with the effect one of {', '.join(EFFECTS)}; no ':' in the text. Bad: {bad}")
     r = live_run(db, a.slug)
@@ -333,6 +338,12 @@ def cmd_answer(a):
             fm, body = read_change(a.slug)
             fm["deps"] = sorted(set(fm.get("deps") or []) | {arg})
             write_change(a.slug, fm, body)
+        elif effect == "feature":   # the user bundles: `feature <branch> [slug …]` (default the asked change) names its PR
+            f, *slugs = arg.split()
+            for slug in slugs or [a.slug]:
+                fm, body = read_change(slug)
+                fm["feature"] = f
+                write_change(slug, fm, body)
         elif effect == "waive":
             db.execute("UPDATE criterion SET waived=1 WHERE change=? AND rid=?", (a.slug, arg))
         elif effect == "reply" and arg:   # a bare reply (an ask from before hd ask checked options) records the words only
@@ -371,44 +382,37 @@ def cmd_approve(a):
 def cmd_publish(a):
     """The publish job: the card's undone steps with its texts (started by the pass; HD_SLUG names the change)."""
     db = store.connect()
-    c = db.execute("SELECT * FROM card WHERE id=?", (a.card,)).fetchone()
-    ch = change(c["change"])
-    T = track(ch)
-    publish.publish(db, a.card, T, T.path)
+    publish.publish(db, a.card, act.cfg().tracks)
     left = Ledger(db).undone_steps(a.card)
     db.execute("""INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES ('publish', ?, ?, ?, ?, ?)
                   ON CONFLICT(kind, key) DO UPDATE SET ok=excluded.ok, detail=excluded.detail, ended_at=excluded.ended_at""",
-               (str(a.card), c["change"], int(not left), f"{len(left)} steps left" if left else "published", now()))
+               (str(a.card), os.environ.get("HD_SLUG"), int(not left), f"{len(left)} steps left" if left else "published", now()))
     act.tick_later()
 
 
 def cmd_triage(a):
-    """A maintainer's word: finding → a judged criterion on the PR's open change (or a new change for a done one);
-    ask → an ask of the user whose answer's words become the reply; ack → nothing more."""
+    """A maintainer's word on a feature's PR: finding → a new change of that feature carrying it as a judged criterion
+    (it lands on staging, then the PR repackages; the package's dev writes the reply); ask → an ask of the user whose
+    answer's words become the reply; ack → nothing more."""
     db = store.connect()
     f = db.execute("SELECT * FROM finding WHERE comment_id=?", (a.comment_id,)).fetchone()
     if not f:
         sys.exit(f"hd triage: no comment {a.comment_id}")
-    slug = f["change"]
-    if a.verdict == "finding" and (not slug or Ledger(db).landed(slug, track(change(slug)).done_ref(change(slug)))):
-        ch = next((c for c in act.changes() if c.pr == f["pr"] and not Ledger(db).closed(c.slug) and not Ledger(db).landed(c.slug, track(c).done_ref(c))), None)
-        if not ch:
-            d = change(slug) if slug else None
-            slug = f"{d.track if d else 'fork'}-{f['pr']}-c{f['comment_id']}"
-            write_change(slug, {"slug": slug, "track": d.track if d else "fork", "priority": "P1", "pr": f["pr"], "public": d.public if d else ""},
-                         f"# PR #{f['pr']}: {f['author']}'s finding {f['comment_id']}\n\n{f['body']}\n")
-            event(db, "new", slug, None, f"from finding {f['comment_id']} on PR #{f['pr']}")
-        else:
-            slug = ch.slug
-    cid = None
+    slug, P, cid = f["change"], change(f["change"]), None
     if a.verdict == "finding":
-        cid = db.execute("INSERT INTO criterion(change, rid, kind, text, cmd, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                         (slug, f"finding-{f['comment_id']}", "judge", f"{f['author']}: {f['body'][:500]}", "pr-text", "finding", f["comment_id"], now())).lastrowid
+        new = f"{P.track}-{f['pr']}-c{f['comment_id']}"
+        if not os.path.exists(os.path.join(CHANGES, f"{new}.md")):
+            write_change(new, {"slug": new, "track": P.track, "priority": "P1", "feature": P.feature},
+                         f"# PR #{f['pr']}: {f['author']}'s finding {f['comment_id']}\n\n{f['body']}\n")
+            event(db, "new", new, None, f"from finding {f['comment_id']} on PR #{f['pr']} ({P.feature})")
+        cid = db.execute("INSERT INTO criterion(change, rid, kind, text, cmd, source, source_id, created_at) VALUES (?,?,?,?,?,?,?,?) "
+                         "ON CONFLICT(change, rid) DO UPDATE SET text=excluded.text RETURNING id",
+                         (new, f"finding-{f['comment_id']}", "judge", f"{f['author']}: {f['body'][:500]}", "pr-text", "finding", f["comment_id"], now())).fetchone()[0]
     elif a.verdict == "ask":
         db.execute("INSERT INTO ask(change, text, options_json, at) VALUES (?,?,?,?)",
                    (slug, f"{f['author']} on PR #{f['pr']}: {f['body'][:500]}", json.dumps([{"id": "r", "text": "reply with your words", "effect": f"reply {f['comment_id']}"}]), now()))
         event(db, "question", slug, None, f"{f['author']} on PR #{f['pr']}: {f['body'][:300]!r}   → hd answer {slug} r \"<the reply>\"")
-    db.execute("UPDATE finding SET triage=?, triaged_at=?, change=?, criterion_id=? WHERE comment_id=?", (a.verdict, now(), slug, cid, f["comment_id"]))
+    db.execute("UPDATE finding SET triage=?, triaged_at=?, criterion_id=? WHERE comment_id=?", (a.verdict, now(), cid, f["comment_id"]))
     event(db, "triaged", slug, None, f"comment {f['comment_id']}: {a.verdict}")
     act.tick_later()
 
@@ -461,7 +465,7 @@ def cmd_gate(a):
     s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY head=? DESC, id DESC LIMIT 1", (a.slug, tree, os.environ.get("HD_HEAD", ""))).fetchone() \
         or {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
     env = act.job_env(db, ch, T, s, BUILD=a.dir)
-    if T.candidate_base() != T.base and s["head"]:   # proved on staging; the PR's own candidate, on base alone, is what its CI runs (G4)
+    if T.candidate_base(ch) != T.base and s["head"]:   # proved on staging; the PR's own candidate, on base alone, is what its CI runs (G4)
         base = act.git(T.path, "rev-parse", T.base)
         try:
             env["PR_TCOMMIT"] = act.candidate(T.path, base, dep_inputs(db, act.cfg(), ch, base)[0] + [s["head"]])[1]
@@ -491,8 +495,8 @@ def cmd_gate(a):
 def cmd_candidate(a):
     cfg, ch = act.cfg(), change(a.slug)
     T = track(ch, cfg)
-    base = a.base or candidate_base(T)
-    heads, composite = dep_inputs(store.connect(), cfg, ch, base, not a.base and T.candidate_base() != T.base)
+    base = a.base or candidate_base(T, ch)
+    heads, composite = dep_inputs(store.connect(), cfg, ch, base, not a.base and T.candidate_base(ch) != T.base)
     if a.composite:   # the build's env: the libraries this candidate builds in, as the pass's job env carries them
         for lib, v in sorted(composite.items()):
             print(f"{lib.upper()}={cfg.tracks[lib].path}:{v['head']}")
@@ -502,6 +506,39 @@ def cmd_candidate(a):
         print(*act.candidate(T.path, base, heads + [head]))
     except act.Conflict as c:
         sys.exit(f"conflict: {' '.join(c.args[0])}")
+
+
+def cmd_package(a):
+    """In the package's clone: every member commit the branch lacks, applied as authored (members in dependency order,
+    each commit once: by author, author date and subject) onto the branch, which starts at the PR's published head or
+    upstream main; a conflict stops for the dev to resolve, `git cherry-pick --continue`, and run it again."""
+    cfg, P = act.cfg(), change(a.slug)
+    if not P.members:
+        sys.exit(f"hd package: {a.slug} is not a package (a feature's PR on one repo)")
+    T, L = track(P, cfg), Ledger(store.connect())
+    cl = act.clone(T, P)
+    if act.git(cl, "status", "--porcelain", "-uno"):
+        sys.exit(f"hd package: {cl} has uncommitted changes or a cherry-pick in progress: finish it first")
+    start = act.git(T.path, "rev-parse", "--verify", "-q", f"refs/remotes/{T.remote}/{P.feature}", check=False) or act.git(T.path, "rev-parse", T.base)
+    if not act.is_ancestor(cl, start, "HEAD"):
+        act.git(cl, "reset", "-q", "--hard", start)
+    ident = ["log", "--no-merges", "--format=%ae %at %s"]
+    have = set(act.git(cl, *ident, f"{T.base}..HEAD").splitlines())
+    pins = [f"^refs/remotes/{T.remote}/{pin}" for pin, _ in T.pins]   # the fork's local branches never reach a PR
+    for m in P.members:
+        if L.closed(m):
+            continue
+        head = L.ref(T.name, T.dev_ref(change(m)))
+        for c in act.git(cl, "rev-list", "--reverse", "--no-merges", head, f"^{T.base}", *pins).split():
+            i = act.git(cl, *ident, "-1", c)
+            if i in have:
+                continue
+            r = subprocess.run(["git", "-C", cl, "cherry-pick", "--allow-empty", c], capture_output=True, text=True)
+            if r.returncode:
+                sys.exit(f"hd package: {m}'s {c[:7]} ({i.split(' ', 2)[2]}) conflicts on the package:\n{r.stdout}{r.stderr}"
+                         f"resolve it, git cherry-pick --continue, then run hd package {a.slug} again")
+            have.add(i)
+    print(f"{a.slug} at {act.git(cl, 'rev-parse', '--short', 'HEAD')}: git push {T.remote} {T.prefix}/{a.slug}, then hd submit {a.slug}")
 
 
 def cmd_stack(a):
@@ -649,8 +686,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("tick"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--db"); s.add_argument("--offline", action="store_true"); s.add_argument("--defs")
     s = sub.add_parser("new"); s.add_argument("slug"); s.add_argument("--track", required=True); s.add_argument("--title", required=True)
     s.add_argument("--body", default=""); s.add_argument("--priority", default="P2", type=lambda p: act.tier(p)); s.add_argument("--deps", nargs="*")
-    s.add_argument("--blocks", nargs="*"); s.add_argument("--on"); s.add_argument("--pr", type=int); s.add_argument("--from-alert", type=int)
-    s.add_argument("--no-upstream", dest="upstream", action="store_false", default=True); s.add_argument("--goal"); s.add_argument("--units", nargs="*")
+    s.add_argument("--blocks", nargs="*"); s.add_argument("--on"); s.add_argument("--feature"); s.add_argument("--from-alert", type=int)
+    s.add_argument("--goal"); s.add_argument("--units", nargs="*")
     s = sub.add_parser("measure"); s.add_argument("goal"); s.add_argument("tree"); s.add_argument("value", type=float); s.add_argument("report", nargs="?")
     s = sub.add_parser("fold"); s.add_argument("slug"); s.add_argument("--into", required=True)
     s = sub.add_parser("show"); s.add_argument("slug")
@@ -668,6 +705,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("job"); s.add_argument("kind"); s.add_argument("key"); s.add_argument("result", choices=("ok", "fail")); s.add_argument("detail", nargs="?")
     s = sub.add_parser("gate"); s.add_argument("slug"); s.add_argument("key"); s.add_argument("dir")
     s = sub.add_parser("candidate"); s.add_argument("slug"); s.add_argument("--base"); s.add_argument("--head"); s.add_argument("--composite", action="store_true")
+    s = sub.add_parser("package"); s.add_argument("slug")
     s = sub.add_parser("stack"); s.add_argument("slug"); s.add_argument("file", nargs="?"); s.add_argument("--clear", action="store_true")
     s = sub.add_parser("own"); s.add_argument("kind", choices=("image", "volume", "container", "worktree", "dir")); s.add_argument("key"); s.add_argument("owner")
     s = sub.add_parser("step"); s.add_argument("slug"); s.add_argument("script"); s.add_argument("step"); s.add_argument("state", choices=("start", "done")); s.add_argument("detail", nargs="?")

@@ -2,7 +2,6 @@
 slug: server-world-entities
 track: fork
 priority: P2
-upstream: false
 ---
 Blocks the client-api probe's WorldEntity (9) and WorldEntityConfig (6) rows (client change client-api-probe-reach): WorldView.worldEntities() is always empty in the Android host, so they stay unreached.
 

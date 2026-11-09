@@ -123,6 +123,60 @@ class Hd(unittest.TestCase):
         hd.main(["answer", "x", "a", "pushed"])
         self.assertEqual(store.connect().execute("SELECT option, words FROM answer").fetchone()[1], "pushed")
 
+    def test_only_the_users_answer_bundles_changes_into_a_feature(self):   # the user decides every bundle
+        import os
+        self.addCleanup(setattr, hd, "CHANGES", hd.CHANGES); hd.CHANGES = self.dir.name
+        for s in ("a", "b"):
+            hd.write_change(s, {"slug": s, "track": "fork"}, f"# {s}\n")
+        hd.main(["ask", "a", "one PR for friends?", "--option", "y:bundle:feature feat/friends a b", "--option", "n:no:user-act keep apart"])
+        hd.main(["answer", "a", "y"])
+        self.assertEqual([hd.read_change(s)[0]["feature"] for s in ("a", "b")], ["feat/friends"] * 2)
+        self.assertTrue(os.path.exists(os.path.join(self.dir.name, "a.md")))
+
+    def test_a_finding_files_a_change_of_the_prs_feature(self):   # a maintainer's word lands on staging, then the PR repackages
+        from decide import Change
+        self.addCleanup(setattr, hd, "CHANGES", hd.CHANGES); hd.CHANGES = self.dir.name
+        self.addCleanup(setattr, hd, "change", hd.change)
+        hd.change = {"pr-feat-x-fork": Change("pr-feat-x-fork", "fork", feature="feat/x", members=("m",))}.get
+        db = store.connect()
+        db.execute("INSERT INTO finding(comment_id, pr, author, body, change) VALUES (77, 5, 'mx', 'why?', 'pr-feat-x-fork')")
+        hd.main(["triage", "77", "finding"])
+        fm, _ = hd.read_change("fork-5-c77")
+        self.assertEqual((fm["track"], fm["feature"]), ("fork", "feat/x"))
+        self.assertEqual(db.execute("SELECT change FROM criterion").fetchone()[0], "fork-5-c77")
+        self.assertEqual(db.execute("SELECT change, triage FROM finding").fetchone()[:], ("pr-feat-x-fork", "finding"))   # the package's dev replies
+
+    def test_package_applies_each_member_commit_once_onto_upstream_main(self):
+        import os, subprocess
+        from decide import Change, Cfg, Track
+        repo = os.path.join(self.dir.name, "fork")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        def git(*a, cwd=repo): return subprocess.run(["git", "-C", cwd, *a], check=True, env=env, capture_output=True, text=True).stdout.strip()
+        def commit(f, branch, start="main"):
+            git("checkout", "-q", "-B", branch, start); Path(repo, f).write_text(f); git("add", f); git("commit", "-qm", f"feat: {f}")
+            return git("rev-parse", "HEAD")
+        os.makedirs(repo); git("init", "-q", "-b", "main"); git("config", "user.name", "t"); git("config", "user.email", "t@t")
+        Path(repo, "base").write_text("base"); git("add", "base"); git("commit", "-qm", "base")
+        pin = commit("pin", "local/pin")
+        a = commit("a", "dev/a", "local/pin")   # a member branch carrying a pin under it
+        b = commit("b", "dev/b", "dev/a")
+        git("checkout", "-q", "main")
+        for r in ("refs/remotes/fork/local/pin", "refs/remotes/origin/main"):
+            git("update-ref", r, pin if "pin" in r else "main")
+        T = Track("fork", "x/y", repo, "refs/remotes/origin/main", "o/y", remote="fork", pins=(("local/pin", ""),))
+        defs = [Change("a", "fork", feature="feat/x"), Change("b", "fork", feature="feat/x", deps=("a",))]
+        P = hd.decide.packages(defs, {"fork": T})[0]
+        self.addCleanup(setattr, hd, "change", hd.change); hd.change = {c.slug: c for c in defs + [P]}.get
+        self.addCleanup(setattr, hd.act, "cfg", hd.act.cfg); hd.act.cfg = lambda: Cfg(tracks={"fork": T})
+        db = store.connect()
+        for s, h in (("a", a), ("b", b)):
+            db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', ?, ?)", (f"refs/remotes/fork/dev/{s}", h))
+        hd.main(["package", P.slug])
+        clone = os.path.join(repo, ".worktrees", P.slug)
+        self.assertEqual(git("log", "--format=%s", "refs/remotes/origin/main..HEAD", cwd=clone).split("\n"), ["feat: b", "feat: a"])   # no pin, member order, not squashed
+        hd.main(["package", P.slug])   # again: nothing applied twice
+        self.assertEqual(len(git("log", "--format=%s", "refs/remotes/origin/main..HEAD", cwd=clone).split("\n")), 2)
+
     def test_a_bare_reply_from_an_old_ask_records_the_answer(self):   # ask 2: options carried from v8 with effect 'reply' and no comment id
         db = store.connect()
         db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('x', 'how?', ?, 't')", (json.dumps([{"id": "a", "text": "fork-only", "effect": "reply"}]),))
@@ -154,7 +208,7 @@ class Hd(unittest.TestCase):
         fork_only = commit("fork", "fork-only", new=True)
         merged = commit("merged", "main")   # an upstream dep already on main
         cfg = Cfg(tracks={"central": Track("central", "x/y", repo, "refs/heads/main", "o/y")})
-        defs = {"c": Change("c", "central", deps=("fork", "up")), "fork": Change("fork", "central", upstream=False), "up": Change("up", "central")}
+        defs = {"c": Change("c", "central", deps=("fork", "up")), "fork": Change("fork", "central"), "up": Change("up", "central")}
         self.addCleanup(setattr, hd, "change", hd.change); hd.change = defs.get
         db = store.connect()
         db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('fork', ?, 't', 't', 't'), ('up', ?, 't', 't', 't')", (fork_only, merged))
@@ -168,9 +222,9 @@ class Hd(unittest.TestCase):
         head = commit("head", "dev")
         T = Track("fork", "x/y", repo, "refs/heads/main", "o/y", recipes={"deploy": "fork-1"})
         cfg = Cfg(tracks={"fork": T})
-        defs.update(f=Change("f", "fork", deps=("g",)), g=Change("g", "fork", upstream=False))
+        defs.update(f=Change("f", "fork", deps=("g",)), g=Change("g", "fork"))
         db.execute("INSERT INTO submission(change, head, tree, tcommit, at) VALUES ('g', ?, 't', 't', 't')", (fork_only,))
-        self.assertEqual((T.candidate_base(), hd.candidate_base(T)), ("refs/heads/staging", staging))
+        self.assertEqual((T.candidate_base(), hd.candidate_base(T, defs["f"])), ("refs/heads/staging", staging))
         self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging), ([], {}))   # on staging already: in the base
         db.execute("INSERT INTO ref(repo, name, sha, tree, seen_at) VALUES ('central', 'refs/heads/staging', 'c1', 'ct', 't')")
         self.assertEqual(hd.dep_inputs(db, cfg, defs["f"], staging, staged=True), ([], {"central": {"head": "c1", "tree": "ct"}}))   # built with the libraries the test server runs

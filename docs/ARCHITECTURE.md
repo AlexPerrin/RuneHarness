@@ -3,8 +3,9 @@
 The solution to docs/PROBLEM.md that meets docs/PRD.md. Vocabulary: a **change** (a committed definition) has
 **criteria** (scripted or judged); a dev **submits** a head; its **candidate** is base + dependencies + head (on a
 track that deploys the test server, its staging in place of base), built once; **jobs** (build, gate, deploy, ship, publish) are keyed by the tree they run on; the test server runs
-**staging**; qa records a **verdict**; a public act is a **card** the user turns into an **approval**, which the
-harness **publishes**; a client or harness change **ships** by fast-forward; a run **asks** and the user **answers**;
+**staging**; qa records a **verdict**; a change names its **feature** (the user's PR bundle), whose **package** per
+repo is upstream main plus the member changes' commits; a public act (a feature's PRs, a release) is a **card** the
+user turns into an **approval**, which the harness **publishes**; a client or harness change **ships** by fast-forward; a run **asks** and the user **answers**;
 the pass raises **alerts**; everything is a row in the **ledger**.
 
 ## 1 Files
@@ -31,8 +32,10 @@ state/hd.db  state/<slug>/*.log  state/briefs/<run>.md  state/wake.orchestrator 
 ```
 
 A change definition's front matter: `slug`, `track` (client | fork | central | filestore | harness), `kind` (change |
-release), `upstream` (false: fork only), `priority` (P0–P4), `deps`, `goal`, `units`, `pr`, `public` (the PR branch on
-the fork), `draft` (the user's word: its card leaves the PR a draft), `branch`; other keys are the track script's. Definitions are parsed each pass; the ledger holds runtime rows
+release), `priority` (P0–P4), `deps`, `goal`, `units`, `feature` (the user's alone: the PR bundle, named as its fork
+branch `content/<x>`, `feat/<x>`, `fix/<x>`; none: fork only), `branch`; other keys are the track script's. A package
+is no file: `decide.packages` derives one Change per (feature, track with an upstream), slug `pr-<feature>-<track>`,
+its `members` the feature's changes on that track in dependency order, its tier their best; `act.changes()` lists both. Definitions are parsed each pass; the ledger holds runtime rows
 only. hd.yaml's repos carry `base` (the full ref a candidate starts from; a track with a `deploy` recipe starts it from
 its staging, `Track.candidate_base`, and its PR head stays on `base`), `prefix` (dev branches) and `remote` (where
 dev refs are pushed; in the product clones `origin` is upstream and `fork` the fork; none: the dev ref stays local).
@@ -201,7 +204,6 @@ erDiagram
   ASK ||--o| ANSWER : "one"
   ANSWER ||--o{ CRITERION : "source=answer"
   FINDING ||--o| CRITERION : "source=finding"
-  CHANGE_DEF ||--o{ CARD : "per (head, texts)"
   CARD ||--o| APPROVAL : "the yes"
   CARD ||--|{ PUBLISH_STEP : "ordered"
   CHANGE_DEF ||--o{ JOB : "by tree"
@@ -211,11 +213,13 @@ erDiagram
     file harness_changes_slug_md
     string track
     string kind "change|release"
-    bool upstream "false: fork only"
+    string feature "the user's PR bundle"
     string priority "P0..P4"
     list deps
-    int pr
   }
+  CHANGE_DEF }o--o| PACKAGE : "feature, track (derived)"
+  PACKAGE }o--|| FEATURE : "one per repo"
+  FEATURE ||--o{ CARD : "per (heads, texts)"
 ```
 
 ## 3 The change state machine (decide.py)
@@ -226,7 +230,7 @@ stateDiagram-v2
   [*] --> WaitDeps : a dep has no landed row for its target
   WaitDeps --> WaitAsk
   [*] --> WaitAsk : ask without answer
-  WaitAsk --> Criteria : upstream change with no run(mode=criteria) recorded "criteria agreed"
+  WaitAsk --> Criteria : a change with a feature and no run(mode=criteria) recorded "criteria agreed"
   Criteria --> Dev : qa run handed back "criteria agreed"
   WaitAsk --> Dev
   Dev --> Build : submission(head = dev ref tip), no criterion created after it, no failing verdict at head
@@ -239,21 +243,32 @@ stateDiagram-v2
   Judge --> Stage : verdict.ok = 1
   state Stage <<fork>>
   Stage --> TestServer : tracks with a deploy recipe and the libraries, head not in ref staging → merge, conflict → Dev
-  Stage --> Public : upstream PR or release
   Stage --> Ship : harness or client, not landed(live branch)
-  Public --> WaitUpstreamDep : a dep in another PR has no landed(upstream main)
-  Public --> Dev : pr-comment.md misses commits, or a finding has no reply
-  Public --> Card : no card at (head, texts digest)
-  Card --> WaitUser : card shown, no approval, no hold
+  TestServer --> Done : landed(change, staging) and landed(change, live): the test server runs it
+  Ship --> Done : landed(change, live branch)
+  Judge --> Done : a track with an upstream and no staging (nothing to land on, not a library), verdict ok
+  Done --> [*]
+  Closed --> [*]
+```
+
+A package (a Change with `members`) runs its own machine, its dev writing no code of its own:
+
+```mermaid
+stateDiagram-v2
+  [*] --> Closed : closed, its feature closed, or no open member
+  [*] --> WaitMembers : an open member not done, or a member's same-track dep of another feature not merged upstream
+  WaitMembers --> Dev : no submission at the package ref, members_digest ≠ the last 'packaged' event, CI failed, verdict FAIL
+  Dev --> Build : hd package (members' commits on upstream main or the PR head), push, hd submit (event 'packaged')
+  Build --> Gate
+  Gate --> Judge : upstream seeds (claims, texts, ci, dupes, style …)
+  Judge --> Texts : pr-title/body (new PR), pr-comment, pr-reply-<id> per finding → Dev
+  Texts --> Sisters : every sister package of the feature at this point
+  Sisters --> Card : no card at the feature's heads, a refusal, or texts moved
+  Card --> WaitUser : no approval; a hold on the feature or a standing hold on a package or member hides it
   WaitUser --> Publish : approval row
   Publish --> Published : every publish_step.done_at set
-  Publish --> Dev : CI failed at head (approval kept)
-  Publish --> Card : a write refused (approval spent)
-  Published --> Dev : finding(triage=finding) without a criterion → criterion added
-  Published --> Done : landed(change, upstream main)
-  Ship --> Done : landed(change, live branch)
-  TestServer --> Done : upstream false and verdict ok
-  Judge --> Done : upstream false on a track without staging (nothing to land on, not a library), verdict ok
+  Publish --> Dev : CI failed at a package head (event on that package; approval kept)
+  Published --> Done : landed(package, upstream main)
   Done --> [*]
   Closed --> [*]
 ```
@@ -280,7 +295,7 @@ GUARDS = [
                        # off the server tracks: any, a library included; else a staged one) must be live with its own server deps, transitively (landed 'live': the test
                        # server runs it, the only server a mobile reaches), its PR held in the outbound queue or not
     ask_open,          # an ask with no answer → wait (the question)
-    criteria_due,      # upstream change, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
+    criteria_due,      # a change with a feature, no run(mode=criteria) with record "criteria agreed" → run qa/criteria
     dev_due,           # no submission at the dev ref's tip, or a criterion created after it, or a failing verdict at head,
                        # or a build/gate/ship job ok 0 at the candidate failed twice alike, or a merge conflict at the staging tip / CI failure / missing text
                        # → run dev/code; a first build/gate/ship failure → rerun (store.rerun: the same key once more, event 'rerun' keeps
@@ -290,20 +305,30 @@ GUARDS = [
     gate_due,          # job(gate, key) missing → gate; running → wait; 3 starts without a result → wait (alert)
     judge_due,         # judged criteria and no verdict(head, digest) → run qa/judge
     stage_due,         # tracks with a deploy recipe and the libraries (central, filestore: their own staging): no landed(change, staging) → merge (act.stage) once every staged dep is on staging (staging runs the head, not its candidate); a recorded conflict is dev_due's
-    upstream_dep_wait, # a same-track dep not landed where it is done (upstream main, the live branch) → wait: no card, no ship before it
-                       # (G4); a library dep holds a card too; a dep on another track holds neither (deps_live waited for it)
-    texts_due,         # text rows missing: title and body (a new PR), the comment, a reply per finding → run dev
-    card_due,          # no card at the head, or its approval spent by a refusal, or texts observed since it was shown → card
-    approval_wait,     # card and no approval → wait (the user); a hold → wait (hidden)
-    publish_due,       # approval not spent and a publish_step undone, no ci-failed event at the head → publish (a job: hd publish)
-    published_wait,    # every step done, not landed(upstream main) → wait (maintainers)
+    live_wait,         # on staging, no landed(change, live) → wait for the deploy (a change is done once the test server runs it)
     ship_due,          # harness/client: not landed(base) → ship (one job(ship) in flight per branch); shipped → wait landed
+]
+PACKAGE_GUARDS = [     # a Change with members (decide.packages): the feature's PR on one repo
+    closed,            # closed, its feature closed, every member closed, or landed(upstream main)
+    members_wait,      # an open member not done → wait; a member's same-track dep of no feature or of another feature not merged upstream → wait (G4)
+    ask_open,
+    dev_due,           # as above, plus members_digest(open members, their tips) ≠ the last 'packaged' event (hd submit writes it): the dev
+                       # runs hd package, pushes, submits; a CI failure or FAIL verdict is fixed in a member it files (hd new --feature)
+    build_due, gate_due, judge_due,   # its candidate is the package itself on base (Track.candidate_base(ch)), never staging
+    texts_due,         # text rows missing: title and body (no PR on the feature's branch yet), the comment, a reply per finding → run dev
+    sisters_wait,      # a sister package (same feature, another repo) not yet at this point → wait
+    feature_card,      # on the feature's first open package: no card at card_head (its head, or a digest of the sisters' heads) unless a
+                       # published card's PRs already sit at those heads (a sister merged), a refusal, texts moved → card; no approval → wait
+                       # the user (held by a hold on the feature or a standing hold on a package or member); approved, steps undone → publish
+    published_wait,    # not landed(upstream main) → wait (maintainers)
+]
+GOAL_GUARDS = [
     measure_due,       # a goal whose target tree moved since measure.tree → measure
     plan_due,          # a goal below target with no open change naming it → run dev/plan on its track
 ]
 
 def plan(L: Ledger, changes: list[Change], cfg: Cfg) -> list[Action]:
-    """next() per open change in priority order (harness, then PR rounds, then new content; each at the best
+    """next() per open change and package in priority order (harness, then packages, then new content; each at the best
     tier of the changes it blocks; below cfg.hold skipped). A run Step is listed only while live runs < cfg.agents
     and no run with that input parks it (one that ended by hand-back, or a listing stopped before it started, does: a new
     fact makes a new input; one that died with its console, handed off, was stopped once started or was withdrawn gets a successor); a listing not yet
@@ -328,7 +353,7 @@ flowchart TD
     L -- yes --> LA["for each open change on that target:<br/>merge-base --is-ancestor head target → landed (replacing a row older than the last submission)"]
     L -- no --> P
     LA --> P["jobs with a pid and no ended_at:<br/>pid gone → exit, log tail → attempt or ok<br/>sessions: pid gone → crash, started runs → console; definition moved → drain"]
-    P --> GH["disk rows: free space of ~/src and /mnt/c<br/>public changes: evidence/<slug>/pr-* → text rows;<br/>a change with a pr: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]
+    P --> GH["disk rows: free space of ~/src and /mnt/c<br/>packages: evidence/<slug>/pr-* → text rows;<br/>the PR on the feature's branch: GET If-None-Match → gh row (free while unchanged);<br/>comments by others → finding rows; merged_at → landed on upstream main"]
   end
   GH --> D["decide.plan over the parsed definitions and the Ledger"]
   subgraph ACT["act.py"]
@@ -360,9 +385,10 @@ def texts(db, slug)                     # evidence/<slug>/pr-title.txt, pr-body.
 def transport(method, url, data, headers)  # one `gh api -i` call → (status, headers, body); tests replace it
 def gh(db, url) -> dict | list | None:  # GET with If-None-Match from the stored ETag; 304 → stored body (no quota);
                                         # 200 → UPSERT; quota or the login refused → alert('quota'); None when unknown (the step holds)
-def pr(db, T, ch, ours)                 # the PR's gh row (Ledger.pr reads state, draft, head, title, body, merged_at); issue and
+def pr(db, T, P, ours)                  # a package's PR, found by its feature's branch (pulls?head=AlexPerrin:<feature>, Ledger.pr_on_branch:
+                                        # the open one, else the latest); its gh row (Ledger.pr reads state, draft, head, title, body, merged_at); issue and
                                         # review comments not by a bot or us → INSERT OR IGNORE finding (+ a triage event);
-                                        # merged_at → landed(change, upstream main) (a squash or rebase merge is seen only here)
+                                        # merged_at → landed(package, upstream main) (a squash or rebase merge is seen only here)
 def checks(db, upstream, sha) -> list   # the latest check run per name at sha plus commit statuses; None when unknown
 def stacks(db, tracks)                  # a stack row (mirrored from up.json by `hd stack`) with no live run → `track.sh down`
                                         # in the scope hd-down-<slug>, once at a time: a run's end releases its containers
@@ -370,7 +396,7 @@ def disk(db, free_gb)                   # statvfs of ~/src and /mnt/c → disk r
                                         # naming the compaction (wsl --shutdown, Optimize-VHD -Mode Full: the user's)
 def alerts(db)                          # UPSERT alert rows from the anomaly queries (§12); dedup on (kind, subject)
 ```
-GitHub is read each pass only for public changes with a PR, conditionally (a 304 costs no quota); checks only by a publish.
+GitHub is read each pass only for open packages, conditionally (a 304 costs no quota); checks only by a publish.
 
 ## 6 act.py: candidates, keys, jobs, staging, briefs
 
@@ -456,21 +482,24 @@ the live tip between a ship's candidate and its push (the engineer's commits go 
 ## 7 publish.py: the card and the publish
 
 ```python
-def card(db, ch, T, head, pr, texts) -> card id:
-    """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
-    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no second reply, publish.answered) → ready
-    (if new or draft, unless the change says `draft`). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
+def card(db, feature, pkgs, tracks, head) -> card id:
+    """One card per feature (card.change = the feature, card.head = card_head), each step naming its package and track:
+    per package push (unless its PR is at its head; to the fork branch named by the feature, never forced) → pr (open a
+    draft) | edit (a title or body that differs) → ci (if pushed, new or draft); then per package comment (pr-comment.md,
+    then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no
+    second reply, publish.answered) → ready (if new or draft), so every sister PR is open and green before any is
+    readied. A release: build-asset → notes → publish. texts: {package: {title, body, comment}}; digest = sha256(steps +
     texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 
-def approve(db, slug, head):
-    """hd approve (the user only): refuses unless the latest card of the change is at head, not held, not yet approved;
+def approve(db, feature, head):
+    """The user's approval: refuses unless the feature's latest card is at head, not held, not yet approved;
     INSERT approval."""
 
-def publish(db, card_id, T, path):
-    """hd publish (a job of kind publish, key = the card id): each publish_step with done_at NULL, in order, executed
-    with the card's texts, never anything re-read from the PR or evidence/; success → done_at, result_json.
-    ci: observe.checks() until every check at head concluded; a failure → event('ci-failed'), approval kept, stop
-    (the dev's step). A GitHub write refused → approval.spent_why, stop (a new card names it). A read unknown
+def publish(db, card_id, tracks):
+    """hd publish (a job of kind publish, key = the card id): each publish_step with done_at NULL, in order, on its
+    step's repo, executed with the card's texts, never anything re-read from the PR or evidence/; success → done_at,
+    result_json (a PR it opened is read back from there on a resume). ci: observe.checks() until every check at head
+    concluded; a failure → event('ci-failed') on that package, approval kept, stop (the package dev's step). A GitHub write refused → approval.spent_why, stop (a new card names it). A read unknown
     (quota) → stop with no step done; the pass starts it again. After the last step: approval.spent_why = 'published'."""
 ```
 
@@ -481,10 +510,10 @@ sequenceDiagram
   participant P as hd tick
   participant C as hd publish
   participant GH as GitHub
-  P->>P: card_due → INSERT card, publish_step×5
-  P->>O: wake: card genie-355 @306d7ed
+  P->>P: feature_card → INSERT card, publish_step×5
+  P->>O: wake: card content/genie @306d7ed
   O->>U: the card in full
-  U->>P: ! hd approve genie-355 306d7ed → INSERT approval
+  U->>P: ! hd approve content/genie 306d7ed → INSERT approval
   P->>C: publish_due → job(publish)
   C->>GH: step 1 push
   C->>C: publish_step 1 done_at
@@ -506,17 +535,18 @@ sequenceDiagram
 |---|---|---|
 | `hd` | orchestrator, driver | a pass, then the session's view, only lines newer than its `seen_event`: the orchestrator's `drain` or `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `ended`, runs; the driver's `card`, `question`, `triage`, `alert`, `state`, `landed`, `attempt`, `ended`, runs, goals |
 | `hd tick [--dry-run] [--db F] [--offline] [--defs D]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing; `--defs` reads another tree's `changes/` and `goals/` (the replay, the fixtures) |
-| `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--touches p…] [--pr n] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--from-alert` carries the alert's evidence |
+| `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--feature <f>] [--goal] [--units] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--feature` only for a fix of a feature's PR (a package's dev, a finding) or the user's word; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
 | `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion (an existing rid corrected in place, its check results dropped) |
-| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
+| `hd package <slug>` | a package's dev | nothing in the ledger: in the package's clone, resets to the feature's published branch (or upstream main) unless the branch already descends from it, then cherry-picks every member commit (`rev-list --no-merges` of the member's head, not on base nor a pin) the branch lacks by author, author date and subject, members in dependency order; a conflict stops for the dev |
+| `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; a package's also writes event('packaged', members_digest); refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
-| `hd answer <slug> <option>[,<option>…] [words]` | orchestrator (the user's words) | answer, and each chosen option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
-| `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
-| `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
-| `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
+| `hd answer <slug> <option>[,<option>…] [words]` | orchestrator (the user's words) | answer, and each chosen option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), feature <branch> [slug…] (the user bundles: sets `feature:` on the asked change or the named ones), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
+| `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a new change `<track>-<pr>-c<id>` of the PR's feature with the judged criterion `finding-<id>` (skill pr-text); the finding stays the package's, whose dev writes its reply; ask → an ask on the package whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
+| `hd hold <slug or feature> [--all] [--lift] [why]` | orchestrator | hold: on a feature it hides the feature's card; a standing hold (`--all`) on a member or package hides it too |
+| `hd approve <feature> <head>`, `hd close <slug or feature> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval of the feature's card; change_state.closed_at (a closed feature closes its packages) |
 | `hd publish <card id>` | the pass (a job) | publish_step, approval.spent, job(publish) |
 | `hd stack <slug> <up.json>\|--clear` | track scripts (`up`, `down`, `live-desktop`) | the stack row: the change's running containers, desktops, token, modulus, live; a live row is written under state/tick.lock, between passes, and its up then waits on state/live/stack.lock shared, which act.start holds for a deploy from inside its pass to the deploy's exit |
 | `hd own <kind> <key> <owner>` | track scripts | artifact: refuses a path outside a .worktrees/ or state/ directory |
@@ -535,16 +565,20 @@ sequenceDiagram
 
 Sample view:
 ```
-spawn    Agent(dev, "Read and follow state/briefs/212.md")   genie-355  P2  dev: CI failed at 306d7ed (Formatting)
+spawn    Agent(dev, "Read and follow state/briefs/212.md")   pr-content-genie-fork  P2  dev: CI failed at 306d7ed (Formatting)
 spawn    Agent(qa,  "Read and follow state/briefs/213.md")   cannon-354 P2  judge: 11 criteria at 8c6d967
-card     goblin-367 @def7f2c  PR OpenRune/OpenRune-Server#367 (update)
-         1 push dev/goblin-367 → content/goblin-diplomacy (3 commits: a1b2c3d fix: …, …)
-         2 edit body                     ── text ──  <full body>
-         3 CI at def7f2c
-         4 comment                       ── text ──  <push summary> <reply to #r1734 quoting it, @maintainer>
-         5 ready
-         verdict PASS (run 201)   evidence/goblin-367/
-         yes: ! python3 ~/osrs-harness/harness/hd.py approve goblin-367 def7f2c   no: hd hold goblin-367 "<why>"   close: ! … close goblin-367 "<why>"
+card     feat/friends @3f9a0c2  OpenRune/OpenRune-Central-Server (new PR), OpenRune/OpenRune-Server#470
+           1 OpenRune/OpenRune-Central-Server: push 1c2d3e4 → fork feat/friends
+           2 OpenRune/OpenRune-Central-Server: open draft PR feat/friends → main   ── title ──  <title>  ── body ──  <full body>
+           3 OpenRune/OpenRune-Central-Server: CI at 1c2d3e4
+           4 OpenRune/OpenRune-Server: push def7f2c → fork feat/friends
+           5 OpenRune/OpenRune-Server: CI at def7f2c
+           6 OpenRune/OpenRune-Central-Server: comment   ── text ──  <push summary>
+           7 OpenRune/OpenRune-Central-Server: ready for review
+           8 OpenRune/OpenRune-Server: comment   ── text ──  <push summary> <reply to #r1734 quoting it, @maintainer>
+           pr-feat-friends-central: verdict PASS (run 201)   evidence/pr-feat-friends-central/
+           pr-feat-friends-fork: verdict PASS (run 203)   evidence/pr-feat-friends-fork/
+           yes: ! python3 harness/hd.py approve feat/friends 3f9a0c2   no: hd hold feat/friends "<why>"   close: ! … close feat/friends "<why>"
 question hunter-408  "dupes-3 needs the shop sell path: (a) dep server-shop-sell  (b) waive dupes-3  (c) accept-difference 'shop sell out of scope'"
 triage   #448 comment 2201 by <maintainer>: "Could you also update the FileStore side?"
 alert    attempts build:9ac1…:r3 ×3 "cannot allocate memory" state/genie-355/build-9ac1.log   → hd new --from-alert 7 | hd dismiss 7 "<why>"
@@ -629,13 +663,16 @@ flowchart LR
   Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's staging built with the head; FileStore: the fork's and Central's staging built with the head;
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one
   in-game criterion (login; serves); scripted tests, evidence, subject, texts.
-- Upstream, a library change is its own PR on its own repo. A server change built on a library head waits
-  (`upstream_dep_wait`) until the library PR is merged and released, then a server change bumps the version.
+- Upstream, a library change reaches its own repo's package. One feature across repos (Central and the server) is
+  sister PRs on one card and one approval; a server change building on a library's change of another feature waits
+  in its package (`members_wait`) until that PR merges, and a server change then bumps the version.
 - Library gates: `gradle test` on the candidate (FileStore's against the fork's live cache), the text criteria, fork
   CI. Judged criteria: from the gated build and the diff; a Central change from a server `up` built with it.
-- Central PRs are held from upstream until the user lifts the hold (a `hold` row with `head NULL` per change).
-- The fork track's seed criteria (tracks/fork/track.md): eleven judged (each naming its skill), seven scripted; those
-  marked `upstream` seed only a change that opens a PR. A dev pushes `dev/<slug>` to the fork before `hd submit`, which
+- Central PRs are held from upstream until the user lifts the hold (a `hold` row with `head NULL` per change, which
+  hides the card of every feature it is a member of).
+- The fork track's seed criteria (tracks/fork/track.md): judged ones each naming its skill, and scripted ones;
+  `upstream` seeds only the packages (upstream's rules, the PR texts, CI on upstream main), `change` only the member
+  changes (accuracy, in game), unmarked both (act.seed). A dev pushes `dev/<slug>` to the fork before `hd submit`, which
   refuses a local branch ahead of the pushed ref.
 - The server-content inventory is `harness/goals/server-content.json`, a committed definition (one row per content unit
   of the cache: unit, source); the pass measures the goal by query (§14). The harness itself stays standard-library Python.
@@ -743,7 +780,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 `hd` prints an alert without a disposition once, to the driver; the user disposes of it once: a one-off fix by the
 driver, then `hd dismiss <id> <why>` naming it; a harness change, `hd new --track harness --from-alert <id>` (carrying
 the evidence, fixed by a dev run and checked by the replay); or a dismissal. An alert whose subject recurs after its
-fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6), and, per track, the orientation of dev code runs before their first edit (an Edit, Write or Bash write): calls (median, mean) by category (search, read, `hd show`, git, brief and rules, other), the context tokens at that edit, the search-or-read share, and the runs calling `hd show` and how often, recorded in `run.usage_json` (`first_edit`) when the run ends; the `kpi` alert is its daily
+fix landed reprints as a regression. `hd kpi` is one query per metric of the harness goal (docs/PROBLEM.md §6), and, per track, the orientation of dev code runs before their first edit (an Edit, Write or Bash write): calls (median, mean) by category (search, read, `hd show`, git, brief and rules, other), the context tokens at that edit, the search-or-read share, and the runs calling `hd show` and how often, recorded in `run.usage_json` (`first_edit`) when the run ends; and per feature the runs of its members and packages and its cards; the `kpi` alert is its daily
 roll-up.
 
 ## 13 The orchestrator's lifecycle

@@ -2,8 +2,7 @@
 slug: goblin-367-rsprox-dump
 track: fork
 priority: P1
-pr: 367
-public: content/goblin-diplomacy
+feature: content/goblin-diplomacy
 ---
 The user's word (2026-11-01): "367 should go in draft for (https://github.com/OpenRune/OpenRune-Server/pull/367#issuecomment-6562504919). Draft comment explaining (reviewing dump), then run an accuracy check and fix if needed."
 

@@ -7,7 +7,6 @@ deps:
 - h-mobile-form-fields-filled
 - h-mobile-loading-stall
 - h-mobile-login-page-9
-upstream: false
 ---
 # Parallel mobiles on the live stack each sign in at Central's form as their slug's own account
 

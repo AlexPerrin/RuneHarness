@@ -2,7 +2,6 @@
 slug: client-local-auth-debuggable
 track: client
 priority: P1
-upstream: false
 deps:
 - h-client-build-debuggable
 ---

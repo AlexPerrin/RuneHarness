@@ -4,8 +4,9 @@ What any solution to docs/PROBLEM.md must do, grouped by the harness's four jobs
 requirement is testable; docs/ARCHITECTURE.md names the mechanism that meets it.
 
 The workflow they constrain: a change is defined → its criteria are agreed → a dev submits a head → scripts check
-the candidate → qa judges the head → it reaches staging and, for a public act, a card → the user's approval →
-publish → maintainers' findings become criteria.
+the candidate → qa judges the head → it reaches staging and the test server. Upstream, per feature the user names:
+its package is checked and judged → one card → the user's approval → publish → maintainers' findings become changes
+of the feature.
 
 ## M. Memory
 
@@ -34,7 +35,7 @@ publish → maintainers' findings become criteria.
 - **H4** The test server runs staging: one branch holding the base, the permanent local branches and every checked
   server head, merged once each; a conflict is the dev's step; a closed change is reverted out, and so is a local
   branch the merging change supersedes. A server change is built and judged on staging (its candidate is staging plus
-  its head), so it is proved on what the test server runs; its PR is packaged from the head alone (G4).
+  its head), so it is proved on what the test server runs; upstream it reaches only its feature's package (G4).
 - **H5** Every process a run starts is the run's: stopped with it, bounded by one count of builds and one of agents,
   named after its change or run. No mobile or desktop contacts Jagex, checked by its bring-up.
 - **H6** Harness and client changes ship one at a time by fast-forward of the live branch to a checked candidate.
@@ -65,29 +66,37 @@ publish → maintainers' findings become criteria.
 - **G3** A failing verdict lists the dev before anything is built, gated or judged again; a text-only failure is
   fixed in place and re-marked without a new dev run; a failing verdict over criteria since waived or over a dep since
   landed is judged again first.
-- **G4** An upstream PR is self-contained: its head holds no unmerged commit of another PR nor any staged commit, and
-  its CI runs it on upstream main; a dependency in another PR holds only the card until merged there, never the dev work.
+- **G4** An upstream PR is a feature's package, self-contained: upstream main (or the PR's published head) plus its
+  member changes' commits in dependency order, not squashed, no commit of another PR, a pin or a fork-only change; its
+  CI and checks run it on upstream main, its texts are judged against its net diff. A member depending on another
+  feature's change holds only the package until that PR merges, never the dev work; a conflict applying a member is
+  the package's dev step.
 - **G5** A harness change is checked against reality before it ships: its tests, and its pass replayed over a
   snapshot of the live ledger, differing from the live pass only where a criterion says so.
 
 ## A. Authority
 
 - **A1** Only a write to an OpenRune repo and a client release need the user. Each is one card in the driver's
-  chat: every act in order, each exact text, the verdict, the evidence, and the three commands.
-- **A2** `hd approve <slug> <head>` is the user's alone: their own `!` command, or, in a remote session where `!` cannot be
+  chat: every act in order, each exact text, the verdict, the evidence, and the three commands. A feature's card
+  covers every sister PR (one per repo), and its one approval publishes them all; a member added or changed after a
+  publish makes a new card whose one comment covers the net change.
+- **A2** `hd approve <feature> <head>` is the user's alone: their own `!` command, or, in a remote session where `!` cannot be
   sent, their word "approve" in the driver's chat, which the driver runs for that card; it copies the card into the approval. The publish
   executes the approval's steps with its texts, logging each, resuming from the first not done, and nothing else. A
   new head or text makes a new card. `hd hold` hides a card; `hd close` ends a change. Agents cannot run approve or
   close.
 - **A3** A maintainer's word is triaged by the driver as a finding, an ask of the user, or an acknowledgement;
-  a finding is a criterion on the PR's one open change; one comment per published head answers every finding; CI is
-  never re-run at a head but by the user's word.
+  a finding is a new change of the PR's feature carrying it as a criterion, which lands on staging before the PR is
+  packaged again; one comment per published head answers every finding; CI is never re-run at a head but by the
+  user's word.
 - **A4** A question to the user carries typed options, each with its effect (a dependency, a waived criterion, an
   accepted difference, a close, a repo move, an act only the user may take); the decision takes one option or several
   and applies each effect. Only the user's decision accepts a
   difference from the official game.
 - **A5** The user's standing holds (a track held from upstream, a priority band held) are records the loop obeys
   until the user lifts them.
+- **A6** The user decides every bundle: a change's `feature:` is set only by the user (their definition or their
+  answer to a proposal an agent asked); a change without one is fork-only and carries no upstream work.
 
 ## T. Tempo
 
@@ -101,7 +110,7 @@ publish → maintainers' findings become criteria.
   successor listed at once.
 - **T4** Runs are bounded by one count; priority is the user's tiers P0–P4 with a held band (their order: the client
   and the server work it needs, then overlapping upstream work, then content for its own sake); harness changes first,
-  then PR rounds, then new content; a change takes the best tier of the changes it blocks; one dev and one qa run
+  then feature packages, then new content; a change takes the best tier of the changes it blocks; one dev and one qa run
   per head move.
 - **T5** The orchestrator is a visible session with the lifecycle of a run: bound when it starts, shown only what is
   new since its last view, drained when its context nears the limit or its definition moved, ended by its own exit,

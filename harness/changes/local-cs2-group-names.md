@@ -2,7 +2,6 @@
 slug: local-cs2-group-names
 track: fork
 priority: P0
-upstream: false
 ---
 # local: name the cache's clientscript groups so the Android app starts on the live server
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The server track's scripted criteria that read text. Exit 1 names every miss.
-  text.py evidence   accuracy.md, pr-comment.md and, for a new PR (no $PR), pr-title.txt and pr-body.md present and non-empty in $EVIDENCE
+  text.py evidence   pr-comment.md and, for a new PR (no $PR), pr-title.txt and pr-body.md present and non-empty in $EVIDENCE
   text.py commits    every commit $BASE..$HEAD not on an existing PR's head fork/$PUBLIC_BRANCH nor on staging (unless staging holds $HEAD): subject feat:/fix:, no Claude-Session trailer, only a Co-Authored-By trailer
   text.py texts      a new PR's pr-body.md has upstream's template sections (read live from origin/main), no fork PR link in any text the carry posts (each pr-reply-*.md too),
                      pr-comment.md names $HEAD unless it is a reply in a review thread (it quotes the finding: '> ')
@@ -25,7 +25,7 @@ def text(name):
 
 
 def evidence():
-    need = ("accuracy.md", "pr-comment.md") + (() if os.environ.get("PR") else ("pr-title.txt", "pr-body.md"))  # an open PR keeps its title and body
+    need = ("pr-comment.md",) + (() if os.environ.get("PR") else ("pr-title.txt", "pr-body.md"))  # an open PR keeps its title and body
     return [f"{n} missing or empty in {E}" for n in need if not text(n).strip()]
 
 

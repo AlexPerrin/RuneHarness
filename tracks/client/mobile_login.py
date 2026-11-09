@@ -9,11 +9,10 @@ from pathlib import Path
 ADB = os.environ.get("ADB", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk/platform-tools/adb.exe")
 PKG = "com.jagex.oldscape.android"
 CANVAS = {0: ("Existing User", 1370, 625), 12: ("Accept", 1027, 668), 10: ("Play Now", 1197, 540)}   # LoginIndex: the button that leaves it, on the AVD's 2400x1080 landscape canvas
-LAUNCHER = "com.google.android.apps.nexuslauncher"
+HOME = "com.android.settings"   # FallbackHome: the prepared AVD has no launcher (track.sh avd)
 WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to the world: the next screen comes from the app, the browser or the server
 REFUSED = 9           # "Unexpected server response", Try again: a login response without a page of its own, or a failed reconnect after a lost connection
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
-LABELS = ("Use without an account", "Stay signed out", "No thanks", "Close", "Accept")   # Chrome's first run and prompts before the issuer's /oauth2/auth
 FORM = ("Username", "Password", "Sign in")   # Central's sign-in form (no dev account): each mobile its slug's own account, never one shared (a second login of one account is refused Duplicate)
 # Chrome's message before it opens the app for a redirect it no longer counts as the user's (the post's answer came more than 15 s after
 # the tap): "Continue to Old School RuneScape?" with its button Continue, removed unanswered after 10 s (logcat: reason 3, its timer)
@@ -48,13 +47,13 @@ def labels():
 
 
 def screen():
-    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields, Chrome's message removed by its timer, the focused window's id)."""
+    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields, Chrome's message removed by its timer)."""
     log = adb("logcat", "-d", "-s", "osrsrl-host:I", "cr_MessageQueueManager:W")
     st = re.findall(r"GameStateChanged (\w+)(?: \(raw (-?\d+))?", log); ix = re.findall(r"LoginIndex (\d+)", log)
-    focus = re.search(r"mCurrentFocus=Window\{(\S+) \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
-    win, pkg = focus.groups() if focus else ("", "")
+    focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
+    pkg = focus.group(1) if focus else ""
     lab, fields = ({}, {}) if pkg in (PKG, "") else labels()
-    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields, bool(re.search(ASKED_OUT, log)), win
+    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields, bool(re.search(ASKED_OUT, log))
 
 
 def form(lab, fields, name, posted, asked_out=False):
@@ -85,10 +84,9 @@ def form(lab, fields, name, posted, asked_out=False):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False, lost=False, win="", anr=None):
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False, lost=False):
     """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why).
-    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end);
-    anr: {the system's "<app> isn't responding": the dialog window Wait was tapped on}, kept across screens by main."""
+    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end)."""
     if st == "LOGGED_IN":
         return ("done",)
     if lost:
@@ -101,16 +99,10 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_o
             return ("fail", f"the browser's sign-in: {err}")
         if all(l in lab for l in FORM):
             return form(lab, fields or {}, name, posted, asked_out)
-        hit = next((l for l in LABELS if l in lab), None)
-        return ("tap", hit, *lab[hit]) if hit else ("wait",)   # the issuer's page redirects back to the app by itself
-    if pkg == LAUNCHER and st in ("", "UNKNOWN"):
-        return ("wait",)   # the process runs before its window takes focus from the launcher; main() fails a death
-    who = next((t for t in lab if t.endswith("isn't responding")), None) if "Wait" in lab else None
-    if who:   # Wait again on the same dialog (a tap dropped while it draws); a new dialog of the same app after Wait: it hangs (run 301: Chrome's first run, 30 min)
-        if (anr := {} if anr is None else anr).setdefault(who, win) != win:
-            return ("fail", f"{who} again after Wait")
-        return ("tap", "Wait", *lab["Wait"])   # the system's ANR dialog (the emulator's launcher while the app starts): the app goes on behind it
-    if pkg not in (PKG, ""):
+        return ("wait",)   # the issuer's page redirects back to the app by itself (the prepared AVD's Chrome shows no first run or prompt)
+    if pkg == "" or (pkg == HOME and st in ("", "UNKNOWN")):
+        return ("wait",)   # no focused window, or the process runs before its window takes focus from the home: main() fails a death
+    if pkg != PKG:
         return ("fail", f"an unknown window {pkg}: {', '.join(lab) or 'no labels'}")
     if st != "LOGIN_SCREEN":
         return ("wait",)   # starting, LOGGING_IN, LOADING: the next state comes from the app or the server
@@ -133,13 +125,13 @@ def main(slug):
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
     if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
         return "FAILED: the app did not start: " + r.strip()
-    acted, anr = None, {}   # -W returns once the activity is up: the process exists from here
+    acted = None   # -W returns once the activity is up: the process exists from here
     while True:
-        st, ix, pkg, lab, raw, fields, asked_out, win = screen()
+        st, ix, pkg, lab, raw, fields, asked_out = screen()
         if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
         since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
-        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since), win, anr)
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since))
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":

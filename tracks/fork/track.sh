@@ -255,7 +255,7 @@ up() {
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted.
-  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as ($world256)) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
+  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as ($world256) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
   python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
@@ -280,7 +280,7 @@ restart() {  # the server restarted with its database: Central keeps the desktop
   local d; d=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(len(d["desktops"].split()), d.get("T") or "-", d["staff"])' "$state/up.json")
   read -r arg T st <<< "$d"; [ "$T" != - ] || unset T   # a record before up named its T: the build's
   STAFF=$(for i in $(seq 1 "$arg"); do [[ " $st " != *" $(account "$i") "* ]] || echo "$i"; done | paste -sd,)
-  QUEST_MODE=$(sed -n '/quest-requirements:/,/mode:/p' "$state/game.yml" | grep -oE 'respect-progress|assume-completed'); RESUME=1
+  QUEST_MODE=$(sed -n '/^[[:space:]]*quest-requirements:/,/^[[:space:]]*mode:/p' "$state/game.yml" | grep -E '^[[:space:]]*mode:' | grep -oE 'respect-progress|assume-completed'); RESUME=1   # the mode: line alone: the block's comment names respect-progress too
   up; echo "restarted: quest-requirements mode $QUEST_MODE"
 }
 down() {

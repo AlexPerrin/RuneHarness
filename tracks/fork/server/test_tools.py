@@ -344,6 +344,21 @@ class QuestMode(unittest.TestCase):
         up = src.split("\nup() {")[1].split("\n}")[0]
         s.assertIn('| quests "$(quest_mode)" | idle_off > "$state/game.yml"', up); s.assertIn('-v "$state/game.yml:/app/game.yml:ro"', up)
 
+    def test_restart_reads_the_mode_line_not_the_comment(s):  # fault 392: the block's comment named respect-progress, so QUEST_MODE read it twice
+        line = next(l for l in SRC.splitlines() if l.strip().startswith("QUEST_MODE=$(sed")).split("; RESUME=1")[0]
+        d = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, d)
+        (d / "game.yml").write_text('game:\n  quest-requirements:\n    # Bypass quest gates by default. Use "respect-progress" for saved quest progress,\n    # or "virtual-completions" to unlock.\n    mode: "assume-completed"\n')
+        r = subprocess.run(["bash", "-c", f"state={d}\n{line}\necho \"$QUEST_MODE\""], capture_output=True, text=True)
+        s.assertEqual(r.stdout, "assume-completed\n", r.stderr)
+
+class World256(unittest.TestCase):
+    def test_every_sql_embedding_world256_has_balanced_parentheses(s):  # run 393: up's 'w as ($world256))' was a syntax error, the realm stayed dev and 256 absent
+        w = next(l for l in SRC.splitlines() if l.startswith('world256="')).split('"')[1]
+        stmts = [l.split('sql "', 1)[1].split('")', 1)[0] for l in SRC.splitlines() if 'sql "' in l and "$world256" in l]
+        s.assertTrue(stmts)
+        for q in stmts:
+            q = q.replace("$world256", w); s.assertEqual(q.count("("), q.count(")"), q)
+
     def test_restart_keeps_the_config_and_database_of_up(s):  # a hand-run container lost its game.yml mount at restart; a tmpfs database loses the accounts
         src = SRC
         up = src.split("\nup() {")[1].split("\n}")[0]; restart = src.split("\nrestart() {")[1].split("\n}")[0]

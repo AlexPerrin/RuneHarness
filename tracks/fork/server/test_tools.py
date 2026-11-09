@@ -439,7 +439,7 @@ class DesktopInstance(unittest.TestCase):
         if port: (s.t / f"win/{pid}.port").write_text(f"{port}\n")
 
     def sh(s, slug, body, **kw):
-        return subprocess.Popen(["bash", "-c", f"set -euo pipefail; root={s.t}; slug={slug}; self={HERE.parent}; state={s.t}/state/{slug}; mkdir -p $state; http=1; game=2; modulus=3; jar={s.t}/devtools.jar; devtoken=tk\n{s.fns}\n{body}"], stdout=subprocess.PIPE, text=True, env=s.env, **kw)
+        return subprocess.Popen(["bash", "-c", f"set -euo pipefail; root={s.t}; slug={slug}; self={HERE.parent}; state={s.t}/state/{slug}; mkdir -p $state; http=1; game=2; modulus=3; rev=242; jar={s.t}/devtools.jar; devtoken=tk\n{s.fns}\n{body}"], stdout=subprocess.PIPE, text=True, env=s.env, **kw)
 
     def killed(s):
         return sorted((s.t / "killed").read_text().split()) if (s.t / "killed").exists() else []
@@ -521,7 +521,7 @@ class DesktopInstance(unittest.TestCase):
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
     def test_each_desktop_jvm_is_recorded_under_the_runs_slice_until_down(s):  # osrs-harness R5: a run's end stops its Linux processes; a Windows JVM outlives them
         sl = f"hd-run-{os.getpid()}.scope"; s.addCleanup(subprocess.run, ["systemctl", "--user", "stop", sl])   # a failed assert stops it too
-        p = subprocess.Popen(["systemd-run", "--user", "--scope", "-q", "--unit", sl[:-6], "bash", "-c", f"set -euo pipefail; root={s.t}; slug=a; self={HERE.parent}; state={s.t}/state/a; mkdir -p $state; http=1; game=2; modulus=3; jar={s.t}/devtools.jar; devtoken=tk\n{s.fns}\ndesktop_start"], env=s.env)
+        p = subprocess.Popen(["systemd-run", "--user", "--scope", "-q", "--unit", sl[:-6], "bash", "-c", f"set -euo pipefail; root={s.t}; slug=a; self={HERE.parent}; state={s.t}/state/a; mkdir -p $state; http=1; game=2; modulus=3; rev=242; jar={s.t}/devtools.jar; devtoken=tk\n{s.fns}\ndesktop_start"], env=s.env)
         p.wait(timeout=60)
         mine = sorted(f.stem for f in s.t.glob("win/*.jvm"))
         s.assertEqual((p.returncode, sorted(f.name for f in (s.t / "state/winpids" / sl).iterdir())), (0, mine))
@@ -596,7 +596,8 @@ class DesktopInstance(unittest.TestCase):
         ep, wslenv = (s.t / "env").read_text().split()
         s.assertEqual(ep, "none"); s.assertNotIn("OPENRUNE_ENDPOINT", wslenv.split(":"))
         y = (s.t / "desk/run/1/home/.rsprox/proxy-targets.yaml").read_text().splitlines()
-        s.assertEqual(y[:7], ["config:", "  - id: 1", "    name: OpenRune Test - a", "    jav_config_url: https://127.0.0.1:1/jav_config.ws", "    varp_count: 15000", "    revision: 241", "    modulus: 3"])   # the README's entry, its fields in its order
+        s.assertEqual(y[:7], ["config:", "  - id: 1", "    name: OpenRune Test - a", "    jav_config_url: https://127.0.0.1:1/jav_config.ws", "    varp_count: 15000", "    revision: 242", "    modulus: 3"])   # the README's entry, its fields in its order; the served tree's revision
+        s.assertIn("-Dosrstest.revision=242", next(s.t.glob("win/*.jvm")).read_text())   # the launcher writes its preferences for that revision
         s.assertIn("    game_server_port: 2", y); s.assertIn("    binary_folder: openrune-qa", y)   # the up's own game port; the recordings' folder
         src = (HERE / "OsrsTestLauncher.java").read_text()
         s.assertNotIn("OPENRUNE_ENDPOINT", src); s.assertIn('getJavConfigUrl().matches("https?://(127\\\\.0\\\\.0\\\\.1|localhost):[0-9]+/jav_config\\\\.ws")', src)   # a non-local target is refused
@@ -1616,13 +1617,26 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         out = subprocess.run(["bash", "-c", f"set -euo pipefail\nstate={st}; T=\naccount() {{ echo hx$1; }}\nup() {{ echo \"$arg|${{T-unset}}|$STAFF\"; }}\n{fn}\nrestart"], capture_output=True, text=True)
         s.assertEqual(out.stdout.splitlines()[0], "1|unset|", out.stderr)   # no T recorded: the build's
 
+    def test_the_revision_is_the_run_trees_own(s):  # h-fork-revision-242: a 242 tree was served as 241 by literals in the track
+        st = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, st)
+        fn = "revision() {" + SRC.split("\nrevision() {")[1].split("\n")[0]
+        run = lambda: subprocess.run(["bash", "-c", f"set -euo pipefail; state={st}\n{fn}\nrev=$(revision); echo $rev"], capture_output=True, text=True)
+        (st / "game.yml").write_text("# revision: 1\nname: x\nrevision: 242\nnetwork:\n  revision: 7\n")
+        s.assertEqual(run().stdout, "242\n")   # the top-level key alone
+        (st / "game.yml").write_text("name: x\n"); out = run()
+        s.assertEqual((out.returncode, out.stdout), (1, "")); s.assertIn("no revision:", out.stderr)   # no tree's revision: no literal stands in
+        s.assertNotRegex(Path(HERE / "jav_config.ws.template").read_text() + Path(HERE / "docker-compose.yml").read_text() + SRC + Path(HERE / "OsrsTestLauncher.java").read_text(), r"\b24[0-9]\b")
+        up = SRC.split("\nup() {")[1].split("\n}")[0]; dep = SRC.split("\ndeploy() {")[1].split("\n}")[0]; live = SRC.split("\nlive_desktop() {")[1].split("\n}")[0]
+        s.assertLess(up.index('idle_off > "$state/game.yml"; rev=$(revision)'), up.index("central_jav"))   # up, deploy and live-desktop each from the game.yml they run
+        s.assertLess(dep.index('> "$state/game.yml"; rev=$(revision)'), dep.index("central_jav")); s.assertLess(live.index("rev=$(revision)"), live.index("desktop_start"))
+
     def test_central_jav_serves_the_filled_template_from_the_servers_own_central(s):  # central-embedded-jav-config: no up could point a desktop at embedded Central
         import javcheck
         up = SRC.split("\nup() {")[1].split("\n}")[0]
         fill = JAV + "\ncentral_jav"; s.assertIn("\n  central_jav   #", up)
-        out = subprocess.run(["bash", "-c", f"http=21813; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(["bash", "-c", f"http=21813; rev=242; tpl={HERE}/jav_config.ws.template; state=$(mktemp -d)\n{fill}\ncat $state/jav_config.ws; rm -r $state"], capture_output=True, text=True, check=True).stdout
         s.assertNotIn("{{", out); s.assertEqual(javcheck.foreign(out), [])
-        for line in ("codebase=http://127.0.0.1/", "param=17=https://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=241"):
+        for line in ("codebase=http://127.0.0.1/", "param=17=https://127.0.0.1:21813/worldslist.ws", "param=11=http://127.0.0.1:21813/", "param=12=255", "param=3=true", "param=5=1", "param=25=242"):
             s.assertIn(line + "\n", out)
         s.assertIn('-v "$state/jav_config.ws:/app/jav_config.ws:ro" -e OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file:///app/jav_config.ws)', up)
         s.assertIn('"${sopt[@]}" "or:$T"', up); s.assertNotIn("http-$slug", up)   # no sidecar: every up's own Central serves it

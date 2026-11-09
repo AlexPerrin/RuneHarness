@@ -1,11 +1,11 @@
 # The live test server: the game from the deployed image (its game.yml's token-login block holds the sign-in's secret, from
 # server/issuer.py key), its embedded Central serving every client jav_config.ws, the world list and the sign-in over http and
-# over https with that key's certificate. `track.sh deploy` runs it with switch.env; the image tag osrs-openrune:241 is moved
+# over https with that key's certificate. `track.sh deploy` runs it with switch.env; the image tag osrs-openrune:live is moved
 # by deploy, never built here. Every host Central serves is local (javcheck.py checks).
 name: osrs-openrune
 services:
   openrune:
-    image: osrs-openrune:241
+    image: osrs-openrune:live
     container_name: osrs-openrune
     restart: unless-stopped
     ports: ["${OPENRUNE_GAME_PORT:-40255}:43594", "${OPENRUNE_CENTRAL_HTTP_PORT:-8084}:9090", "${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}:8443"]   # the mobiles reach these through adb reverse

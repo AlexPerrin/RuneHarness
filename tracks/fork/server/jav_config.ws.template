@@ -65,6 +65,6 @@ param=16=false
 param=7=0
 param=10=5
 param=2={{HTTP_BASE}}/
-param=25=241
+param=25={{REVISION}}
 param=14=0
 param=11={{HTTP_BASE}}/

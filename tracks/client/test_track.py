@@ -119,7 +119,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"echo y"*) [ -z "$BOOTS" ] || echo y ;; *"ls -1"*) printf 'grounditems.jar\\nopponentinfo.jar\\nquest-helper.jar\\n' ;; esac""",
                  sdk / "emulator/emulator.exe": f'echo "emulator $*" >> {log}; echo "emulator: booting on $PWD"',
                  sys32 / "netstat.exe": f"sed -n 's/.*-port \\([0-9]*\\).*/  TCP 127.0.0.1:\\1 0.0.0.0:0 LISTENING 7300/p' {log}; echo '  UDP    0.0.0.0:53             *:*                                    3860'; [ -z \"$STALE\" ] || echo '  UDP    127.0.0.2:53           *:*                                    3070'; for a in $(ls {s.ev}/relays); do echo \"  UDP    $a:53           *:*                                    42${{a##*.}}\"; done",
-                 sys32 / "WindowsPowerShell/v1.0/powershell.exe": f'echo "powershell $*" >> {log}; echo "relay $ALLOW_DNS" >> {log}; echo "#< CLIXML"; touch {s.ev}/relays/$ALLOW_DNS; echo listening',   # a relay's pid: 42 and its last octet
+                 sys32 / "WindowsPowerShell/v1.0/powershell.exe": f'echo "powershell $*" >> {log}; case "$*" in *FreePhysicalMemory*) n=$(cat "$FREE" 2>/dev/null || echo 9000000); printf "%s\\r\\n" "${{n%% *}}"; [ -z "$FREE" ] || echo "${{n#* }}" > "$FREE"; exit 0 ;; esac; echo "relay $ALLOW_DNS" >> {log}; echo "#< CLIXML"; touch {s.ev}/relays/$ALLOW_DNS; echo listening',   # a relay's pid: 42 and its last octet
                  sys32 / "taskkill.exe": f'echo "taskkill $*" >> {log}; rm -f {s.ev}/relays/127.0.0.${{3#42}}',
                  sys32 / "nslookup.exe": f'echo "nslookup $*" >> {log}; [ -n "$NODNS" ] || printf "Name:    api.runelite.net\\r\\nAddress:  10.0.2.2\\r\\n"',
                  sys32 / "tasklist.exe": 'case "$*" in *"PID eq 3860"*) printf \'"svchost.exe","3860","SharedAccess"\\r\\n\' ;; *"PID eq 7300"*) printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\' ;; esac'}
@@ -285,6 +285,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(sorted(re.findall(r"-port (\d+)", log.read_text())), ["5560", "5562"])
         s.assertEqual(log.read_text().count("emu kill"), 2)
         s.assertEqual(sorted(re.findall(r"-dns-server (\S+)", log.read_text())), ["127.0.0.2", "127.0.0.3"])   # each its own relay
+
+    def test_a_boot_waits_for_its_guest_ram_on_windows(s):  # h-mobile-login-page-39-again: emulators past Windows' memory paged the WSL VM out, freezing the server past the app's 10 s timeouts
+        log = s.fake_windows(); free = s.ev / "free"; free.write_text("2000000 4194304"); s.env["FREE"] = str(free)   # KB: 1953 MB, then 4096 MB
+        rc, out = s.row("up"); s.assertIn("waiting for 4096 MB available on Windows (now 1953 MB)", out)
+        calls = log.read_text(); s.assertEqual(calls.count("FreePhysicalMemory"), 2); s.assertLess(calls.rindex("FreePhysicalMemory"), calls.index("emulator -avd"))
+        free.write_text("oops oops"); rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("Windows available memory unread: oops", out)
 
     def test_a_running_emulator_holds_no_lock(s):  # the port lock ends when adb sees the emulator, not when it exits
         log = s.fake_windows(); emu = s.ev / "sdk/emulator/emulator.exe"

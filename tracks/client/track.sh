@@ -3,7 +3,7 @@
 # HD_SLUG HD_KEY HD_TREE HD_TCOMMIT HD_HEAD HD_BASE HD_REPO HD_CLONE HD_LOG HD_RC and the short names SLUG HEAD T TCOMMIT BASE
 # CLONE BUILD EVIDENCE. The Windows programs (adb, the emulator) run through WSL interop, by absolute path. build, check-log and
 # tree are build/build.sh's (the code a build runs); gate and the other check-* criteria but check-blocked gate/gate.sh's. Verbs:
-#   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both; boots the change's emulator (no console window, its log in state/<slug>/emulator.log) on the network
+#   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both; boots the change's emulator once Windows has its guest RAM available, one boot at a time (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), installs the APK once no install of the app is pending, logs
 #                     in at Central's form as the slug's own account (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
@@ -96,19 +96,29 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
   echo "mobile-allow does not answer DNS at $dns from Windows (nslookup api.runelite.net $dns; the relay's log: $state/allow-relay.log); Windows udp 53 held by: ${h:-none}" >&2
   return 1
 }
+guest_mb=4096   # the Agent_Phone image's guest RAM (the emulator raises it to 4096 MB)
+hostmem() {  # waits until Windows has the guest's RAM available: an emulator booted on an overcommitted host pages the WSL VM (the live server, Central) out, freezing it past the app's timeouts
+  local kb said=
+  until kb=$("$ps" -NoProfile -NonInteractive -Command '(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory' | tr -d '\r'); [[ $kb =~ ^[0-9]+$ ]] && [ $((kb / 1024)) -ge $guest_mb ]; do
+    [[ $kb =~ ^[0-9]+$ ]] || { echo "Windows available memory unread: $kb" >&2; return 1; }
+    [ -n "$said" ] || { echo "waiting for $guest_mb MB available on Windows (now $((kb / 1024)) MB)" >&2; said=1; }; sleep 5
+  done
+}
 boot() {  # an Agent_Phone emulator on a free even console port, the APK in place of the official app, Chrome granted the
   # local network, the change's own devtools jar and the three default plugins pushed; the serial goes to state/<slug>/serial as the emulator starts
   need "$adb" ANDROID_SDK; need "$sdk/emulator/emulator.exe" ANDROID_SDK; need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/nslookup.exe" WINDOWS_SYSTEM32; need "$sys32/tasklist.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; need "$ps" WINDOWS_SYSTEM32
-  exec 9> "$root/state/emulator-port.lock"; flock 9   # one boot at a time picks a port, until adb sees its emulator there
+  exec 9> "$root/state/emulator-port.lock"; flock 9   # one boot at a time, from its memory wait until its emulator has booted
+  hostmem || return 1
   allow || return 1
   port=$(comm -23 <(seq 5560 2 5598 | sort) <(listening | sort -u) | sort -n | head -1); s=emulator-$port; [ -n "$port" ] || { echo "no free even port in 5560-5598" >&2; return 1; }
   (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Phone -read-only -gpu swiftshader_indirect -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
   echo "$s" > "$state/serial"
-  "$adb" -s "$s" wait-for-device; exec 9>&-
+  "$adb" -s "$s" wait-for-device
   w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
   until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
+  exec 9>&-   # booted: its guest RAM is taken, the next boot's memory wait sees it
   A uninstall "$pkg" >/dev/null
   until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac

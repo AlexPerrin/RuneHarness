@@ -13,7 +13,8 @@ sends through `tracks/fork/track.sh log`. `tracks/client/track.sh build <slug>` 
 host build, ninja and the repack with `OPENRUNE=1 LOCAL_AUTH=1` in the build copy and checks the repack log before
 anything is installable; the APK's login modulus is the live stack's key pair's (`state/live/key`), and a cached APK of
 another modulus is rebuilt; `up` refuses an APK whose modulus is not the one the live server runs
-(`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator on the network
+(`state/live/tree.json`), naming both, before it boots anything; `up <slug>` boots your own emulator (boots go one at a
+time, each waiting until Windows has its 4096 MB guest RAM available, so parallel ups queue on host memory) on the network
 allowlist (checked), installs the APK and pushes the devtools jar built with it, logs in and prints the devtools
 port; `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
 `osrs-devtools-mobile` data tools, each call naming `serial` (up's LOGGED_IN line); `adb shell input` only where the emulator refuses injected events. Blocked by the

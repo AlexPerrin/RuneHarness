@@ -73,7 +73,7 @@ def parse_change(path) -> Change:
     return Change(slug=y.get("slug") or os.path.basename(path)[:-3], track=y["track"], kind=y.get("kind", "change"),
                   upstream=y.get("upstream", True), priority=tier(y.get("priority", "P2")), deps=tuple(y.get("deps") or ()),
                   goal=y.get("goal", ""), units=tuple(y.get("units") or ()), pr=y.get("pr", 0) or 0,
-                  public=y.get("public", ""), branch=y.get("branch", ""), title=title, body=body)
+                  public=y.get("public", ""), draft=bool(y.get("draft", False)), branch=y.get("branch", ""), title=title, body=body)
 
 
 DEFS = os.path.join(ROOT, "harness")   # the definitions: changes/ and goals/; `hd tick --defs` reads another tree's (the replay, the fixtures)
@@ -502,6 +502,10 @@ def stop_scope(run_id) -> None:
         subprocess.run(["/mnt/c/Windows/System32/taskkill.exe", "/F", "/T", "/PID", pid], capture_output=True)
         os.remove(os.path.join(d, pid))
     subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
+    try:
+        os.rmdir(d)   # the run's record of Windows programs goes with it (H7)
+    except OSError:
+        pass   # absent, or a pid written meanwhile: kept for the next stop
 
 
 def tick_later() -> None:

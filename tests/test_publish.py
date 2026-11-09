@@ -64,6 +64,8 @@ class Publish(unittest.TestCase):
         self.assertEqual(t["title"], "feat: x")
         self.assertTrue(t["comment"].startswith("Head `aaaaaaa`: did x\n\n> why?"))
         self.assertEqual(publish.card(self.db, Change("genie", "fork", pr=5), F, HEAD, PR, TEXTS), cid)   # same digest, same card
+        d = publish.card(self.db, Change("genie", "fork", pr=5, public="content/genie", draft=True), F, HEAD, PR, TEXTS)   # the user keeps it a draft
+        self.assertEqual([s["name"] for s in json.loads(self.db.execute("SELECT steps_json FROM card WHERE id=?", (d,)).fetchone()[0])], ["push", "edit", "ci", "comment"])
         rendered = publish.render(self.db, c, F)
         self.assertIn("PR OpenRune/OpenRune-Server#5", rendered)
         self.assertIn("hd.py approve genie aaaaaaa", rendered)

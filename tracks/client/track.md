@@ -28,7 +28,8 @@ The mobile side is Windows programs run from bash through WSL interop by absolut
 `/mnt/c/Windows/System32`); a missing program fails naming its variable. The emulator runs with no console window,
 its log in `state/<slug>/emulator.log`; `down` is the only stop; the emulator's Windows pid and image are recorded
 under the run's scope (`state/winpids/`), which `hd stop` ends with the run, and down drops the record. `DOCKER`
-(default `docker`) runs the allowlist container `mobile-allow`, one for every mobile, left running. Each mobile asks
+(default `docker`) runs the allowlist container `mobile-allow`, one for every mobile, left running, replaced by `up` when it
+runs another text of `allow.py` (its label `allow`, the file's sha256). Each mobile asks
 DNS of its own relay on Windows (`tracks/client/allow-relay.ps1`, its log `state/<slug>/allow-relay.log`); before
 booting, `up` proves `nslookup api.runelite.net <that address>` from Windows gets 10.0.2.2, replacing the container
 once when it does not, then fails naming the Windows holders of udp 53.
@@ -47,7 +48,8 @@ stack's 43594 and 8084) and 10.0.2.2:443 only. The
 network allowlist: `up` starts the container `mobile-allow` (`tracks/client/allow.py`, DNS over tcp 127.0.0.1:8053
 and tcp 443) and the emulator with `-dns-server` at its own relay, and turns the mobile's wifi off; the cellular path
 asks `mobile-allow`, which answers `api.runelite.net` and `static.runelite.net` with 10.0.2.2 and every other name
-NXDOMAIN, and relays a TLS connection on 10.0.2.2:443 to its SNI name only when that name is one of the two. The
+NXDOMAIN, and relays a TLS connection on 10.0.2.2:443 to its SNI name only when that name is one of the two, closing any
+other TLS one at once, and relays a connection whose first byte is not TLS to the game server's 43594 (the game client's js5 and login fall back to port 443 after errors on 43594, as a world answers on both; held or closed, its load stops at 20%). The
 Windows Firewall rules of group `osrs-harness` block the emulator's qemu-system-x86_64.exe and netsimd.exe from every
 address but loopback and the LAN. `check-blocked` (run by `up`) proves both halves. Must not appear, even as a
 lookup: any `jagex.com`, `runescape.com`, `singular.net`, `app-measurement.com`, `*.x.invalid`, ConsentSync or

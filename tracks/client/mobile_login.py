@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """mobile_login.py <slug>: launches the app on $ANDROID_SERIAL and signs in at Central's form as the slug's own account; prints LOGGED_IN or FAILED: <why>.
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
-labels), then waits for the next screen; a screen it does not know, a refused login or the app's death is FAILED.
+labels), then waits for the next screen; a screen it does not know, a refused login, the game server losing the session before LOGGED_IN or the app's death is FAILED.
 """
 import datetime, hashlib, json, os, re, subprocess, sys, time
 from pathlib import Path
@@ -14,6 +14,9 @@ WAIT = {-1, 30, 37}   # no screen yet, the browser's sign-in, the connection to 
 REFUSED = 9           # "Unexpected server response", Try again: a login response without a page of its own, or a failed reconnect after a lost connection
 START_ERROR = 1000   # the app's start page "Error connecting to server": the host logs it as UNKNOWN (raw 1000), and nothing after it
 FORM = ("Username", "Password", "Sign in")   # Central's sign-in form (no dev account): each mobile its slug's own account, never one shared (a second login of one account is refused Duplicate)
+# Chrome's message before it opens the app for a redirect it no longer counts as the user's (the post's answer came more than 15 s after
+# the tap): "Continue to Old School RuneScape?" with its button Continue, removed unanswered after 10 s (logcat: reason 3, its timer)
+ASK, ASKED_OUT = "Continue", "cr_MessageQueueManager: Removed message with ID \\d+ and key \\S+ from queue because of reason 3"
 
 
 def account(slug):
@@ -44,22 +47,27 @@ def labels():
 
 
 def screen():
-    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields)."""
-    log = adb("logcat", "-d", "-s", "osrsrl-host:I")
+    """(game state, LoginIndex, focused package, the labels of a window not the app's, the game's raw state, that window's text fields, Chrome's message removed by its timer)."""
+    log = adb("logcat", "-d", "-s", "osrsrl-host:I", "cr_MessageQueueManager:W")
     st = re.findall(r"GameStateChanged (\w+)(?: \(raw (-?\d+))?", log); ix = re.findall(r"LoginIndex (\d+)", log)
     focus = re.search(r"mCurrentFocus=Window\{\S+ \S+ ([^/}\s]+)", adb("shell", "dumpsys", "window"))
     pkg = focus.group(1) if focus else ""
     lab, fields = ({}, {}) if pkg in (PKG, "") else labels()
-    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields
+    return st[-1][0] if st else "", int(ix[-1]) if ix else -1, pkg, lab, int(st[-1][1]) if st and st[-1][1] else None, fields, bool(re.search(ASKED_OUT, log))
 
 
-def form(lab, fields, name, posted):
+def form(lab, fields, name, posted, asked_out=False):
     """Central's form: each field tapped until focused, the name typed into it, both read back holding the name, then Sign in;
-    after the post the form leaves; a validation tooltip, or the form again with both fields empty (Central's 401), is FAILED naming it."""
+    after the post the form leaves, or Chrome asks to continue to the app (Continue); a validation tooltip, the form again with both fields empty (Central's 401)
+    or Chrome's ask gone unanswered is FAILED naming it."""
     tip = next((t for t in lab if t.startswith("Please ")), None)   # Chrome's validation tooltip: the form did not post
     if tip:
         return ("fail", f"Central's form did not post: {tip}")
     if posted:   # the posted page stays drawn (its fields part cleared) until the redirect hands the app the code; Central's 401 is the same form, both fields empty
+        if ASK in lab and any(t.startswith("Continue to ") for t in lab):
+            return ("tap", f"Chrome's {ASK} to the app", *lab[ASK])
+        if asked_out:
+            return ("fail", "Chrome's message asking to continue to the app after Sign in went unanswered (removed by its timer): the redirect never reaches the app")
         empty = not any(fields.get(f, ("",))[0] for f in FORM[:2])
         return ("fail", f"Central answered its sign-in of {name} with its form again (401)") if empty else ("wait",)
     for f in FORM[:2]:
@@ -76,10 +84,13 @@ def form(lab, fields, name, posted):
     return ("tap", FORM[2], *lab[FORM[2]])
 
 
-def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
-    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why)."""
+def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False, asked_out=False, lost=False):
+    """The action on one screen: ('done',), ('wait',), ('tap', name, x, y), ('type', field) or ('fail', why).
+    lost: the game server logged this start's session lost (the app may sit in LOADING after it with no end)."""
     if st == "LOGGED_IN":
         return ("done",)
+    if lost:
+        return ("fail", f"the game server lost {name}'s session while the app was {st}")
     if raw == START_ERROR:
         return ("fail", "the app's start error page 'Error connecting to server' (gameState 1000)")
     if pkg == "com.android.chrome":
@@ -87,7 +98,7 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
         if err:
             return ("fail", f"the browser's sign-in: {err}")
         if all(l in lab for l in FORM):
-            return form(lab, fields or {}, name, posted)
+            return form(lab, fields or {}, name, posted, asked_out)
         return ("wait",)   # the issuer's page redirects back to the app by itself (the prepared AVD's Chrome shows no first run or prompt)
     if pkg == "" or (pkg == HOME and st in ("", "UNKNOWN")):
         return ("wait",)   # no focused window, or the process runs before its window takes focus from the home: main() fails a death
@@ -102,18 +113,25 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
     return ("wait",) if ix in WAIT else ("fail", f"an unknown login screen (LoginIndex {ix})")
 
 
+def lost(name, since):
+    """The game server logged the account's session lost since `since` (UTC ISO): 'Game session lost: user='<name>''."""
+    r = subprocess.run(["docker", "logs", "--since", since + "Z", "osrs-openrune"], capture_output=True, text=True)
+    return f"Game session lost: user='{name}'" in r.stdout + r.stderr
+
+
 def main(slug):
-    name, posted = account(slug), False
+    name, posted, since = account(slug), False, None
     adb("logcat", "-c")
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
     if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
         return "FAILED: the app did not start: " + r.strip()
     acted = None   # -W returns once the activity is up: the process exists from here
     while True:
-        st, ix, pkg, lab, raw, fields = screen()
-        if not adb("shell", "pidof", PKG).strip():
+        st, ix, pkg, lab, raw, fields, asked_out = screen()
+        if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
-        act = step(st, ix, pkg, lab, raw, name, fields, posted)
+        since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
+        act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since))
         if act[0] == "done":
             return "LOGGED_IN"
         if act[0] == "fail":
@@ -121,7 +139,7 @@ def main(slug):
         here = (st, ix, pkg, act[:2])
         # one act per screen, then the next screen is read: a second tap on one screen toggles panels, a second typing doubles the name;
         # a field's tap alone again while it is not focused (it only focuses it; Chrome drops a tap while its custom tab settles)
-        if act[0] in ("tap", "type") and (here != acted or act[1].endswith(" field")):
+        if act[0] in ("tap", "type") and (here != acted or act[1].endswith(" field") or act[1] == "Wait"):
             print(f"Central's sign-in: {name}" if act == ("type", FORM[0]) else f"{st} LoginIndex {ix} {pkg}: {act[1]}", file=sys.stderr, flush=True)
             adb("shell", "input", *(("text", name) if act[0] == "type" else ("tap", str(act[2]), str(act[3])))); acted = here
             posted |= act[1:2] == (FORM[2],)
@@ -148,6 +166,7 @@ if __name__ == "__main__":
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it
         d = ROOT / "state" / sys.argv[1]
         d.mkdir(parents=True, exist_ok=True); (d / "login-failed.logcat.txt").write_text(adb("logcat", "-d", "-v", "threadtime"))
+        (d / "login-failed.sockets.txt").write_text(adb("shell", "cat", "/proc/net/tcp", "/proc/net/tcp6"))   # where the app's connections stand (a stall's js5 on 10.0.2.2:443 = :01BB)
         # the game server's side of the same start (its login refusals and their reason, the sessions it holds): a later deploy loses it
         srv = subprocess.run(["docker", "logs", "-t", "--since", (datetime.datetime.fromisoformat(since) - datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ"), "osrs-openrune"],
                              capture_output=True, text=True)

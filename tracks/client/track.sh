@@ -48,6 +48,12 @@ atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"
 serial() { cat "$state/serial" 2>/dev/null || { echo "no mobile for $slug: run up"; return 1; }; }
 win() { wslpath -w "$1"; }
 A() { local o; for _ in 1 2 3 4 5; do o=$({ "$adb" -s "$s" "$@" 2>&1 || true; } | tr -d '\r'); [[ $o == *"accept4 failed"* ]] || break; sleep 1; done; printf '%s\n' "$o"; }   # adb on the run's mobile ($s), again while WSL interop drops its stdio ("accept4 failed", as mobile_login.py); callers judge its output
+poll() {  # poll CMD...: until CMD succeeds (1: not yet; any other failure ends the wait with it), or the emulator is gone: every boot wait ends on that fact
+  local rc; until "$@"; do rc=$?; [ $rc = 1 ] || return $rc
+    [[ $(A get-state) != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 1; done
+}
+booted() { [ "$(A shell getprop sys.boot_completed)" = 1 ]; }
+cellular() { local c; c=$(A shell dumpsys connectivity); [[ $c =~ ni\{MOBILE[^\ ]*\ CONNECTED && $c != *"ni{WIFI"* ]]; }   # the cellular path up, the wifi one off
 pm_idle() {  # the package manager is up (its dump lists the install sessions) and no active or legacy session installs $pkg
   local d; d=$(A shell "dumpsys package | sed -n '/^Active install sessions:/,/^Finalized install sessions:/p;/^Legacy install sessions:/,+1p'" | tr -d ' \n')
   [[ $d == "Activeinstallsessions:"* && $d != *"$pkg"* ]]   # the dump wraps long lines: joined, the package name is whole
@@ -55,6 +61,7 @@ pm_idle() {  # the package manager is up (its dump lists the install sessions) a
 # a Windows process a run started through WSL interop outlives the run's Linux processes: each is recorded, its Windows pid
 # and image, under the run's systemd slice (osrs-harness R5: hd ends them with the run); down drops the record
 winpid() { local sl; sl=$(grep -o 'hd-run-[0-9]*\.scope' /proc/self/cgroup) || return 0; mkdir -p "$root/state/winpids/$sl" && echo "$2" > "$root/state/winpids/$sl/$1"; }   # hd stop ends them with the run
+holder() { "$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$1" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true; }   # the Windows pid listening on port $1
 listening() { "$sys32/netstat.exe" -anp TCP | tr -d '\r' | awk '$4=="LISTENING"{n=split($2,a,":");print a[n]}'; }   # the Windows listening ports
 
 up() {
@@ -88,9 +95,12 @@ allow() {  # the mobile's resolver and relay (tools/allow.py), one container for
   w=$(udp53 | awk -v a="$dns:53" '$1==a{print $2; exit}')
   [ -n "$w" ] || { echo "the DNS relay did not bind $dns:53: $(head -c 500 "$state/allow-relay.log")" >&2; return 1; }
   winpid "$w" "${ps##*/}"; echo "$w" > "$state/allow-relay.winpid"
+  sum=$(sha256sum < "$self/allow.py" | cut -c1-12)   # the container runs the allow.py it started with: one of another text is replaced
   for n in 1 2; do
-    if [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" != true ]; then
-      $docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
+    c=$($docker inspect -f '{{.State.Running}} {{index .Config.Labels "allow"}}' mobile-allow 2>/dev/null || true)
+    if [ "$c" != "true $sum" ]; then
+      [ "${c%% *}" != true ] || $docker rm -f mobile-allow >/dev/null 2>&1 || true
+      $docker run -d --rm --name mobile-allow --label allow="$sum" --add-host host.docker.internal:host-gateway -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443 -v "$self/allow.py:/allow.py:ro" python:3.13-alpine python /allow.py >/dev/null
       until $docker logs mobile-allow 2>&1 | grep '^listening' >/dev/null; do [ "$($docker inspect -f '{{.State.Running}}' mobile-allow 2>/dev/null)" = true ] || break; sleep 1; done
     fi
     "$sys32/nslookup.exe" api.runelite.net "$dns" 2>/dev/null | tr -d '\r' | grep '10\.0\.2\.2' >/dev/null && return 0
@@ -119,23 +129,23 @@ emu() {  # an Agent_Lite emulator (Google APIs without Play, -lowram: its 2 GB h
   (cd /mnt/c && exec setsid "$sdk/emulator/emulator.exe" -avd Agent_Lite "$@" -lowram -no-boot-anim -gpu host -port "$port" -dns-server "$dns" < /dev/null > "$state/emulator.log" 2>&1 &) 9>&-   # the lock is not inherited; no console window: its log is a file, down is the only stop
   echo "$s" > "$state/serial"
   "$adb" -s "$s" wait-for-device
-  w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
+  w=$(holder "$port")   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
-  until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
+  poll booted || return 1   # offline while it boots
   exec 9>&-   # booted: its guest RAM is taken, the next boot's memory wait sees it
 }
 boot() {  # a -read-only start of the prepared Agent_Lite (avd), the APK in place of the official app, the change's own devtools jar and the three default plugins pushed
   emu -read-only || return 1
   A uninstall "$pkg" >/dev/null
-  until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
+  poll pm_idle || return 1   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
   path=$(A shell pm path "$pkg"); path=${path#package:}
   [ "$(A shell "unzip -l $path | grep -c libosrsrl")" = 1 ] || { echo "the APK carries no libosrsrl" >&2; return 1; }
   for r in $reverse; do A reverse "tcp:${r%:*}" "tcp:${r#*:}" >/dev/null   # the APK's servers on its own loopback, through adb: no address of the host's network
     A reverse --list | grep -qF " tcp:${r%:*} tcp:${r#*:}" || { echo "adb reverse did not map tcp:${r%:*} to tcp:${r#*:} on $s" >&2; return 1; }; done
   A shell svc wifi disable >/dev/null   # the wifi path (netsimd) resolves through Windows; the cellular one asks -dns-server
-  cell='ni\{MOBILE[^ ]* CONNECTED'; until c=$(A shell dumpsys connectivity); [[ $c =~ $cell && $c != *"ni{WIFI"* ]]; do sleep 1; done
+  poll cellular || return 1
   blocked >&2 || return 1
   A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null   # made before the app's first start (mobile_login's): the app starts once
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done
@@ -191,8 +201,8 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   fi
   rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
-  w=$(cat "$state/emulator.winpid" 2>/dev/null || true); port=${s#emulator-}
-  if [[ $(A get-state) == *"not found"* ]] || { [ -n "$w" ] && [ "$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}')" != "$w" ]; }; then   # gone, or its port held by another pid than the one boot recorded: another change's emulator, never killed
+  w=$(cat "$state/emulator.winpid" 2>/dev/null || true)
+  if [[ $(A get-state) == *"not found"* ]] || { [ -n "$w" ] && [ "$(holder "${s#emulator-}")" != "$w" ]; }; then   # the emulator is gone (it exited), or its port is another run's emulator now: nothing of ours to restore or kill
     rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
   fi
   bad=()

@@ -360,7 +360,8 @@ def texts_due(C, ch):
 
 
 def card_due(C, ch):
-    """No card at this head, or its approval spent by a refusal, or texts observed since it was shown → card
+    """No card at this head, or its approval spent by a refusal, or texts observed since it was shown, or its ready step
+    disagrees with the change's draft → card
     (publish.card computes the acts and texts; the same digest is the same card)."""
     if not is_public(C, ch):
         return None
@@ -370,7 +371,9 @@ def card_due(C, ch):
         a = C.L.one("SELECT spent_why FROM approval WHERE card=?", c["id"])
         texts_moved = C.L.one("SELECT 1 FROM text WHERE change=? AND at>?", ch.slug, c["shown_at"])
         refused = a and a["spent_why"] and a["spent_why"] != "published"
-        if not refused and not texts_moved:
+        pr = C.L.pr(C.cfg.tracks[ch.track].upstream, ch.pr) if ch.pr else None
+        draft_moved = not a and ('"ready"' in c["steps_json"]) != ((not pr or pr["draft"]) and not ch.draft)   # the user's draft word changed since the card; an approved card's PR moved by its own publish
+        if not refused and not texts_moved and not draft_moved:
             return None
         if refused:
             return Step("card", f"card at {t[:7]} after a refusal", key=t, input=a["spent_why"])

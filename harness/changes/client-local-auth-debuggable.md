@@ -3,6 +3,8 @@ slug: client-local-auth-debuggable
 track: client
 priority: P1
 upstream: false
+deps:
+- h-client-build-debuggable
 ---
 # the LOCAL_AUTH repack marks the app debuggable: the harness seeds its saved sign-in and accepted terms by run-as
 

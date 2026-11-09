@@ -113,7 +113,7 @@ case "$*" in *"pm list packages"*) [ -n "$NOAPP" ] || printf 'package:com.jagex.
         for d in (sdk / "platform-tools", sdk / "emulator", sys32 / "WindowsPowerShell/v1.0", s.ev / "relays"): d.mkdir(parents=True)
         HOSTS = re.search(r'^hosts="([^"]+)"', TRACK.read_text(), re.M).group(1)
         progs = {sdk / "platform-tools/adb.exe": f"""printf "%s\\n" "adb $*" >> {log}
-[ -z "$GONE" ] || case "$*" in *boot_completed*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
+[ -z "$GONE" ] || case "$*" in *$GONE*|*get-state*) echo "adb.exe: device 'emulator-5560' not found" >&2; exit 1 ;; esac
 case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
   *"dumpsys package"*) n=$(cat "$PENDING" 2>/dev/null || echo 0); [ "$n" = 0 ] || {{ echo $((n - 1)) > "$PENDING"; [ "$n" -gt 2 ] && exit 0; }}
     printf 'Active install sessions:\\n'; [ "$n" = 0 ] || printf '  Session 1:\\n    mAppPackageName=com.jagex.oldscape.andro\\n    id\\n'; printf 'Finalized install sessions:\\n' ;;
@@ -131,7 +131,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
                  sys32 / "tasklist.exe": 'case "$*" in *"PID eq 3860"*) printf \'"svchost.exe","3860","SharedAccess"\\r\\n\' ;; *"PID eq 7300"*) printf \'"qemu-system-x86_64.exe","7300","Console"\\r\\n\' ;; esac'}
         for f, body in progs.items(): f.write_text("#!/bin/sh\n" + body + "\n"); f.chmod(0o755)
         apk(s.ev / "t.apk"); live(s.env["HD_ROOT"]); (s.ev / "t.devtools.jar").write_text(""); (s.ev / "repack-t.log").write_text(GOOD)
-        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; esac\n'); docker.chmod(0o755)
+        docker = s.ev / "docker"; docker.write_text(f'#!/bin/sh\necho "docker $*" >> {log}\ncase "$1" in logs) echo listening ;; inspect) [ -z "$ALLOW" ] || echo "true $ALLOW" ;; esac\n'); docker.chmod(0o755)
         s.env.update(ANDROID_SDK=str(sdk), WINDOWS_SYSTEM32=str(sys32), DOCKER=str(docker)); s.env.pop("ADB", None)
         return log
 
@@ -142,10 +142,12 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     def test_an_emulator_gone_while_booting_ends_up_and_down_restores_nothing(s):  # run 222 start 5: the emulator shut down mid-boot and up waited on boot_completed for 41 minutes
-        log = s.fake_windows(); s.env["GONE"] = "1"
-        rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertIn("the emulator emulator-5560 exited while booting", out)
-        s.assertIn("restored (the emulator emulator-5560 had exited)", out); s.assertNotIn("RESTORE FAILED", out)
-        s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
+        log = s.fake_windows()
+        for gone in ("boot_completed", "dumpsys package", "dumpsys connectivity"):   # run 331 start 8: gone after its boot, up polled the package manager for 15 min
+            s.env.update(GONE=gone, INSTALL="Success")
+            rc, out = s.row("up"); s.assertNotEqual(rc, 0); s.assertRegex(out, r"the emulator emulator-55\d\d exited while booting")
+            s.assertRegex(out, r"restored \(the emulator emulator-55\d\d had exited\)"); s.assertNotIn("RESTORE FAILED", out)
+            s.assertFalse((Path(s.env["HD_ROOT"]) / "state/x/serial").exists())
 
     @unittest.skipUnless(shutil.which("systemd-run") and subprocess.run(["systemctl", "--user", "is-system-running"], capture_output=True).stdout.strip() in (b"running", b"degraded"), "no systemd user manager")
     def test_the_emulator_is_recorded_under_the_runs_slice_until_down(s):  # osrs-harness R5: a run's end stops its Linux processes; the Windows emulator outlives them
@@ -155,6 +157,14 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         subprocess.run(["systemctl", "--user", "stop", sl])
         s.assertEqual((s.ev / "seen").read_text(), "qemu-system-x86_64.exe\n")   # recorded once adb saw the emulator
         s.assertFalse(rec.exists())                                              # up failed at its install and its down dropped the record
+
+    def test_down_leaves_another_runs_emulator_on_its_port(s):  # run 331: a run's down sent emu kill to its old serial, now another run's emulator
+        log = s.fake_windows(); log.write_text("emulator -port 5560\n")   # 5560 listens, held by Windows pid 7300
+        st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True)
+        for rec, killed, said in (("9999", False, "restored (the emulator emulator-5560 had exited)"), ("7300", True, "restored")):
+            (st / "serial").write_text("emulator-5560\n"); (st / "emulator.winpid").write_text(rec + "\n")
+            rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, said))
+            s.assertEqual("emu kill" in log.read_text(), killed); s.assertFalse((st / "serial").exists())
 
     def test_install_waits_for_a_pending_install(s):  # INSTALL_FAILED_DUPLICATE_PACKAGE: install once the dump shows no session of the app
         log = s.fake_windows(); s.env["INSTALL"] = "Success"
@@ -217,7 +227,7 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
 
     def test_build_takes_the_live_pair_and_rebuilds_an_apk_of_another_key(s):  # a cached APK of the same T kept a stale modulus
         b = BUILD.read_text()
-        s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
+        s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
         s.assertIn('&& carries "$ev/$T.apk" "$m" && carries "$ev/$T.apk" "http://$server/jav_config.ws"; then', b.split("\nbuild() {")[1].split("\n}")[0])
         fn = "\n".join(l for l in b.splitlines() if l.startswith(("pair=", "modulus()", "carries()")))
         run = lambda f: subprocess.run(["bash", "-c", f"set -euo pipefail\nroot={s.env['HD_ROOT']}\n{fn}\ncarries {f} \"$(modulus)\""], capture_output=True, text=True).returncode
@@ -281,9 +291,11 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(m.step("LOGIN_SCREEN", 0, "", {})[0], "wait")                                        # no focused window: never the app's canvas tapped blind
         s.assertEqual(m.step("LOGIN_SCREEN", 10, m.HOME, {})[0], "fail")                                  # the app left for the home
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"Use without an account": (540, 2085)})[0], "wait")   # no first-run tap: the prepared AVD's Chrome skips it
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, "Application", {"Chrome isn't responding": (1, 1), "Wait": (1, 3)})[0], "fail")   # no Wait tap: the prepared AVD hides ANR dialogs; one shown is FAILED
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {"ERR_CONNECTION_REFUSED": (1, 1)})[0], "fail")  # the issuer unreachable
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 1000)[0], "fail")                                   # the app's start error page
         s.assertEqual(m.step("UNKNOWN", -1, app, {}, 5)[0], "wait")                                      # a start state RuneLite has no name for
+        s.assertEqual(m.step("LOADING", 30, app, {}, 25, "h1m", lost=True), ("fail", "the game server lost h1m's session while the app was LOADING"))   # run 293: LOADING (20%) for 78 min after it
         form = {"Username": (1, 1), "Password": (1, 2), "Sign in": (1, 3)}; name = m.account("x")
         f = lambda u, uf, p, pf: {"Username": (u, uf, 5, 1), "Password": (p, pf, 5, 2)}
         on = lambda fields, posted=False: m.step("LOGIN_SCREEN", 30, chrome, {**form, **{t: (5, 1) for t, *_ in fields.values() if t}}, None, name, fields, posted)
@@ -298,12 +310,22 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         s.assertEqual(on(f(name, False, name, False), True), ("wait",))                                     # posted: the form leaves next
         s.assertEqual(on(f("", False, name, False), True), ("wait",))                                       # the posted page while the redirect hands over (seen live: Username cleared)
         s.assertEqual(on(f("", False, "", False), True)[0], "fail")                                         # Central's 401 answers its form again
+        ask = {**form, name: (5, 1), "Continue to Old School RuneScape?": (5, 9), "This site wants to open the Old School RuneScape app": (5, 10), "Continue": (9, 11)}
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, ask, None, name, f(name, False, name, False), True), ("tap", "Chrome's Continue to the app", 9, 11))   # run 310 start 6: the post answered after 15 s
+        s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, {**form, name: (5, 1)}, None, name, f(name, False, name, False), True, True)[0], "fail")   # its message gone by its timer: never a wait with no end
+        s.assertTrue(re.search(m.ASKED_OUT, "W cr_MessageQueueManager: Removed message with ID 31 and key org.chromium.ui.modelutil.PropertyModel@42bf7b9 from queue because of reason 3."))
         tip = m.step("LOGIN_SCREEN", 30, chrome, {**form, "Please fill out this field.": (1, 1)}, None, name, f("", True, name, False), True)
         s.assertEqual(tip, ("fail", "Central's form did not post: Please fill out this field."))           # run 289's stuck form
         s.assertEqual(m.step("LOGIN_SCREEN", 30, chrome, form, None, name, {})[0], "fail")                  # a form without its fields
         lab, fields = m.views('<node text="Username " class="android.widget.TextView" bounds="[0,0][10,10]" /><node NAF="true" text="" class="android.widget.EditText" focused="true" bounds="[20,0][40,10]" hint="Username" />')
         s.assertEqual((lab, fields), ({"Username": (5, 5)}, {"Username": ("", True, 30, 5)}))
         s.assertNotEqual(name, m.account("y")); s.assertLessEqual(len(name), 12)                          # one account per slug, a login name's length
+
+    def test_login_takes_only_the_devices_answer_as_the_apps_death(s):  # run 331: under load an adb read came back empty and the live app was called dead
+        adb = s.ev / "adb.exe"; adb.write_text('#!/bin/sh\ncase "$*" in *"am start"*) echo "Status: ok" ;; *logcat*-s*) echo "I osrsrl-host: GameStateChanged LOGGED_IN" ;; *pidof*) [ -z "$DEAD" ] || echo none ;; esac\n'); adb.chmod(0o755)
+        run = lambda **e: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x'))", str(TRACK.parent)],
+                                         env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", **e}, capture_output=True, text=True).stdout.strip()
+        s.assertEqual(run(), "LOGGED_IN"); s.assertEqual(run(DEAD="1"), "FAILED: the app died")
 
     def test_concurrent_boots_take_distinct_ports(s):
         log = s.fake_windows(); (Path(s.env["HD_ROOT"]) / "harness/changes/y.md").write_text("")
@@ -352,7 +374,7 @@ case "$*" in *push*) ;;
     def test_up_puts_the_mobile_on_the_allowlist(s):  # the allowlist container, the emulator asking it, the wifi path off
         log = s.fake_windows(); s.env["INSTALL"] = "Success"; s.row("up")
         calls = log.read_text()
-        s.assertIn("docker run -d --rm --name mobile-allow -p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
+        s.assertIn("-p 127.0.0.1:8053:53/tcp -p 127.0.0.1:443:443", calls)
         s.assertIn("-dns-server 127.0.0.2", calls); s.assertIn("shell svc wifi disable", calls)
         s.assertNotIn("private_dns", TRACK.read_text())
 
@@ -364,6 +386,10 @@ case "$*" in *push*) ;;
         s.assertNotIn("emulator -avd", calls)
         s.env.pop("NODNS"); log.write_text(""); s.row("up"); calls = log.read_text()
         s.assertLess(calls.index("nslookup api.runelite.net 127.0.0.2"), calls.index("emulator -avd")); s.assertNotIn("docker rm", calls)
+        s.env["ALLOW"] = subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]
+        log.write_text(""); s.row("up"); s.assertNotIn("docker run", log.read_text())   # the running container carries this allow.py: kept
+        s.env["ALLOW"] = "0" * 12; log.write_text(""); s.row("up"); calls = log.read_text()   # run 301: it ran an older allow.py for days: replaced
+        s.assertLess(calls.index("docker rm -f mobile-allow"), calls.index("docker run -d --rm --name mobile-allow --label allow=" + subprocess.run("sha256sum < " + str(TRACK.parent / "allow.py"), shell=True, capture_output=True, text=True).stdout[:12]))
 
     def test_the_mobiles_dns_is_its_own_relay_at_an_address_no_windows_process_holds(s):  # ICS holds 0.0.0.0:53, a stale relay 127.0.0.2:53
         log = s.fake_windows(); s.env.update(INSTALL="Success", STALE="1"); st = Path(s.env["HD_ROOT"]) / "state/x"
@@ -374,7 +400,7 @@ case "$*" in *push*) ;;
         s.assertNotIn("3070", calls)   # the stale holder is never stopped
 
     def test_allow_answers_only_the_allowed_names(s):  # tools/allow.py: DNS and the TLS relay admit api/static.runelite.net alone
-        import ssl, struct, sys; sys.path.insert(0, str(TRACK.parent)); import allow
+        import ssl, struct, sys; from unittest import mock; sys.path.insert(0, str(TRACK.parent)); import allow
         q = lambda n, t=1: b"\x12\x34\x01\x00\x00\x01\0\0\0\0\0\0" + b"".join(bytes([len(p)]) + p.encode() for p in n.split(".")) + b"\0" + struct.pack(">HH", t, 1)
         a = allow.answer(q("Static.RuneLite.net")); s.assertEqual((a[:2], a[3] & 15, a[7], a[-4:]), (b"\x12\x34", 0, 1, bytes([10, 0, 2, 2])))
         a = allow.answer(q("api.runelite.net", 28)); s.assertEqual((a[3] & 15, a[7]), (0, 0))   # no AAAA: IPv4 alone reaches the relay
@@ -392,7 +418,13 @@ case "$*" in *push*) ;;
         l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname())
         t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
         c.sendall(hello("auth.jagex.com")); s.assertEqual(c.recv(5), b""); t.join(); c.close(); l.close()   # closed with no connect out
-        from unittest import mock; u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
+        l = socket.create_server(("127.0.0.1", 0)); c = socket.create_connection(l.getsockname()); c.settimeout(5)
+        t = threading.Thread(target=allow.relay, args=(l.accept()[0],)); t.start()
+        g = socket.create_server(("127.0.0.1", 0)); js5 = bytes([15]) + struct.pack(">I", 241) + bytes(16)
+        with mock.patch.object(allow, "GAME", g.getsockname()):   # run 301: the client's js5 on 443, held or closed, stopped its load at 20%: it reaches the game server, as on a world
+            c.sendall(js5); v = g.accept()[0]; s.assertEqual(v.recv(64), js5); v.sendall(b"\0"); s.assertEqual(c.recv(5), b"\0")
+            v.close(); c.close(); t.join(); l.close(); g.close()
+        u = socket.create_server(("127.0.0.1", 0)); real, asked = socket.getaddrinfo, []
         def flaky(*a, **k):   # Docker's resolver says "Try again" once, then answers
             asked.append(a[0])
             if len(asked) == 1: raise socket.gaierror(socket.EAI_AGAIN, "Try again")

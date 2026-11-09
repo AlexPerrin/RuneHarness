@@ -90,6 +90,11 @@ case "$*" in *"echo y"*) [ -n "$NOAPP" ] || echo y ;; *"ls -1"*) printf 'quest-h
         rc, out = s.row("down"); s.assertEqual(rc, 1); s.assertIn("RESTORE FAILED: plugins dir is not the three defaults", out)
         (st / "serial").write_text("emulator-5560\n"); s.env["NOAPP"] = "1"   # an install that failed made no plugins dir: nothing to restore
         rc, out = s.row("down"); s.assertEqual((rc, out.strip()), (0, "restored"))
+        # the change's emulator exited and another change's took its port: down leaves that one running
+        sys32 = s.ev / "sys32"; sys32.mkdir(); s.env["WINDOWS_SYSTEM32"] = str(sys32); ns = sys32 / "netstat.exe"
+        ns.write_text("#!/bin/sh\necho '  TCP    127.0.0.1:5560   0.0.0.0:0   LISTENING   9999'\n"); ns.chmod(0o755)
+        (st / "serial").write_text("emulator-5560\n"); (st / "emulator.winpid").write_text("1234\n"); log.unlink()
+        rc, out = s.row("down"); s.assertEqual(rc, 0, out); s.assertIn("had exited", out); s.assertNotIn("emu kill", log.read_text())
 
     def test_netqa_reads_the_installed_apps_uid(s):  # the app's uid is the install's (10235 on emulator-5560), not a fixed one
         st = Path(s.env["HD_ROOT"]) / "state/x"; st.mkdir(parents=True); (st / "serial").write_text("emulator-5560\n")

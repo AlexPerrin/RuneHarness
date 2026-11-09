@@ -3,6 +3,8 @@ slug: client-api-display-engine-stubs
 track: client
 priority: P2
 goal: client-api
+deps:
+- h-mobile-loading-stall
 ---
 # Client display/engine setters still ClientStub throws on Android
 

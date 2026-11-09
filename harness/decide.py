@@ -372,7 +372,7 @@ def card_due(C, ch):
         texts_moved = C.L.one("SELECT 1 FROM text WHERE change=? AND at>?", ch.slug, c["shown_at"])
         refused = a and a["spent_why"] and a["spent_why"] != "published"
         pr = C.L.pr(C.cfg.tracks[ch.track].upstream, ch.pr) if ch.pr else None
-        draft_moved = ('"ready"' in c["steps_json"]) != ((not pr or pr["draft"]) and not ch.draft)   # the user's draft word changed since the card
+        draft_moved = not a and ('"ready"' in c["steps_json"]) != ((not pr or pr["draft"]) and not ch.draft)   # the user's draft word changed since the card; an approved card's PR moved by its own publish
         if not refused and not texts_moved and not draft_moved:
             return None
         if refused:

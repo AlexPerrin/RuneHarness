@@ -342,6 +342,9 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertIn("the user: card", self.step().why)
         self.ch = Change("genie", "fork", draft=True)
         self.assertEqual(self.step().kind, "card")
+        self.ch = Change("genie", "fork")   # card 13: a published card's own ready took the PR out of draft; no second card at its head
+        self.db.execute("INSERT INTO approval(card, at, spent_why) SELECT id, 't9', 'published' FROM card")
+        self.assertNotEqual(self.step().kind, "card")
 
     def test_a_composite_candidate_is_keyed_by_the_library_tree_too(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

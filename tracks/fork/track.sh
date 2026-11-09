@@ -53,10 +53,11 @@ for a in sys.argv[2:]:
     k, v = a.split("=", 1); d[k.rstrip(":")] = json.loads(v) if k.endswith(":") else v
 print(json.dumps(d))' "$state/up.json" "$@" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"; }
 modulus_of() { openssl rsa -noout -modulus 2>/dev/null | cut -d= -f2 | tr A-F a-f; }   # stdin a private key: its public modulus, lowercase hex as client.key and the APK carry it
-ready() {  # ready <container> [since]: blocks until "Server ready in" or the container stops; fails at once on one not (re)started since
-  local s; s=$(docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null | cut -c1-19)
-  [ -z "${2:-}" ] || [[ ! "$s" < "${2:0:19}" ]] || { echo "$1 has run since $s, not started since $2"; return 1; }
-  while ! docker logs ${2:+--since "$2"} "$1" 2>&1 | grep "Server ready in" >/dev/null; do   # grep reads to the end: -q's early exit SIGPIPEs docker logs under pipefail
+started() { docker inspect -f '{{.State.StartedAt}}' "$1" 2>/dev/null || true; }   # the container's start, by the docker daemon's clock (none: empty)
+ready() {  # ready <container> [was]: blocks until "Server ready in" since its own start or it stops; fails at once when its start is still was, the one seen before a restart or recreate
+  local s; s=$(started "$1")
+  [ -z "${2:-}" ] || [ "$s" != "$2" ] || { echo "$1 has run since $s, not started again"; return 1; }
+  while ! docker logs ${s:+--since "$s"} "$1" 2>&1 | grep "Server ready in" >/dev/null; do   # the daemon's clock on both sides: the host's date put a line of the run before a restart after it. grep reads to the end: -q's early exit SIGPIPEs docker logs under pipefail
     [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ] || { echo "$1 is not running"; return 1; }; sleep 5
   done
 }
@@ -255,7 +256,7 @@ up() {
     -v "$state/key/game.key:/app/.data/game.key:ro" -v "$state/key/client.key:/app/.data/client.key:ro" -v "$state/game.yml:/app/game.yml:ro" "${sopt[@]}" "or:$T" >/dev/null
   ready "server-$slug"
   # Central seeds a dev realm (every login an administrator, xp at 150x); the server reads its realm at boot: as live, then restarted.
-  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as ($world256) select 1 from r union all select 1 from w")" ]; then since=$(date -u +%FT%TZ); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$since"; fi
+  if [ -n "$(sql "with r as (update realms set dev_mode = 0, player_xp_rate_in_hundreds = 100, global_xp_rate_in_hundreds = 100 where dev_mode <> 0 or player_xp_rate_in_hundreds <> 100 or global_xp_rate_in_hundreds <> 100 returning 1), w as ($world256) select 1 from r union all select 1 from w")" ]; then was=$(started "server-$slug"); docker restart "server-$slug" >/dev/null; ready "server-$slug" "$was"; fi
   python3 "$self/server/javcheck.py" "http://127.0.0.1:$(docker port "server-$slug" 9090 | head -1 | cut -d: -f2)/jav_config.ws"   # Central's, over its http port: no desktop is pointed at a foreign host
   desktops=(); accounts=()
   for i in $(seq 1 "$n"); do
@@ -330,10 +331,10 @@ EOF
   ready "boot-$T" || { docker rm -f "boot-$T" >/dev/null; return 5; }; docker rm -f "boot-$T" >/dev/null
   prev=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tree","none"))' "$state/tree.json" 2>/dev/null || echo none)
   $hd own image "osrs-openrune:rollback-${prev:0:12}" "staging@$T"; docker tag "$live_image" "osrs-openrune:rollback-${prev:0:12}"; docker tag "osrs-openrune:$T" "$live_image"
-  since=$(date -u +%FT%TZ)
+  was=$(started osrs-openrune)
   # recreated, never restarted (a container's file bind mount does not outlive a WSL restart); a container of a service compose no longer names goes
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans openrune) >/dev/null
-  if ready osrs-openrune "$since" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { since=$(date -u +%FT%TZ); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$since"; }; }; then  # world 256 once into the live database (its volume keeps it), read at boot; the record names the stack's containers: hd deploys again while one is not running
+  if ready osrs-openrune "$was" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { was=$(started osrs-openrune); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$was"; }; }; then  # world 256 once into the live database (its volume keeps it), read at boot; the record names the stack's containers: hd deploys again while one is not running
     python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
       "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
     python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, every client's

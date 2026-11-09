@@ -254,15 +254,15 @@ class ShipFailure(unittest.TestCase):
         r = subprocess.run(["bash", "-c", "set -euo pipefail\ndeploy() {" + f.split("\n")[0] + "\n" + f.split("\n")[1] + "\n  false\n}\narg=t; deploy"], capture_output=True, text=True)
         s.assertNotEqual(r.returncode, 0); s.assertIn("deploy of t failed: false (exit 1)", r.stdout)
 
-    def test_ready_fails_on_a_container_not_started_since(s):  # sweep-67 P0-a: compose left osrs-openrune running from 17:14:56Z and ready waited on a line that never came
+    def test_ready_reads_the_log_since_the_containers_own_start(s):  # sweep-67 P0-a: compose left osrs-openrune running and ready waited; alert 82: the host's date as --since let the line of the run before a restart through, javcheck reset
         root = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, root); (root / "docker").write_text(
-            '#!/bin/bash\ncase $1 in inspect) case $3 in *StartedAt*) echo 2026-11-02T17:14:56.123Z ;; *) [ -n "${BIG:-}" ] && echo false || echo true ;; esac ;; logs) echo "Server ready in 9s"; [ -z "${BIG:-}" ] || yes x | head -c 300000 ;; esac\n')
+            '#!/bin/bash\ncase $1 in inspect) case $3 in *StartedAt*) echo 2026-11-02T17:14:56.123456789Z ;; *) [ -n "${BIG:-}" ] && echo false || echo true ;; esac ;; logs) [ "$2 $3" = "--since 2026-11-02T17:14:56.123456789Z" ] || exit 9; echo "Server ready in 9s"; [ -z "${BIG:-}" ] || yes x | head -c 300000 ;; esac\n')
         (root / "docker").chmod(0o755)
-        f = "ready() {" + SRC.split("\nready() {")[1].split("\n}")[0] + "\n}\n"
-        run = lambda since: subprocess.run(["bash", "-c", f"set -euo pipefail\n{f}ready c {since}"], capture_output=True, text=True, env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}"})
-        r = run("2026-11-02T18:18:48Z"); s.assertEqual(r.returncode, 1); s.assertIn("c has run since 2026-11-02T17:14:56, not started since", r.stdout)
-        s.assertEqual(run("2026-11-02T17:14:56Z").returncode, 0)                  # started in the second it was asked: ready
-        s.assertEqual(run("").returncode, 0)                                      # no since: the first start counts
+        f = "started() {" + SRC.split("\nstarted() {")[1].split("\n")[0] + "\nready() {" + SRC.split("\nready() {")[1].split("\n}")[0] + "\n}\n"
+        run = lambda was: subprocess.run(["bash", "-c", f"set -euo pipefail\n{f}ready c {was}"], capture_output=True, text=True, env={**os.environ, "PATH": f"{root}:{os.environ['PATH']}"})
+        r = run("2026-11-02T17:14:56.123456789Z"); s.assertEqual(r.returncode, 1); s.assertIn("not started again", r.stdout)   # the start seen before the restart: not restarted
+        s.assertEqual(run("2026-11-02T17:10:00.5Z").returncode, 0)               # started again, its own lines only
+        s.assertEqual(run("").returncode, 0)                                      # no start before: the first start counts
         r = subprocess.run(["bash", "-c", f"set -euo pipefail\n{f}ready c"], capture_output=True, text=True, env={**os.environ, "BIG": "1", "PATH": f"{root}:{os.environ['PATH']}"})
         s.assertEqual((r.returncode, r.stdout), (0, ""))                          # sweep-80 P5-a: logs past 64 KB after the line: grep -q's SIGPIPE read as not ready
 
@@ -1479,8 +1479,8 @@ class RealmLikeLive(unittest.TestCase):  # Central seeds a dev realm: every logi
     def test_up_turns_the_dev_realm_off_and_restarts_before_any_login(s):
         line = next(l for l in s.up.splitlines() if "dev_mode = 0" in l)
         s.assertLess(s.up.index(line), s.up.index("desktop_start"))
-        call = lambda out: subprocess.run(["bash", "-c", f'set -euo pipefail\nworld256=w\nsql() {{ echo "{out}"; }}\ndocker() {{ echo "docker $*" >&2; }}\nready() {{ echo "ready $*" >&2; }}\nslug=s\n{line}'], capture_output=True, text=True)
-        r = call("1"); s.assertEqual(r.returncode, 0, r.stderr); s.assertIn("docker restart server-s", r.stderr); s.assertRegex(r.stderr, r"ready server-s \d")
+        call = lambda out: subprocess.run(["bash", "-c", f'set -euo pipefail\nworld256=w\nsql() {{ echo "{out}"; }}\ndocker() {{ echo "docker $*" >&2; }}\nready() {{ echo "ready $*" >&2; }}\nstarted() {{ echo "S0"; }}\nslug=s\n{line}'], capture_output=True, text=True)
+        r = call("1"); s.assertEqual(r.returncode, 0, r.stderr); s.assertIn("docker restart server-s", r.stderr); s.assertIn("ready server-s S0", r.stderr)   # the start before the restart, by the daemon's clock
         r = call(""); s.assertEqual(r.returncode, 0, r.stderr); s.assertEqual(r.stderr, "")   # already live (RESUME): no restart
 
     def test_up_and_the_live_deploy_add_world_256_as_a_copy_of_255(s):  # a world switch's target on the same host and ports; a resumed database keeps its row. h-live-mobile-world-list: live listed 255 alone
@@ -1488,7 +1488,7 @@ class RealmLikeLive(unittest.TestCase):  # Central seeds a dev realm: every logi
         s.assertRegex(defn, r"insert into worlds \(world_id, flags, host, .*\) select 256, flags, host, .* from worlds where world_id = 255 on conflict \(world_id\) do nothing returning 1")
         s.assertIn("w as ($world256)", next(l for l in s.up.splitlines() if "dev_mode = 0" in l))
         deploy = SRC.split("\ndeploy() {")[1].split("\n}")[0]
-        s.assertIn('if ready osrs-openrune "$since" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { since=$(date -u +%FT%TZ); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$since"; }; }; then', deploy)
+        s.assertIn('if ready osrs-openrune "$was" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { was=$(started osrs-openrune); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$was"; }; }; then', deploy)
         out = subprocess.run(["bash", "-c", "sql() {" + SRC.split("\nsql() {")[1].split("\nlogin()")[0] + "\ndocker() { echo \"$*\"; }\nslug=s; srv=osrs-openrune sql q; sql q"], capture_output=True, text=True).stdout
         s.assertIn("--network container:osrs-openrune", out); s.assertIn("--network container:server-s", out)   # srv names the live container, else the up's
 

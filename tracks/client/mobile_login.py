@@ -109,8 +109,8 @@ def step(st, ix, pkg, lab, raw=None, name="", fields=None, posted=False):
 def main(slug):
     name, posted = account(slug), False
     adb("logcat", "-c")
-    r = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", PKG)   # am, not monkey: monkey aborts on another app's ANR before it launches
-    if "Status: ok" not in r:
+    r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # by component: the launcher filter has no category.DEFAULT, which am start resolves with; am, not monkey: monkey aborts on another app's ANR
+    if not re.search(r"Status: (ok|timeout)", r):   # timeout: launched, its first frame not drawn within am's wait
         return "FAILED: the app did not start: " + r.strip()
     acted = None   # -W returns once the activity is up: the process exists from here
     while True:

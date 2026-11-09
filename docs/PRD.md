@@ -82,7 +82,7 @@ publish → maintainers' findings become criteria.
   a finding is a criterion on the PR's one open change; one comment per published head answers every finding; CI is
   never re-run at a head but by the user's word.
 - **A4** A question to the user carries typed options, each with its effect (a dependency, a waived criterion, an
-  accepted difference, a close, a repo move); the decision applies the effect. Only the user's decision accepts a
+  accepted difference, a close, a repo move, an act only the user may take); the decision applies the effect. Only the user's decision accepts a
   difference from the official game.
 - **A5** The user's standing holds (a track held from upstream, a priority band held) are records the loop obeys
   until the user lifts them.

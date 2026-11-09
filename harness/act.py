@@ -509,6 +509,10 @@ def stop_scope(run_id) -> None:
         subprocess.run(["/mnt/c/Windows/System32/taskkill.exe", "/F", "/T", "/PID", pid], capture_output=True)
         os.remove(os.path.join(d, pid))
     subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
+    try:
+        os.rmdir(d)   # the run's record of Windows programs goes with it (H7)
+    except OSError:
+        pass   # absent, or a pid written meanwhile: kept for the next stop
 
 
 def tick_later() -> None:

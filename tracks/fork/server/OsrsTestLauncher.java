@@ -8,9 +8,9 @@
 // Run on Windows with -Duser.home=C:\osrs-test<N>\home (JAVA_TOOL_OPTIONS). -Dosrstest.portskip=<n> (default 0)
 // moves this instance's ports up by n: RSProx serves jav_config on 43600+n and proxies on proxy.port.min (43701)+n.
 // -Dosrstest.token=true: a token login; the client inherits JX_SESSION_ID, JX_CHARACTER_ID and JX_DISPLAY_NAME
-// (set by track.sh) and fetches its token from the local issuer jav_config param 11 names. A Jagex access or
-// refresh token is refused in every mode. OPENRUNE_ENDPOINT (set by track.sh, http(s)://127.0.0.1:<port>) is our server's HTTP
-// front: the target's jav_config must be its jav_config.ws, and that jav_config names every other endpoint.
+// (set by track.sh) and fetches its token from the sign-in jav_config param 11 names (the server's embedded Central). A Jagex access or
+// refresh token is refused in every mode. The target (~/.rsprox/proxy-targets.yaml, upstream README's Client Setup entry)
+// must name a local http(s)://127.0.0.1:<port>/jav_config.ws, our server's embedded Central, which names every other endpoint.
 
 import io.netty.buffer.ByteBufAllocator;
 import java.nio.file.Files;
@@ -72,11 +72,6 @@ public final class OsrsTestLauncher
 		{
 			die("RSPS_* overrides are set");
 		}
-		String endpoint = System.getenv("OPENRUNE_ENDPOINT");
-		if (endpoint == null || !endpoint.matches("https?://(127\\.0\\.0\\.1|localhost):[0-9]+"))
-		{
-			die("OPENRUNE_ENDPOINT is not a local http(s)://127.0.0.1:<port>: " + endpoint);
-		}
 		boolean token = Boolean.getBoolean("osrstest.token");
 		for (String v : new String[]{"JX_ACCESS_TOKEN", "JX_REFRESH_TOKEN", "JX_SESSION_ID", "JX_CHARACTER_ID", "JX_DISPLAY_NAME"})
 		{
@@ -134,9 +129,9 @@ public final class OsrsTestLauncher
 			die("no proxy target named " + TARGET + " in ~/.rsprox/proxy-targets.yaml");
 		}
 		ProxyTargetConfig cfg = targets.get(index);
-		if (cfg.getId() == 0 || !cfg.getJavConfigUrl().equals(endpoint + "/jav_config.ws") || cfg.getModulus() == null)
+		if (cfg.getId() == 0 || !cfg.getJavConfigUrl().matches("https?://(127\\.0\\.0\\.1|localhost):[0-9]+/jav_config\\.ws") || cfg.getModulus() == null)
 		{
-			die("target " + TARGET + " is not OPENRUNE_ENDPOINT's jav_config with its own modulus: " + cfg);
+			die("target " + TARGET + " is not a local jav_config.ws with its own modulus: " + cfg);
 		}
 		service.setSelectedProxyTarget(index);
 		if (service.getSelectedProxyTarget() != index)

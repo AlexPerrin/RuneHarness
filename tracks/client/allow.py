@@ -60,11 +60,18 @@ def serve(l, f):  # each connection to l handled by f on its own thread
     threading.Thread(target=lambda: [threading.Thread(target=f, args=(l.accept()[0],), daemon=True).start() for _ in iter(int, 1)], daemon=True).start()
 
 
+def upstream(name):  # EAI_AGAIN is the resolver's "not now", not an answer: ask again until an address or a definite failure
+    while True:
+        try: return socket.create_connection((name, 443))
+        except socket.gaierror as e:
+            if e.errno != socket.EAI_AGAIN: raise
+
+
 def relay(c):
     with c:
         hello = record(c); name = sni(hello)
         if name not in ALLOWED: return
-        with socket.create_connection((name, 443)) as u:
+        with upstream(name) as u:
             u.sendall(hello); t = threading.Thread(target=pipe, args=(u, c)); t.start(); pipe(c, u); t.join()
 
 

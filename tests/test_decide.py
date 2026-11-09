@@ -254,7 +254,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
 
     def test_the_same_head_after_a_failed_gate_is_gated_again(self):  # G5: replay.md written after the gate, then resubmitted
         self.submit()
-        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'replay', 't')", (f"{TREE}:fork-1",))
+        self.db.execute("INSERT INTO job(kind, key, ok, detail, ended_at) VALUES ('gate', ?, 0, 'replay', 't')", (f"{TREE}_c0d5265571d90:fork-1",))   # T with a composite suffix
         self.assertTrue(store.regate_failed(self.db, TREE))
         self.assertIsNone(self.db.execute("SELECT 1 FROM job WHERE kind='gate'").fetchone())   # no result: gate_due runs it again
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:fork-1",))

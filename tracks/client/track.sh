@@ -3,9 +3,10 @@
 # HD_SLUG HD_KEY HD_TREE HD_TCOMMIT HD_HEAD HD_BASE HD_REPO HD_CLONE HD_LOG HD_RC and the short names SLUG HEAD T TCOMMIT BASE
 # CLONE BUILD EVIDENCE. The Windows programs (adb, the emulator) run through WSL interop, by absolute path. build, check-log and
 # tree are build/build.sh's (the code a build runs); gate and the other check-* criteria but check-blocked gate/gate.sh's. Verbs:
-#   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both; boots the change's emulator (no console window, its log in state/<slug>/emulator.log) on the network
-#                     allowlist (its own DNS relay on Windows answering first, check-blocked after), installs the APK once no install of the app is pending, logs
-#                     in through the stack's issuer (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
+#   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both, or not reading
+#                     jav_config from http://127.0.0.1:8443; boots the change's emulator (no console window, its log in state/<slug>/emulator.log) on the network
+#                     allowlist (its own DNS relay on Windows answering first, check-blocked after), maps the mobile's 127.0.0.1:8443 and :43594 to the live Central's http and game ports (adb reverse), installs the APK once no install of the app is pending, logs
+#                     in at Central's form as the slug's own account (tools/mobile_login.py: each screen read, acted on once; an unknown one or a refusal fails); prints LOGGED_IN <serial> <devtools port>;
 #                     a failed up or measure runs down (state/<slug>/serial is written as the emulator starts)
 #   down              stops every login the change's ups started (mobile_login.py <slug>), removes devtools, clears the debug props, checks the plugins dir (when up made one) is the three defaults;
 #                     stops the emulator and its DNS relay
@@ -27,7 +28,7 @@ verb=$1; slug=${2:-${SLUG:-}}; arg=${3:-}   # a criterion passes no slug: hd exp
 self=$(cd "$(dirname "$0")" && pwd)
 root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$HOME/osrs-plugins-reverse}   # the main checkout (re/ lives there)
-case $verb in recipe) printf 'build client-1\ngate client-1\nship client-1\n'; exit 0 ;; esac
+case $verb in recipe) printf 'build client-2\ngate client-1\nship client-1\n'; exit 0 ;; esac
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live) ;; *) echo "no change or goal \"$slug\": tracks/client/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
 case ${1:-} in build|check-log|tree) exec "$self/build/build.sh" "$@" ;; gate|check-evidence|check-probe|check-netqa|check-state-doc) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
@@ -39,6 +40,7 @@ pkg=com.jagex.oldscape.android; files=/sdcard/Android/data/$pkg/files; defaults=
 addrs="8.8.8.8 1.1.1.1 142.250.80.46 104.26.8.233"   # public addresses (Google DNS, Cloudflare DNS, google.com, runelite.net): none connects
 allowed="api.runelite.net static.runelite.net"   # tools/allow.py: these resolve to its relay, which reaches them on 443
 hosts="legal.jagex.com auth.jagex.com oldschool.runescape.com www.runescape.com sdk.iad-01.braze.com cdn.cookielaw.org app-measurement.com firebaseinstallations.googleapis.com sdk-api-v1.singular.net google.com connectivitycheck.gstatic.com"
+reverse="8443:${OPENRUNE_CENTRAL_HTTP_PORT:-8084} 43594:${OPENRUNE_GAME_PORT:-43594}"   # the mobile's 127.0.0.1 port: the live stack's host port (Central's http, which the APK's endpoint and Central's jav_config name; the game)
 docker=${DOCKER:-docker}; fork=${FORK_TRACK:-$self/../fork/track.sh}
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 serial() { cat "$state/serial" 2>/dev/null || { echo "no mobile for $slug: run up"; return 1; }; }
@@ -60,6 +62,7 @@ up() {
   live=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("modulus", ""))' "$root/state/live/tree.json" 2>/dev/null || true)
   mine=$(unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aoE '[0-9a-f]{256}' | grep -vE '^(00010203|80818283)' | head -1 || true)   # the patched modulus (the library's other 256-hex runs are byte tables)
   [ -n "$live" ] && [ "$mine" = "$live" ] || { l=${live:0:8}; echo "refused: $T.apk carries modulus ${mine:0:8}, the live stack (state/live/tree.json) ${l:-none, deployed before its key pair}: its login would be refused 'Invalid RSA check'"; return 1; }
+  unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aF "http://127.0.0.1:8443/jav_config.ws" >/dev/null || { echo "refused: $T.apk does not read jav_config from http://127.0.0.1:8443 (built before Central served it): build again"; return 1; }
   printf '{"live": 1, "started": "%s"}\n' "$(date -u +%FT%TZ)" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"   # the stack row: no deploy is planned while this mobile plays on the live stack, until down
   mkdir -p "$root/state/live"; flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   boot
@@ -108,19 +111,22 @@ boot() {  # an Agent_Phone emulator on a free even console port, the APK in plac
   w=$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}' || true)   # the emulator's Windows pid: its console port's holder
   img=$([ -z "$w" ] || "$sys32/tasklist.exe" /FO CSV /NH /FI "PID eq $w" | tr -d '\r"' | awk -F, -v p="$w" '$2==p{print $1}' || true)
   [ -z "$img" ] || { winpid "$w" "$img"; echo "$w" > "$state/emulator.winpid"; }
-  until [ "$(A shell getprop sys.boot_completed)" = 1 ]; do sleep 2; done
+  until b=$(A shell getprop sys.boot_completed); [ "$b" = 1 ]; do [[ $b != *"not found"* ]] || { echo "the emulator $s exited while booting (its log: $state/emulator.log)" >&2; return 1; }; sleep 2; done   # offline while it boots; gone ends the wait
   A uninstall "$pkg" >/dev/null
   until pm_idle; do sleep 1; done   # an install while one of $pkg is pending fails INSTALL_FAILED_DUPLICATE_PACKAGE
   r=$(A install -r "$(win "$ev/$T.apk")"); case $r in *Success*) ;; *) echo "install failed: $r" >&2; return 1 ;; esac
   path=$(A shell pm path "$pkg"); path=${path#package:}
   [ "$(A shell "unzip -l $path | grep -c libosrsrl")" = 1 ] || { echo "the APK carries no libosrsrl" >&2; return 1; }
   A shell pm grant com.android.chrome android.permission.ACCESS_LOCAL_NETWORK >/dev/null
+  for r in $reverse; do A reverse "tcp:${r%:*}" "tcp:${r#*:}" >/dev/null   # the APK's servers on its own loopback, through adb: no address of the host's network
+    A reverse --list | grep -qF " tcp:${r%:*} tcp:${r#*:}" || { echo "adb reverse did not map tcp:${r%:*} to tcp:${r#*:} on $s" >&2; return 1; }; done
   A shell svc wifi disable >/dev/null   # the wifi path (netsimd) resolves through Windows; the cellular one asks -dns-server
   cell='ni\{MOBILE[^ ]* CONNECTED'; until c=$(A shell dumpsys connectivity); [[ $c =~ $cell && $c != *"ni{WIFI"* ]]; do sleep 1; done
   A shell settings put secure immersive_mode_confirmations confirmed >/dev/null   # SystemUI's "Viewing full screen" prompt never shows: no tap
   blocked >&2 || return 1
-  A shell monkey -p "$pkg" -c android.intent.category.LAUNCHER 1 >/dev/null   # a first start creates files/
-  until [ "$(A shell "[ -d $files ] && echo y")" = y ]; do sleep 1; done; A shell am force-stop "$pkg" >/dev/null
+  r=$(A shell am start -W -n "$pkg/com.jagex.android.MainActivity")   # a first start creates files/; am, not monkey: monkey aborts on another app's ANR before it launches; by component: its launcher filter has no DEFAULT category, so an implicit am start does not resolve
+  [[ $r == *"Status: ok"* || $r == *"Status: timeout"* ]] || { echo "the app did not start: $r" >&2; return 1; }   # timeout: started, its first frame slower than -W waits; the files/ wait below decides
+  until f=$(A shell "[ -d $files ] && echo y || pidof $pkg"); [ "$f" = y ]; do [ -n "$f" ] || { echo "the app died before creating $files" >&2; return 1; }; sleep 1; done; A shell am force-stop "$pkg" >/dev/null
   A shell mkdir -p "$files/plugins" >/dev/null; A shell chmod 777 "$files/plugins" >/dev/null
   for j in $defaults; do A push "$(win "$repo/re/host/plugins/$j")" "$files/plugins/$j" >/dev/null; done
   [ "$(A shell ls -1 "$files/plugins" | LC_ALL=C sort | paste -sd' ')" = "$defaults" ] || { echo "the three default plugins are not in place" >&2; return 1; }
@@ -154,6 +160,10 @@ down() {  # judges what the harness put on the mobile (the default plugins, the 
   fi
   rm -f "$state/up.json"; $hd stack "$slug" --clear   # deploys go on
   s=$(serial) || return 0; need "$adb" ANDROID_SDK
+  w=$(cat "$state/emulator.winpid" 2>/dev/null || true); port=${s#emulator-}
+  if [[ $(A get-state) == *"not found"* ]] || { [ -n "$w" ] && [ "$("$sys32/netstat.exe" -ano -p TCP | tr -d '\r' | awk -v p="$port" '$4=="LISTENING"{n=split($2,a,":"); if (a[n]==p) {print $5; exit}}')" != "$w" ]; }; then   # gone, or its port held by another pid than the one boot recorded: another change's emulator, never killed
+    rm -f "$state/serial"; if w=$(cat "$state/emulator.winpid" 2>/dev/null); then rm -f "$root"/state/winpids/*/"$w" "$state/emulator.winpid"; fi; echo "restored (the emulator $s had exited)"; return 0
+  fi
   bad=()
   A shell rm -f "$files/plugins/devtools.jar" >/dev/null
   for p in devtools probe set; do A shell setprop "debug.osrsrl.$p" '""' >/dev/null; done

@@ -384,7 +384,7 @@ def candidate(repo, base, heads) -> (tree, tcommit):
 def key(C, ch, kind, submission) -> str:
     """f"{tree}:{recipe}", recipe = the version `tracks/<repo>/track.sh recipe` prints for that verb (one line per verb:
     `gate harness-1`), read once per pass into Track.recipes; a dev bumps it when the verb's output changes. The fork's
-    deploy version carries the digest of the files the live stack runs from this checkout (issuer.py, the compose, switch.env,
+    deploy version carries the digest of the files the live stack runs from this checkout (the compose, switch.env,
     the jav_config template), so a shipped one deploys. A track without a `build` line has no build step. A fixed checker
     re-runs by `hd regate`, never by a moved key."""
 
@@ -406,7 +406,9 @@ def stage(db, ch, T, head):
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
-    live key pair in state/live/key. A closed change: git revert -m 1 of its merge commit."""
+    live key pair in state/live/key or a jav_config naming a foreign host, both before any live container
+    is recreated; every failed exit records the job failed, so a failed deploy is never started again under the runs on
+    the live stack (only a killed one is). A closed change: git revert -m 1 of its merge commit."""
 
 def brief(db, ch, step) -> path:
     """state/briefs/<run id>.md: the definition; the criteria with their latest results and verdict marks; answers
@@ -448,7 +450,7 @@ the live tip between a ship's candidate and its push (the engineer's commits go 
 ```python
 def card(db, ch, T, head, pr, texts) -> card id:
     """steps from the observed PR and the text rows: push (unless the PR is at head) → pr (open a draft) | edit (a title
-    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md) → ready
+    or body that differs) → ci (if pushed, new or draft) → comment (pr-comment.md, then each pr-reply-<id>.md whose comment is newer than our latest comment on the PR: an answered finding gets no second reply, publish.answered) → ready
     (if new or draft). A release: build-asset → notes → publish. texts: {title, body, comment}; digest = sha256(steps +
     texts). INSERT OR IGNORE card; INSERT publish_step rows with done_at NULL; event('card', the rendered card)."""
 
@@ -503,7 +505,7 @@ sequenceDiagram
 | `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
 | `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
-| `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, close (refused: the user's own) |
+| `hd answer <slug> <option> [words]` | orchestrator (the user's words) | answer, and the option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
 | `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a judged criterion `finding-<id>` (skill pr-text) on the PR's open change, or on a new change `<track>-<pr>-c<id>` when that change is done; ask → an ask whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug> [--all] [--lift] [why]` | orchestrator | hold |
 | `hd approve <slug> <head>`, `hd close <slug> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval; change_state.closed_at |
@@ -632,20 +634,21 @@ flowchart LR
 - The game image `or:<T>` is upstream's release bundle (release-server.yml's Gradle steps; `server.jar`, `game.yml`,
   `.data/` without raw-cache or key) run by `java -jar server.jar` on update-test-server.yml's ports: 43594 game, 9091
   Central link, 9090 http (the one setting beyond `game.example.yml`, its `central.http-port`).
-- The live stack is the game image, Central and Postgres. Until two Central changes land (a local `jav_config.ws`
-  template source; the official client's sign-in and game-session endpoints that mint the token the game
-  verifies), the compose also runs the sidecars that serve `jav_config.ws`, the world list and the token issuer. The
-  deploy image runs embedded Central's sign-in for desktops (the issuer's secret, account and certificate; host ports
-  8084 http, 8443 https), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both; the APK's
-  `jav_config.ws` (params 11, 20, 22, 28) names its http port, which `LOCAL_AUTH` accepts. A desktop on
-  the live stack (`live-desktop`) signs in there by password as its slug's own account and logs in by token with Play
-  alone; a fork `up` types the login form until token login is in the fork's base.
+- The live stack is the game image, Central and Postgres, one compose service. Every client takes `jav_config.ws` from
+  Central, the deploy's template file through `OPENRUNE_JAV_CONFIG_URL_TEMPLATE=file://`. Embedded Central is the only sign-in (OIDC and game-session, tokens signed by the secret of
+  `issuer.py key`, which game.yml's token-login block also holds; host ports 8084 http, 8443 https with that key's
+  certificate), checked by `javcheck.py` on its `/jav_config.ws` and its OIDC discovery on both. Its `jav_config.ws`
+  names 127.0.0.1 hosts, the sign-in params 11, 20, 22 and 28 as `http://127.0.0.1:8443/`: a desktop casts 11 and 22
+  to https, and the APK (repacked with `SERVER=127.0.0.1:8443`, which `LOCAL_AUTH` lets speak http) reads them on its own
+  loopback, where the client track's `up` maps 8443 to Central's http 8084 and 43594 to the game (`adb reverse`). A desktop on the live stack
+  (`live-desktop`) and each desktop of a fork `up` sign in there by password as the slug's own account and log in by
+  token with Play alone. Central keeps sessions in memory, so a fork `restart` is a down and a resumed up.
 - The game clients are driven through upstream's OpenRune-Developer-Tools plugin, unmodified: the client repo's
   `host/plugins/devtools/build.sh` builds upstream's source at its pinned `REV` into the Android jar and the desktop's
   sideloaded jar (`tracks/client/build/build.sh`), every MCP tool of both clients being upstream's. Kept of ours, each
   because upstream lacks it: `mcp/devtools_bridge.py` (upstream speaks HTTP on one loopback port; the sessions need a
   stdio server that answers `tools/list` from a snapshot when no client runs, routes each call by `port` to one of many
-  desktops with that up's bearer token, bounds every answer, flags a dropped session after each desktop answer, and
+  desktops with that up's bearer token and by `serial` to one of many mobiles, bounds every answer, flags a dropped session after each desktop answer, and
   walks `walk_to` at any distance in minimap steps, upstream's needing the tile in the loaded scene); the client
   repo's mobile bridge (Android: upstream has no transport off the device, ours is stdio over `adb shell nc`);
   `DevtoolsOwner.java` (below: upstream checks only the Origin header, no token, and opens URLs); the stub of its
@@ -653,6 +656,16 @@ flowchart LR
 - Every JVM of a test desktop carries `tracks/fork/server/DevtoolsOwner.java` as its `-javaagent`: the devtools
   endpoint answers its up's token alone, and no URL reaches the OS (`java.awt.Desktop`'s browse, open and mail, and any
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).
+- A test desktop connects as upstream's README Client Setup says: RSProx with a `~/.rsprox/proxy-targets.yaml` entry
+  (id, name, `jav_config_url` the embedded Central's `/jav_config.ws`, `varp_count`, `revision`, the stack's modulus).
+  Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (RSProx maps no RuneLite
+  to 241), `binary_folder` (the recordings' folder), and RSProx run headless by `OsrsTestLauncher.java`, which selects
+  that target and refuses one whose `jav_config_url` is not local (Privacy).
+- The reference deployment's (PRD H8) deviations beyond those above, each kept for its reason: the clients' `jav_config.ws`
+  is the deploy's local template served by Central, not upstream's client.blurite.io (that config names Jagex hosts, and
+  no client contacts Jagex: Privacy); Central's sign-in (OIDC, game-session) and token login are the fork's, not yet
+  upstream's (held until the Central upstream hold lifts); the APK is the official app repacked (telemetry patch,
+  `OPENRUNE=1 LOCAL_AUTH=1`, Central's modulus and loopback hosts), since upstream has no Android client.
 
 ## 12 Roles and alerts
 

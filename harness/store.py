@@ -190,10 +190,11 @@ def submit(db, slug, head, tree, tcommit, composite, run) -> bool:
 def regate_failed(db, tree) -> bool:
     """The same head submitted again after its tree's gate failed: what failed was outside the tree (evidence/<slug>/
     replay.md, a tool), so the gate's results go and it runs again. A passed or running gate stays. True when cleared."""
-    if not db.execute("SELECT 1 FROM job WHERE kind='gate' AND key LIKE ? AND ok=0 AND ended_at IS NOT NULL", (tree + ":%",)).fetchone():
+    k = tree + "%"   # a key is T:<recipe>, T = the tree with its composite suffix (decide.built), so the prefix is the tree alone
+    if not db.execute("SELECT 1 FROM job WHERE kind='gate' AND key LIKE ? AND ok=0 AND ended_at IS NOT NULL", (k,)).fetchone():
         return False
-    db.execute("DELETE FROM job WHERE kind='gate' AND key LIKE ? AND ended_at IS NOT NULL", (tree + ":%",))
-    db.execute("DELETE FROM attempt WHERE kind='gate' AND key LIKE ?", (tree + ":%",))
+    db.execute("DELETE FROM job WHERE kind='gate' AND key LIKE ? AND ended_at IS NOT NULL", (k,))
+    db.execute("DELETE FROM attempt WHERE kind='gate' AND key LIKE ?", (k,))
     db.execute("DELETE FROM check_result WHERE tree=?", (tree,))
     return True
 

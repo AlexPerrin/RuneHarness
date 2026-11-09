@@ -239,6 +239,20 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         r = (TRACK.parent / "release-dev.sh").read_text()
         s.assertIn('grep -aF "$MODULUS" >/dev/null || die', r); s.assertIn('openssl pkey -in "$pair/game.key"', r)
 
+    def test_release_name_is_osrs_build_then_our_version(s):  # h-release-version-osrs-build: 242.3-v1.0, the build read, never typed
+        r = (TRACK.parent / "release-dev.sh").read_text()
+        fn = r[r.index("\nrelease_name() {"):]; fn = fn[:fn.index("\n}\n") + 3]
+        (s.ev / "apktool.yml").write_text("versionInfo:\n  versionCode: 24203008\n  versionName: '242.3'\n")
+        tags = "v0.1.0\nv0.1.0-dev.1\nv0.1.2\n242.3-v0.1.3-dev.2\n"
+        def name(version, tags=tags):
+            (s.ev / "VERSION").write_text(version + "\n")
+            p = subprocess.run(["bash", "-c", f"{fn}\nrelease_name {s.ev}/apktool.yml {s.ev}/VERSION"], input=tags, capture_output=True, text=True)
+            return p.stdout.strip() if p.returncode == 0 else None
+        s.assertEqual([name(v) for v in ("0.1.3", "1.0", "1.0.1", "0.1.2", "0.1.0", "x")], ["242.3-v0.1.3", "242.3-v1.0", "242.3-v1.0.1", None, None, None])
+        s.assertIsNone(name("1.0", "242.3-v1.0\n"))   # a released name is never built again
+        s.assertIn('tag="$name-dev.$n"', r); s.assertIn('"$work/osrs-runelite-$tag.apk"', r); s.assertIn('--title "osrs-runelite $tag (dev build)"', r)
+        s.assertIn("needs an OpenRune server of revision ${osrs%%.*}", r); s.assertNotIn("241.4", r)
+
     def test_build_keeps_the_desktop_devtools_jar(s):  # the classes jar before dexing: the server track's desktops load it
         b = BUILD.read_text().split("\nbuild() {")[1].split("\n}")[0]
         s.assertIn('[ -f "$ev/$T.devtools-desktop.jar" ]', b)

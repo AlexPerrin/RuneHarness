@@ -41,7 +41,14 @@ Full QA on the client's live tip at the exact commit, every finding at once: mob
 hub plugins, network QA, sign-in, the privacy patches in the repack log, native claims against Ghidra, the release
 notes, the single universal APK (`apksigner verify`, `zipalign -c`, arm64-v8a only, the notices embedded equal to the
 committed file), no secrets or personal data. Copy `osrs-runelite.apk`, `THIRD_PARTY_NOTICES.md` and the repack log
-into the evidence dir. Releases are `vX.Y.Z`; autonomous builds are 0.1.x; a major version needs the user.
+into the evidence dir.
+
+A release is named `<OSRS build>-v<our version>`: tag `242.3-v1.0`, title `osrs-runelite 242.3-v1.0`, asset
+`osrs-runelite-242.3-v1.0.apk`; dev builds `242.3-v1.0-dev.N` (`tracks/client/release-dev.sh`). The OSRS build is the
+repacked base.apk's versionName, read by the script, never typed; its major is the server revision the build needs
+(242.3 talks to a revision-242 server), and the release notes name it. The client repo's `VERSION` holds our next
+version only (0.1, 0.1.1, 1.0.1), above every released one. A patch bump (0.1.2 → 0.1.3) is autonomous; a minor or major
+bump (0.2, 1.0) and every official release need the user, on the release card.
 
 ## Network QA (every release, every change with `network: true`)
 Sample the app's ESTABLISHED sockets every 0.5 s through the sign-out, LOCAL_AUTH sign-in, play, `::drop` relog and

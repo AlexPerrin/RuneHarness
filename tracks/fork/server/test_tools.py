@@ -1316,6 +1316,24 @@ class GateCi(Repo):
         r, calls, _ = s.gate([s.FAILED(1, "cancelled"), s.FAILED(1, "cancelled"), s.RUNS("success")], step="Game data of the gate (tools/gate/gate.sh gate-ci)")
         s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertEqual(len([c for c in calls if c.startswith("run rerun 7")]), 1)
 
+    def test_a_run_github_started_no_job_is_dispatched_again(s):  # fork-presence-push-not-delivered: CI 42671843288 and Formatting 42671848746 failed with 0 jobs
+        base = git(s.repo, "rev-parse", "HEAD")
+        r, calls, _ = s.gate([s.FAILED(1, "startup_failure"), s.FAILED(1), s.RUNS("success")], step="(no job)", env={"BASE": base, "HEAD": base})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("with no job started", r.stdout)
+        s.assertEqual([c.split()[2] for c in calls if c.startswith("workflow run")], ["CI"]); s.assertFalse([c for c in calls if c.startswith("run rerun")])
+
+    def test_a_third_run_with_no_job_holds_with_no_result(s):
+        base = git(s.repo, "rev-parse", "HEAD")
+        zero = lambda i: f'HTTP/2.0 200 OK\nEtag: W/"z{i}"\n\n' + json.dumps({"workflow_runs": [{"name": "CI", "status": "completed", "conclusion": "failure", "id": i, "run_attempt": 1}]})
+        r, calls, _ = s.gate([zero(1), zero(1), zero(2), zero(2), zero(3)], step="(no job)", env={"BASE": base, "HEAD": base})  # each read is followed by its run's jobs read, which the fake counts as an api call
+        s.assertEqual(r.returncode, 75, r.stdout + r.stderr); s.assertIn("started no job in 3 runs", r.stdout)
+
+    def test_a_run_with_no_job_is_the_heads_when_the_head_changes_a_workflow(s):  # GitHub cannot start a workflow the head broke
+        base = git(s.repo, "rev-parse", "HEAD"); s.write(".github/workflows/x.yml", "on: [\n"); head = s.commit("breaks a workflow")
+        r, calls, _ = s.gate([s.FAILED(1)], step="(no job)", env={"BASE": base, "HEAD": head})
+        s.assertEqual(r.returncode, 1); s.assertIn("CI failure/completed at '(no job)'", r.stdout)
+        s.assertFalse([c for c in calls if c.startswith("workflow run")])
+
     def test_a_third_attempt_failed_outside_the_head_holds_with_no_result(s):
         r, calls, _ = s.gate([s.FAILED(3)], step="Set up Gradle")
         s.assertEqual(r.returncode, 75, r.stdout + r.stderr); s.assertIn("no result", r.stdout)

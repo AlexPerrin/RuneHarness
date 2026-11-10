@@ -26,7 +26,7 @@
 #   ci-step STEP      the carry's CI wait (hd.py ci_fault) asks of an upstream CI step that failed: exit 0 when STEP reads nothing
 #                     the head (HEAD over BASE) changes, once its source answers (gate-ci's own classifier); 1 when it is the head's
 . "$(dirname "$0")/../build/build.sh"   # verb slug arg self(tools/build) repo root state dev copy atomic record size hosted box tree central build
-projects() { local f d; for f; do d=$(dirname "$f"); while [ "$d" != . ] && [ ! -f "$copy/$d/build.gradle.kts" ]; do d=$(dirname "$d"); done; [ "$d" = . ] || { [ "${d##*/}" = pack ] && d=${d%/pack}/$(basename "${d%/pack}")-pack; echo ":${d//\//:}"; }; done | sort -u; }   # the Gradle projects holding these files: settings.gradle.kts names a pack directory <parent>-pack
+projects() { local f d; for f; do d=$(dirname "$f"); while [ "$d" != . ] && [ ! -f "$copy/$d/build.gradle.kts" ]; do d=$(dirname "$d"); done; [ "$d" = . ] || [ -f "$copy/$d/settings.gradle.kts" ] || { [ "${d##*/}" = pack ] && d=${d%/pack}/$(basename "${d%/pack}")-pack; echo ":${d//\//:}"; }; done | sort -u; }   # the Gradle projects holding these files (an included build such as build-logic is none): settings.gradle.kts names a pack directory <parent>-pack
 projdir() { local d=${1#:}; d=${d//://}; [ "${d##*/}" = "$(basename "$(dirname "$d")")-pack" ] && d=$(dirname "$d")/pack; echo "$d"; }   # a project's directory
 tests() { build; gradle_check test "$@"; }
 spotless() {  # the check row: spotlessCheck on every module the head changes, so a lint the ratchet sees in a touched file fails the hand-over, not CI; no build (the gate's holds the build lock)

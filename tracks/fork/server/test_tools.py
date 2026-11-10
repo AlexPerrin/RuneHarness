@@ -1222,7 +1222,9 @@ for t; do m=${{t#:}}; m=${{m%:spotlessCheck}}; ! grep -rq 'fun  ' {copy}/$m/src 
         copy = tempfile.mkdtemp(); s.addCleanup(shutil.rmtree, copy)
         for d in ("content/quest", "content/areas/city/draynor", "content/areas/city/draynor/pack"):
             Path(copy, d).mkdir(parents=True); Path(copy, d, "build.gradle.kts").write_text("")
-        files = "content/quest/src/main/kotlin/A.kt content/areas/city/draynor/src/test/kotlin/B.kt content/areas/city/draynor/pack/src/main/resources/c.toml README.md"
+        Path(copy, "build-logic").mkdir(); Path(copy, "build-logic/build.gradle.kts").write_text(""); Path(copy, "build-logic/settings.gradle.kts").write_text("")
+        # spotless-module-without-task: build-logic is an included build, no project: :build-logic:spotlessCheck failed the row
+        files = "content/quest/src/main/kotlin/A.kt content/areas/city/draynor/src/test/kotlin/B.kt content/areas/city/draynor/pack/src/main/resources/c.toml README.md build-logic/src/main/kotlin/f.gradle.kts"
         r = subprocess.run(["bash", "-c", f'set -euo pipefail; copy={copy}\n{fns}\nprojects {files}; for p in $(projects {files}); do projdir $p; done'], capture_output=True, text=True)
         s.assertEqual(r.stdout.split(), [":content:areas:city:draynor", ":content:areas:city:draynor:draynor-pack", ":content:quest",
                                          "content/areas/city/draynor", "content/areas/city/draynor/pack", "content/quest"], r.stderr)

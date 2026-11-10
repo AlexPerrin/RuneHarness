@@ -27,6 +27,13 @@ class Hook(unittest.TestCase):
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": "hd show x"}}), {})
 
+    def test_approve_or_close_in_a_quoted_argument_is_text_unless_it_runs(self):   # alerts 84, 85
+        for cmd in ['grep -n "hd approve <slug>\\|PR rounds" docs/*.md', "hd.py new x --title 'hd close denies text'"]:
+            self.assertEqual(hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": cmd}}), {})
+        for cmd in ['bash -c "hd approve x abc"', "eval 'hd.py close x'"]:
+            out = hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": cmd}})
+            self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
     def test_an_agent_whose_run_ended_by_close_or_stop_is_denied_every_tool(self):
         self.db.execute("UPDATE run SET agent_id='ag1', started_at='t', ended_at='t', end_kind='close' WHERE id=1")
         out = hook.pre_tool_use({"tool_name": "Read", "tool_input": {"file_path": "/x"}, "agent_id": "ag1"})

@@ -15,6 +15,7 @@ from store import ROOT, event, now  # noqa: E402
 
 BRIEF = re.compile(r"state/briefs/(\d+)\.md")
 DENY = re.compile(r"\bhd(\.py)?\s+(approve|close)\b")
+QUOTED = re.compile(r"""(?<!c )(?<!eval )("[^"]*"|'[^']*')""")   # a quoted argument is text (a grep pattern, a title); after -c or eval it runs
 HD = f"python3 {ROOT}/harness/hd.py"
 
 
@@ -112,7 +113,7 @@ def pre_tool_use(e):
     """`hd approve` / `hd close` are the user's own → deny. In a run: bind on the first read of its brief; every
     Bash command runs after `hd scope <run>` so its processes sit in the run's scope."""
     ti, name, text = e.get("tool_input", {}), e.get("tool_name"), tool_text(e)
-    if name == "Bash" and DENY.search(text):
+    if name == "Bash" and DENY.search(QUOTED.sub("", text)):
         db = store.connect()
         r = run_of(db, e.get("agent_id")) if e.get("agent_id") else None
         event(db, "denied", r["change"] if r else None, r["id"] if r else None, text[:200])

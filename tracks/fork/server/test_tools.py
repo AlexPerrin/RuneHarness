@@ -1013,7 +1013,7 @@ class Repo(unittest.TestCase):
         s.write(".github/pull_request_template.md", "## Summary\n## Checklist\n")
         s.write("mod/src/main/kotlin/A.kt", "fun a() {}\n")
         s.commit("feat: base")
-        git(s.repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+        git(s.repo, "update-ref", "refs/remotes/origin/main", "HEAD"); git(s.repo, "remote", "add", "origin", "git@github.com:OpenRune/OpenRune-Server.git")   # the clone's origin is upstream
         s.base = git(s.repo, "rev-parse", "HEAD")
         s.hd = tempfile.mkdtemp()
         Path(s.hd, "hd.yaml").write_text("repos:\n  fork:\n    pins:\n      - x\n")   # the pins come from hd.yaml alone, never the env
@@ -1443,6 +1443,8 @@ class GateCi(Repo):
         for f in ("ci", "format"):
             y = git(fork, "show", f"{g}:.github/workflows/{f}.yml")
             s.assertLess(y.index('sudo sysctl -w net.ipv4.ip_local_port_range="49152 65535"'), y.index("./gradlew test"), f)
+            # the ratchet's origin/main is upstream's, not the fork's (run 42733365488 ratcheted upstream's own unformatted files in)
+            s.assertLess(y.index("run: git remote set-url origin https://github.com/OpenRune/OpenRune-Server.git"), y.index("./gradlew test"), f)
         s.assertTrue((Path(root) / "state/s1").is_dir())
         for d in (fork, bin, root): shutil.rmtree(d)
 

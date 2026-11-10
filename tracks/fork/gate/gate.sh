@@ -12,7 +12,7 @@
 #                     sha's runs, free while unchanged; a GitHub quota refusal holds until its reset) at a child of the PR's own
 #                     candidate PR_TCOMMIT (hd gate: the head and its deps on upstream main, not staging; a conflict fails; unset: TCOMMIT) whose
 #                     workflows first move the runner's ephemeral ports above the game port 43594 (an outgoing socket on it
-#                     fails the boot's bind), and with CENTRAL build that Central in, as build does (the change's head unchanged)
+#                     fails the boot's bind) and point origin at upstream (Formatting's ratchet base), and with CENTRAL build that Central in, as build does (the change's head unchanged)
 #                     and whose CI restores the game data from the fork release asset game-data-<game.example.yml blob12>
 #                     (seeded once from or:<T>) on an actions/cache miss, never openrs2 (no asset fails that step, the runner's);
 #                     a revision no image holds (T's is staging's, the PR's upstream main's newer) seeds none: CI restores no asset and
@@ -72,6 +72,11 @@ gate_sha() {  # a child of TCOMMIT whose workflows move the ephemeral ports off 
   GIT_INDEX_FILE=$idx git -C "$repo" read-tree "$TCOMMIT"
   step='      - name: Ephemeral ports above the game port (tools/gate/gate.sh gate-ci)
         run: sysctl net.ipv4.ip_local_port_range; sudo sysctl -w net.ipv4.ip_local_port_range="49152 65535"'
+  # spotless's ratchetFrom("origin/main") and format.yml's `git fetch origin main` mean upstream's main, the PR's base; on the fork's runner origin is the fork
+  u=$(git -C "$repo" remote get-url origin | sed -E 's#^git@github.com:#https://github.com/#')
+  step="$step
+      - name: Upstream as origin (tools/gate/gate.sh gate-ci)
+        run: git remote set-url origin $u"
   if [ -n "${CENTRAL:-}" ]; then
     IFS=: read -r cpath ccommit <<< "$CENTRAL"; git -C "$repo" fetch -q "$cpath" "$ccommit"
     GIT_INDEX_FILE=$idx git -C "$repo" read-tree --prefix=.central/ "$ccommit"

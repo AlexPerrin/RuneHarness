@@ -1262,7 +1262,7 @@ class GateCi(Repo):
     @staticmethod
     def fake_gh(bin, answers):  # `gh api` prints answers[n] at its n-th call (the last repeats), each call's args in bin/calls; sleep is free
         for i, a in enumerate(answers): (bin / f"a{i}").write_text(a)
-        (bin / "gh").write_text(f'#!/bin/sh\nd=$(dirname "$0"); echo "$*" >> "$d/calls"; case "$1 $2" in "release view") cat "$d/assets" 2>/dev/null; exit 0 ;; esac; [ "$1" = api ] || exit 0\ncase "$2" in */jobs) cat "$d/step"; exit 0 ;; esac\n'
+        (bin / "gh").write_text(f'#!/bin/sh\nd=$(dirname "$0"); echo "$*" >> "$d/calls"; case "$1 $2" in "release view") cat "$d/assets" 2>/dev/null; exit 0 ;; "release upload") basename "$4" >> "$d/assets"; exit 0 ;; esac; [ "$1" = api ] || exit 0\ncase "$2" in */jobs) cat "$d/step"; exit 0 ;; esac\n'
                                 f'n=$(grep -c "^api" "$d/calls"); [ $n -gt {len(answers)} ] && n={len(answers)}; cat "$d/a$((n-1))"; case $(head -1 "$d/a$((n-1))") in *" 200 "*) ;; *) exit 1 ;; esac\n')
         (bin / "sleep").write_text('#!/bin/sh\necho "$1" >> "$(dirname "$0")/sleeps"\n')
         for f in ("gh", "sleep"): (bin / f).chmod(0o755)
@@ -1404,7 +1404,7 @@ class GateCi(Repo):
         s.write("content/x/pack/a.toml", "x\n"); s.write("gamevals.toml", "x\n"); s.write("or-cache/CacheTools.kt", "x\n"); t = s.commit("pack")
         k = git(s.repo, "rev-parse", f"{t}:game.example.yml")[:12]
         fork = tempfile.mkdtemp(); git(fork, "init", "-q", "--bare"); git(s.repo, "remote", "add", "fork", fork)
-        bin = Path(tempfile.mkdtemp()); s.fake_gh(bin, s.GREEN); root = tempfile.mkdtemp(); change(root, "s1")
+        bin = Path(tempfile.mkdtemp()); s.fake_gh(bin, s.GREEN); root = tempfile.mkdtemp(); change(root, "s1"); (bin / "assets").write_text(f"game-data-{k}.tar.gz\n")
         env = {**os.environ, **s.env, "HD_ROOT": root, "TCOMMIT": t, "BASE": b, "HEAD": t, "PATH": f"{bin}:{os.environ['PATH']}"}
         r = subprocess.run(["bash", str(HERE.parent / "track.sh"), "gate-ci"], capture_output=True, text=True, env=env)
         s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -1412,6 +1412,21 @@ class GateCi(Repo):
         s.assertNotIn("if: false", y); s.assertIn(f"game-data-{k}.tar.gz", y)            # the revision restored: openrs2 is never the head's
         step = lambda f: subprocess.run(["bash", str(HERE.parent / "track.sh"), "ci-step", "s1", f], capture_output=True, text=True, env={**env, "PATH": f"{bin}:/usr/bin:/bin"}).returncode
         s.assertEqual(step("Rebuild sources from cached game data"), 1)                  # the packing is the head's
+        for d in (fork, bin, root): shutil.rmtree(d)
+
+    def test_a_revision_no_image_holds_restores_no_asset_and_never_waits(s):  # fork-friend-add-updates-list: its PR tree on upstream main is rev 242, or:<T> staging's 241; gate-ci waited 2h13m on an asset none could seed
+        s.write(".github/workflows/ci.yml", s.CI); s.write(".github/workflows/format.yml", s.WF); s.write("game.example.yml", "revision: 241\n"); staging = s.commit("ci")
+        s.write("game.example.yml", "revision: 242\n"); main = s.commit("upstream main's revision")   # the PR's candidate: the head on upstream main, which moved the revision
+        fork = tempfile.mkdtemp(); git(fork, "init", "-q", "--bare"); git(s.repo, "remote", "add", "fork", fork)
+        bin = Path(tempfile.mkdtemp()); s.fake_gh(bin, s.GREEN); root = tempfile.mkdtemp(); change(root, "s1")
+        r = subprocess.run(["bash", str(HERE.parent / "track.sh"), "gate-ci"], capture_output=True, text=True,
+                           env={**os.environ, **s.env, "HD_ROOT": root, "TCOMMIT": staging, "HD_TCOMMIT": staging, "PR_TCOMMIT": main, "T": "tk",
+                                "BASE": staging, "HEAD": staging, "PATH": f"{bin}:{os.environ['PATH']}"})
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("no game-data-", r.stdout)
+        calls = (bin / "calls").read_text(); s.assertNotIn("release upload", calls)
+        y = git(fork, "show", "gate/s1:.github/workflows/ci.yml")
+        s.assertNotIn("game-data-", y); s.assertNotIn("if: false", y)                     # actions/cache, else freshCache on openrs2: no step waits on an asset
+        s.assertIn("cache-hit != 'true'\n        run: ./gradlew :or-cache:freshCache", y)
         for d in (fork, bin, root): shutil.rmtree(d)
 
     def test_a_row_without_a_slug_pushes_gate_of_the_env_slug(s):  # its CI moves the runner's ephemeral ports above 43594 before gradle: run 41312919759's boot bind failed

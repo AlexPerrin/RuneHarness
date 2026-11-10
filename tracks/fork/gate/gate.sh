@@ -14,7 +14,9 @@
 #                     workflows first move the runner's ephemeral ports above the game port 43594 (an outgoing socket on it
 #                     fails the boot's bind), and with CENTRAL build that Central in, as build does (the change's head unchanged)
 #                     and whose CI restores the game data from the fork release asset game-data-<game.example.yml blob12>
-#                     (seeded once from or:<T>) on an actions/cache miss, never openrs2 (no asset fails that step, the runner's),
+#                     (seeded once from or:<T>) on an actions/cache miss, never openrs2 (no asset fails that step, the runner's);
+#                     a revision no image holds (T's is staging's, the PR's upstream main's newer) seeds none: CI restores no asset and
+#                     freshCache reads openrs2, the runner's step (re-run once openrs2 answers),
 #                     unless the head changes the revision (game.example.yml): then neither restores and the CI runs :or-cache:freshCache,
 #                     the head's step; every other head packs on the restored revision (its cache inputs': the head's step);
 #                     each step is timed alone (the job's timeout-minutes on every step), so a timeout names the step that ran
@@ -92,7 +94,7 @@ gate_ci() {  # pushes T (gate_sha) to gate/<slug>; the newest run of each workfl
   # a run failed at a step the head does not touch is the source's, not the head's: re-run once that source answers; held (exit 75: hd records no result) after 3 attempts
   R=$(git -C "$repo" remote get-url fork | sed -E 's#.*github.com[:/]##; s#\.git$##')
   case ${PR_TCOMMIT:-} in "") ;; conflict:*) echo "the PR's head does not merge with upstream main, $PR_TCOMMIT"; return 1 ;; *) TCOMMIT=$PR_TCOMMIT ;; esac   # the scratch merge: the PR on upstream main, never staging's other heads (G4)
-  seed
+  seeded=; if seed; then seeded=1; fi   # no asset of the tree's revision (no image holds it yet: a head on upstream main's newer revision): CI restores none, freshCache reads openrs2
   sha=$(gate_sha); git -C "$repo" push -q --force fork "$sha:refs/heads/gate/$slug"
   q="repos/$R/actions/runs?branch=gate/$slug&head_sha=$sha&per_page=100" etag= runs= ran= rr=; declare -A zn=()
   while :; do
@@ -122,7 +124,7 @@ game_data() {  # workflow $1 with a step restoring the game data from the fork r
   # and the job's timeout on each step, so a slow download never times out in a step that reads the head (cannon's run 41366859771 timed out in 'Compile and run tests')
   # a head changing the revision runs freshCache: no actions/cache restore, no asset (infra() calls that step the head's); openrs2's revision is no other head's input
   local fresh=; if fresh_input; then fresh=1; fi
-  FRESH=$fresh K=$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12 || true) python3 -c '
+  FRESH=$fresh K=${seeded:+$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12 || true)} python3 -c '
 import os, re, sys
 y, k = sys.argv[1], os.environ["K"]
 def timed(y):
@@ -142,15 +144,17 @@ y = y.replace("if: steps.gamecache.outputs.cache-hit != \x27true\x27\n        ru
 y = y.replace("if: steps.gamecache.outputs.cache-hit == \x27true\x27\n", "if: steps.gamecache.outputs.cache-hit == \x27true\x27 || steps.gamedata.outcome == \x27success\x27\n")
 print(timed(y))' "$1"
 }
-seed() {  # the fork release asset game-data-<k> (k: game.example.yml's blob, which names the revision and so openrs2's cache id) from the image of T, once per k: CI reads it on an actions/cache miss
-  local k a f; k=$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12) && [ -n "$k" ] || return 0; a=game-data-$k.tar.gz; f=$state/$a
-  gh release view game-data -R "$R" --json assets -q '.assets[].name' 2>/dev/null | grep -x "$a" >/dev/null && return 0
-  [ "$(git -C "$repo" rev-parse -q --verify "${HD_TCOMMIT:-$TCOMMIT}:game.example.yml" | cut -c1-12)" = "$k" ] || { echo "or:${T:-} is built on another game.example.yml than $k: no $a seeded from it"; return 0; }   # staging's revision may differ from the PR's
-  docker image inspect "or:${T:-}" >/dev/null 2>&1 || { echo "no or:${T:-} to seed $a from: CI waits on it"; return 0; }
-  docker run --rm --entrypoint tar "or:$T" -cz -C /app/.data cache/LIVE gamevals-binary/gamevals.dat gamevals-binary/gamevals_generated.dat > "$f.tmp" || { rm -f "$f.tmp"; echo "seeding $a failed"; return 0; }
+seed() {  # the fork release asset game-data-<k> (k: game.example.yml's blob, which names the revision and so openrs2's cache id) from the image of T, once per k: CI reads it on an actions/cache miss;
+  # status 0 when the asset stands after it, 1 when none does (no k, or no image of that revision to seed from)
+  local k a f; k=$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12) && [ -n "$k" ] || return 1; a=game-data-$k.tar.gz; f=$state/$a
+  asset() { gh release view game-data -R "$R" --json assets -q '.assets[].name' 2>/dev/null | grep -x "$a" >/dev/null; }
+  asset && return 0
+  [ "$(git -C "$repo" rev-parse -q --verify "${HD_TCOMMIT:-$TCOMMIT}:game.example.yml" | cut -c1-12)" = "$k" ] || { echo "or:${T:-} is built on another game.example.yml than $k: no $a seeded from it"; return 1; }   # staging's revision may differ from the PR's
+  docker image inspect "or:${T:-}" >/dev/null 2>&1 || { echo "no or:${T:-} to seed $a from"; return 1; }
+  docker run --rm --entrypoint tar "or:$T" -cz -C /app/.data cache/LIVE gamevals-binary/gamevals.dat gamevals-binary/gamevals_generated.dat > "$f.tmp" || { rm -f "$f.tmp"; echo "seeding $a failed"; return 1; }
   mv -f "$f.tmp" "$f"
   gh release view game-data -R "$R" >/dev/null 2>&1 || gh release create game-data -R "$R" --prerelease --title "game data" --notes "The harness gate's game data, one asset per game.example.yml" || true
-  gh release upload game-data "$f" -R "$R" || echo "seeding $a failed or another gate's upload stands"; rm -f "$f"
+  gh release upload game-data "$f" -R "$R" || echo "seeding $a failed or another gate's upload stands"; rm -f "$f"; asset
 }
 failed_step() {  # the first step of run $1 that failed or was stopped (a cancel, ci.yml's timeout), "(no job)" when GitHub started none (one read per such run)
   until gh api "repos/$R/actions/runs/$1/jobs" -q 'if .total_count == 0 then "(no job)" else [.jobs[].steps[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name][0] // "" end'; do sleep 30; done
@@ -181,7 +185,7 @@ ci_step() {  # one classifier of a failed CI step for gate-ci and the carry
 answers() {  # blocks until the source step $1 reads answers: GitHub for the runner's own steps (it answered this read), the release asset for the game data's, openrs2 for the cache's
   case $1 in "Generate cache"*) until openrs2; do sleep 30; done ;;
     "Game data of the gate"*) local k; k=$(git -C "$repo" rev-parse -q --verify "$TCOMMIT:game.example.yml" | cut -c1-12 || true); [ -n "$k" ] || return 0
-      until gh release view game-data -R "$R" --json assets -q '.assets[].name' 2>/dev/null | grep -x "game-data-$k.tar.gz" >/dev/null; do seed; sleep 30; done ;; esac
+      until gh release view game-data -R "$R" --json assets -q '.assets[].name' 2>/dev/null | grep -x "game-data-$k.tar.gz" >/dev/null; do seed || true; sleep 30; done ;; esac
 }
 openrs2() {  # openrs2 serves the revision's cache: its newest live cache of game.example.yml's revision yields bytes (an outage answers its index 200, the zip 500 or empty)
   local rev id; rev=$(git -C "$repo" show "$TCOMMIT:game.example.yml" 2>/dev/null | sed -nE 's/^revision: *([0-9]+).*/\1/p' | head -1)

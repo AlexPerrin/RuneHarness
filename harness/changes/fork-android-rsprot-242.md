@@ -19,3 +19,6 @@ What is still to derive from the 242 .so (the reverse skill), each against docs/
 6. Compile against the 242 model: AndroidDecoders.kt:185-190 use OpLocT, which 242 split into OpLocTV1/OpLocTV2 (the 242 build stops there, evidence/fork-staging-merges-main-242/rsprot-publish.log).
 
 Done when RSProt 1.0.0-ALPHA-20261106.100 (osrs-242-*, android included) is built from that patch with only 242-derived tables and published to ~/src/OpenRune-Server/.m2-rsprot, the patch kept as evidence/fork-android-rsprot-242/rsprot.patch, and the official Android 242 client (OPENRUNE=1 LOCAL_AUTH=1 build of the client track) logs in and plays on a server built from dev/fork-staging-merges-main-242. Then fork-staging-merges-main-242 builds and is submitted.
+
+## Build the 242 tables and land
+The user: build the RSProt Android module's 242 tables and land this change on its own build and gate. It no longer waits on client-android-242 (dep cut in ab5d2de); the live test with the official Android 242 client is now client-android-242-play, which runs once this and fork-staging-merges-main-242 are live.

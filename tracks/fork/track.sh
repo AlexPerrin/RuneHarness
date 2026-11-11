@@ -99,9 +99,14 @@ marked() { "$desk/jdk/bin/jps.exe" -v | tr -d '\r' | awk -v m="-Dosrstest.marker
 # token (up.json "token", sent as Authorization: Bearer <token>) and RSProx ports
 # moved up by skip_base + N-1. Every JVM of instance N carries -Dosrstest.marker=osrs-test-runN;
 # nothing without it is ever stopped (the user's own RuneLite). down stops and removes the instances its slug owns.
+rsprox_commit=f1081e91839fee9af02d090ade82dfc47e234120   # the blurite/rsprox the desktops run: an osrs-<rev> module for every revision runelite() names
+runelite() {  # runelite REV: the static.runelite.net commit of a RuneLite for client revision REV (RSProx maps none for ours; archive.rsprox.net/runelite/index.json names each release's gameRevision)
+  case $1 in 241) echo e617bef1a7f5c39fbe8768994d27d638941efd5d ;; 242) echo b4dab8e7cfdef726c45d2772d60d8a633d397361 ;;   # 1.13.2, 1.13.6
+    *) echo "no RuneLite for client revision $1: add its static.runelite.net commit to runelite() in tracks/fork/track.sh" >&2; return 1 ;; esac; }
 desktop_start() {  # sets inst dt (desktopN, its devtools port)
-  local i d dp w t l o busy ex base ep p b pid
-  need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/netsh.exe" WINDOWS_SYSTEM32; need "$sys32/robocopy.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; [ -x "$desk/jdk/bin/java.exe" ] || "$self/server/desktop_template.sh" "$desk" >&2; need "$desk/jdk/bin/java.exe" DESKTOP_DIR; need "$desk/jdk/bin/jps.exe" DESKTOP_DIR; [ -f "$desk/home/.rlcustom/settings.properties" ] || { echo "no staged home in $desk/home" >&2; return 1; }
+  local i d dp w t l o busy ex base ep p b pid rl m x lib
+  rl=$(runelite "$rev") || return 1   # before any claim: a revision with no RuneLite starts no desktop
+  need "$sys32/netstat.exe" WINDOWS_SYSTEM32; need "$sys32/netsh.exe" WINDOWS_SYSTEM32; need "$sys32/robocopy.exe" WINDOWS_SYSTEM32; need "$sys32/taskkill.exe" WINDOWS_SYSTEM32; [ -x "$desk/jdk/bin/java.exe" ] && [ -d "$desk/rsprox/lib-${rsprox_commit:0:12}" ] || "$self/server/desktop_template.sh" "$desk" "$rsprox_commit" >&2; need "$desk/jdk/bin/java.exe" DESKTOP_DIR; need "$desk/jdk/bin/jps.exe" DESKTOP_DIR; [ -f "$desk/home/.rlcustom/settings.properties" ] || { echo "no staged home in $desk/home" >&2; return 1; }
   mkdir -p "$desk/run"; until busy=$(tcp); do sleep 1; done; busy=$(cut -d' ' -f1 <<< "$busy")
   until ex=$(timeout 20 "$sys32/netsh.exe" interface ipv4 show excludedportrange protocol=tcp); do sleep 1; done
   base=$({ cat /proc/sys/net/ipv4/ip_local_port_range; tr -d '\r' <<< "$ex" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {print $1, $2}'; } | skip_base) || { echo "no RSProx ports outside the reserved ranges" >&2; return 1; }
@@ -122,10 +127,10 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   # upstream README's Client Setup entry (id, name, jav_config_url, varp_count, revision, modulus of .data/client.key); beside it:
   # game_server_port (each up's own host port, not 43594), the RuneLite commit (RSProx maps none for our revisions), the recordings' folder
   printf '%s\n' "config:" "  - id: 1" "    name: OpenRune Test - $slug" "    jav_config_url: $ep/jav_config.ws" "    varp_count: 15000" "    revision: $rev" "    modulus: $modulus" \
-    "    game_server_port: $game" "    runelite_bootstrap_commithash: e617bef1a7f5c39fbe8768994d27d638941efd5d" "    binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
-  t=$(wslpath -w "$desk"); l=launcher-$(sha1sum < "$self/server/OsrsTestLauncher.java" | cut -c1-12)   # this tools tree's launcher, compiled once into the template
+    "    game_server_port: $game" "    runelite_bootstrap_commithash: $rl" "    binary_folder: openrune-qa" > "$d/home/.rsprox/proxy-targets.yaml"
+  t=$(wslpath -w "$desk"); lib=lib-${rsprox_commit:0:12}; l=launcher-$({ cat "$self/server/OsrsTestLauncher.java"; echo "$rsprox_commit"; } | sha1sum | cut -c1-12)   # this tools tree's launcher, compiled once into the template against its RSProx
   [ -f "$desk/rsprox/$l/OsrsTestLauncher.class" ] || { rm -rf "$desk/rsprox/$l.$$" && mkdir -p "$desk/rsprox/$l.$$" \
-    && "$desk/jdk/bin/javac.exe" -nowarn -cp "$t\\rsprox\\lib\\*" -d "$t\\rsprox\\$l.$$" "$(wslpath -w "$self/server/OsrsTestLauncher.java")" >&2 \
+    && "$desk/jdk/bin/javac.exe" -nowarn -cp "$t\\rsprox\\$lib\\*" -d "$t\\rsprox\\$l.$$" "$(wslpath -w "$self/server/OsrsTestLauncher.java")" >&2 \
     && { mv -T "$desk/rsprox/$l.$$" "$desk/rsprox/$l" 2>/dev/null || rm -rf "$desk/rsprox/$l.$$"; }; }   # a concurrent up may have placed it first
   o=owner-$(sha1sum < "$self/server/DevtoolsOwner.java" | cut -c1-12)   # the endpoint's owner check, its jar built once into the template
   [ -f "$desk/rsprox/$o.jar" ] || { rm -rf "$desk/rsprox/$o.$$" && mkdir -p "$desk/rsprox/$o.$$/c" && printf 'Premain-Class: DevtoolsOwner\nCan-Retransform-Classes: true\n' > "$desk/rsprox/$o.$$/m" \
@@ -159,7 +164,7 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
       (cd "$d" && JAVA_TOOL_OPTIONS="-Duser.home=$w\\home -Dosrstest.marker=osrs-test-run$i$jo" WSLENV=${WSLENV:+$WSLENV:}$jx \
         JX_SESSION_ID=${sid:-harness} JX_CHARACTER_ID=${cid:-1} JX_DISPLAY_NAME="${who:-$(account 1)}" \
         exec setsid "$desk/jdk/bin/java.exe" "-Dosrstest.marker=osrs-test-run$i" "-Dosrstest.portskip=$((base + i - 1))" "-Dosrstest.target=OpenRune Test - $slug" \
-        "-Dosrstest.token=${tok:-false}" "-Dosrstest.revision=$rev" -cp "$t\\rsprox\\$l;$t\\rsprox\\lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
+        "-Dosrstest.token=${tok:-false}" "-Dosrstest.revision=$rev" -cp "$t\\rsprox\\$l;$t\\rsprox\\$lib\\*" OsrsTestLauncher) < /dev/null > "$state/desktop$i.log" 2>&1 &   # nothing may hold the caller's pipe
       pid=$!
     fi
     b=$(grep -m1 -A1 "Failed to start MCP server on port $dp" "$d/home/.runelite/logs/client.log" 2>/dev/null | tr '\n' ' ') || true   # logs/ is never copied into a claim: the line is this start's
@@ -170,8 +175,8 @@ desktop_start() {  # sets inst dt (desktopN, its devtools port)
   done
   for p in $(marked "$i" | cut -d' ' -f1); do winpid "$p" "java.exe"; done
   # the jars this start downloaded and verified (RSProx's RuneLite launcher, RuneLite's), into the template: the next instance's home holds them and downloads none (each start downloading all drew 429s)
-  for x in .rsprox/runelite-launcher .runelite/repository2; do
-    [ ! -d "$d/home/$x" ] || { mkdir -p "$desk/home/${x%/*}" && "$sys32/robocopy.exe" "$(wslpath -w "$d/home/$x")" "$(wslpath -w "$desk/home/$x")" /MIR /MT:16 /NFL /NDL /NJH /NJS /NP > /dev/null; } || [ $? -lt 8 ] || echo "desktop $i: its $x was not copied into the template" >&2
+  for x in .rsprox/runelite-launcher:/MIR .runelite/repository2:/E; do m=${x#*:}; x=${x%:*}   # repository2 added to, not mirrored: the template holds each revision's RuneLite
+    [ ! -d "$d/home/$x" ] || { mkdir -p "$desk/home/${x%/*}" && "$sys32/robocopy.exe" "$(wslpath -w "$d/home/$x")" "$(wslpath -w "$desk/home/$x")" $m /MT:16 /NFL /NDL /NJH /NJS /NP > /dev/null; } || [ $? -lt 8 ] || echo "desktop $i: its $x was not copied into the template" >&2
   done
   inst=desktop$i; dt=$dp
 }

@@ -705,8 +705,8 @@ flowchart LR
   non-java command holding a URL, are refused, each a `[osrs-test] refused URL` line of `state/<slug>/refused-urls.log`).
 - A test desktop connects as upstream's README Client Setup says: RSProx with a `~/.rsprox/proxy-targets.yaml` entry
   (id, name, `jav_config_url` the embedded Central's `/jav_config.ws`, `varp_count`, `revision`, the stack's modulus).
-  Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (RSProx maps no RuneLite
-  to 241), `binary_folder` (the recordings' folder), and RSProx run headless by `OsrsTestLauncher.java`, which selects
+  Deviations: `game_server_port` (each up's own host port), `runelite_bootstrap_commithash` (the RuneLite of the served
+  tree's revision, `track.sh runelite()`; RSProx maps none for ours; an unmapped revision starts no desktop), `binary_folder` (the recordings' folder), and RSProx (blurite/rsprox at `track.sh rsprox_commit`, built once into the template) run headless by `OsrsTestLauncher.java`, which selects
   that target and refuses one whose `jav_config_url` is not local (Privacy).
 - The reference deployment's (PRD H8) deviations beyond those above, each kept for its reason: the clients' `jav_config.ws`
   is the deploy's local template served by Central, not upstream's client.blurite.io (that config names Jagex hosts, and

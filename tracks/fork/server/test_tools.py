@@ -440,6 +440,7 @@ class DesktopInstance(unittest.TestCase):
         exe(t / "bin/docker", f'[ "$1" = exec ] && exec tar -c -C {t}/served .; exit 1\n')   # the server's served cache
         (t / "served").mkdir(); (t / "served/main_file_cache.dat2").write_text("served")
         d = t / "desk"; (d / "home/.rsprox").mkdir(parents=True); (d / "home/.rlcustom/profiles2").mkdir(parents=True); (d / "jdk/bin").mkdir(parents=True)
+        (d / f"rsprox/lib-{re.search(r'^rsprox_commit=([0-9a-f]{12})', SRC, re.M)[1]}").mkdir(parents=True)   # the pinned RSProx's runtime: no template build
         (d / "home/.rlcustom/jagexcache/oldschool/LIVE").mkdir(parents=True); (d / "home/.rlcustom/jagexcache/oldschool/LIVE/main_file_cache.dat2").write_text("template")
         (d / "home/.rlcustom/settings.properties").write_text("a=1\n"); (d / "home/.rlcustom/profiles2/p.properties").write_text("openrunedevtools.port=7780\n")
         exe(d / "jdk/bin/java.exe", f'echo "$$ OsrsTestLauncher $*" > {t}/win/$$.jvm; echo "$JAVA_TOOL_OPTIONS" > {t}/win/$$.opts; echo $((7779 + ${{1##*run}})) > {t}/win/$$.port; pwd > {t}/win/$$.dir; mkdir held; touch held/f; chmod 555 held; exec sleep 30\n')   # a live JVM holds its files
@@ -623,6 +624,18 @@ class DesktopInstance(unittest.TestCase):
         s.assertIn("    game_server_port: 2", y); s.assertIn("    binary_folder: openrune-qa", y)   # the up's own game port; the recordings' folder
         src = (HERE / "OsrsTestLauncher.java").read_text()
         s.assertNotIn("OPENRUNE_ENDPOINT", src); s.assertIn('getJavConfigUrl().matches("https?://(127\\\\.0\\\\.0\\\\.1|localhost):[0-9]+/jav_config\\\\.ws")', src)   # a non-local target is refused
+
+    def test_the_desktop_runs_the_runelite_of_the_served_revision(s):  # h-desktop-runelite-242: every desktop ran the 241 RuneLite, a 242 server answered CLIENT_OUT_OF_DATE and up waited forever
+        for slug, rev, commit in (("a", 242, "b4dab8e7cfdef726c45d2772d60d8a633d397361"), ("b", 241, "e617bef1a7f5c39fbe8768994d27d638941efd5d")):
+            p = s.sh(slug, f"rev={rev}; desktop_start; echo $inst"); n = p.communicate(timeout=60)[0].split()[-1][len("desktop"):]
+            s.assertIn(f"    runelite_bootstrap_commithash: {commit}", (s.t / f"desk/run/{n}/home/.rsprox/proxy-targets.yaml").read_text().splitlines())
+        p = s.sh("c", "rev=240; desktop_start", stderr=subprocess.PIPE); err = p.communicate(timeout=60)[1]
+        s.assertEqual(p.returncode, 1); s.assertIn("no RuneLite for client revision 240", err)
+        s.assertEqual(sorted(o.read_text().split()[0] for o in (s.t / "desk/run").glob("*/owner")), ["a", "b"])   # no instance claimed
+        pin = re.search(r'^rsprox_commit=([0-9a-f]{12})', SRC, re.M)[1]
+        s.assertTrue(all(f"rsprox\\lib-{pin}\\*" in f.read_text() for f in s.t.glob("win/*.jvm")))   # the pinned RSProx, whose osrs-<rev> modules decode each revision's login
+        s.assertIn('desktop_template.sh" "$desk" "$rsprox_commit"', SRC)   # a template without that RSProx builds it
+        s.assertIn(".runelite/repository2:/E", (HERE.parent / "track.sh").read_text())   # the template keeps each revision's jars: a mirror would drop the other's
 
     def test_a_fresh_home_opens_on_the_welcome_page_and_existing_user_on_the_form(s):  # run 136: the terms page took no key and the Jagex Account prompt ate the typed login; a fixed-coordinate click opened a Jagex page
         src = (HERE / "OsrsTestLauncher.java").read_text()
@@ -860,6 +873,21 @@ class DesktopLogin(unittest.TestCase):
         d, _ = s.fake(["LOGGED_IN"], widgets=[None, None, None, coins], inv=[{"slot": 0, "itemId": 995, "quantity": 5}])
         ticks = iter([5, 97, 98]); s.addCleanup(setattr, d, "tick", d.tick); d.tick = lambda port: next(ticks)
         s.assertEqual(d.token(1), "LOGGED_IN")   # sweep-46: the tick goes on across logins (0 -> 5 -> 97); an earlier login's event at 5 is no start
+
+    def test_a_client_stopped_on_a_fatal_error_fails_the_login_not_hangs(s):  # h-desktop-runelite-242: CLIENT_OUT_OF_DATE left the client UNKNOWN, up waited forever
+        import desktop_login as d
+        t = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, t); (t / "run/1").mkdir(parents=True); (t / "state/a").mkdir(parents=True)
+        (t / "run/1/owner").write_text("a 1-2\n")
+        (t / "state/a/desktop1.log").write_text("x - Unexpected Js5 server response: CLIENT_OUT_OF_DATE, closing channel\nerror_game_js5connect_outofdate\n")
+        d, _ = s.fake(["UNKNOWN"])
+        with mock.patch.dict(os.environ, {"DESKTOP_DIR": str(t), "HD_ROOT": str(t)}):
+            with s.assertRaisesRegex(d.Halted, "^error_game_js5connect_outofdate$"):
+                d.token(7780)
+            (t / "state/a/desktop1.log").write_text("starting\n")
+            d, _ = s.fake(["UNKNOWN", "LOGGED_IN"])
+            s.assertEqual(d.token(7780), "LOGGED_IN")   # no error line: waits on
+        src = (HERE / "desktop_login.py").read_text().split('if __name__')[1]
+        s.assertIn('r = f"FAILED: the client stopped: {e}"', src)   # up prints FAILED and ends
 
     def test_a_refused_call_raises(s):  # press_key BACK_SPACE was refused as an unknown key and the login went on
         import desktop_login as d, io
@@ -1679,7 +1707,7 @@ class TokenLogin(unittest.TestCase):  # a desktop's token login (auth type 7) th
         s.assertEqual(subprocess.run(["bash", "-c", f"set -euo pipefail; state={st}\n{fn}\nrevision {other}"], capture_output=True, text=True).stdout, "243\n")   # fault 420: another state dir's (live-desktop's state/live)
         (st / "game.yml").write_text("name: x\n"); out = run()
         s.assertEqual((out.returncode, out.stdout), (1, "")); s.assertIn("no revision:", out.stderr)   # no tree's revision: no literal stands in
-        s.assertNotRegex(Path(HERE / "jav_config.ws.template").read_text() + Path(HERE / "docker-compose.yml").read_text() + SRC + Path(HERE / "OsrsTestLauncher.java").read_text(), r"\b24[0-9]\b")
+        s.assertNotRegex(Path(HERE / "jav_config.ws.template").read_text() + Path(HERE / "docker-compose.yml").read_text() + re.sub(r"\nrunelite\(\) \{.*?\n  \*\)", "", SRC, flags=re.S) + Path(HERE / "OsrsTestLauncher.java").read_text(), r"\b24[0-9]\b")
         up = SRC.split("\nup() {")[1].split("\n}")[0]; dep = SRC.split("\ndeploy() {")[1].split("\n}")[0]; live = SRC.split("\nlive_desktop() {")[1].split("\n}")[0]
         s.assertLess(up.index('idle_off > "$state/game.yml"; rev=$(revision)'), up.index("central_jav"))   # up, deploy and live-desktop each from the game.yml they run
         s.assertLess(dep.index('> "$state/game.yml"; rev=$(revision)'), dep.index("central_jav")); s.assertLess(live.index('rev=$(revision "$root/state/live")'), live.index("desktop_start"))   # fault 420: the live stack's game.yml, never the slug's

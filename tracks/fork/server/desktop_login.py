@@ -35,6 +35,18 @@ def whole(f):  # f() again from its start while one of its calls is cancelled: a
             pass
 
 
+class Halted(Exception):
+    """The game client stopped on a fatal error (a JS5 refusal, CLIENT_OUT_OF_DATE): it prints error_game_<code> to its stdout, the up's desktop<N>.log, and never logs in."""
+
+
+def halted(port):  # the client's error_game_ line, None while it has printed none
+    try:
+        with open(f"{os.environ.get('HD_ROOT', ROOT)}/state/{(owner(port) or '').split(' ')[0]}/desktop{int(port) - 7779}.log", errors="replace") as f:
+            return next((l.strip() for l in f if l.startswith("error_game_")), None)
+    except OSError:
+        return None
+
+
 class Gone(Exception):
     """The instance this process started on no longer owns the port (its down removed it; another up may claim it)."""
 
@@ -145,6 +157,8 @@ def wait(port, states, poll=2, leave=False):
     """Blocks until the game state is one of states (leave: is none of them); the client reports a state on every read,
     so nothing is timed."""
     while (g := (s := state(port)).get("gameState")) is None or (g in states) == leave:
+        if e := halted(port):
+            raise Halted(e)
         time.sleep(poll)
     return s
 
@@ -302,11 +316,15 @@ if __name__ == "__main__":
             keep(port, act, server_ready(c))
         except (OSError, Refused, Gone) as e:
             print(f"keep: devtools endpoint on {port} gone: {e}")
+        except Halted as e:
+            print(f"keep: the client on {port} stopped: {e}")
         sys.exit(0)
     try:
         with locked(port):
             r = whole(act)
     except (OSError, Refused, Gone) as e:
         r = f"FAILED: devtools endpoint on {port}: {e}"
+    except Halted as e:
+        r = f"FAILED: the client stopped: {e}"
     print(r)
     sys.exit(0 if r in ("LOGGED_IN", "LOGIN_SCREEN") else 1)

@@ -21,8 +21,10 @@
 #                     the head's step; every other head packs on the restored revision (its cache inputs': the head's step);
 #                     each step is timed alone (the job's timeout-minutes on every step), so a timeout names the step that ran
 #                     out; a run failed at a step the head does not touch is re-run once its source answers, and after 3
-#                     attempts the row exits 75: held, no result; a run GitHub started no job of is dispatched again
-#                     (the head's only when it changes a workflow), held the same after 3 such runs
+#                     attempts the row exits 75: held, no result (at once when GitHub shows no new attempt of a re-run asked);
+#                     freshCache failing again on a re-run made once openrs2 answered is the tree's (it packs the tree's gamevals);
+#                     a run GitHub started no job of is dispatched again
+#                     (the head's only when it changes a workflow), held the same after 3 such runs; runs are known by workflow file
 #   ci-step STEP      the carry's CI wait (hd.py ci_fault) asks of an upstream CI step that failed: exit 0 when STEP reads nothing
 #                     the head (HEAD over BASE) changes, once its source answers (gate-ci's own classifier); 1 when it is the head's
 . "$(dirname "$0")/../build/build.sh"   # verb slug arg self(tools/build) repo root state dev copy atomic record size hosted box tree central build
@@ -104,7 +106,7 @@ gate_ci() {  # pushes T (gate_sha) to gate/<slug>; the newest run of each workfl
   q="repos/$R/actions/runs?branch=gate/$slug&head_sha=$sha&per_page=100" etag= runs= ran= rr=; declare -A zn=()
   while :; do
     read_runs || return 1; ok=0
-    for wf in CI Formatting; do
+    for wf in ci.yml format.yml; do   # by file: a run carries the name of its own sha's workflow (upstream renamed ci.yml's), never the default branch's
       read -r _ st id att <<< "$(grep -m1 "^$wf " <<< "$runs" || true)"   # newest first
       case $st in success/*) ok=$((ok + 1)) ;;
         failure/completed|cancelled/completed|timed_out/completed|startup_failure/completed) case " $rr " in *" $id.$att "*) continue ;; esac   # its re-run asked for: GitHub has not yet shown it
@@ -115,9 +117,12 @@ gate_ci() {  # pushes T (gate_sha) to gate/<slug>; the newest run of each workfl
             echo "$wf $st with no job started on gate/$slug at $sha, not the head's: dispatched again"
             if gh workflow run "$wf" -R "$R" --ref "gate/$slug"; then rr="$rr $id.$att"; zn[$wf]=$((${zn[$wf]:-0} + 1)); fi; continue
           fi
+          if [ "$att" -gt 1 ] && [[ $f == "Generate cache"* ]]; then echo "$wf failed at '$f' again on gate/$slug at $sha, re-run after openrs2 answered: the tree's"; return 1; fi
           [ "$att" -lt 3 ] || { echo "$wf failed at '$f' in $att attempts on gate/$slug at $sha, a step the head does not touch: no result"; exit 75; }
           echo "$wf failed at '$f', a step the head does not touch: re-run once its source answers"; answers "$f"
-          if gh run rerun "$id" --failed -R "$R"; then rr="$rr $id.$att"; fi ;;
+          gh run rerun "$id" --failed -R "$R" || true
+          [ "$(gh api "repos/$R/actions/runs/$id" -q .run_attempt || echo 0)" -gt "$att" ] || { echo "$wf run $id: re-run asked, GitHub still shows attempt $att: no result"; exit 75; }   # GitHub numbers the attempt as it accepts
+          rr="$rr $id.$att" ;;
         */completed) echo "$wf $st on gate/$slug at $sha (T $TCOMMIT)"; return 1 ;;
         "") case " $ran " in *" $wf "*) ;; *) if gh workflow run "$wf" -R "$R" --ref "gate/$slug"; then ran="$ran $wf"; fi ;; esac ;; esac
     done
@@ -197,7 +202,7 @@ openrs2() {  # openrs2 serves the revision's cache: its newest live cache of gam
   id=$(curl -sf https://archive.openrs2.org/caches.json | python3 -c 'import json,sys; r=int(sys.argv[1]); c=[x for x in json.load(sys.stdin) if x.get("game")=="oldschool" and x.get("environment")=="live" and any(b.get("major")==r for b in x.get("builds") or [])]; print(max(c, key=lambda x: x["timestamp"])["id"] if c else "")' "${rev:-0}" 2>/dev/null) && [ -n "$id" ] || return 1
   [ "$({ curl -sf "https://archive.openrs2.org/caches/runescape/$id/disk.zip" || true; } | head -c 4096 | wc -c)" = 4096 ]
 }
-read_runs() {  # $runs: "<workflow> <conclusion>/<status> <id> <attempt>" of each run at sha, newest first, read with If-None-Match the last ETag (one read
+read_runs() {  # $runs: "<workflow file> <conclusion>/<status> <id> <attempt>" of each run at sha, newest first, read with If-None-Match the last ETag (one read
   # for both workflows; a 304 leaves $runs and costs no quota). A quota refusal holds the row until GitHub's reset, never fails it.
   local code tag reset body s
   while :; do
@@ -211,7 +216,7 @@ if code in ("403", "429") and (k.get("x-ratelimit-remaining") == "0" or "rate li
 else:
     print(code, k.get("etag", "-"), 0)
     if code == "200":
-        for r in json.loads(b)["workflow_runs"]: print(r["name"].replace(" ", "_"), (r["conclusion"] or "") + "/" + r["status"], r.get("id", 0), r.get("run_attempt", 1))
+        for r in json.loads(b)["workflow_runs"]: print(r["path"].split("@")[0].rsplit("/", 1)[-1], (r["conclusion"] or "") + "/" + r["status"], r.get("id", 0), r.get("run_attempt", 1))
 ')
     case $code in 200) etag=$tag runs=$body; return ;; 304) return ;;
       quota) echo "GitHub refused $q on quota: held until its reset $(date -ud "@$reset" +%TZ)"; s=$((reset - $(date +%s))); if [ $s -gt 0 ]; then sleep $s; fi ;;

@@ -91,8 +91,10 @@ of the feature.
   user's word.
 - **A4** A question to the user carries typed options, each with its effect (a dependency, a waived criterion, an
   accepted difference, a close, a repo move, an act only the user may take); the decision takes one option or several
-  and applies each effect. Only the user's decision accepts a
-  difference from the official game.
+  and applies each effect. A run names its recommended option; an internal one (a dependency, a waived criterion,
+  a close, a repo move) is taken by the orchestrator without the user. Only the user's decision accepts a
+  difference from the official game, writes an upstream text, bundles a feature, takes a user's act or decides an
+  ask with no recommendation.
 - **A5** The user's standing holds (a track held from upstream, a priority band held) are records the loop obeys
   until the user lifts them.
 - **A6** The user decides every bundle: a change's `feature:` is set only by the user (their definition or their

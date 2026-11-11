@@ -19,5 +19,5 @@ docker run --rm -i --init --name "$name" -u 1000:1000 \
     -v "$SRC/game.yml":/w/game.yml:ro \
     --tmpfs /w/logs:uid=1000 \
     -e RSPS_ROOT=/w -e LOG_DIR=/w/logs -w /w \
-    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt &
+    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt <&0 &   # a background job's stdin is /dev/null unless it is passed on: the server never saw its client
 wait $!

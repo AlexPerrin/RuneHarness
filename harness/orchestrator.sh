@@ -11,7 +11,7 @@ systemctl --user show -p ExecStart hd-loop.service | grep -qF " $PWD/harness/hd.
 n=0
 while :; do
   n=$((n + 1)); unit=hd-orchestrator-$$-$n
-  systemd-run --user --scope --quiet --collect --unit "$unit" -- claude --agent orchestrator --remote-control orchestrator "drive"
+  systemd-run --user --scope --quiet --collect --unit "$unit" -- claude --agent orchestrator --remote-control orchestrator "begin: arm the watch, then run hd and act on every line"
   systemctl --user stop "$unit.scope" 2>/dev/null   # what the session left behind (MCP servers, a watch) ends with it
   python3 harness/hd.py session-ended || break
 done

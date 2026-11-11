@@ -325,6 +325,10 @@ class Ledger:
     def answers_since(self, slug, at):
         return self.all("SELECT n.* FROM answer n JOIN ask a ON a.id=n.ask WHERE a.change=? AND n.at>? ORDER BY n.at", slug, at)
 
+    def appended_since(self, slug, at):
+        """The sections hd new --on appended to the change after `at`: the user's word on the change itself."""
+        return self.all("SELECT * FROM event WHERE change=? AND kind='new' AND detail LIKE 'appended:%' AND at>? ORDER BY id", slug, at)
+
     def submission(self, slug, head):
         return self.one("SELECT * FROM submission WHERE change=? AND head=?", slug, head)
 

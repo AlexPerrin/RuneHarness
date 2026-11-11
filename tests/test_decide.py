@@ -199,6 +199,14 @@ class Tempo(Base):  # T1, T3, T4
         s2 = {a.change: a.step for a in decide.plan(self.L, [ch, dep], CFG)}["h-one"]
         self.assertEqual(s2.kind, "run"); self.assertNotEqual(s1.input, s2.input)
 
+    def test_an_appended_section_is_a_new_input_for_the_dev(self):   # the user's word added with hd new --on reaches a parked hand-back
+        s1 = self.step()
+        self.run_row(s1.input, ended_at="t", end_kind="handback", record="run 1: ask")
+        self.assertIn("ended (handback)", self.step().why)
+        store.event(self.db, "new", "h-one", None, "appended: Build the tables and land")
+        s2 = self.step()
+        self.assertEqual(s2.kind, "run"); self.assertNotEqual(s1.input, s2.input)
+
     def test_agent_count_and_held_band(self):
         other = [Change(f"h-{i}", "harness") for i in range(3)]
         actions = decide.plan(self.L, other, CFG)

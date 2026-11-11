@@ -307,6 +307,7 @@ def dev_due(C, ch):
     if not why:
         return None
     answers = [a["ask"] for a in C.L.answers_since(ch.slug, s["at"] if s else "")]
+    answers += [f"appended {e['id']}" for e in C.L.appended_since(ch.slug, s["at"] if s else "")]   # a section added by hd new --on is a new input
     landed = [d for d in ch.deps if d in C.defs and done(C, C.defs[d])]
     if ch.track not in SERVER:
         landed += [d for d in server_deps(C, ch) if C.L.landed(d, "live")]   # a server dep live on the test server is its dependent's new fact

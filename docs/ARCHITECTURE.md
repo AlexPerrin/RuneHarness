@@ -769,7 +769,7 @@ Harness defects are facts the pass computes into `alert` rows, one per `(kind, s
 | `run-lost` | change | two runs of a change ended `console` or `stop` without a record |
 | `runs-per-head` | change | more than five runs since the last submission |
 | `ask-stale` | ask id | an ask still open after its change submitted twice |
-| `denied` | run:rule | a hook denial (`hd approve`/`hd close` run by an agent; inside a quoted argument it is text, after `-c` or `eval` it runs); the event names the command |
+| `denied` | run:rule | a hook denial (`hd approve`/`hd close` run by an agent; inside a quoted argument or a heredoc body fed to a non-shell it is text, after `-c` or `eval` or in a heredoc into a shell it runs); the event names the command |
 | `fault` | run | `hd fault`: a run met a broken script or a step it could not do |
 | `ci-runner` | gate key | fork CI failed three times at a step the head does not touch |
 | `kpi` | metric | a metric past its target at the day's roll-up |

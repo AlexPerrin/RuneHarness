@@ -1269,13 +1269,13 @@ class Snapshot(Repo):
 
 class GateCi(Repo):
     WF = "jobs:\n  b:\n    steps:\n      - uses: actions/checkout@v7\n      - name: Set up Gradle\n        uses: gradle/actions/setup-gradle@v6\n      - run: ./gradlew test\n"
-    RUNS = staticmethod(lambda st: f'HTTP/2.0 200 OK\nEtag: W/"{st or "running"}"\n\n' + json.dumps({"workflow_runs": [{"name": w, "status": "completed" if st else "in_progress", "conclusion": st or None} for w in ("CI", "Formatting")]}))
+    RUNS = staticmethod(lambda st: f'HTTP/2.0 200 OK\nEtag: W/"{st or "running"}"\n\n' + json.dumps({"workflow_runs": [{"name": w, "path": f".github/workflows/{f}.yml", "status": "completed" if st else "in_progress", "conclusion": st or None} for w, f in (("CI", "ci"), ("Formatting", "format"))]}))
     GREEN = [RUNS("success")]
 
     @staticmethod
     def fake_gh(bin, answers):  # `gh api` prints answers[n] at its n-th call (the last repeats), each call's args in bin/calls; sleep is free
         for i, a in enumerate(answers): (bin / f"a{i}").write_text(a)
-        (bin / "gh").write_text(f'#!/bin/sh\nd=$(dirname "$0"); echo "$*" >> "$d/calls"; case "$1 $2" in "release view") cat "$d/assets" 2>/dev/null; exit 0 ;; "release upload") basename "$4" >> "$d/assets"; exit 0 ;; esac; [ "$1" = api ] || exit 0\ncase "$2" in */jobs) cat "$d/step"; exit 0 ;; esac\n'
+        (bin / "gh").write_text(f'#!/bin/sh\nd=$(dirname "$0"); case "$*" in "api repos/"*/runs/[0-9]*" -q .run_attempt") echo "${{GH_ATTEMPT:-99}}"; exit 0 ;; esac; echo "$*" >> "$d/calls"; case "$1 $2" in "release view") cat "$d/assets" 2>/dev/null; exit 0 ;; "release upload") basename "$4" >> "$d/assets"; exit 0 ;; esac; [ "$1" = api ] || exit 0\ncase "$2" in */jobs) cat "$d/step"; exit 0 ;; esac\n'
                                 f'n=$(grep -c "^api" "$d/calls"); [ $n -gt {len(answers)} ] && n={len(answers)}; cat "$d/a$((n-1))"; case $(head -1 "$d/a$((n-1))") in *" 200 "*) ;; *) exit 1 ;; esac\n')
         (bin / "sleep").write_text('#!/bin/sh\necho "$1" >> "$(dirname "$0")/sleeps"\n')
         for f in ("gh", "sleep"): (bin / f).chmod(0o755)
@@ -1315,11 +1315,11 @@ class GateCi(Repo):
 
     def test_a_failed_run_fails_the_row_and_no_run_dispatches_each_workflow_once(s):
         r, calls, _ = s.gate(['HTTP/2.0 200 OK\nEtag: "0"\n\n{"workflow_runs": []}', 'HTTP/2.0 304 Not Modified\n\n', s.RUNS("failure")])
-        s.assertEqual(r.returncode, 1); s.assertIn("CI failure/completed", r.stdout)
-        s.assertEqual(sorted(c.split()[2] for c in calls if c.startswith("workflow run")), ["CI", "Formatting"])
+        s.assertEqual(r.returncode, 1); s.assertIn("ci.yml failure/completed", r.stdout)
+        s.assertEqual(sorted(c.split()[2] for c in calls if c.startswith("workflow run")), ["ci.yml", "format.yml"])
 
     FAILED = staticmethod(lambda att, c="failure": f'HTTP/2.0 200 OK\nEtag: W/"f{att}"\n\n' + json.dumps({"workflow_runs": [
-        {"name": "CI", "status": "completed", "conclusion": c, "id": 7, "run_attempt": att}, {"name": "Formatting", "status": "completed", "conclusion": "success", "id": 8}]}))
+        {"name": "Nightly Server Build", "path": ".github/workflows/ci.yml", "status": "completed", "conclusion": c, "id": 7, "run_attempt": att}, {"name": "Formatting", "path": ".github/workflows/format.yml", "status": "completed", "conclusion": "success", "id": 8}]}))
 
     def test_a_run_failed_outside_the_head_is_re_run_not_the_heads_fail(s):  # GitHub's checkout failed, not the head: CI runs 41357682052, 41357793032
         r, calls, _ = s.gate([s.FAILED(1), s.FAILED(1), s.RUNS("success")], step="Checkout repository")
@@ -1333,7 +1333,7 @@ class GateCi(Repo):
     def test_a_cache_step_failure_is_the_heads_when_the_head_changes_its_input(s):
         base = git(s.repo, "rev-parse", "HEAD"); s.write("game.example.yml", "revision: 242\n"); head = s.commit("moves the revision")
         r, calls, _ = s.gate([s.FAILED(1)], step="Generate cache and gameval sources", env={"BASE": base, "HEAD": head})
-        s.assertEqual(r.returncode, 1); s.assertIn("CI failure/completed at 'Generate cache and gameval sources'", r.stdout)
+        s.assertEqual(r.returncode, 1); s.assertIn("ci.yml failure/completed at 'Generate cache and gameval sources'", r.stdout)
         s.assertFalse([c for c in calls if c.startswith("run rerun")])
 
     def test_the_carry_asks_the_same_classifier_of_a_failed_upstream_step(s):  # PR 448's freshCache failed upstream; hd's carry judged every failure the head's
@@ -1352,19 +1352,28 @@ class GateCi(Repo):
         base = git(s.repo, "rev-parse", "HEAD")
         r, calls, _ = s.gate([s.FAILED(1, "startup_failure"), s.FAILED(1), s.RUNS("success")], step="(no job)", env={"BASE": base, "HEAD": base})
         s.assertEqual(r.returncode, 0, r.stdout + r.stderr); s.assertIn("with no job started", r.stdout)
-        s.assertEqual([c.split()[2] for c in calls if c.startswith("workflow run")], ["CI"]); s.assertFalse([c for c in calls if c.startswith("run rerun")])
+        s.assertEqual([c.split()[2] for c in calls if c.startswith("workflow run")], ["ci.yml"]); s.assertFalse([c for c in calls if c.startswith("run rerun")])
 
     def test_a_third_run_with_no_job_holds_with_no_result(s):
         base = git(s.repo, "rev-parse", "HEAD")
-        zero = lambda i: f'HTTP/2.0 200 OK\nEtag: W/"z{i}"\n\n' + json.dumps({"workflow_runs": [{"name": "CI", "status": "completed", "conclusion": "failure", "id": i, "run_attempt": 1}]})
+        zero = lambda i: f'HTTP/2.0 200 OK\nEtag: W/"z{i}"\n\n' + json.dumps({"workflow_runs": [{"name": "CI", "path": ".github/workflows/ci.yml", "status": "completed", "conclusion": "failure", "id": i, "run_attempt": 1}]})
         r, calls, _ = s.gate([zero(1), zero(1), zero(2), zero(2), zero(3)], step="(no job)", env={"BASE": base, "HEAD": base})  # each read is followed by its run's jobs read, which the fake counts as an api call
         s.assertEqual(r.returncode, 75, r.stdout + r.stderr); s.assertIn("started no job in 3 runs", r.stdout)
 
     def test_a_run_with_no_job_is_the_heads_when_the_head_changes_a_workflow(s):  # GitHub cannot start a workflow the head broke
         base = git(s.repo, "rev-parse", "HEAD"); s.write(".github/workflows/x.yml", "on: [\n"); head = s.commit("breaks a workflow")
         r, calls, _ = s.gate([s.FAILED(1)], step="(no job)", env={"BASE": base, "HEAD": head})
-        s.assertEqual(r.returncode, 1); s.assertIn("CI failure/completed at '(no job)'", r.stdout)
+        s.assertEqual(r.returncode, 1); s.assertIn("ci.yml failure/completed at '(no job)'", r.stdout)
         s.assertFalse([c for c in calls if c.startswith("workflow run")])
+
+    def test_a_rerun_github_never_shows_holds_with_no_result(s):  # fork-friend-add-updates-list: the gate polled 3 h for a re-run GitHub never showed
+        r, calls, _ = s.gate([s.FAILED(1)], step="Set up Gradle", env={"GH_ATTEMPT": "1"})
+        s.assertEqual(r.returncode, 75, r.stdout + r.stderr); s.assertIn("still shows attempt 1", r.stdout)
+
+    def test_freshcache_failing_again_after_openrs2_answered_is_the_trees(s):  # run 42939141541: telegrab_cast 3006 under 242's max id, the tree's gamevals, read as openrs2's
+        base = git(s.repo, "rev-parse", "HEAD")   # the head changes no revision: openrs2's step until a re-run fails it again
+        r, calls, _ = s.gate([s.FAILED(2)], step="Generate cache and gameval sources", env={"BASE": base, "HEAD": base})
+        s.assertEqual(r.returncode, 1, r.stdout + r.stderr); s.assertIn("the tree's", r.stdout); s.assertFalse([c for c in calls if c.startswith("run rerun")])
 
     def test_a_third_attempt_failed_outside_the_head_holds_with_no_result(s):
         r, calls, _ = s.gate([s.FAILED(3)], step="Set up Gradle")

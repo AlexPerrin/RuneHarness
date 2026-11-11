@@ -1164,6 +1164,7 @@ class TestVerb(Repo):
 case " $* " in *" chown "*) exit 0 ;; esac
 for a in "$@"; do case $a in *:{copy}/.git:ro) gd=$(sed 's/^gitdir: //' "${{a%%:*}}") ;; esac; done
 git --git-dir="$gd" rev-parse HEAD origin/main > {root}/git; git --git-dir="$gd" status --porcelain >> {root}/git
+for a in "$@"; do case $a in PRE=*) echo "$a" > {root}/pre ;; esac; done
 while [ "$1" != _ ]; do shift; done; shift; echo "$@" > {root}/tasks
 mkdir -p {copy}/mod/build/test-results/test; echo '<testsuite name="ATest" tests="3" skipped="0" failures="0" errors="0" x>' > {copy}/mod/build/test-results/test/a.xml
 """)
@@ -1176,6 +1177,7 @@ mkdir -p {copy}/mod/build/test-results/test; echo '<testsuite name="ATest" tests
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env={**os.environ, "EVIDENCE": "", "PATH": f"{root}/bin:{os.environ['PATH']}"})
         s.assertEqual(r.returncode, 0, r.stderr + r.stdout)
         s.assertEqual((root / "tasks").read_text().split(), [":mod:test", ":mod:spotlessCheck"])
+        s.assertEqual((root / "pre").read_text().strip(), "PRE=generateRsa")   # the clean removes .data/game.key: generateRsa runs before the suites
         s.assertEqual((root / "git").read_text().split(), [tc, git(s.repo, "rev-parse", "origin/main")])
         s.assertIn('<testsuite name="ATest" tests="3"', (root / "evidence/s1/test.log").read_text())
         s.assertTrue(json.loads((root / "st/test.json").read_text())["ok"])

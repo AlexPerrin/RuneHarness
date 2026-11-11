@@ -17,6 +17,7 @@ state=$root/state/$slug; mkdir -p "$state"
 dev=$repo/.worktrees/$slug; copy=$repo/.worktrees/$slug-build
 atomic() { cat > "$1.$$.tmp"; if [ -s "$1.$$.tmp" ]; then mv -f "$1.$$.tmp" "$1"; else rm -f "$1.$$.tmp"; return 1; fi; }   # a state record whole or not at all: hd reads it at any moment
 record() { python3 -c 'import json,os,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:],"head":os.environ.get("HEAD","")}))' "$T" "$1" | atomic "$state/$2.json"; }
+cause() { local w; w=$(grep -m1 -A2 '^\* What went wrong:' "$1" | tail -n +2 | paste -sd' '); echo "${w:-$(tail -c 300 "$1" | tail -1)}"; }   # what a failed log names: gradle's failing task and reason, never its timing line (alert 88: one cause read as two)
 v=2   # the version of what a build keeps (or:<T>'s label hd.build, the store's s<v>-<ck>): bumped when one kept may be wrong (2: packed with no other tree's incremental state)
 size=(--cpus=4 --memory=5g)   # one build or check container's share of the host; hd.yaml builds (HD_BUILDS) bounds how many run at once
 slot() {  # slot <command...>: the command under one of the HD_BUILDS build slots (the first free, else waiting on the first)
@@ -108,7 +109,7 @@ build_locked() {
         $g :or-cache:mergePluginGamevals   # release-server.yml: freshCache, then mergePluginGamevals, then shadowJar
         rm -rf $s.tmp && mkdir -p $s.tmp && cp -a --parents .data/cache .data/gamevals .data/gamevals-binary api/generated $s.tmp/ && mv $s.tmp $s
       fi
-      $g :server:app:shadowJar' || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
+      $g :server:app:shadowJar' || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(cause "$log")"; return 1; }
   trap - EXIT TERM INT   # past its container: a gate sourcing this never removes a later build's
   rm -f "$gd"
   st=$copy/.image; rm -rf "$st"; mkdir -p "$st/.data"   # release-server.yml's bundle: server.jar, game.yml, .data/ without raw-cache; no key or database (up and deploy give their own)

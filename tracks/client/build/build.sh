@@ -26,6 +26,7 @@ modulus() { sed -n 's/^Modulus: //p' "$pair" 2>/dev/null; }
 server=127.0.0.1:8443   # the APK's jav_config endpoint: the port Central's jav_config names its sign-in on (the fork track's central_jav)
 carries() { unzip -p "$1" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aF "$2" >/dev/null; }   # carries APK MODULUS: the APK's game library holds that login modulus (no -q: its early exit SIGPIPEs unzip, a pipefail failure)
 record() { python3 -c 'import json,sys;print(json.dumps({"T":sys.argv[1],"ok":sys.argv[2]=="true","detail":sys.stdin.read()[-2000:]}))' "$T" "$1" | atomic "$state/$2.json"; }
+cause() { local w; w=$(grep -m1 -A2 '^\* What went wrong:' "$1" | tail -n +2 | paste -sd' '); echo "${w:-$(tail -c 300 "$1" | tail -1)}"; }   # what a failed log names: gradle's failing task and reason, never its timing line (alert 88: one cause read as two)
 
 tree() {
   tc=${TCOMMIT:-$arg}   # the pass's TCOMMIT (its argument is the job key), or a dev's argument
@@ -50,7 +51,7 @@ build() {
   [ -f "$copy/re/build/build.ninja" ] || cmake -S "$copy/native" -B "$copy/re/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 >/dev/null
   log=$ev/repack-$T.log
-  (cd "$copy" && host/plugins/devtools/build.sh && host/build.sh && ninja -C re/build && MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh) > "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(tail -c 300 "$log" | tail -1)"; return 1; }
+  (cd "$copy" && host/plugins/devtools/build.sh && host/build.sh && ninja -C re/build && MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh) > "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "$(cause "$log")"; return 1; }
   EVIDENCE=$ev check_log >/dev/null || { record false build <<< "repack log fails the privacy check: $log"; rm -f "$copy/re/out/osrs-runelite.apk"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "the repack log fails the privacy check"; return 1; }
   cp "$copy/re/host/plugins-extra/devtools.jar" "$ev/$T.devtools.jar"; cp "$copy/re/devtools-build/devtools.jar" "$ev/$T.devtools-desktop.jar"; cp "$copy/re/out/osrs-runelite.apk" "$ev/$T.apk"; record true build < "$log"; echo "built $ev/$T.apk"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "$ev/$T.apk"
 }

@@ -185,6 +185,17 @@ class BuildAttempts(unittest.TestCase):
         return subprocess.run(["bash", str(HERE.parent / "track.sh"), "build", "x", s.tc], capture_output=True, text=True,
                               env={**os.environ, "HD_ROOT": str(s.root), "CLONE": str(s.repo), "PATH": f"{s.root / 'bin'}:{os.environ['PATH']}", "CENTRAL": ""})
 
+    def test_a_failure_is_named_by_its_cause_not_its_timing(s):  # alert 88: one freshCache failure ended 'BUILD FAILED in 2m 40s', then '... 3m 5s': read as two
+        for script in (HERE.parent / "build/build.sh", HERE.parents[1] / "client/build/build.sh"):
+            fn = next(l for l in script.read_text().splitlines() if l.startswith("cause() "))
+            out = []
+            for t in ("2m 40s", "3m 5s\n149 actionable tasks: 1 executed"):
+                (s.root / "log").write_text(f"x\n* What went wrong:\nExecution failed for task ':or-cache:freshCache'.\n> exit value 1\n\n* Try:\nBUILD FAILED in {t}\n")
+                out.append(subprocess.run(["bash", "-c", fn + '\ncause "$1"', "_", str(s.root / "log")], capture_output=True, text=True).stdout)
+            s.assertEqual(out, ["Execution failed for task ':or-cache:freshCache'. > exit value 1\n"] * 2, script)
+            (s.root / "log").write_text("ninja: build stopped: subcommand failed.\n")   # no gradle block: the last line
+            s.assertEqual(subprocess.run(["bash", "-c", fn + '\ncause "$1"', "_", str(s.root / "log")], capture_output=True, text=True).stdout, "ninja: build stopped: subcommand failed.\n")
+
     def test_a_host_fault_records_no_result_and_a_tree_failure_records_its_fail(s):  # osrs-harness sweep-18 N7: docker's 'cannot allocate memory' was recorded as the head's build FAIL
         r = s.build(); b = json.loads((s.root / "state/x/build.json").read_text())
         s.assertEqual((r.returncode, b["ok"]), (1, False)); s.assertIn("gradle: boom", b["detail"])   # the tree's own failure: ok:false

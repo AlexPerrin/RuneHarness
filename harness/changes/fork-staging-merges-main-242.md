@@ -3,6 +3,9 @@ slug: fork-staging-merges-main-242
 track: fork
 priority: P2
 upstream: false
+deps:
+- fork-android-rsprot-242
+- h-fork-revision-242
 ---
 # Upstream main fccf79f82 (rev 242) does not merge onto staging
 

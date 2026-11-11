@@ -17,10 +17,10 @@ if [ ! -x "$desk/jdk/bin/java.exe" ]; then
 fi
 mkdir -p "$desk/rsprox" "$desk/logs" "$desk/run" "$desk/home/.rsprox" "$desk/home/.rlcustom/sideloaded-plugins"
 if [ ! -d "$lib" ]; then   # upstream's Gradle build in a JDK 11 container, its runtime classpath exported by rsprox-runtime.init.gradle.kts
-  src=$(mktemp -d); trap 'docker run --rm -v "$src:/s" eclipse-temurin:11 rm -rf /s/build /s/.gradle >/dev/null 2>&1; rm -rf "$src"' EXIT
+  src=$(mktemp -d); trap 'docker run --rm -v "$src:/s" eclipse-temurin:11 find /s -mindepth 1 -delete >/dev/null 2>&1; rm -rf "$src"' EXIT   # the build writes root-owned dirs across the tree
   curl -fsSL "https://codeload.github.com/blurite/rsprox/tar.gz/$commit" | tar -xz -C "$src" --strip-components=1
   docker run --rm -v "$src:/src" -v "$self/rsprox-runtime.init.gradle.kts:/init.gradle.kts:ro" -v rsprox-gradle:/root/.gradle -w /src eclipse-temurin:11 \
-    bash -c "./gradlew --no-daemon -q --init-script /init.gradle.kts assemble osrsTestRuntime && chown -R $(id -u):$(id -g) build" >&2
+    bash -c "./gradlew --no-daemon -q --init-script /init.gradle.kts assemble osrsTestRuntime" >&2
   rm -rf "$lib.tmp"; cp -r "$src/build/osrs-test-runtime" "$lib.tmp"; mv -T "$lib.tmp" "$lib"
 fi
 [ -d "$desk/home/.rlcustom/profiles2" ] || cat > "$desk/home/.rlcustom/settings.properties" <<'PROPS'

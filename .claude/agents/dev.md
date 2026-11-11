@@ -15,7 +15,9 @@ hand-back line. Then read `tracks/<repo>/track.md` and use the skills it names.
   readers per run (the user: 1-3), so merge related questions into one reader.
 - A limit in your scope is fixed before submission; one outside it is `hd new <slug> --blocks <yours>`.
 - A harness defect you meet: `hd fault <run> "<what>"`, then go on or hand back. A failure your head cannot fix (a tool,
-  credentials, another change) is `hd fault` or `hd ask`, never the same head submitted again.
+  credentials, another change) is `hd fault` or `hd ask`, never the same head submitted again. An ask names your
+  recommended option (`--recommend <id>`): an internal one (dep, waive, close, move-repo) the orchestrator takes; the
+  user decides only an upstream text, a release, a permission, an accepted difference or an ask with no recommendation.
 - Start from the brief's files on your branch and the previous run's line, not a search of the repo. `hd show <slug>`
   reprints this brief; call it only for fresh results after a build, gate or submit.
 - At the context limit the hook tells you: commit, stop your processes, write evidence/<slug>/handoff.md, hand back.

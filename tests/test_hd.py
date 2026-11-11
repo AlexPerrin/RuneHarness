@@ -106,6 +106,35 @@ class Hd(unittest.TestCase):
         self.assertEqual(db.execute("SELECT waived FROM criterion WHERE rid='dupes-3'").fetchone()[0], 1)
         self.assertEqual(db.execute("SELECT by, words FROM answer").fetchone()[1], "the lamp cannot be sold")
 
+    def test_an_internal_recommended_ask_is_the_orchestrators_and_its_close_applies(self):   # A4: internal asks need no user
+        import contextlib, io, os
+        db = store.connect()
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'orchestrator')", (os.getpid(),))
+        with self.assertRaises(SystemExit):   # --recommend names an option
+            hd.main(["ask", "x", "done?", "--option", "a:superseded by y:close", "--recommend", "z"])
+        hd.main(["ask", "x", "done?", "--option", "a:superseded by y:close", "--option", "b:keep:user-act keep it", "--recommend", "a"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hd.view(db, hd.act.cfg())
+        self.assertIn("decide   x", out.getvalue()); self.assertIn("→ hd answer x a", out.getvalue())
+        with self.assertRaises(SystemExit):   # not the recommended option: the user's
+            hd.main(["answer", "x", "b"])
+        hd.main(["answer", "x", "a"])
+        self.assertEqual(db.execute("SELECT by FROM answer").fetchone()[0], "orchestrator")
+        self.assertEqual(db.execute("SELECT closed_words FROM change_state WHERE slug='x'").fetchone()[0], "superseded by y")
+
+    def test_an_ask_recommending_a_users_effect_stays_the_users_question(self):   # only upstream, release, permission, difference, bundle, no recommendation
+        import os
+        db = store.connect()
+        hd.main(["ask", "x", "accept?", "--option", "a:accept it:accept-difference the hop delay", "--recommend", "a"])
+        self.assertEqual(db.execute("SELECT kind FROM event WHERE kind IN ('question','decide')").fetchone()[0], "question")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'orchestrator')", (os.getpid(),))
+        with self.assertRaises(SystemExit):
+            hd.main(["answer", "x", "a"])
+        db.execute("UPDATE session SET role='driver'")
+        hd.main(["answer", "x", "a", "yes"])   # the user's word through the driver
+        self.assertEqual(db.execute("SELECT by FROM answer").fetchone()[0], "user")
+
     def test_one_answer_takes_several_options(self):   # "waive both": the second waiver was lost to a one-option answer
         for rid in ("acc-4", "done-stack"):
             hd.main(["criterion", "add", "x", rid, "--kind", "judge", "--text", "t", "--source", "seed"])

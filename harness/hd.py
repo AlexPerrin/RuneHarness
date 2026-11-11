@@ -3,7 +3,6 @@
 import argparse
 import json
 import os
-import shlex
 import signal
 import subprocess
 import sys
@@ -92,7 +91,7 @@ def view(db, cfg):
                 head = open(os.path.join(ROOT, r["brief"])).readline().split("step: ", 1)
                 pri = next((c.priority for c in act.changes() if c.slug == r["change"]), "goal")
                 out.append(f'spawn    Agent({r["role"]}, "Read and follow {r["brief"]}")   {r["change"]}  {pri}  {r["role"]}: {head[-1].strip()}')
-    kinds = ("ended", "alert") if role == "orchestrator" else DRIVER_KINDS
+    kinds = ("ended", "alert", "decide") if role == "orchestrator" else DRIVER_KINDS
     for e in db.execute(f"SELECT * FROM event WHERE id>? AND kind IN ({','.join('?' * len(kinds))}) ORDER BY id", (seen, *kinds)):
         out.append(f"{e['kind']:<9}{e['change'] or '':<24} {e['detail']}")
     live = db.execute("SELECT * FROM run WHERE ended_at IS NULL AND started_at IS NOT NULL ORDER BY id").fetchall()
@@ -306,6 +305,7 @@ def cmd_verdict(a):
 
 
 EFFECTS = ("dep", "waive", "accept-difference", "close", "reply", "move-repo", "user-act", "feature")   # what hd answer applies (ARCHITECTURE §8)
+INTERNAL = ("dep", "waive", "close", "move-repo")   # a recommended one the orchestrator answers; the rest (a difference, an upstream text, a bundle, a user act) are the user's
 
 
 def cmd_ask(a):
@@ -317,11 +317,20 @@ def cmd_ask(a):
            or (o["effect"] in ("dep", "waive", "reply", "user-act", "feature"))]   # these act on a named target: a bare one wrote a blank dep
     if bad:   # refused before any row: a malformed question would never show and never answer
         sys.exit(f"hd ask: each --option is id:text:effect with the effect one of {', '.join(EFFECTS)}; no ':' in the text. Bad: {bad}")
+    want = getattr(a, "recommend", None)
+    rec = next((o for o in opts if o["id"] == want), None)
+    if want and not rec:
+        sys.exit(f"hd ask: --recommend names one of the options {[o['id'] for o in opts]}")
+    if rec:
+        rec["recommended"] = True
+    internal = bool(rec) and rec["effect"].split()[0] in INTERNAL
     r = live_run(db, a.slug)
     aid = db.execute("INSERT INTO ask(change, text, options_json, run, at) VALUES (?,?,?,?,?)",
                      (a.slug, a.text, json.dumps(opts), r["id"] if r else None, now())).lastrowid
-    event(db, "question", a.slug, r["id"] if r else None,
-          f'{a.text}  ' + "  ".join(f"({o['id']}) {o['text']} [{o['effect']}]" for o in opts) + f"   → hd answer {a.slug} <id> \"<words>\"")
+    # an internal recommendation is the orchestrator's to take (a `decide` line); every other ask is the user's question
+    event(db, "decide" if internal else "question", a.slug, r["id"] if r else None,
+          f'{a.text}  ' + "  ".join(f"({o['id']}{'*' if o is rec else ''}) {o['text']} [{o['effect']}]" for o in opts)
+          + (f"   → hd answer {a.slug} {rec['id']}" if internal else f"   → hd answer {a.slug} <id> \"<words>\""))
     print(f"run {r['id']}: ask" if r else f"ask {aid}")
 
 
@@ -334,10 +343,12 @@ def cmd_answer(a):
     chosen = [by_id.get(i.strip()) for i in a.option.split(",")]   # "a,d": the user took several options (two waivers at once)
     if not all(chosen):
         sys.exit(f"hd answer: options are {list(by_id)}, one or several comma-separated")
-    if any(o["effect"].split()[0] == "close" for o in chosen):
-        sys.exit(f"hd answer: a close is the user's own: ! python3 {os.path.abspath(__file__)} close {a.slug} {shlex.quote(a.words or chosen[0]['text'])}")
+    s = session_of(db)
+    by = "orchestrator" if s and s["role"] == "orchestrator" else "user"
+    if by == "orchestrator" and not (len(chosen) == 1 and chosen[0].get("recommended") and chosen[0]["effect"].split()[0] in INTERNAL):
+        sys.exit("hd answer: the orchestrator takes only the recommended option of an internal ask; this one is the user's")
     db.execute("BEGIN")
-    db.execute("INSERT INTO answer(ask, option, words, by, at) VALUES (?,?,?,?,?)", (q["id"], a.option, a.words, "user", now()))
+    db.execute("INSERT INTO answer(ask, option, words, by, at) VALUES (?,?,?,?,?)", (q["id"], a.option, a.words, by, now()))
     for opt in chosen:
         effect, _, arg = opt["effect"].partition(" ")
         if effect == "dep":
@@ -363,7 +374,10 @@ def cmd_answer(a):
                        (a.slug, f"accepted-{q['id']}", "judge", f"accepted difference: {arg}", "answer", q["id"], now()))
     # user-act: the user took (or declined) the named act themselves; the answer row is the record the run is re-briefed with
     db.execute("COMMIT")
-    event(db, "answer", a.slug, None, f"ask {q['id']}: option {a.option} ({', '.join(o['effect'] for o in chosen)}) {a.words or ''}")
+    event(db, "answer", a.slug, None, f"ask {q['id']}: option {a.option} ({', '.join(o['effect'] for o in chosen)}) by {by} {a.words or ''}")
+    for o in chosen:
+        if o["effect"].split()[0] == "close":   # after the answer's commit: close() writes its own rows
+            close(db, a.slug, a.words or o["text"])
     act.tick_later()
 
 
@@ -424,18 +438,22 @@ def cmd_triage(a):
 
 
 def cmd_close(a):
-    db = store.connect()
+    close(store.connect(), a.slug, a.words)
+
+
+def close(db, slug, words):
+    """The change closed, its live run and jobs stopped: the user's own command, or an answered ask's close effect."""
     db.execute("INSERT INTO change_state(slug, closed_at, closed_words) VALUES (?,?,?) ON CONFLICT(slug) DO UPDATE SET closed_at=excluded.closed_at, closed_words=excluded.closed_words",
-               (a.slug, now(), a.words))
-    r = live_run(db, a.slug)
+               (slug, now(), words))
+    r = live_run(db, slug)
     if r:
         db.execute("UPDATE run SET ended_at=?, end_kind='close' WHERE id=?", (now(), r["id"]))
         act.stop_scope(r["id"])
-        event(db, "ended", a.slug, r["id"], f"run {r['id']}: closed with its change")
-    for j in db.execute("SELECT * FROM job WHERE change=? AND pid IS NOT NULL AND ended_at IS NULL", (a.slug,)).fetchall():
+        event(db, "ended", slug, r["id"], f"run {r['id']}: closed with its change")
+    for j in db.execute("SELECT * FROM job WHERE change=? AND pid IS NOT NULL AND ended_at IS NULL", (slug,)).fetchall():
         subprocess.run(["systemctl", "--user", "stop", j["scope"] + ".scope"], capture_output=True)
         db.execute("UPDATE job SET ended_at=?, pid=NULL, exit=-1, detail='closed' WHERE kind=? AND key=?", (now(), j["kind"], j["key"]))
-    event(db, "closed", a.slug, None, a.words)
+    event(db, "closed", slug, None, words)
     act.tick_later()
 
 
@@ -701,7 +719,7 @@ def main(argv=None) -> int:
     s.add_argument("--text", required=True); s.add_argument("--cmd"); s.add_argument("--source", default="accuracy"); s.add_argument("--source-id", type=int)
     s = sub.add_parser("submit"); s.add_argument("slug")
     s = sub.add_parser("verdict"); s.add_argument("slug"); s.add_argument("head"); s.add_argument("file")
-    s = sub.add_parser("ask"); s.add_argument("slug"); s.add_argument("text"); s.add_argument("--option", action="append", required=True)
+    s = sub.add_parser("ask"); s.add_argument("slug"); s.add_argument("text"); s.add_argument("--option", action="append", required=True); s.add_argument("--recommend")
     s = sub.add_parser("answer"); s.add_argument("slug"); s.add_argument("option"); s.add_argument("words", nargs="?")
     s = sub.add_parser("hold"); s.add_argument("slug"); s.add_argument("why", nargs="?"); s.add_argument("--all", action="store_true"); s.add_argument("--lift", action="store_true")
     s = sub.add_parser("approve"); s.add_argument("slug"); s.add_argument("head")

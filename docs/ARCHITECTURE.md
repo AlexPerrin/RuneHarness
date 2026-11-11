@@ -362,7 +362,7 @@ flowchart TD
     D --> M["merge gated server heads into staging"]
     D --> R["release each artifact no live owner names<br/>(the verb, then its absence observed → DELETE artifact)"]
     D --> E["INSERT event where the Step differs from the change's last;<br/>UPSERT alert rows from the anomaly queries"]
-    E --> W["rewrite state/wake.orchestrator when a spawn, ended or drain line is new"]
+    E --> W["rewrite state/wake.orchestrator when a spawn, ended, drain or decide line is new"]
   end
 ```
 Writes happen in short transactions inside act. A pass that raises (a definition it cannot read, an act that fails)
@@ -542,8 +542,8 @@ sequenceDiagram
 | `hd package <slug>` | a package's dev | nothing in the ledger: in the package's clone, resets to the feature's published branch (or upstream main) unless the branch already descends from it, then cherry-picks every member commit (`rev-list --no-merges` of the member's head, not on base nor a pin) the branch lacks by author, author date and subject, members in dependency order; a conflict stops for the dev |
 | `hd submit <slug>` | dev | submission(head, candidate): the dev ref's tip is done; a package's also writes event('packaged', members_digest); refuses an unpushed ref (product tracks) or a conflicting candidate; the same head with a new candidate (a dep's head moved) replaces it; the same head and candidate after a failed gate clears that gate (store.regate_failed: the fix was outside the tree, e.g. replay.md), so it runs again; prints the hand-back line |
 | `hd verdict <slug> <head> <verdict.json>` | qa | verdict, verdict_row; refuses a missing criterion, `pass` on an unchecked one, no live qa run |
-| `hd ask <slug> <text> --option id:text:effect…` | runs | ask (one open per change) |
-| `hd answer <slug> <option>[,<option>…] [words]` | orchestrator (the user's words) | answer, and each chosen option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), feature <branch> [slug…] (the user bundles: sets `feature:` on the asked change or the named ones), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (refused: the user's own) |
+| `hd ask <slug> <text> --option id:text:effect… [--recommend <id>]` | runs | ask (one open per change); a recommended option with an internal effect (dep, waive, close, move-repo) is a `decide` line to the orchestrator, every other ask a `question` to the driver |
+| `hd answer <slug> <option>[,<option>…] [words]` | driver (the user's words); orchestrator (only the recommended option of a `decide` line; answer.by) | answer, and each chosen option's effect in the same transaction: dep (definition edit), waive (criterion.waived), accept-difference (criterion source=user), reply <comment id> (the words → pr-reply-<id>.md; a bare reply records the words only), feature <branch> [slug…] (the user bundles: sets `feature:` on the asked change or the named ones), move-repo, user-act <act> (an act only the user may take, such as a push to a ref other than the run's dev ref: the user takes it, the answer records it), close (closes the change as the user's own close does) |
 | `hd triage <comment_id> finding\|ask\|ack` | orchestrator | finding.triage; finding → a new change `<track>-<pr>-c<id>` of the PR's feature with the judged criterion `finding-<id>` (skill pr-text); the finding stays the package's, whose dev writes its reply; ask → an ask on the package whose option `r` (effect `reply <id>`) makes the user's words `pr-reply-<id>.md` |
 | `hd hold <slug or feature> [--all] [--lift] [why]` | orchestrator | hold: on a feature it hides the feature's card; a standing hold (`--all`) on a member or package hides it too |
 | `hd approve <feature> <head>`, `hd close <slug or feature> <words>` | **the user only** (a `!` command, or the user's "approve" / "close" in a remote session's chat, run by the driver; the hook denies runs) | approval of the feature's card; change_state.closed_at (a closed feature closes its packages) |
@@ -733,9 +733,9 @@ on its record: a `SubagentHandback` call whose message is the line (a wrong line
 last message whose last line is the line at SubagentStop. An agent that stops without it while a background task is
 pending is left alone (its notification resumes it); an idle one is asked once, and a second idle stop ends the run
 without a record. `.claude/agents/orchestrator.md` is the whole definition: arm the inotify watch on `state/wake.orchestrator`; on a
-wake, a hand-back or the watch's expiry run `hd` and act on each line: spawn as printed, TaskStop an agent at its
+wake, a hand-back or the watch's expiry run `hd` and act on each line: spawn as printed, take a `decide` line's recommended option by its printed `hd answer` once the fact it rests on holds, TaskStop an agent at its
 one-line hand-back or its run's `ended` line, act on an alert; for each `live` line (the run, its agent, how long since its transcript moved, the transcript's path) judge whether the agent is moving its change toward its brief, inspecting transcript, processes and stack, and SendMessage or `hd stop` one that is not: a step that never ends sends no notification, so the judgment is the orchestrator's and no threshold stands in for it; on `drain` spawn nothing and run `hd restart` once no run of yours is live.
-It never approves, closes, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's console
+It never approves, closes but by a `decide` line, writes code, chats or waits on the user. `.claude/agents/driver.md` is the user's console
 (`claude --agent driver` in the checkout, the pane beside the orchestrator's): it shows each card, question, triage line
 and alert as `hd` prints it, records the user's words (`hd new`, `hd answer`, `hd hold`, `hd triage`, `hd dismiss`,
 `hd commit`) and makes the one-off changes the user directs. It acts on nothing by itself and spawns nothing. dev.md, qa.md and reader.md hold each role's steps, one wait rule (a step runs in the foreground; one still

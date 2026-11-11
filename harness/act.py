@@ -397,11 +397,11 @@ def release(db, kind, key) -> bool:
 
 # --- the wake and the pass -------------------------------------------------------------------------------------
 
-WAKE_KINDS = ("run", "ended", "drain")   # what the orchestrator acts on; the driver watches the ledger itself
+WAKE_KINDS = ("run", "ended", "drain", "decide")   # what the orchestrator acts on; the driver watches the ledger itself
 
 
 def wake(db) -> None:
-    """Rewrite state/wake.orchestrator when events the orchestrator acts on (a listed run, an ended run, a drain) are newer than the file's header."""
+    """Rewrite state/wake.orchestrator when events the orchestrator acts on (a listed run, an ended run, a drain, an internal ask) are newer than the file's header."""
     path = os.path.join(STATE, "wake.orchestrator")
     seen = 0
     if os.path.exists(path):

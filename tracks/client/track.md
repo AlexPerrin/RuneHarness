@@ -8,7 +8,9 @@ in the client repo: `docs/app-telemetry.md` (read in full before any build that 
 
 ## The dev
 The brief names your clone (`~/osrs-plugins-reverse/.worktrees/<slug>`, branch `client/<slug>`). Analyse with Ghidra
-on `re/ghidra` (`-readOnly` unless the task updates the project); ids and game data from `osrs-mcp`; what the server
+on `re/ghidra` (`-readOnly` unless the task updates the project) by the `reverse` skill; to save your context, a
+bulky read (decompiles, xrefs, dumps) goes to a `reader` with one question and you keep its conclusion, and you reverse
+yourself only where the work needs it in your own context; ids and game data from `osrs-mcp`; what the server
 sends through `tracks/fork/track.sh log`. `tracks/client/track.sh build <slug>` runs the devtools plugin build, the
 host build, ninja and the repack with `OPENRUNE=1 LOCAL_AUTH=1` in the build copy and checks the repack log before
 anything is installable; the APK's login modulus is the live stack's key pair's (`state/live/key`), and a cached APK of

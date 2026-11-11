@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="RuneHarness: a runeplate body with a harness strap">
+  <title>RuneHarness</title>
+  <!-- body: shoulders, arm holes, waist -->
+  <path d="M62 30 L90 30 Q100 46 110 30 L138 30 L172 52 L160 92 L140 88 L142 168 L58 168 L60 88 L40 92 L28 52 Z"
+        fill="#2fb5c4" stroke="#0f2a33" stroke-width="6" stroke-linejoin="round"/>
+  <!-- plate shading -->
+  <path d="M100 46 L100 168 L58 168 L60 88 L40 92 L28 52 L62 30 L90 30 Q96 40 100 46 Z" fill="#1d8f9e" opacity=".55"/>
+  <!-- harness straps -->
+  <path d="M66 32 L134 150 M134 32 L66 150" stroke="#0f2a33" stroke-width="12" stroke-linecap="round"/>
+  <path d="M66 32 L134 150 M134 32 L66 150" stroke="#8a5a2b" stroke-width="6" stroke-linecap="round"/>
+  <!-- buckle -->
+  <rect x="90" y="84" width="20" height="20" rx="3" fill="#e8c46a" stroke="#0f2a33" stroke-width="4"/>
+</svg>

@@ -16,6 +16,15 @@ from store import ROOT, event, now  # noqa: E402
 BRIEF = re.compile(r"state/briefs/(\d+)\.md")
 DENY = re.compile(r"\bhd(\.py)?\s+(approve|close)\b")
 QUOTED = re.compile(r"""(?<!c )(?<!eval )("[^"]*"|'[^']*')""")   # a quoted argument is text (a grep pattern, a title); after -c or eval it runs
+HEREDOC = re.compile(r"""^(?P<line>[^\n]*<<-?\s*(?P<q>['"]?)(?P<tag>\w+)(?P=q)[^\n]*)\n(?P<body>.*?)(?:^\s*(?P=tag)\s*$|\Z)""", re.M | re.S)
+SHELL = re.compile(r"(?:^|[\s|;&(])(?:\S*/)?(?:ba|z|da)?sh(?:\s|$)")
+
+
+def commands(text: str) -> str:
+    """The command text a shell runs: a heredoc body fed to a non-shell (python3 -, cat > file) is data and a quoted
+    argument is text (a grep pattern, a title); a heredoc into a shell, or a quote after -c or eval, runs."""
+    text = HEREDOC.sub(lambda m: m.group(0) if SHELL.search(m.group("line")) else m.group("line") + "\n", text)
+    return QUOTED.sub("", text)
 HD = f"python3 {ROOT}/harness/hd.py"
 
 
@@ -113,7 +122,7 @@ def pre_tool_use(e):
     """`hd approve` / `hd close` are the user's own → deny. In a run: bind on the first read of its brief; every
     Bash command runs after `hd scope <run>` so its processes sit in the run's scope."""
     ti, name, text = e.get("tool_input", {}), e.get("tool_name"), tool_text(e)
-    if name == "Bash" and DENY.search(QUOTED.sub("", text)):
+    if name == "Bash" and DENY.search(commands(text)):
         db = store.connect()
         r = run_of(db, e.get("agent_id")) if e.get("agent_id") else None
         event(db, "denied", r["change"] if r else None, r["id"] if r else None, text[:200])

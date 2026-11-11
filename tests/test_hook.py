@@ -34,6 +34,14 @@ class Hook(unittest.TestCase):
             out = hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": cmd}})
             self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_a_heredoc_body_is_data_unless_a_shell_reads_it(self):   # alerts 85, 96
+        for cmd in ["cd x && python3 - <<'EOF'\np='harness/hd.py'\ns=s.replace('''hd.py close x\nhd approve y''', '')\nEOF\nhd show x",
+                    "cat > f.md <<EOF\nrun hd approve <feature> <head>\nEOF"]:
+            self.assertEqual(hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": cmd}}), {})
+        for cmd in ["bash <<'EOF'\nhd approve x abc\nEOF", "cat <<EOF | sh\nhd.py close x\nEOF", "python3 - <<EOF\nprint(1)\nEOF\nhd close x"]:
+            out = hook.pre_tool_use({"tool_name": "Bash", "tool_input": {"command": cmd}})
+            self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny", cmd)
+
     def test_an_agent_whose_run_ended_by_close_or_stop_is_denied_every_tool(self):
         self.db.execute("UPDATE run SET agent_id='ag1', started_at='t', ended_at='t', end_kind='close' WHERE id=1")
         out = hook.pre_tool_use({"tool_name": "Read", "tool_input": {"file_path": "/x"}, "agent_id": "ag1"})

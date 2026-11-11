@@ -123,12 +123,21 @@ def cmd_tick(a):
             print(f"{x.change:<28} {x.step.kind}: {x.step.why}")
 
 
+def add_blocks(blocked, slug):
+    """slug becomes a dep of each change it blocks."""
+    for b in blocked or ():
+        bfm, bbody = read_change(b)
+        bfm["deps"] = sorted(set(bfm.get("deps") or []) | {slug})
+        write_change(b, bfm, bbody)
+
+
 def cmd_new(a):
     db = store.connect()
     path = os.path.join(CHANGES, f"{a.slug}.md")
     if a.on:
         fm, body = read_change(a.on)
         write_change(a.on, fm, body.rstrip() + f"\n\n## {a.title}\n{a.body}\n")
+        add_blocks(a.blocks, a.on)
         event(db, "new", a.on, None, f"appended: {a.title}")
         act.tick_later()
         return print(f"appended to {a.on}")
@@ -149,10 +158,7 @@ def cmd_new(a):
     if a.feature:
         fm["feature"] = a.feature
     write_change(a.slug, fm, body)
-    for b in a.blocks or ():
-        bfm, bbody = read_change(b)
-        bfm["deps"] = sorted(set(bfm.get("deps") or []) | {a.slug})
-        write_change(b, bfm, bbody)
+    add_blocks(a.blocks, a.slug)
     event(db, "new", a.slug, None, f"{a.track} {a.priority}: {a.title}")
     act.tick_later()
     print(f"filed {a.slug}")

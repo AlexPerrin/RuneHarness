@@ -535,7 +535,7 @@ sequenceDiagram
 |---|---|---|
 | `hd` | orchestrator, driver | a pass, then the session's view, only lines newer than its `seen_event`: the orchestrator's `drain` or `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `ended`, runs; the driver's `card`, `question`, `triage`, `alert`, `state`, `landed`, `attempt`, `ended`, runs, goals |
 | `hd tick [--dry-run] [--db F] [--offline] [--defs D]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing; `--defs` reads another tree's `changes/` and `goals/` (the replay, the fixtures) |
-| `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--feature <f>] [--goal] [--units] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change; `--feature` only for a fix of a feature's PR (a package's dev, a finding) or the user's word; `--from-alert` carries the alert's evidence |
+| `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--feature <f>] [--goal] [--units] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change (with `--blocks`, that change blocks the named ones); `--feature` only for a fix of a feature's PR (a package's dev, a finding) or the user's word; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
 | `hd show <slug>` | runs, orchestrator | nothing: prints the brief text |
 | `hd criterion add <slug> <rid> --kind script\|judge --text [--cmd] --source [--source-id]` | qa (criteria), the pass (seeds, findings) | criterion (an existing rid corrected in place, its check results dropped) |

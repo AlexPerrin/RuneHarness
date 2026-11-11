@@ -133,6 +133,14 @@ class Hd(unittest.TestCase):
         self.assertEqual([hd.read_change(s)[0]["feature"] for s in ("a", "b")], ["feat/friends"] * 2)
         self.assertTrue(os.path.exists(os.path.join(self.dir.name, "a.md")))
 
+    def test_new_on_an_existing_change_makes_it_block_the_named_change(self):   # alert 95: --on returned before --blocks
+        self.addCleanup(setattr, hd, "CHANGES", hd.CHANGES); hd.CHANGES = self.dir.name
+        for s in ("open", "mine"):
+            hd.write_change(s, {"slug": s, "track": "fork"}, f"# {s}\n")
+        hd.main(["new", "x", "--track", "fork", "--title", "limit", "--body", "b", "--on", "open", "--blocks", "mine"])
+        self.assertEqual(hd.read_change("mine")[0]["deps"], ["open"])
+        self.assertIn("## limit", hd.read_change("open")[1])
+
     def test_a_finding_files_a_change_of_the_prs_feature(self):   # a maintainer's word lands on staging, then the PR repackages
         from decide import Change
         self.addCleanup(setattr, hd, "CHANGES", hd.CHANGES); hd.CHANGES = self.dir.name

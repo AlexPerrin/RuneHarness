@@ -177,6 +177,17 @@ class Observe(unittest.TestCase):
         a = self.db.execute("SELECT kind, subject, detail FROM alert").fetchone()
         self.assertEqual((a["kind"], a["subject"]), ("disk", self.dir.name)); self.assertIn("Optimize-VHD", a["detail"])
 
+    def test_osrs_mcp_containers_above_their_live_sessions_alert(self):
+        me = str(os.getpid())
+        for labels, n in ((f"{me}\n", 0), (f"{me}\n{me}\n", 1), (f"{me}\n\n", 1)):   # one per session; two for one; an unlabelled one
+            self.db.execute("DELETE FROM alert")
+            with mock.patch.object(observe.subprocess, "run", return_value=mock.Mock(stdout=labels, returncode=0)):
+                observe.mcp(self.db)
+            self.assertEqual(self.db.execute("SELECT count(*) FROM alert WHERE kind='fault' AND subject='osrs-mcp'").fetchone()[0], n)
+        with mock.patch.object(observe.subprocess, "run", return_value=mock.Mock(stdout="docker could not be found\n", returncode=1)):
+            observe.mcp(self.db)   # no daemon: unknown, the earlier alert stands and no new one is counted
+        self.assertEqual(self.db.execute("SELECT count FROM alert WHERE subject='osrs-mcp'").fetchone()[0], 1)
+
     def test_release_removes_a_worktree_and_a_dir_then_drops_their_rows(self):
         wt = os.path.join(self.repo, ".worktrees", "h-one")
         sh(self.repo, "worktree", "add", "-q", "--detach", wt)

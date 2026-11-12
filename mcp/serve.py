@@ -27,6 +27,7 @@ def main():
     done = threading.Condition()
     cmd = json.load(open(os.path.join(HERE, "servers.json")))[sys.argv[1]]
     cmd[0] = os.path.join(HERE, cmd[0])   # a relative program is this mcp/'s own: each checkout serves its own state root
+    os.environ.setdefault("MCP_CLIENT", str(os.getppid()))   # the session's pid: a server keeps one instance per session (osrs-mcp.sh)
     child = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
     def out():

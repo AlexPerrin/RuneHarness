@@ -260,6 +260,22 @@ def disk(db, free_gb: int, paths=DISKS) -> None:
             alert(db, "disk", p, f"{free // 10**9} GB free, below {free_gb} GB: no build starts; {COMPACT}")
 
 
+def mcp(db) -> None:
+    """osrs-mcp containers above the sessions they serve (their osrs-mcp.client label: a live client pid) → alert('fault'):
+    a launcher outlived its client (mcp/osrs-mcp.sh)."""
+    try:
+        r = subprocess.run(["docker", "ps", "--filter", "name=osrs-mcp-", "--format", '{{.Label "osrs-mcp.client"}}'], capture_output=True, text=True)
+    except OSError:
+        return
+    if r.returncode:   # no daemon (WSL's docker shim prints its notice on stdout): unknown, no alert
+        return
+    clients = r.stdout.splitlines()
+    live = {c for c in clients if c.isdigit() and os.path.exists(f"/proc/{c}")}
+    if len(clients) > len(live):
+        alert(db, "fault", "osrs-mcp", f"{len(clients)} osrs-mcp containers for {len(live)} sessions: a launcher outlived its client "
+                                       "(mcp/osrs-mcp.sh); `docker ps --filter name=osrs-mcp-` lists them")
+
+
 def tracks_script(db, slug):
     row = db.execute("SELECT script FROM stack WHERE change=?", (slug,)).fetchone()
     return row["script"] if row and row["script"] and os.path.exists(row["script"]) else None

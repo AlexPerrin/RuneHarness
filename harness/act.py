@@ -451,6 +451,7 @@ def tick(path=None, dry_run=False, offline=False, defs=None) -> list:
         observe.runs(db)
         observe.stacks(db)
         observe.disk(db, c.free)
+        observe.mcp(db)
         observe.alerts(db)
     for ch in open_:
         if not L.landed(ch.slug, c.tracks[ch.track].done_ref(ch)):

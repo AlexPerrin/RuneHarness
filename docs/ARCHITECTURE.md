@@ -394,6 +394,8 @@ def stacks(db, tracks)                  # a stack row (mirrored from up.json by 
                                         # in the scope hd-down-<slug>, once at a time: a run's end releases its containers
 def disk(db, free_gb)                   # statvfs of ~/src and /mnt/c → disk rows; below hd.yaml `free` → alert('disk')
                                         # naming the compaction (wsl --shutdown, Optimize-VHD -Mode Full: the user's)
+def mcp(db)                             # osrs-mcp containers above their live clients (label osrs-mcp.client: the session's pid,
+                                        # one per session: mcp/osrs-mcp.sh removes its predecessors and ends with its client's stdin) → alert('fault')
 def alerts(db)                          # UPSERT alert rows from the anomaly queries (§12); dedup on (kind, subject)
 ```
 GitHub is read each pass only for open packages, conditionally (a 304 costs no quota); checks only by a publish.

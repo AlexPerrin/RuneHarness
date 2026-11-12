@@ -7,17 +7,20 @@ set -euo pipefail
 SRC="$(cd "${SERVER_TOOLS:-$HOME/src/openrune-work/server-tools}/src" && pwd)"
 LIB="$SRC/tools/osrs-mcp/build/install/osrs-mcp/lib"
 [[ -d $LIB ]] || { echo "osrs-mcp not built: see the header of $0" >&2; exit 1; }
-# The container dies with this client: named after this pid, removed when the shell ends however it ends (a session's
-# exit, its scope stopped); without that, every session left its wiki server running.
-name=osrs-mcp-$$
+# The container dies with this client: the server never exits on its own (it awaits cancellation, not stdin's end), so
+# this shell ends it when the client's stdin closes (the client gone however it went) or when the shell is signalled.
+# A client runs one: a start removes its predecessors (labelled with the client's pid: serve.py's parent, MCP_CLIENT).
+name=osrs-mcp-$$ client=${MCP_CLIENT:-$PPID}
 cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
 trap 'cleanup; exit 143' TERM INT HUP; trap cleanup EXIT
-docker run --rm -i --init --name "$name" -u 1000:1000 \
+docker ps -aq --filter "label=osrs-mcp.client=$client" </dev/null | xargs -r docker rm -f >/dev/null 2>&1 || true
+# a background job's stdin is /dev/null unless it is passed on (<&0); cat's end is the client's stdin closing
+{ cat; cleanup; } <&0 | docker run --rm -i --init --name "$name" --label "osrs-mcp.client=$client" -u 1000:1000 \
     -v "$LIB":/w/lib:ro \
     -v "$SRC/.data/gamevals-binary":/w/.data/gamevals-binary:ro \
     -v "$SRC/.data/cache":/w/.data/cache:ro \
     -v "$SRC/game.yml":/w/game.yml:ro \
     --tmpfs /w/logs:uid=1000 \
     -e RSPS_ROOT=/w -e LOG_DIR=/w/logs -w /w \
-    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt <&0 &   # a background job's stdin is /dev/null unless it is passed on: the server never saw its client
+    eclipse-temurin:21 java -cp '/w/lib/*' org.rsmod.tools.mcp.wiki.MainKt &
 wait $!

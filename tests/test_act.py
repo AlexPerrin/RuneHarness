@@ -138,7 +138,7 @@ class Act(unittest.TestCase):
         act.stage(db, decide.Change("real", "fork"), T, head)
         wt = repo / ".worktrees" / "staging"
         self.assertEqual(((wt / "f").read_text(), (wt / "k").read_text()), ("real\n", "2\n"))   # the superseded pin out, the other kept
-        self.assertEqual([r["kind"] for r in db.execute("SELECT kind FROM event ORDER BY id")], ["unpinned", "merged"])
+        self.assertEqual([r["kind"] for r in db.execute("SELECT kind FROM event ORDER BY id")], ["pinned", "pinned", "unpinned", "merged"])
         g("checkout", "-q", "local/other"); (repo / "k").write_text("3\n"); g("commit", "-qam", "other moved"); g("push", "-q", "fork", "local/other"); g("fetch", "-q", "fork")
         g("checkout", "-qb", "dev/next", "main"); (repo / "n").write_text("n\n"); g("add", "n"); g("commit", "-qm", "next")
         act.stage(db, decide.Change("next", "fork"), T, g("rev-parse", "HEAD"))   # reverted once: a later merge does not revert again
@@ -148,6 +148,26 @@ class Act(unittest.TestCase):
         act.stage(db, decide.Change("third", "fork"), dataclasses.replace(T, pins=(("local/spike", "real"),)), g("rev-parse", "HEAD"))
         self.assertEqual(((wt / "k").read_text(), (wt / "t").read_text()), ("1\n", "t\n"))   # a pin dropped from hd.yaml leaves staging at the next merge
         self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='unpinned'").fetchone()[0], 3)   # both merges of the dropped pin
+
+    def test_a_moved_pin_reaches_staging_and_the_fork_without_a_head(self):   # h-staging-follows-moved-pin
+        d = tempfile.TemporaryDirectory(); self.addCleanup(d.cleanup)
+        db = store.connect(str(Path(d.name) / "hd.db"))
+        repo, bare = Path(d.name, "r"), Path(d.name, "fork.git")
+        g = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+        repo.mkdir(); g("init", "-q", "-b", "main"); g("config", "user.name", "t"); g("config", "user.email", "t@t")
+        (repo / "k").write_text("1\n"); g("add", "-A"); g("commit", "-qm", "base"); g("remote", "add", "fork", str(bare))
+        g("checkout", "-qb", "local/p"); (repo / "k").write_text("2\n"); g("commit", "-qam", "pin"); g("push", "-q", "fork", "local/p")
+        g("checkout", "-q", "--detach", "main"); g("fetch", "-q", "fork")
+        T = decide.Track("fork", "x/y", str(repo), "refs/heads/main", "up/y", remote="fork", pins=(("local/p", ""),))
+        self.assertTrue(act.follow_pins(db, T))
+        self.assertFalse(act.follow_pins(db, T))   # staging already carries the tip: nothing to push
+        g("checkout", "-q", "local/p"); (repo / "k").write_text("3\n"); g("commit", "-qam", "pin moved"); g("push", "-q", "fork", "local/p"); g("fetch", "-q", "fork")
+        g("checkout", "-q", "--detach", "main")
+        self.assertTrue(act.follow_pins(db, T))
+        self.assertEqual((repo / ".worktrees" / "staging" / "k").read_text(), "3\n")
+        self.assertEqual(subprocess.run(["git", "-C", str(bare), "rev-parse", "staging"], capture_output=True, text=True).stdout.strip(), g("rev-parse", "staging"))
+        self.assertEqual(db.execute("SELECT count(*) FROM event WHERE kind='pinned' AND change='fork:staging'").fetchone()[0], 2)
 
 
 class Kpi(unittest.TestCase):

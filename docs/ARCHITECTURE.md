@@ -434,10 +434,15 @@ def start(db, step, ch, T):
 def clone(T, ch) -> path:
     """<repo>/.worktrees/<slug> on the dev branch, created from base when missing (the brief names it)."""
 
+def follow(db, T, slug="") -> wt:
+    """In <repo>/.worktrees/staging (created once from the base): every pin of hd.yaml whose fork tip staging lacks is
+    merged in order, event('pinned'), unless reverted out; a `local/*` pin hd.yaml no longer lists, and the pin
+    `{branch: slug}` that change supersedes, is reverted (git revert -m 1), event('unpinned'); a pin that does not merge or
+    revert → alert('pin-conflict') and None. Each pass runs it after the fetch (follow_pins, pushing fork staging when it
+    moved), so a moved pin reaches staging, every candidate and the deploy without a head."""
+
 def stage(db, ch, T, head):
-    """In <repo>/.worktrees/staging (created at the first merge: the base, then each pin of hd.yaml; a pin that no longer
-    merges is alert('pin-conflict')): a pin `{branch: slug}` of hd.yaml is the one that change supersedes, and its merge
-    is reverted (git revert -m 1) before that change's head merges, a `local/*` pin hd.yaml no longer lists at the next merge; git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
+    """follow(db, T, ch.slug), then git merge --no-ff <head>, push fork staging, event('merged'); a conflict →
     merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), which dev_due reads while staging is still at
     that tip (a moved staging is merged again first). The pass then lists one deploy
     job per staging tree (`track.sh deploy`, keyed `<staging T>:<recipe>`: the fork's staging tree with the libraries' staging trees as its composite suffix, store.staging_composite), which the deploy script refuses without the
@@ -466,9 +471,9 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 (the job). The image context is removed as soon as its image is built, the build cache (`docker builder prune`) when
 no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
 each (Gradle's file locks do not reach across containers).
-Staging is created once from upstream/main; before each merge it follows hd.yaml's pins: a pin whose fork tip staging
+Staging is created once from upstream/main; each pass and each merge it follows hd.yaml's pins: a pin whose fork tip staging
 lacks (new, or moved by the user) is merged in order; a pin leaves it only by a revert, and stays out: before the head of
-the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer lists, at the next merge. The pins are what the test server needs beyond upstream's release bundle; a change's tree
+the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer lists, at the next pass. The pins are what the test server needs beyond upstream's release bundle; a change's tree
 is upstream main's, so a pin never serves a change's build or tests:
 - `local/android`: the official Android client (ENHANCED_ANDROID) logs in and plays; upstream serves desktop only.
 - `local/test-commands`: the testers' commands on the test server (stacked on `local/android`).

@@ -583,5 +583,30 @@ class Endpoint(unittest.TestCase):
         s.assertNotRegex(src, r"\$\{?SERVER\b")
 
 
+class Progress(unittest.TestCase):  # h-client-progress-criterion: docs/progress.md carries the numbers progress.py computes at the head
+    def setUp(s):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("progress", TRACK.parent / "progress.py"); s.p = importlib.util.module_from_spec(spec); spec.loader.exec_module(s.p)
+
+    def test_check_names_a_stale_row_and_passes_current_ones(s):
+        head = [("Mobile packets mapped", 240, 253, ""), ("RuneLite API implemented", 661, 866, "")]
+        md = "Generated on 2026-01-01 at `abc`.\n\n| **Mobile packets mapped** | 240 | 253 | 94.9% | `x` |\n| **RuneLite API implemented** | 650 | 866 | 75.1% | `x` |\n"
+        s.assertEqual(s.p.stale(md, head), ["RuneLite API implemented: 650/866, computed 661/866"])
+        s.assertEqual(s.p.stale(md.replace("| 650 |", "| 661 |").replace("2026-01-01", "2026-11-13"), head), [])   # the date and commit are not compared
+        s.assertEqual(s.p.stale("| Mobile packets mapped | 240/253 (94.9%) |\n", head[:1]), ["Mobile packets mapped: missing, computed 240/253"])   # the old table form
+
+    def test_protocol_is_the_staging_pinned_android_sources_jar(s):
+        import zipfile
+        fork = Path(tempfile.mkdtemp()); g = lambda *a: subprocess.run(["git", "-C", str(fork), *a], check=True, capture_output=True)
+        g("init", "-q", "-b", "staging"); (fork / "gradle").mkdir()
+        (fork / "gradle/libs.versions.toml").write_text('[versions]\nrsprot = "1.0.0-X"\n[libraries]\nrsprot-android = { module = "net.rsprot:osrs-242-android", version.ref = "rsprot" }\n')
+        g("add", "."); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin")
+        d = fork / ".m2-rsprot/net/rsprot/osrs-242-android/1.0.0-X"; d.mkdir(parents=True)
+        with zipfile.ZipFile(d / "osrs-242-android-1.0.0-X-sources.jar", "w") as z:
+            z.writestr("net/rsprot/protocol/android/AndroidGameServerProt.kt", "enum\n"); z.writestr("net/rsprot/protocol/other/X.kt", "")
+        a = Path(s.p.android_sources(str(fork)))
+        s.assertEqual(sorted(os.listdir(a)), ["AndroidGameServerProt.kt"])
+
+
 if __name__ == "__main__":
     unittest.main()

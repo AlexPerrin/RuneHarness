@@ -103,6 +103,9 @@ class CacheStore(unittest.TestCase):
         for out in (".data/cache ", ".data/gamevals ", ".data/gamevals-binary ", "api/generated "):
             s.assertIn(out, line)
 
+    def test_the_store_key_holds_the_composite(s):  # fault 502: a FILESTORE=<head> build reused s2-<ck> packed by a FileStore without the head
+        s.assertIn("$(composite_suffix)", next(l for l in SRC.splitlines() if l.strip().startswith("ck=")))
+
 
 class GateSha(unittest.TestCase):
     def test_the_same_t_pushes_the_same_sha(s):  # osrs-harness sweep-85: each gate's commit-tree had a new date, so an unchanged T re-ran fork CI

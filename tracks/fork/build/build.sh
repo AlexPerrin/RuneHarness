@@ -75,7 +75,7 @@ build_locked() {
     [ -d "$repo/.m2-rsprot" ] || { echo "no $repo/.m2-rsprot: the tree pins a locally published rsprot" | tee "$log" | record false build; echo "build failed: $log"; return 1; }
     cp -a "$repo/.m2-rsprot" "$copy/"
   fi
-  ck=$(git -C "$copy" ls-tree -r "$tc" | grep -E 'or-cache/|/pack/|gamevals|raw-cache' | sha1sum | cut -c1-12)   # the cache's inputs
+  ck=$(git -C "$copy" ls-tree -r "$tc" | grep -E 'or-cache/|/pack/|gamevals|raw-cache' | sha1sum | cut -c1-12)$(composite_suffix)   # the cache's inputs: the tree's, and the FileStore and Central that pack and generate it
   gk=$(git -C "$repo" rev-parse -q --verify "$tc:game.example.yml" | cut -c1-12 || true)   # the game data's: the revision (game.example.yml), as the gate's release asset
   cs=or-cache-store-${gk:-none}; $hd own volume "$cs" "$slug@$T"   # one store per revision, kept while a head builds from it
   central; filestore >> "$log" 2>&1 || { record false build < "$log"; echo "build failed: $log"; [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "FileStore publish"; return 1; }

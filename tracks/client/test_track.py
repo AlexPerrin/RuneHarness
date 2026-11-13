@@ -14,12 +14,14 @@ MOD = "8555c56c" + "ab" * 124   # the live stack's modulus in these fixtures
 
 def apk(path, modulus=MOD, endpoint=b"http://127.0.0.1:8443/jav_config.ws?m=0&p=jagex.comxxxxxxx"):  # an APK whose game library carries that login modulus and jav_config URL, among the byte tables a real one holds
     import zipfile
-    with zipfile.ZipFile(path, "w") as z: z.writestr("lib/arm64-v8a/liblibs.hal.system.osclient.so", b"\x00" + bytes(range(256)).hex().encode()[:256] + b"\x00" + modulus.encode() + b"\x00" + endpoint + b"\x00" + os.urandom(1 << 20))   # bytes after the modulus, as a real one: a reader that stops at the match SIGPIPEs unzip
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("AndroidManifest.xml", b"\x03\x00\x08\x00" + "1.0".encode("utf-16le") + b"\x00\x00" + "241.4".encode("utf-16le") + b"\x00\x00")   # versionName 241.4 in the binary manifest's UTF-16 string pool
+        z.writestr("lib/arm64-v8a/liblibs.hal.system.osclient.so", b"\x00" + bytes(range(256)).hex().encode()[:256] + b"\x00" + modulus.encode() + b"\x00" + endpoint + b"\x00" + os.urandom(1 << 20))   # bytes after the modulus, as a real one: a reader that stops at the match SIGPIPEs unzip
 
 
 def live(root, modulus=MOD):  # the live stack's key pair (state/live/key) and its record (state/live/tree.json, the server track's ship)
     d = Path(root) / "state/live"; (d / "key").mkdir(parents=True, exist_ok=True)
-    (d / "key/client.key").write_text(f"Exponent: 10001\nModulus: {modulus}"); (d / "tree.json").write_text('{"modulus": "%s"}' % modulus)
+    (d / "key/client.key").write_text(f"Exponent: 10001\nModulus: {modulus}"); (d / "tree.json").write_text('{"modulus": "%s", "revision": "241"}' % modulus)
 
 
 GOOD = "".join(f"telemetry: line {i}\n" for i in range(7)) + "patched RSA modulus at file offset 0x1\npatched /jav_config.ws at file offset 0x2\npatched smali/net/openid/appauth/X.smali\n"
@@ -238,6 +240,16 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         (Path(s.env["HD_ROOT"]) / "state/live/tree.json").write_text("{}")   # live deployed before its key pair
         rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("the live stack (state/live/tree.json) none, deployed before its key pair", out)
 
+    def test_up_refuses_an_apk_of_another_revision_than_the_live_stack_serves(s):  # h-measure-client-revision-mismatch: a 241 APK sat at 'connecting to update server' on a 242 stack
+        log = s.fake_windows(); root = Path(s.env["HD_ROOT"])   # its APK 241.4
+        (root / "state/live/tree.json").write_text('{"modulus": "%s", "revision": "242"}' % MOD)
+        rc, out = s.row("up"); s.assertEqual(rc, 1); s.assertIn("refused: t.apk is client revision 241, the live stack (state/live/tree.json) serves 242", out)
+        s.assertFalse(log.exists())                                             # refused before boot: nothing ran on Windows
+        (root / "state/live/tree.json").write_text('{"modulus": "%s"}' % MOD); (root / "state/live/game.yml").write_text("revision: 242\n")   # a record from before the field: its game.yml
+        rc, out = s.row("up"); s.assertIn("serves 242", out)
+        (root / "state/live/game.yml").write_text("revision: 241\n")
+        rc, out = s.row("up"); s.assertNotIn("refused", out)                    # one revision: up goes on to boot
+
     def test_build_takes_the_live_pair_and_rebuilds_an_apk_of_another_key(s):  # a cached APK of the same T kept a stale modulus
         b = BUILD.read_text()
         s.assertIn("MODULUS=$m SERVER=$server OPENRUNE=1 LOCAL_AUTH=1 DEBUGGABLE=1 tools/repack.sh", b); s.assertIn("\nserver=127.0.0.1:8443 ", b)   # h-ref-apk-jav-config-central: Central's jav_config, no sidecar
@@ -353,6 +365,14 @@ case "$*" in *wait-for-device*) sleep 0.5 ;; *boot_completed*) echo 1 ;;
         run = lambda **e: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x'))", str(TRACK.parent)],
                                          env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", **e}, capture_output=True, text=True).stdout.strip()
         s.assertEqual(run(), "LOGGED_IN"); s.assertEqual(run(DEAD="1"), "FAILED: the app died")
+
+    def test_login_ends_when_a_deploy_recreates_the_live_stack(s):  # h-measure-client-revision-mismatch: a 241 APK on the 242 stack deployed under it sat UNKNOWN, no screen ending the wait
+        adb = s.ev / "adb.exe"; adb.write_text('#!/bin/sh\ncase "$*" in *"am start"*) echo "Status: ok" ;; *logcat*-s*) echo "I osrsrl-host: GameStateChanged UNKNOWN" ;; *pidof*) echo 1234 ;; *mCurrentFocus*|*"dumpsys window"*) echo "mCurrentFocus=Window{1 u0 com.jagex.oldscape.android/x}" ;; esac\n'); adb.chmod(0o755)
+        bin_ = s.ev / "bin"; bin_.mkdir(); (bin_ / "docker").write_text('#!/bin/sh\necho "/osrs-openrune $STARTED"\n'); (bin_ / "docker").chmod(0o755)   # docker inspect of the recorded stack
+        (Path(s.env["HD_ROOT"]) / "state/live").mkdir(parents=True); (Path(s.env["HD_ROOT"]) / "state/live/tree.json").write_text('{"containers": ["osrs-openrune"]}')
+        run = lambda started: subprocess.run(["python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import mobile_login; print(mobile_login.main('x', start='2026-11-13T03:42:12'))", str(TRACK.parent)],
+                                             env={**s.env, "ADB": str(adb), "ANDROID_SERIAL": "emulator-5560", "PATH": f"{bin_}:{os.environ['PATH']}", "STARTED": started}, capture_output=True, text=True, timeout=60).stdout.strip()
+        s.assertEqual(run("2026-11-13T03:44:31.5Z"), "FAILED: a deploy recreated the live stack (osrs-openrune) while the app was UNKNOWN")   # started after the login's start
 
     def test_a_seeded_start_taps_play_now_alone(s):  # h-mobile-token-login: the app starts signed in; a sign-in screen or the browser means the seed was not taken
         import importlib.util; spec = importlib.util.spec_from_file_location("mobile_login", TRACK.parent / "mobile_login.py"); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)

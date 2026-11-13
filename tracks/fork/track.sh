@@ -341,8 +341,8 @@ EOF
   # recreated, never restarted (a container's file bind mount does not outlive a WSL restart); a container of a service compose no longer names goes
   (cd "$compose_dir" && docker compose --env-file switch.env up -d --no-deps --force-recreate --remove-orphans openrune) >/dev/null
   if ready osrs-openrune "$was" && { [ -z "$(srv=osrs-openrune sql "$world256")" ] || { was=$(started osrs-openrune); docker restart osrs-openrune >/dev/null; ready osrs-openrune "$was"; }; }; then  # world 256 once into the live database (its volume keeps it), read at boot; the record names the stack's containers: hd deploys again while one is not running
-    python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split()}))' \
-      "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" | atomic "$state/tree.json"; echo "live: $T"
+    python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"commit":sys.argv[2],"heads":sys.argv[3].split(),"names":sys.argv[4].split(),"rollback":sys.argv[5],"modulus":sys.argv[6],"key":sys.argv[7],"containers":sys.argv[8].split(),"revision":sys.argv[9]}))' \
+      "$T" "$arg" "${HEADS:-}" "${NAMES:-}" "rollback-${prev:0:12}" "$modulus" "${KEY:-$T}" "$(cd "$compose_dir" && docker compose --env-file switch.env ps -a --format '{{.Name}}')" "$rev" | atomic "$state/tree.json"; echo "live: $T"
     python3 "$self/server/javcheck.py" "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/jav_config.ws" || return 6   # Central's, every client's
     curl -fsS -o /dev/null --cacert "$ISSUER_DIR/tls.pem" "https://127.0.0.1:${OPENRUNE_CENTRAL_HTTPS_PORT:-8443}/.well-known/openid-configuration" || return 6   # its sign-in over https
     curl -fsS -o /dev/null "http://127.0.0.1:${OPENRUNE_CENTRAL_HTTP_PORT:-8084}/.well-known/openid-configuration" || return 6   # and over http, the APK's

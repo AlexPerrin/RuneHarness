@@ -3,7 +3,7 @@
 mobile_login.py seed <slug>: before the app's first start, writes its saved sign-in (AppAuth's SharedPreferences AuthState) by run-as: Central's
 tokens and game session for the account, minted as the app's own sign-in mints them. Without it (browser) the start signs in at Central's form.
 Each step acts once on the screen it reads (the host's GameStateChanged and LoginIndex lines, the focused window, the view
-labels), then waits for the next screen; a screen it does not know, a refused login, the game server losing the session before LOGGED_IN or the app's death is FAILED.
+labels), then waits for the next screen; a screen it does not know, a refused login, the game server losing the session before LOGGED_IN, a deploy recreating the live stack or the app's death is FAILED.
 """
 import base64, datetime, hashlib, http.client, json, os, re, subprocess, sys, time, urllib.parse
 from xml.sax.saxutils import escape
@@ -164,8 +164,11 @@ def lost(name, since):
     return f"Game session lost: user='{name}'" in r.stdout + r.stderr
 
 
-def main(slug, browser=True):
+def main(slug, browser=True, start=None):
+    """start (UTC ISO): a live-stack container started after it (a deploy replaced the server under this start) is FAILED naming it, read on every
+    screen: a client the new server never answers (another revision's) sits in a wait no other screen ends."""
     name, posted, since = account(slug), False, None
+    start = start or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     adb("logcat", "-c")
     r = adb("shell", "am", "start", "-W", "-n", PKG + "/com.jagex.android.MainActivity")   # am, not monkey: monkey aborts on another app's ANR before it launches; by component: the launcher filter has no DEFAULT category
     if "Status: ok" not in r and "Status: timeout" not in r:   # timeout: started, its first frame slower than -W waits
@@ -175,6 +178,8 @@ def main(slug, browser=True):
         st, ix, pkg, lab, raw, fields, asked_out = screen()
         if adb("shell", f"pidof {PKG} || echo none").strip() == "none":   # the device's own answer: an adb read that returned nothing (load) is no death
             return "FAILED: the app died"
+        if gone := recreated(start):
+            return f"FAILED: a deploy recreated the live stack ({', '.join(gone)}) while the app was {st or 'starting'}"
         since = since or (st == "LOGGING_IN" and datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))   # this start's login: an earlier session's loss is before it
         act = step(st, ix, pkg, lab, raw, name, fields, posted, asked_out, bool(since) and st in ("LOGGING_IN", "LOADING") and lost(name, since), browser)
         if act[0] == "done":
@@ -207,9 +212,7 @@ if __name__ == "__main__":
     if sys.argv[1] == "seed":
         r = seed(sys.argv[2]); print(r); sys.exit(0 if r == "SEEDED" else 1)
     since = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    r = main(sys.argv[1], sys.argv[2:] == ["browser"])
-    if r != "LOGGED_IN" and (gone := recreated(since)):
-        r += f" while a deploy recreated the live stack ({', '.join(gone)})"
+    r = main(sys.argv[1], sys.argv[2:] == ["browser"], since)
     if r != "LOGGED_IN":   # up's failure path kills the emulator: the start's logcat is kept before it
         d = ROOT / "state" / sys.argv[1]
         d.mkdir(parents=True, exist_ok=True); (d / "login-failed.logcat.txt").write_text(adb("logcat", "-d", "-v", "threadtime"))

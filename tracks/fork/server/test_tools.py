@@ -1853,6 +1853,7 @@ case $1 in inspect) a=$(head -1 {root}/inspect); [ "$(wc -l < {root}/inspect)" -
         s.assertLess(ship.index('image_key "osrs-openrune:$T"'), ship.index('boot-$T'))
         s.assertLess(ship.index('image_key "osrs-openrune:$T"'), ship.index('docker tag'))
         s.assertIn('"modulus":sys.argv[6]', ship)   # the live stack's record names the modulus the APK's up checks
+        s.assertIn('"revision":sys.argv[9]', ship); s.assertIn("""--format '{{.Name}}')" "$rev" | atomic""", ship)   # and the revision it serves (h-measure-client-revision-mismatch)
         root = Path(tempfile.mkdtemp()); s.addCleanup(shutil.rmtree, root); (root / "bin").mkdir()
         keys = {}
         for n in ("pair", "other"):

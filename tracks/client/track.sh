@@ -3,7 +3,7 @@
 # HD_SLUG HD_KEY HD_TREE HD_TCOMMIT HD_HEAD HD_BASE HD_REPO HD_CLONE HD_LOG HD_RC and the short names SLUG HEAD T TCOMMIT BASE
 # CLONE BUILD EVIDENCE. The Windows programs (adb, the emulator) run through WSL interop, by absolute path. build, check-log and
 # tree are build/build.sh's (the code a build runs); gate and the other check-* criteria but check-blocked gate/gate.sh's. Verbs:
-#   up                refuses an APK not carrying the live stack's modulus (state/live/tree.json, written by the server track's ship), naming both, or not reading
+#   up                refuses an APK not carrying the live stack's modulus or not of its revision (state/live/tree.json, written by the server track's ship), naming both, or not reading
 #                     jav_config from http://127.0.0.1:8443; boots the change's emulator once Windows has its guest RAM available, one boot at a time (no console window, its log in state/<slug>/emulator.log) on the network
 #                     allowlist (its own DNS relay on Windows answering first, check-blocked after), maps the mobile's 127.0.0.1:8443 and :43594 to the live Central's http and game ports (adb reverse), installs the APK once no install of the app is pending, logs
 #                     in as the slug's own account: its Central session seeded as the app's saved sign-in before the app's one start (run-as: the build is debuggable), Play Now
@@ -74,6 +74,10 @@ up() {
   mine=$(unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aoE '[0-9a-f]{256}' | grep -vE '^(00010203|80818283)' | head -1 || true)   # the patched modulus (the library's other 256-hex runs are byte tables)
   [ -n "$live" ] && [ "$mine" = "$live" ] || { l=${live:0:8}; echo "refused: $T.apk carries modulus ${mine:0:8}, the live stack (state/live/tree.json) ${l:-none, deployed before its key pair}: its login would be refused 'Invalid RSA check'"; return 1; }
   unzip -p "$ev/$T.apk" lib/arm64-v8a/liblibs.hal.system.osclient.so 2>/dev/null | grep -aF "http://127.0.0.1:8443/jav_config.ws" >/dev/null || { echo "refused: $T.apk does not read jav_config from http://127.0.0.1:8443 (built before Central served it): build again"; return 1; }
+  served=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("revision", ""))' "$root/state/live/tree.json" 2>/dev/null || true)
+  [ -n "$served" ] || served=$(sed -nE 's/^revision:[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' "$root/state/live/game.yml" 2>/dev/null | head -1)   # shortcut: a record of a deploy before the field, read from its game.yml; drop once every live record names it
+  rev=$(unzip -p "$ev/$T.apk" AndroidManifest.xml 2>/dev/null | python3 -c 'import re,sys;d=sys.stdin.buffer.read();print(next((m for e in ("utf-16le","utf-8") for m in re.findall(r"(?<![\d.])(\d{3})\.\d+(?![\d.])", d.decode(e, "replace"))), ""))' || true)   # the manifest versionName 241.4 → 241 (binary XML: a UTF-16 or UTF-8 string pool)
+  [ -n "$served" ] && [ "$rev" = "$served" ] || { echo "refused: $T.apk is client revision ${rev:-unknown}, the live stack (state/live/tree.json) serves ${served:-no recorded revision}: the client would never complete its update-server handshake"; return 1; }
   printf '{"live": 1, "started": "%s"}\n' "$(date -u +%FT%TZ)" | atomic "$state/up.json"; $hd stack "$slug" "$state/up.json"   # the stack row: no deploy is planned while this mobile plays on the live stack, until down
   mkdir -p "$root/state/live"; flock -s "$root/state/live/stack.lock" true   # a deploy already started (it holds the lock) ends first
   boot

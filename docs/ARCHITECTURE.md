@@ -660,7 +660,9 @@ flowchart LR
   the composite. A library change that passed its gate and verdict merges into its own repo's staging (act.stage, no
   pins) on its own, dependents or not; that staging is the deploy's composite (a library with no staging yet: the heads
   staging's server changes were built with), so the next deploy carries it and marks it `live`. A server change's
-  library deps merge there before it does.
+  library deps merge there before it does. A candidate on staging records each library entry with the dep heads merged
+  into it (`deps`); its composite follows the library's staging (Ledger.following) once those deps have landed there,
+  so its key, build and judge move with the libraries' staging.
 - `tracks/central/track.sh` and `tracks/filestore/track.sh`: `build` (gradle assemble in a container, the shared
   Gradle home; `bash ./gradlew`, upstream commits it 100644), `test`, `publish` (FileStore: the head to its Maven directory), `gate` (`hd gate`), `up` (Central: the fork's staging built with the head; FileStore: the fork's and Central's staging built with the head;
   then the fork's `up`), `down`, `log`. Their seeds (track.md): judged claims, no-deferral, one-change, style and one

@@ -70,6 +70,19 @@ class Store(unittest.TestCase):
         self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('central', ?, 'm1', 'mt')", (st,))   # the library's own staging merged both
         self.assertEqual(json.loads(L.staging_composite(st)), {"central": {"head": "m1", "tree": "mt"}})
 
+    def test_a_staged_candidate_follows_the_library_staging_unless_an_unpublished_dep_pins_it(self):   # h-candidate-central-follows-staging
+        L, st = store.Ledger(self.db), "refs/heads/staging"
+        def add(slug, comp):
+            self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES (?, 'h', 't', 'c', ?, 't')", (slug, json.dumps(comp)))
+        add("staged", {"central": {"head": "old", "tree": "ot", "deps": []}})
+        add("pinned", {"central": {"head": "merged", "tree": "mt", "deps": ["d"]}})
+        add("based", {"central": {"head": "dep", "tree": "dt"}})   # a candidate on base: no marker, as built
+        self.db.execute("INSERT INTO ref(repo, name, sha, tree) VALUES ('central', ?, 'new', 'nt')", (st,))
+        head = lambda slug: json.loads(L.submission(slug, "h")["composite_json"])["central"]["head"]
+        self.assertEqual((head("staged"), head("pinned"), head("based")), ("new", "merged", "dep"))
+        self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('d', ?, 's', 't')", (st,))   # the dep reaches Central staging
+        self.assertEqual(head("pinned"), "new")
+
     def test_an_artifact_row_is_refused_outside_the_build_places(self):   # a release removes it: never a path the builds do not write
         store.own(self.db, "worktree", "/r/.worktrees/x-build", "x"); store.own(self.db, "worktree", "/r/.worktrees/x-build", "x")
         store.own(self.db, "dir", store.STATE + "/x/cand-1", "job:gate:k")

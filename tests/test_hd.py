@@ -48,6 +48,24 @@ class Hd(unittest.TestCase):
             hd.view(db, hd.act.cfg())
         self.assertIn("alert    c", out.getvalue()); self.assertIn("agent a1: last moved 30 min ago, " + str(t), out.getvalue())
 
+    def test_the_view_shows_a_live_runs_unfinished_agents_and_background_tasks(self):  # T5: what a run waits on
+        import contextlib, io, json, os
+        db = store.connect()
+        d = Path(self.dir.name)
+        bg = lambda t: json.dumps({"timestamp": "ts-" + t, "toolUseResult": {"backgroundTaskId": t}, "message": {"content": [
+            {"type": "tool_result", "content": f"Command running in background with ID: {t}. Output is being written to: /x/tasks/{t}.output. You will be notified"}]}})
+        (d / "agent-a1.jsonl").write_text("\n".join([bg("b1"), bg("b2"), json.dumps({"attachment": {"prompt": "<task-notification>\n<task-id>b2</task-id>"}})]) + "\n")
+        for aid, meta in (("r1", {"parentAgentId": "a1"}), ("r2", {"parentAgentId": "a1", "finished": True}), ("r3", {"parentAgentId": "zz"})):
+            (d / f"agent-{aid}.meta.json").write_text(json.dumps(meta)); (d / f"agent-{aid}.jsonl").write_text(json.dumps({"timestamp": "ts-" + aid}) + "\n")
+        db.execute("INSERT INTO session(pid, pid_start, definition, started_at, role) VALUES (?, 1, 'd', 't', 'orchestrator')", (os.getpid(),))
+        db.execute("INSERT INTO run(id, change, role, mode, input, brief, agent_id, listed_at, started_at, transcript) VALUES (7, 'c', 'dev', 'code', 'i', 'b', 'a1', 't', 't', ?)", (str(d / "agent-a1.jsonl"),))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hd.view(db, hd.act.cfg())
+        nested = [l.split(",")[0] for l in out.getvalue().splitlines() if l.startswith("  ")]
+        self.assertEqual(nested, ["  agent  r1: started ts-r1", "  shell  b1: started ts-b1"])
+        self.assertIn("/x/tasks/b1.output", out.getvalue())
+
     def test_criterion_add_with_a_cmd_option(self):
         hd.main(["criterion", "add", "x", "acc-1", "--kind", "judge", "--text", "the rule", "--cmd", "accuracy", "--source", "accuracy"])
         hd.main(["criterion", "add", "x", "lint", "--kind", "script", "--text", "lint passes", "--cmd", "make lint", "--source", "seed"])

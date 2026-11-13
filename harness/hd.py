@@ -20,6 +20,38 @@ from store import ROOT, STATE, Ledger, event, now  # noqa: E402
 CHANGES = os.path.join(ROOT, "harness", "changes")
 
 
+def nested(agent_id, transcript) -> list:
+    """What a run waits on, read from Claude Code's own files: its unfinished agents (subagents/*.meta.json naming it as
+    parentAgentId) and its background shell tasks not yet notified in its transcript. (kind, id, started, path) each."""
+    if not transcript or not os.path.exists(transcript):
+        return []
+    out, d = [], os.path.dirname(transcript)
+    for f in sorted(os.listdir(d)):
+        if f.endswith(".meta.json"):
+            try:
+                meta = json.load(open(os.path.join(d, f)))
+            except ValueError:   # mid-write
+                continue
+            path = os.path.join(d, f[:-len(".meta.json")] + ".jsonl")
+            if meta.get("parentAgentId") == agent_id and not meta.get("finished") and os.path.exists(path):
+                started = json.loads(open(path).readline() or "{}").get("timestamp", "")
+                out.append(("agent", f[len("agent-"):-len(".meta.json")], started, path))
+    tasks, done = {}, set()
+    for line in open(transcript):
+        if '"backgroundTaskId"' in line:
+            e = json.loads(line)
+            res = e.get("toolUseResult")
+            if not isinstance(res, dict) or "backgroundTaskId" not in res:   # the id quoted in some output, not a launch
+                continue
+            text = str(e["message"]["content"][0].get("content", ""))
+            path = text.split("Output is being written to: ", 1)[-1].split()[0].rstrip(".") if "written to: " in text else ""
+            tasks[res["backgroundTaskId"]] = (e.get("timestamp", ""), path)
+        elif "<task-id>" in line:
+            done.update(t.split("</task-id>")[0] for t in line.split("<task-id>")[1:])
+    out += [("shell", t, s, p) for t, (s, p) in tasks.items() if t not in done]
+    return out
+
+
 def ancestors() -> set:
     pids, pid = set(), os.getpid()
     while pid > 1:
@@ -99,6 +131,9 @@ def view(db, cfg):
     for r in live:   # the facts the orchestrator supervises from: how long since the agent moved, and where to read it
         idle = time.time() - os.path.getmtime(r["transcript"]) if r["transcript"] and os.path.exists(r["transcript"]) else 0
         out.append(f"live     {r['change']:<24} run {r['id']} {r['role']} agent {r['agent_id']}: last moved {idle // 60:.0f} min ago, {r['transcript']}")
+        for kind, tid, started, path in nested(r["agent_id"], r["transcript"]):
+            idle = time.time() - os.path.getmtime(path) if os.path.exists(path) else 0
+            out.append(f"  {kind:<6} {tid}: started {started}, last moved {idle // 60:.0f} min ago, {path}")
     if role == "driver":
         goals = [(g, Ledger(db).measure(g.slug)) for g in act.goals()]
         out.append("goals    " + "   ".join(f"{g.slug} {m['value']:g}% @{m['tree'][:12]}" if m else f"{g.slug} unmeasured" for g, m in goals))

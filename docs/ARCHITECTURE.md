@@ -535,7 +535,7 @@ sequenceDiagram
 
 | command | caller | writes |
 |---|---|---|
-| `hd` | orchestrator, driver | a pass, then the session's view, only lines newer than its `seen_event`: the orchestrator's `drain` or `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `ended`, runs; the driver's `card`, `question`, `triage`, `alert`, `state`, `landed`, `attempt`, `ended`, runs, goals |
+| `hd` | orchestrator, driver | a pass, then the session's view, only lines newer than its `seen_event`: the orchestrator's `drain` or `spawn` (`Agent(dev, "Read and follow state/briefs/17.md")`), `ended`, runs (each live run's line, under it its unfinished agents and background shell tasks: id, started, last moved, transcript or output, read from Claude Code's `subagents/*.meta.json` and the run's transcript); the driver's `card`, `question`, `triage`, `alert`, `state`, `landed`, `attempt`, `ended`, runs, goals |
 | `hd tick [--dry-run] [--db F] [--offline] [--defs D]` | timer, hook | the pass; `--dry-run` prints plan() and writes nothing; `--defs` reads another tree's `changes/` and `goals/` (the replay, the fixtures) |
 | `hd new <slug> --track --title --body [--deps] [--blocks <c>] [--on <c>] [--feature <f>] [--goal] [--units] [--from-alert <id>]` | orchestrator, dev, user | harness/changes/<slug>.md; `--on` appends to an open change (with `--blocks`, that change blocks the named ones); `--feature` only for a fix of a feature's PR (a package's dev, a finding) or the user's word; `--from-alert` carries the alert's evidence |
 | `hd fold <a> --into <b>` | orchestrator | change_state.folded_into; a's text appended to b |
@@ -585,6 +585,9 @@ question hunter-408  "dupes-3 needs the shop sell path: (a) dep server-shop-sell
 triage   #448 comment 2201 by <maintainer>: "Could you also update the FileStore side?"
 alert    attempts build:9ac1…:r3 ×3 "cannot allocate memory" state/genie-355/build-9ac1.log   → hd new --from-alert 7 | hd dismiss 7 "<why>"
 runs     7/7 live: 210 dev genie-355 (41 turns) …
+live     genie-355                run 210 dev agent a1f…: last moved 2 min ago, …/subagents/agent-a1f….jsonl
+  agent  a7c…: started 2026-11-12T14:02:11Z, last moved 0 min ago, …/subagents/agent-a7c….jsonl
+  shell  b8a1ri007: started 2026-11-12T14:05:40Z, last moved 1 min ago, /tmp/claude-1000/…/tasks/b8a1ri007.output
 goals    client-api 71% @4f0c…   server-content 38% @staging 9ac1…
 ```
 

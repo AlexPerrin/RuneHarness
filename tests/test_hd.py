@@ -220,6 +220,12 @@ class Hd(unittest.TestCase):
         hd.main(["answer", "x", "a", "fork-only"])
         self.assertEqual(db.execute("SELECT option, words FROM answer").fetchone()[1], "fork-only")
 
+    def test_a_reply_effect_naming_a_slug_records_the_answer(self):   # h-desktop-runelite-242: effect 'reply <slug>' crashed int()
+        db = store.connect()
+        db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('x', 'how?', ?, 't')", (json.dumps([{"id": "a", "text": "probe", "effect": "reply x"}]),))
+        hd.main(["answer", "x", "a", "probe"])
+        self.assertEqual(db.execute("SELECT words FROM answer").fetchone()[0], "probe")
+
     def test_fault_raises_an_alert_and_dismiss_disposes_of_it(self):
         hd.main(["fault", "7", "hd criterion add is unusable"])
         db = store.connect()

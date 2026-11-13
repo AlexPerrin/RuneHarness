@@ -201,9 +201,9 @@ def pulls_on(upstream, branch) -> str:
 
 def submit(db, slug, head, tree, tcommit, composite, run, head_tree=None) -> bool:
     """Record a head's candidate; the same head submitted again with another candidate (a dep's head moved, the base
-    moved under it) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
-    old = db.execute("SELECT tree FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
-    if old and old["tree"] == tree:   # the dev stands by this head: criteria added since are for this submission to answer
+    moved under it, the library composite changed) replaces it: the candidate is a function of base, deps and head at submission. True when recorded."""
+    old = db.execute("SELECT tree, composite_json FROM submission WHERE change=? AND head=?", (slug, head)).fetchone()
+    if old and old["tree"] == tree and old["composite_json"] == composite:   # the dev stands by this head: criteria added since are for this submission to answer
         db.execute("UPDATE submission SET at=?, run=coalesce(?, run) WHERE change=? AND head=?", (now(), run, slug, head))
         return False
     db.execute("""INSERT INTO submission(change, head, tree, tcommit, composite_json, run, at, head_tree) VALUES (?,?,?,?,?,?,?,?)

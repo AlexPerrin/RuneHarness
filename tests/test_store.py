@@ -43,6 +43,9 @@ class Store(unittest.TestCase):
         self.assertTrue(store.submit(self.db, "c", "h1", "t2", "c2", None, None))
         rows = self.db.execute("SELECT tree, tcommit FROM submission WHERE change='c'").fetchall()
         self.assertEqual([(r["tree"], r["tcommit"]) for r in rows], [("t2", "c2")])
+        comp = '{"central": {"head": "x", "tree": "y", "deps": []}}'   # the same tree, a new composite (staging moved, a marker added)
+        self.assertTrue(store.submit(self.db, "c", "h1", "t2", "c2", comp, None))
+        self.assertEqual(self.db.execute("SELECT composite_json FROM submission").fetchone()[0], comp)
 
     def test_one_live_run_per_change(self):
         ins = "INSERT INTO run(change, role, mode, input, brief, listed_at) VALUES ('c', 'dev', 'code', 'i', 'b', 't')"

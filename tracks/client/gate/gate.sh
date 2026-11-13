@@ -3,7 +3,7 @@
 # (track.sh dispatches them here); the build is build/build.sh's, sourced. The pass keys a gate by the tree and the recipe
 # version. Env from hd: SLUG HEAD T (the tree) TCOMMIT BASE CLONE EVIDENCE BUILD HD_ROOT HD_KEY. Verbs:
 #   gate TCOMMIT      the build, then every scripted criterion of the change from the build copy (`hd gate`), which records the job
-#   check-evidence | check-probe | check-netqa | check-state-doc   the seed criteria
+#   check-evidence | check-probe | check-netqa | check-state-doc | check-progress   the seed criteria
 . "$(dirname "$0")/../build/build.sh"   # verb slug arg self(tools/build) repo root state ev dev copy atomic record tree build check_log
 gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in the build copy; a criterion exiting 75 (its source down) leaves no result and the pass starts the gate again
   tc=${TCOMMIT:-$arg}; T=${T:-$(git -C "$repo" rev-parse "$tc^{tree}")}
@@ -26,5 +26,6 @@ check_netqa() { grep -qE '^network: true' "$root/harness/changes/$slug.md" 2>/de
   grep -lq 'PASS' "$ev"/netqa*.md 2>/dev/null && echo "network QA PASS" || { echo "network: true and no netqa*.md with PASS in $ev"; return 1; }; }
 check_state_doc() { untouched && return 0; r=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" 2>/dev/null | grep -oE '[0-9.]+%$' || true); [ -n "$r" ] || { echo "no probe result"; return 1; }; grep -q "$r" "${BUILD:-.}/docs/client-state.md" && echo "client-state.md carries the probe's $r" || { echo "docs/client-state.md does not carry the probe's result $r"; return 1; }; }
 
-case $verb in gate|check-evidence|check-probe|check-netqa|check-state-doc) "${verb//-/_}" ;;
-  *) echo "verbs: gate check-evidence check-probe check-netqa check-state-doc" >&2; exit 2 ;; esac
+check_progress() { python3 "$self/../progress.py" "${BUILD:-.}" --check; }   # docs/progress.md's metric rows are the ones progress.py computes at the head
+case $verb in gate|check-evidence|check-probe|check-netqa|check-state-doc|check-progress) "${verb//-/_}" ;;
+  *) echo "verbs: gate check-evidence check-probe check-netqa check-state-doc check-progress" >&2; exit 2 ;; esac

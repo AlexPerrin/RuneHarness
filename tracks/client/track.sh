@@ -21,6 +21,8 @@
 #   measure GOAL [TCOMMIT]  build and up at the target (origin/HEAD by default), the API probe; state/<goal>/measure.json. When the mobile does not come up, the probe runs on one
 #                     RuneLite desktop on the live stack (fork track live-desktop); the report's first line names the platform
 #   log <slug> PATTERN  logcat since the run's marker, filtered
+#   progress          progress.py on the slug's build copy (after build): docs/progress.md, progress.svg, progress-history.csv and the
+#                     README progress block written into the dev clone, for the dev to commit (check-progress, gate/gate.sh, checks them)
 #   netqa start|stop  samples the app's sockets and DNS between the two calls
 # Windows locations, run through WSL interop (override in the environment):
 #   ANDROID_SDK       /mnt/c/Users/Alex/AppData/Local/Android/Sdk   platform-tools/adb.exe (ADB overrides adb alone), emulator/emulator.exe
@@ -34,7 +36,7 @@ root=${HD_ROOT:-$(cd "$self/../.." && pwd)}; hd="python3 $root/harness/hd.py"
 repo=${HD_REPO:-$HOME/osrs-plugins-reverse}   # the main checkout (re/ lives there)
 case $verb in recipe) printf 'build client-2\ngate client-1\nship client-1\n'; exit 0 ;; esac
 [ -f "$root/harness/changes/$slug.md" ] || [ -f "$root/harness/goals/$slug.md" ] || case $slug in live) ;; *) echo "no change or goal \"$slug\": tracks/client/track.sh <verb> <slug> [arg]" >&2; exit 2 ;; esac
-case ${1:-} in build|check-log|tree) exec "$self/build/build.sh" "$@" ;; gate|check-evidence|check-probe|check-netqa|check-state-doc) exec "$self/gate/gate.sh" "$@" ;; esac
+case ${1:-} in build|check-log|tree) exec "$self/build/build.sh" "$@" ;; gate|check-evidence|check-probe|check-netqa|check-state-doc|check-progress) exec "$self/gate/gate.sh" "$@" ;; esac
 state=$root/state/$slug; mkdir -p "$state"
 ev=${EVIDENCE:-$root/evidence/$slug}; mkdir -p "$ev"
 copy=$repo/.worktrees/$slug-build   # measure probes in it
@@ -259,6 +261,7 @@ measure() {
   python3 -c 'import json,sys;print(json.dumps({"tree":sys.argv[1],"value":float(sys.argv[2]),"report":sys.argv[3],"platform":sys.argv[4]}))' "${TREE:-$T}" "$v" "$ev/api-probe.tsv" "$platform" | atomic "$state/measure.json"
   if [ $platform = mobile ]; then down; else "$fork" live-desktop-down "$slug" >&2; fi; echo "client-api ($platform): $v"; $hd measure "$slug" "${TREE:-$T}" "$v" "$ev/api-probe.tsv"; [ -z "${HD_KEY:-}" ] || $hd job measure "$HD_KEY" ok "$v"
 }
+progress() { [ -d "$copy/re/host/classes" ] || { echo "no build copy with re/host/classes for $slug: build first"; return 1; }; python3 "$self/progress.py" "$copy" --out "$repo/.worktrees/$slug"; }
 log() { "$adb" -s "$(serial)" logcat -d -v threadtime -T "$(cat "$state/log-mark" 2>/dev/null || echo 1)" 2>/dev/null | tr -d '\r' | grep -E "${arg:-.}" || true; }
 netqa() {  # start: a sampler on the mobile; stop: the distinct remote addresses of the app's uid (as installed: pm list) and the DNS lookups
   s=$(serial); f=/sdcard/Download/netqa-$slug.txt
@@ -280,5 +283,5 @@ print("\n".join(sorted(seen)))' "$uid"
 }
 
 case $verb in up|avd|measure|measure-desktop) trap '[ $? = 0 ] || down >&2 || true' EXIT ;; esac   # a failed boot leaves no mobile behind
-case $verb in up|down|avd|check-blocked|ship|measure|measure-desktop|log|netqa) "${verb//-/_}" ;;
-  *) echo "verbs: build avd up down gate check-blocked check-log check-evidence check-probe check-netqa check-state-doc tree ship measure log netqa" >&2; exit 2 ;; esac
+case $verb in up|down|avd|check-blocked|ship|measure|measure-desktop|log|netqa|progress) "${verb//-/_}" ;;
+  *) echo "verbs: build avd up down gate check-blocked check-log check-evidence check-probe check-netqa check-state-doc check-progress tree ship measure log netqa progress" >&2; exit 2 ;; esac

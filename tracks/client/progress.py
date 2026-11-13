@@ -5,29 +5,37 @@ the README status block and docs/progress-history.csv.
 Metrics (all counted from source, nothing hand-maintained):
 - Mobile protocol: opcodes named in the Android prot enums (identified) and opcodes with a real
   codec bound in AndroidRepositories.kt (implemented), against the client's own size tables
-  (151 server->client, 102 client->server opcodes).
+  (their entry counts, read from the prot enums' KDoc "N entries").
 - Zone sub-prots: rows of the zone table in docs/android-protocol.md with a payload layout.
 - RuneLite API: abstract methods of each interface the host backs that the Android* class
-  implements (tools/progress/ApiCoverage.java; needs host/build.sh output in re/host/classes).
+  implements (tracks/client/progress/ApiCoverage.java; needs host/build.sh output in re/host/classes).
 
-Usage: tools/progress.py [--no-history] [--working] [--dry-run]
+Usage: tracks/client/progress.py [ROOT] [--out DIR] [--no-history] [--dry-run] [--check]
+  ROOT is a client checkout (default $BUILD, else $CLONE) holding re/host/classes (host/build.sh: a build copy), re/runelite,
+  docs/android-protocol.md and docs/plugin-host.md; --out the checkout the files are written to (default ROOT).
   --dry-run prints the numbers and per-interface API gaps without writing any file (for agents).
-  Protocol numbers come from sidecar/rsprot.patch as committed in the fork's local/server-tools; --working reads the
-  sidecar/rsprot working copy instead (uncommitted work, never for published numbers).
+  --check compares the metric rows (| **name** | done | total |) of OUT/docs/progress.md with the computed ones; a stale or
+  missing row fails, named. The date and commit lines are not compared.
+  The protocol is read from the osrs-*-android sources jar the fork staging pins (gradle/libs.versions.toml of the
+  staging branch in $FORK_REPO, default ~/src/OpenRune-Server, the jar in its .m2-rsprot): the code the live server runs.
 """
+import atexit
 import csv
 import datetime
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import sys
+import zipfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVER_TOOLS = os.environ.get("SERVER_TOOLS") or os.path.expanduser("~/src/openrune-work/server-tools")   # the fork's local/server-tools
-RSPROT = os.path.join(SERVER_TOOLS, "sidecar/rsprot")
-ANDROID = os.path.join(RSPROT, "protocol/osrs-241/osrs-241-android/src/main/kotlin/net/rsprot/protocol/android")
-S2C_TOTAL, C2S_TOTAL, ZONE_TOTAL = 151, 102, 15
+ARGS = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] != "--out"]
+ROOT = os.path.abspath(ARGS[0] if ARGS else os.environ.get("BUILD") or os.environ.get("CLONE") or ".")
+OUT = os.path.abspath(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else ROOT
+FORK = os.environ.get("FORK_REPO") or os.path.expanduser("~/src/OpenRune-Server")
+ANDROID = None   # the extracted net/rsprot/protocol/android of the staging-pinned sources jar (android_sources)
+S2C_TOTAL, C2S_TOTAL, ZONE_TOTAL = None, None, 15   # the size tables' entries: protocol() reads them
 SDK = os.environ.get("ANDROID_SDK", "/mnt/c/Users/Alex/AppData/Local/Android/Sdk")
 API_PAIRS = [
     ("Client", "AndroidClient"), ("Player", "AndroidPlayer"), ("NPC", "AndroidNPC"),
@@ -64,8 +72,10 @@ def unverified_entries(src):
 
 
 def protocol():
+    global S2C_TOTAL, C2S_TOTAL
     s2c_src = read(os.path.join(ANDROID, "AndroidGameServerProt.kt"))
     c2s_src = read(os.path.join(ANDROID, "AndroidGameClientProt.kt"))
+    S2C_TOTAL, C2S_TOTAL = (int(re.search(r"(\d+) entries", src).group(1)) for src in (s2c_src, c2s_src))   # "size table (..., 153 entries"
     s2c, c2s = enum_entries(s2c_src), enum_entries(c2s_src)
     c2s_named = [n for n, _ in c2s if not placeholder(n)]
     repo = read(os.path.join(ANDROID, "AndroidRepositories.kt"))
@@ -96,7 +106,7 @@ def protocol():
 
 
 def zone():
-    doc = (git("show", "HEAD:docs/android-protocol.md") if COMMITTED else read(os.path.join(ROOT, "docs/android-protocol.md")))
+    doc = read(os.path.join(ROOT, "docs/android-protocol.md"))
     doc = doc.split("## Zone packets")[1].split("\n## ")[0]
     rows = re.findall(r"^\| (\d+) \| (\w+) \|[^|]*\|([^|]*)\|", doc, re.M)
     return sum(1 for _, _, payload in rows if payload.strip()), [n for _, n, p in rows if p.strip()]
@@ -108,7 +118,7 @@ def api():
                   [os.path.join(rl, j) for j in sorted(os.listdir(rl)) if j.endswith(".jar")] +
                   [os.path.join(SDK, "platforms/android-37.0/android.jar")])
     args = [a for pair in API_PAIRS for a in pair]
-    res = subprocess.run(["java", "-cp", cp, os.path.join(ROOT, "tools/progress/ApiCoverage.java")] + args,
+    res = subprocess.run(["java", "-cp", cp, os.path.join(os.path.dirname(os.path.abspath(__file__)), "progress/ApiCoverage.java")] + args,
                          capture_output=True, text=True)
     if res.returncode:  # e.g. host/build.sh is rewriting re/host/classes right now
         sys.exit("ApiCoverage failed (rerun after host/build.sh finishes):\n" + res.stderr[-2000:])
@@ -241,26 +251,32 @@ def write_svg(path, p, z_done, rows):
 
 
 def git(*args):
-    return subprocess.run(["git", "-C", ROOT] + list(args), capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", OUT] + list(args), capture_output=True, text=True).stdout.strip()
 
 
-COMMITTED = False
+def android_sources(fork=FORK):
+    """Extracts net/rsprot/protocol/android/*.kt of the osrs-*-android sources jar the fork's staging branch pins."""
+    toml = subprocess.run(["git", "-C", fork, "show", "staging:gradle/libs.versions.toml"], capture_output=True, text=True, check=True).stdout
+    version = re.search(r'^rsprot = "([^"]+)"', toml, re.M).group(1)
+    module = re.search(r'"net\.rsprot:(osrs-\d+-android)"', toml).group(1)
+    jar = os.path.join(fork, ".m2-rsprot/net/rsprot", module, version, f"{module}-{version}-sources.jar")
+    tmp = tempfile.mkdtemp(prefix="progress-rsprot-"); atexit.register(shutil.rmtree, tmp, True)
+    with zipfile.ZipFile(jar) as z:
+        z.extractall(tmp, [n for n in z.namelist() if re.fullmatch(r"net/rsprot/protocol/android/[^/]+\.kt", n)])
+    return os.path.join(tmp, "net/rsprot/protocol/android")
 
 
-def use_committed_protocol():
-    """Point ANDROID at the Android module as committed (sidecar/rsprot.patch in local/server-tools), so the
-    published numbers never include another agent's uncommitted work."""
-    global ANDROID, COMMITTED
-    COMMITTED = True
-    tmp = tempfile.mkdtemp(prefix="progress-rsprot-")
-    patch = subprocess.run(["git", "-C", SERVER_TOOLS, "show", "HEAD:sidecar/rsprot.patch"], capture_output=True, check=True).stdout
-    subprocess.run(["git", "apply", "--include=protocol/osrs-241/osrs-241-android/*", "-"], cwd=tmp, input=patch, check=True)
-    ANDROID = os.path.join(tmp, os.path.relpath(ANDROID, RSPROT))
+def stale(md, head):
+    """The metric rows of a progress.md that differ from head [(name, done, total, note)]: one line per stale, missing or extra row."""
+    have = {n: (int(a), int(b)) for n, a, b in re.findall(r"^\| \*\*(.+?)\*\* \| (\d+) \| (\d+) \|", md, re.M)}
+    want = {n: (a, b) for n, a, b, _ in head}
+    return ([f"{n}: {'%d/%d' % have[n] if n in have else 'missing'}, computed {a}/{b}" for n, (a, b) in want.items() if have.get(n) != (a, b)]
+            + [f"{n}: {'%d/%d' % have[n]}, not computed" for n in have if n not in want])
 
 
 def main():
-    if "--working" not in sys.argv:
-        use_committed_protocol()
+    global ANDROID
+    ANDROID = android_sources()
     p = protocol()
     z_done, z_names = zone()
     rows = api()
@@ -295,7 +311,7 @@ def main():
     md = [
         "# Progress",
         "",
-        f"Generated by `tools/progress.py` on {today} at `{commit}{dirty}`. Do not edit by hand;",
+        f"Generated by osrs-harness `tracks/client/progress.py` on {today} at `{commit}{dirty}`. Do not edit by hand;",
         "history is in [`progress-history.csv`](progress-history.csv). Percentages are of what the",
         "project can enumerate: the Android client's own opcode size tables, and the RuneLite API",
         "interfaces the plugin host backs (new interfaces raise the denominator, like AnyPS5's",
@@ -310,6 +326,15 @@ def main():
     md += ["## RuneLite API by interface", "", "| Interface | Implemented | Total | % |", "|---|---:|---:|---:|"]
     for iface, a, b in sorted(rows, key=lambda r: -pct(r[1], r[2])):
         md.append(f"| `{iface}` | {a} | {b} | {pct(a, b):.0f}% |")
+    if "--check" in sys.argv:
+        try:
+            bad = stale(read(os.path.join(OUT, "docs/progress.md")), head)
+        except OSError:
+            bad = ["no docs/progress.md"]
+        if bad:
+            sys.exit("docs/progress.md is stale (tracks/client/track.sh progress <slug> regenerates it):\n  " + "\n  ".join(bad))
+        print(f"docs/progress.md carries the {len(head)} computed metric rows")
+        return
     if "--dry-run" in sys.argv:
         for name, a, b, _ in head:
             print(f"{name:28} {a:4}/{b:<4} {pct(a, b):5.1f}%")
@@ -323,12 +348,12 @@ def main():
            "",
            "Some server→client opcodes are recognised in `docs/android-protocol.md` but not yet in the",
            "enum; they count once added there.", ""]
-    with open(os.path.join(ROOT, "docs/progress.md"), "w") as f:
+    with open(os.path.join(OUT, "docs/progress.md"), "w") as f:
         f.write("\n".join(md))
 
-    write_svg(os.path.join(ROOT, "docs/progress.svg"), p, z_done, rows)
+    write_svg(os.path.join(OUT, "docs/progress.svg"), p, z_done, rows)
 
-    readme = os.path.join(ROOT, "README.md")
+    readme = os.path.join(OUT, "README.md")
     if os.path.exists(readme):
         text = read(readme)
         badges = " ".join(
@@ -344,7 +369,7 @@ def main():
             f.write(text)
 
     if "--no-history" not in sys.argv:
-        path = os.path.join(ROOT, "docs/progress-history.csv")
+        path = os.path.join(OUT, "docs/progress-history.csv")
         fields = ["date", "commit", "packets_mapped", "packets_implemented", "s2c_mapped", "c2s_mapped",
                   "zone_impl", "api_impl", "api_total", "packets_total"]
         hist = list(csv.DictReader(open(path))) if os.path.exists(path) else []

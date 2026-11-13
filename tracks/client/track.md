@@ -24,7 +24,8 @@ port; `up <slug> browser` signs in at Central's form in the browser instead (the
 `down` restores and stops it; `log <slug> <pattern>` reads logcat since the run's marker. Test through
 `osrs-devtools-mobile` data tools, each call naming `serial` (up's LOGGED_IN line); `adb shell input` only where the emulator refuses injected events. Blocked by the
 server: file the blocker as a server change with the repro (`hd new <slug> --track fork --blocks <yours>`); never
-work around it. Run the scripted criteria yourself (`check-log`, `check-evidence`, `check-probe`), push
+work around it. After the build, `track.sh progress <slug>` writes docs/progress.md, progress.svg, progress-history.csv and the
+README progress block into your clone; commit them (the criterion progress). Run the scripted criteria yourself (`check-log`, `check-evidence`, `check-probe`), push
 `origin/client/<slug>`, then `hd submit <slug>`.
 
 The mobile side is Windows programs run from bash through WSL interop by absolute path, located by `ANDROID_SDK`
@@ -82,3 +83,4 @@ state-doc with nothing to measure.
 - probe | the probe report is built at HEAD (docs-only differences allowed) | script: bash $HD_ROOT/tracks/client/track.sh check-probe
 - network-qa | netqa*.md present and PASS when the change has network: true | script: bash $HD_ROOT/tracks/client/track.sh check-netqa
 - state-doc | docs/client-state.md rewritten from the probe report | script: bash $HD_ROOT/tracks/client/track.sh check-state-doc
+- progress | docs/progress.md carries the numbers progress.py computes at the head | script: bash $HD_ROOT/tracks/client/track.sh check-progress

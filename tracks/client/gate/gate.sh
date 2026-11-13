@@ -11,8 +11,12 @@ gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in
   git -C "$copy" reset -q --hard "$tc"
   BUILD=$copy exec $hd gate "$slug" "$T:client-1" "$copy"
 }
-check_evidence() { for p in "$ev"/*logcat*.txt "$ev"/*.dump.* "$ev"/*devtools*.json; do [ -e "$p" ] && { echo "mobile evidence: $(basename "$p")"; return 0; }; done; echo "no logcat extract, dump or devtools JSON in $ev"; return 1; }
-check_probe() {
+noapk='^(docs|protmap|tools/protmap)/'   # paths the APK never contains
+untouched() {  # the change's own diff (merge base with BASE to HEAD) touches no APK input: no build or mobile run measures it
+  [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ] || return 1; d=$(git -C "$repo" diff --name-only "$BASE...$HEAD") || return 1
+  [ -z "$d" ] || ! grep -qvE "$noapk" <<< "$d" || return 1; echo "no APK input changed since ${BASE:0:12}"; }
+check_evidence() { untouched && return 0; for p in "$ev"/*logcat*.txt "$ev"/*.dump.* "$ev"/*devtools*.json; do [ -e "$p" ] && { echo "mobile evidence: $(basename "$p")"; return 0; }; done; echo "no logcat extract, dump or devtools JSON in $ev"; return 1; }
+check_probe() { untouched && return 0
   f=$ev/api-probe.tsv; [ -f "$f" ] || { echo "no api-probe.tsv in $ev"; return 1; }
   b=$(grep -oE '^# build: \S*-g[0-9a-f]+' "$f" | grep -oE '[0-9a-f]+$' || true); [ -n "$b" ] || { echo "$f has no '# build:' line"; return 1; }
   case $HEAD in "$b"*) echo "probe built at $HEAD"; return 0 ;; esac
@@ -20,7 +24,7 @@ check_probe() {
 }
 check_netqa() { grep -qE '^network: true' "$root/harness/changes/$slug.md" 2>/dev/null || { echo "no network QA needed"; return 0; }
   grep -lq 'PASS' "$ev"/netqa*.md 2>/dev/null && echo "network QA PASS" || { echo "network: true and no netqa*.md with PASS in $ev"; return 1; }; }
-check_state_doc() { r=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" 2>/dev/null | grep -oE '[0-9.]+%$' || true); [ -n "$r" ] || { echo "no probe result"; return 1; }; grep -q "$r" "${BUILD:-.}/docs/client-state.md" && echo "client-state.md carries the probe's $r" || { echo "docs/client-state.md does not carry the probe's result $r"; return 1; }; }
+check_state_doc() { untouched && return 0; r=$(grep -oE '^# result: pass [0-9]+ / [0-9]+ = [0-9.]+%' "$ev/api-probe.tsv" 2>/dev/null | grep -oE '[0-9.]+%$' || true); [ -n "$r" ] || { echo "no probe result"; return 1; }; grep -q "$r" "${BUILD:-.}/docs/client-state.md" && echo "client-state.md carries the probe's $r" || { echo "docs/client-state.md does not carry the probe's result $r"; return 1; }; }
 
 case $verb in gate|check-evidence|check-probe|check-netqa|check-state-doc) "${verb//-/_}" ;;
   *) echo "verbs: gate check-evidence check-probe check-netqa check-state-doc" >&2; exit 2 ;; esac

@@ -57,6 +57,18 @@ class Rows(unittest.TestCase):
         (s.ev / "api-probe.tsv").write_text("# result: pass 1 / 2 = 50.0%\n")
         rc, out = s.row("check-probe"); s.assertEqual((rc, "no '# build:' line" in out), (1, True))
 
+    def test_no_apk_input_needs_no_mobile_run(s):  # a change of tools/protmap/ and docs/ alone: evidence, probe and state-doc pass with no run; host/ needs one
+        repo = Path(tempfile.mkdtemp()); g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
+        g("init", "-q"); (repo / "host").mkdir(); (repo / "host/a.java").write_text("a"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        base = g("rev-parse", "HEAD"); (repo / "tools/protmap").mkdir(parents=True); (repo / "tools/protmap/p.py").write_text("p"); (repo / "docs").mkdir(); (repo / "docs/d.md").write_text("d")
+        g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "protmap")
+        s.env.update(HD_REPO=str(repo), BASE=base, HEAD=g("rev-parse", "HEAD"))
+        for v in ("check-evidence", "check-probe", "check-state-doc"):
+            rc, out = s.row(v); s.assertEqual((rc, "no APK input changed" in out), (0, True), v)
+        (repo / "host/a.java").write_text("b"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "host"); s.env["HEAD"] = g("rev-parse", "HEAD")
+        for v in ("check-evidence", "check-probe", "check-state-doc"):
+            s.assertEqual(s.row(v)[0], 1, v)
+
     def test_measure_falls_back_to_a_live_desktop(s):  # the mobile did not come up: the probe's classes jar loads in one desktop on the live stack, its report comes back, the desktop goes
         repo = Path(tempfile.mkdtemp()); b = repo / ".worktrees/x-build/host/plugins/api-probe"; b.mkdir(parents=True)
         (b / "build.sh").write_text("#!/bin/sh\nmkdir -p $(dirname $0)/build\n"); (b / "build.sh").chmod(0o755)

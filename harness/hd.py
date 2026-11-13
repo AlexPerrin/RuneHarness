@@ -238,7 +238,7 @@ def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
     unlanded dep heads merged in (act.candidate), the composite the deploy runs."""
     heads, composite = [], {}
     if staged:
-        composite = json.loads(Ledger(db).staging_composite(decide.STAGING) or "{}")
+        composite = {k: dict(v, deps=[]) for k, v in json.loads(Ledger(db).staging_composite(decide.STAGING) or "{}").items()}   # deps: Ledger.following
     for dep in decide.candidate_deps(change, ch):
         s = db.execute("SELECT head FROM submission WHERE change=? ORDER BY id DESC LIMIT 1", (dep,)).fetchone()
         d = change(dep)
@@ -257,7 +257,7 @@ def dep_inputs(db, cfg, ch, base, staged=False) -> tuple:
                     (act.git(dT.path, "rev-parse", s["head"] + "^{tree}"), s["head"])
             except act.Conflict as c:
                 sys.exit(f"dep {dep} at {s['head'][:7]} conflicts with {d.track}'s {lib['head'][:7]} in {' '.join(c.args[0])}")
-            composite[d.track] = {"head": head, "tree": tree}
+            composite[d.track] = {"head": head, "tree": tree, **({"deps": (lib or {}).get("deps", []) + [dep]} if staged else {})}
     return heads, composite
 
 
@@ -521,8 +521,8 @@ def cmd_gate(a):
     tree = a.key.split(":")[0].split("_")[0]   # T less its composite suffix: the submission's tree
     ch = change(a.slug)
     T = track(ch)
-    s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY head=? DESC, id DESC LIMIT 1", (a.slug, tree, os.environ.get("HD_HEAD", ""))).fetchone() \
-        or {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
+    s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY head=? DESC, id DESC LIMIT 1", (a.slug, tree, os.environ.get("HD_HEAD", ""))).fetchone()
+    s = Ledger(db).following(s) if s else {"tree": tree, "tcommit": os.environ.get("HD_TCOMMIT", ""), "head": os.environ.get("HD_HEAD", "")}
     env = act.job_env(db, ch, T, s, BUILD=a.dir)
     if T.candidate_base(ch) != T.base and s["head"]:   # proved on staging; the PR's own candidate, on base alone, is what its CI runs (G4)
         base = act.git(T.path, "rev-parse", T.base)

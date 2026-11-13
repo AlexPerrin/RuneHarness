@@ -330,7 +330,23 @@ class Ledger:
         return self.all("SELECT * FROM event WHERE change=? AND kind='new' AND detail LIKE 'appended:%' AND at>? ORDER BY id", slug, at)
 
     def submission(self, slug, head):
-        return self.one("SELECT * FROM submission WHERE change=? AND head=?", slug, head)
+        s = self.one("SELECT * FROM submission WHERE change=? AND head=?", slug, head)
+        return self.following(s) if s else None
+
+    def following(self, s):
+        """A staged candidate's composite (every entry carries deps, hd.dep_inputs) follows the libraries' staging: each
+        library whose merged-in dep heads have all landed on staging takes staging's head; a dep still unpublished pins it."""
+        comp = json.loads(s["composite_json"] or "{}")
+        if not comp or any("deps" not in v for v in comp.values()):
+            return s   # shortcut: a staged candidate submitted with no library staging has no marker and stays as built; store the marker on an empty composite if one appears
+        try:
+            live = json.loads(self.staging_composite("refs/heads/staging") or "{}")
+        except ValueError:
+            return s   # two library heads on staging: the deploy's fault, the candidate keeps what it was built with
+        for lib, v in live.items():
+            if all(self.landed(d, "refs/heads/staging") for d in comp.get(lib, {}).get("deps", [])):
+                comp[lib] = dict(v, deps=[])
+        return dict(s, composite_json=json.dumps(comp))
 
     def criteria(self, slug, kind=None):
         sql = "SELECT * FROM criterion WHERE change=? AND waived=0" + (" AND kind=?" if kind else "") + " ORDER BY id"

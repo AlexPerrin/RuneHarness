@@ -134,36 +134,43 @@ def candidate(path, base: str, heads: list) -> tuple:
 
 
 def stage(db, ch, T, head: str) -> None:
-    """Merge a checked head into the track's staging (worktree <repo>/.worktrees/staging, created from base plus the track's pins
-    once); push it to the fork. A conflict → merge --abort and event('merge-conflict', '<head7> <staging7> <files>'), the dev's
-    step (dev_due) while staging stays at that tip; a pin that no longer merges → alert('pin-conflict'). A pin `{branch: slug}` is the one that change
-    supersedes: its merge is reverted out of staging before that change's head merges; so is the merge of a local/* pin hd.yaml no longer lists."""
+    """Merge a checked head into the track's staging (worktree <repo>/.worktrees/staging, created from base once); push it to
+    the fork. Before the head, staging follows hd.yaml's pins: a pin `{branch: slug}` is the one that change supersedes, its
+    merges reverted out of staging before that change's head merges; so are the merges of a local/* pin hd.yaml no longer
+    lists; every other pin whose fork tip staging lacks (new, or moved by the user) is merged unless it was reverted out. A pin that does not merge or
+    revert → alert('pin-conflict') and nothing more this pass. A head conflict → merge --abort and event('merge-conflict',
+    '<head7> <staging7> <files>'), the dev's step (dev_due) while staging stays at that tip."""
     wt = os.path.join(T.path, ".worktrees", "staging")
     if not os.path.isdir(wt):
         if subprocess.run(["git", "-C", T.path, "show-ref", "--verify", "-q", decide.STAGING]).returncode == 0:
             git(T.path, "worktree", "add", wt, "staging")
         else:
             git(T.path, "worktree", "add", "-b", "staging", wt, T.base)
-            for pin, _ in T.pins:
-                r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", f"{T.remote}/{pin}"], capture_output=True, text=True)
-                if r.returncode:   # all or nothing: the next pass starts again once the pin merges (the user's rebase of it)
-                    git(wt, "merge", "--abort", check=False)
-                    git(T.path, "worktree", "remove", "--force", wt, check=False)
-                    git(T.path, "branch", "-D", "staging", check=False)
-                    store.alert(db, "pin-conflict", pin, r.stdout[-300:])
-                    return
-    log = dict(l.split("\t", 1)[::-1] for l in git(wt, "log", "--first-parent", "--format=%H\t%s").splitlines())   # subject → commit
+    pre, post = f"Merge remote-tracking branch '{T.remote}/", "' into staging"   # git's own subject for a pin's merge
+
+    def merges():   # [(merge commit, pin, reverted)] newest first
+        reverted = set(re.findall(r"This reverts commit ([0-9a-f]{40})", git(wt, "log", "--first-parent", "--format=%b")))
+        return [(h, s[len(pre):-len(post)], h in reverted) for h, s in (l.split("\t", 1) for l in git(wt, "log", "--first-parent", "--format=%H\t%s").splitlines())
+                if s.startswith(pre) and s.endswith(post)]
+    out = {pin for _, pin, rev in merges() if rev}   # a pin reverted out of staging stays out
+    for pin, _ in T.pins:
+        tip = f"{T.remote}/{pin}"
+        if pin in out or subprocess.run(["git", "-C", wt, "merge-base", "--is-ancestor", tip, "HEAD"]).returncode == 0:
+            continue
+        r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", "-m", f"{pre}{pin}{post}", tip], capture_output=True, text=True)
+        if r.returncode:   # the user's rebase of the pin; the next pass merges it again
+            git(wt, "merge", "--abort", check=False)
+            store.alert(db, "pin-conflict", pin, r.stdout[-300:])
+            return
     kept = {pin for pin, until in T.pins if until != ch.slug}
-    pre, post = f"Merge remote-tracking branch '{T.remote}/", "' into staging"   # git's own subject for a pin's merge at creation
-    for m in [s for s in log if s.startswith(pre + "local/") and s.endswith(post)]:   # a local/* merge hd.yaml no longer pins, or the one ch supersedes
-        pin = m[len(pre):-len(post)]
-        if pin not in kept and f'Revert "{m}"' not in log:
-            r = subprocess.run(["git", "-C", wt, "revert", "--no-edit", "-m", "1", log[m]], capture_output=True, text=True)
-            if r.returncode:   # later staging commits touch the pin's lines: the user's rebase, as for a pin that no longer merges
+    for h, pin, rev in merges():
+        if pin.startswith("local/") and pin not in kept and not rev:   # a local/* pin hd.yaml no longer lists, or the one ch supersedes
+            r = subprocess.run(["git", "-C", wt, "revert", "--no-edit", "-m", "1", h], capture_output=True, text=True)
+            if r.returncode:   # later staging commits touch the pin's lines: the user's rebase
                 git(wt, "revert", "--abort", check=False)
                 store.alert(db, "pin-conflict", pin, r.stdout[-300:])
                 return
-            event(db, "unpinned", ch.slug, None, f"{pin} reverted out of staging for {head[:7]}")
+            event(db, "unpinned", ch.slug, None, f"{pin} {h[:7]} reverted out of staging for {head[:7]}")
     r = subprocess.run(["git", "-C", wt, "merge", "--no-ff", "--no-edit", head], capture_output=True, text=True)
     if r.returncode:
         files = " ".join(l.split()[-1] for l in r.stdout.splitlines() if l.startswith("CONFLICT"))

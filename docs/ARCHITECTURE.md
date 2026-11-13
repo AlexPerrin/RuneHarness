@@ -466,17 +466,16 @@ by the track script through `hd own` before it makes it: `or:<T>`, `osrs-openrun
 (the job). The image context is removed as soon as its image is built, the build cache (`docker builder prune`) when
 no `build-*` container is live, and every Gradle run mounts the home of its build slot, `gradle-<slot>`: bounded by `builds`, shared across slugs, one writer
 each (Gradle's file locks do not reach across containers).
-Staging is created once: `git checkout -b staging upstream/main`, then each pin of hd.yaml merged in order; a pin leaves
-it only by a revert: before the head of the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer
-lists, at the next merge. The pins are what the test server needs beyond upstream's release bundle; a change's tree
+Staging is created once from upstream/main; before each merge it follows hd.yaml's pins: a pin whose fork tip staging
+lacks (new, or moved by the user) is merged in order; a pin leaves it only by a revert, and stays out: before the head of
+the change that supersedes it merges, or, a `local/*` pin hd.yaml no longer lists, at the next merge. The pins are what the test server needs beyond upstream's release bundle; a change's tree
 is upstream main's, so a pin never serves a change's build or tests:
 - `local/android`: the official Android client (ENHANCED_ANDROID) logs in and plays; upstream serves desktop only.
 - `local/test-commands`: the testers' commands on the test server (stacked on `local/android`).
 - `local/world-settings`: test-server world settings no `game.yml` key gives: every account a member, a new character
   in Lumbridge, 1x XP whatever the realm, the clan tabs' no-clan state.
-- `local/skip-cs2-packs`: custom clientscripts numbered right after the stock range and the dev spawn menu's left out
-  of the cache; the official Android client crashes at cache sync on groups far above it (upstream numbers its own
-  from 45553).
+- `local/skip-cs2-packs`: custom clientscripts numbered right after the stock range; the official Android client
+  crashes at cache sync on groups far above it (upstream numbers its own from 45553).
 A ship (harness, client): `track.sh ship` recomputes the candidate on the live tip (`hd candidate`); a tree other
 than the gated one is gated there and then; the live branch fast-forwards to it and is pushed. A head that no longer
 merges records `ship fail`, the dev's step. The harness ship and `hd commit` both hold `state/ship.lock`: no commit moves

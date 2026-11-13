@@ -11,7 +11,7 @@ gate() {  # the build (cached by T), then `hd gate`: every scripted criterion in
   git -C "$copy" reset -q --hard "$tc"
   BUILD=$copy exec $hd gate "$slug" "$T:client-1" "$copy"
 }
-noapk='^(docs|protmap|tools/protmap)/'   # paths the APK never contains
+noapk='^(README\.md$|docs/|protmap/|tools/protmap/)'   # paths the APK never contains
 untouched() {  # the change's own diff (merge base with BASE to HEAD) touches no APK input: no build or mobile run measures it
   [ -n "${BASE:-}" ] && [ -n "${HEAD:-}" ] || return 1; d=$(git -C "$repo" diff --name-only "$BASE...$HEAD") || return 1
   [ -z "$d" ] || ! grep -qvE "$noapk" <<< "$d" || return 1; echo "no APK input changed since ${BASE:0:12}"; }

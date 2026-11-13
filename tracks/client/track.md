@@ -76,7 +76,7 @@ send keyevent BACK in game; push any ref but `client/<slug>`; tag, release or de
 
 ## Seed criteria
 Scripted criteria run with SLUG, HEAD, T, TCOMMIT, BASE, CLONE, BUILD, EVIDENCE in the env, cwd the build copy. A change whose
-diff from its merge base touches no APK input (only `docs/`, `protmap/`, `tools/protmap/`) passes mobile-evidence, probe and
+diff from its merge base touches no APK input (only `README.md`, `docs/`, `protmap/`, `tools/protmap/`) passes mobile-evidence, probe and
 state-doc with nothing to measure.
 - repack-log | the repack log has the 7 telemetry lines, patched RSA modulus, patched /jav_config.ws, the appauth line | script: bash $HD_ROOT/tracks/client/track.sh check-log
 - mobile-evidence | a logcat extract, dump or devtools JSON in the evidence dir | script: bash $HD_ROOT/tracks/client/track.sh check-evidence

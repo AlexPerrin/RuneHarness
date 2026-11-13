@@ -59,10 +59,10 @@ class Rows(unittest.TestCase):
         (s.ev / "api-probe.tsv").write_text("# result: pass 1 / 2 = 50.0%\n")
         rc, out = s.row("check-probe"); s.assertEqual((rc, "no '# build:' line" in out), (1, True))
 
-    def test_no_apk_input_needs_no_mobile_run(s):  # a change of tools/protmap/ and docs/ alone: evidence, probe and state-doc pass with no run; host/ needs one
+    def test_no_apk_input_needs_no_mobile_run(s):  # a change of README.md, tools/protmap/ and docs/ alone: evidence, probe and state-doc pass with no run; host/ needs one
         repo = Path(tempfile.mkdtemp()); g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout.strip()
         g("init", "-q"); (repo / "host").mkdir(); (repo / "host/a.java").write_text("a"); g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
-        base = g("rev-parse", "HEAD"); (repo / "tools/protmap").mkdir(parents=True); (repo / "tools/protmap/p.py").write_text("p"); (repo / "docs").mkdir(); (repo / "docs/d.md").write_text("d")
+        base = g("rev-parse", "HEAD"); (repo / "tools/protmap").mkdir(parents=True); (repo / "tools/protmap/p.py").write_text("p"); (repo / "docs").mkdir(); (repo / "docs/d.md").write_text("d"); (repo / "README.md").write_text("r")
         g("add", "-A"); g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "protmap")
         s.env.update(HD_REPO=str(repo), BASE=base, HEAD=g("rev-parse", "HEAD"))
         for v in ("check-evidence", "check-probe", "check-state-doc"):

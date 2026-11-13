@@ -5,7 +5,7 @@
 # HD_REPO HD_BUILDS and the short names SLUG HEAD T TCOMMIT BASE CLONE BUILD EVIDENCE. Verbs:
 #   recipe            one version per verb the pass keys a job by (build, gate)
 #   build <slug> [key]  the candidate compiled (gradle assemble) in the build copy <repo>/.worktrees/<slug>-build, in a container
-#   test              every module's tests (gradle test) in the build copy (a criterion: cwd the build copy)
+#   test              every module's tests (gradle test) in the build copy (a criterion: cwd the build copy), data/cache the fork staging revision's cache
 #   gate <slug> <key> the build copy at the candidate, then `hd gate`: every scripted criterion
 #   publish <slug> <commit>  the commit's modules and its all POM published (gradle publish) to <repo>/.worktrees/<slug>-filestore/.m2,
 #                     the Maven directory a fork build with FILESTORE resolves every dev.or2 module it holds from (fork build/filestore.init.gradle)
@@ -45,7 +45,12 @@ checkout() {  # the build copy at the candidate commit
 }
 case "$verb" in
   build) checkout; if gradle assemble -x test; then [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" ok "assembled ${T:-}"; else [ -z "${HD_KEY:-}" ] || $hd job build "$HD_KEY" fail "gradle assemble"; exit 1; fi ;;
-  test) copy=${BUILD:-$copy}; gradle test ;;
+  test) copy=${BUILD:-$copy}   # upstream's tools tests read ../data/cache (git-ignored): the OSRS cache of the revision the fork's staging builds from
+      gk=$(git -C "$fork" rev-parse -q --verify "staging:game.example.yml" | cut -c1-12); cs=or-cache-store-$gk; $hd own volume "$cs" "$slug"
+      rm -rf "$copy/data/cache"; mkdir -p "$copy/data/cache"   # a copy, never the store mounted: a test may open it read-write
+      docker run --rm -u 1000:1000 -v "$cs:/store:ro" -v "$copy/data/cache:/cache" eclipse-temurin:21 cp -a "/store/g-$gk/.data/cache/LIVE/." /cache/ \
+        || { echo "no cache of revision $gk in volume $cs: build the fork's staging (tracks/fork/track.sh build) first" >&2; exit 1; }
+      gradle test ;;
   publish) copy=$repo/.worktrees/$slug-filestore; checkout; rm -rf "$copy/.m2"; gradle publish ;;   # to HOSTING_DIRECTORY: $copy/.m2
   gate) checkout; BUILD=$copy exec $hd gate "$slug" "${HD_KEY:-${T:-$HD_TREE}:filestore-1}" "$copy" ;;
   up) tc=$(git -C "$fork" rev-parse staging)   # the tree live desktops log in to: token login, built with the Central the deploy carries

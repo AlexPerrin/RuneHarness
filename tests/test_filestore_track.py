@@ -58,6 +58,26 @@ class Track(unittest.TestCase):
             s.assertEqual(build, f"build {sha(repos['fork'])} TCOMMIT={sha(repos['fork'])} CENTRAL={repos['central']}:{sha(repos['central'])} FILESTORE={s.repo}:{s.head}")
             s.assertTrue(up.startswith(f"up {mode} TCOMMIT"), up)
 
+    def test_test_gives_the_tools_tests_the_fork_staging_revisions_cache(s):   # upstream's tools tests read ../data/cache, git-ignored
+        fork = s.root.parent / "fork"; fork.mkdir(); g = lambda *a: subprocess.run(["git", "-C", str(fork), *a], check=True, capture_output=True, text=True).stdout.strip()
+        g("init", "-q"); g("config", "user.email", "t@t"); g("config", "user.name", "t"); (fork / "game.example.yml").write_text("revision: 241\n")
+        g("add", "."); g("commit", "-qm", "c"); g("branch", "staging"); gk = g("rev-parse", "staging:game.example.yml")[:12]
+        copy = s.repo / "copy"; (copy / "data/cache").mkdir(parents=True); (copy / "data/cache/stale").write_text("")
+        (copy / "gradlew").write_text('echo "$@" > out\n')
+        bin = Path(s.env["PATH"].split(":")[0])   # the fake docker: the store copy logged, failing with NOSTORE
+        (bin / "docker").write_text((bin / "docker").read_text().replace('case " $* " in', f'case " $* " in *" /store/"*) echo "$*" >> {s.root}/store; [ -z "${{NOSTORE:-}}" ]; exit ;;', 1))
+        env = {**s.env, "FORK_REPO": str(fork), "BUILD": str(copy)}
+        r = subprocess.run(["bash", str(TRACK), "test", "x"], env=env, capture_output=True, text=True)
+        s.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        call = (s.root / "store").read_text()
+        s.assertIn(f"-v or-cache-store-{gk}:/store:ro -v {copy}/data/cache:/cache ", call)   # copied from the store, never mounted into the tests
+        s.assertTrue(call.rstrip().endswith(f"cp -a /store/g-{gk}/.data/cache/LIVE/. /cache/"), call)
+        s.assertEqual(list((copy / "data/cache").iterdir()), [])   # an earlier cache gone
+        s.assertIn("test", (copy / "out").read_text())
+        (copy / "out").unlink()
+        r = subprocess.run(["bash", str(TRACK), "test", "x"], env={**env, "NOSTORE": "1"}, capture_output=True, text=True)
+        s.assertEqual(r.returncode, 1); s.assertIn(f"no cache of revision {gk}", r.stderr); s.assertFalse((copy / "out").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

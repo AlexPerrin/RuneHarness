@@ -35,6 +35,20 @@ class Store(unittest.TestCase):
             self.assertTrue(db.execute("SELECT count(*) FROM run").fetchone()[0] > 0, f)
             db.close()
 
+    def test_a_verdict_before_the_migration_keeps_its_built_unless_resubmitted_after(self):   # submissions 202, 203
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        for n, sql in enumerate(store.MIGRATIONS[:9], start=1):
+            db.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version={n};\nCOMMIT;")
+        db.execute("INSERT INTO run(id, change, role, mode, input, brief, listed_at) VALUES (1, 'x', 'qa', 'judge', 'i', 'b', 't')")
+        comp = json.dumps({"filestore": {"tree": "f" * 40}, "central": {"head": "h", "tree": "c" * 40, "deps": []}})
+        for head, at in (("judged", "1"), ("resubmitted", "3")):
+            db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES ('x', ?, 't', 'c', ?, ?)", (head, comp, at))
+            db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('x', ?, 1, 0, 'd', '2')", (head,))
+        store.migrate(db)
+        built = dict(db.execute("SELECT head, built FROM verdict").fetchall())
+        self.assertEqual(built, {"judged": f"t_c{'c' * 12}_f{'f' * 12}", "resubmitted": None})
+
     def test_the_same_head_with_a_new_candidate_replaces_its_submission(self):   # a dep's head moved: the candidate follows
         self.assertTrue(store.submit(self.db, "c", "h1", "t1", "c1", None, None))
         self.db.execute("UPDATE submission SET at='old'")

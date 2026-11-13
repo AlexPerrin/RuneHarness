@@ -164,7 +164,7 @@ def done(C, ch) -> bool:
         return bool(C.L.landed(ch.slug, STAGING) and C.L.landed(ch.slug, "live"))
     t = tip(C, ch)
     v = C.L.last_verdict(ch.slug, t) if t else None
-    return bool(v and v["ok"])
+    return bool(v and v["ok"] and current(v, sub(C, ch)))
 
 
 def closed(C, ch):
@@ -263,6 +263,12 @@ def outdated(C, ch, v) -> bool:
     return any(x and x > v["at"] for x in at)
 
 
+def current(v, s) -> bool:
+    """A verdict judged what is built now: the head's tree and the composite it builds in (built); a library that moved
+    under the same head is judged again."""
+    return bool(v and s and v["built"] == built(s))
+
+
 def failed(kind, detail) -> str:
     """What a failure names: a gate's failing criteria ('rid (note); rid (note)' → the rids), else the whole detail."""
     return ",".join(sorted(p.split(" (")[0] for p in detail.split("; "))) if kind == "gate" else detail
@@ -281,7 +287,7 @@ def dev_due(C, ch):
         if C.L.criteria_after(ch.slug, s["at"]):
             why.append("criteria added since the submission")
         v = C.L.last_verdict(ch.slug, t)
-        if v and not v["ok"] and not outdated(C, ch, v):
+        if v and not v["ok"] and current(v, s) and not outdated(C, ch, v):
             why.append(f"verdict FAIL at {t[:7]} (run {v['run']})")
         for kind, k in (("build", key(C, ch, "build", s)), ("gate", key(C, ch, "gate", s)),
                         ("ship", f"{C.cfg.tracks[ch.track].base}:{s['tcommit']}")):
@@ -333,10 +339,11 @@ def judge_due(C, ch):
     t = tip(C, ch)
     d = judged_digest(C, ch)
     v = C.L.last_verdict(ch.slug, t)
-    if v and v["criteria_digest"] == d and not outdated(C, ch, v):
+    stale = bool(v) and (outdated(C, ch, v) or not current(v, sub(C, ch)))
+    if v and v["criteria_digest"] == d and not stale:
         return None
     return Step("run", f"judge: {len(judged)} criteria at {t[:7]}", role="qa", mode="judge",
-                input=digest(t, d, v["id"]) if outdated(C, ch, v) else digest(t, d))   # a re-judge is a new input: the failed one does not park it
+                input=digest(t, d, v["id"]) if stale else digest(t, d))   # a re-judge is a new input: the failed one does not park it
 
 
 STAGING = "refs/heads/staging"

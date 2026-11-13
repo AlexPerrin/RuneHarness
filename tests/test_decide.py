@@ -71,13 +71,13 @@ class Tempo(Base):  # T1, T3, T4
         self.submit()
         self.run_row("i1", ended_at="t", end_kind="stop"); self.run_row("i2", ended_at="t", end_kind="stop")
         d = store.digest([])
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, '2')", (TIP, d))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('h-one', ?, 1, 0, ?, '2', ?)", (TIP, d, TREE))
         C = mock.Mock(L=self.L)
         v = self.L.last_verdict("h-one", TIP)
         self.assertFalse(decide.outdated(C, ch, v))
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('h-dep', 'refs/heads/v9', 's', '3')")
         self.assertTrue(decide.outdated(C, ch, v))
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 2, 0, ?, '4')", (TIP, d))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('h-one', ?, 2, 0, ?, '4', ?)", (TIP, d, TREE))
         self.assertFalse(decide.outdated(C, ch, self.L.last_verdict("h-one", TIP)))   # judged again and failed: a dev's now
 
     def test_a_waiver_after_a_failed_verdict_rejudges_the_same_head_not_a_dev(self):   # fork-presence-push-not-delivered: acc-4 waived, the dev could only resubmit
@@ -87,7 +87,7 @@ class Tempo(Base):  # T1, T3, T4
         d = decide.digest([(c["rid"], c["text"]) for c in self.L.criteria("h-one", "judge")])
         self.run_row("j1", role="qa", mode="judge", ended_at="t", end_kind="handback")
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, '2')", (TIP, d))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('h-one', ?, 1, 0, ?, '2', ?)", (TIP, d, TREE))
         self.assertEqual(self.step().role, "dev")
         self.db.execute("UPDATE criterion SET waived=1 WHERE rid='acc-4'")
         s = self.step()
@@ -104,7 +104,7 @@ class Tempo(Base):  # T1, T3, T4
             self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, 't1:c-1', 1, 't')", (k,))
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at) VALUES ('c-fix', 'qa', 'judge', 'i', 'b', 't', 't')")
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('c-fix', 'qa', 'criteria', 'c', 'b', 't', 't', 'handback', 'run 2: criteria agreed')")
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('c-fix', 'h1', 1, 1, 'd', 't')")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('c-fix', 'h1', 1, 1, 'd', 't', 't1')")
         steps = {a.change: a.step for a in decide.plan(self.L, [ch, lib], cfg)}
         self.assertEqual((steps["c-fix"].kind, steps["c-fix"].key), ("merge", "staging:h1"))   # gate and verdict passed: it joins central's staging
         self.assertNotIn("dep c-fix", steps["s-one"].why)      # its fork dependent builds it in, not held by it
@@ -269,7 +269,7 @@ class Gate(Base):  # G2, G3, H2
         self.submit()
         self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES ('gate', ?, 1, 't')", (f"{TREE}:harness-1",))
         self.run_row("j", role="qa", mode="judge", ended_at="t2", end_kind="handback")
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('h-one', ?, 1, 0, ?, 't2')", (TIP, store.digest([])))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('h-one', ?, 1, 0, ?, 't2', ?)", (TIP, store.digest([]), TREE))
         self.assertEqual(self.step().role, "dev")
         self.db.execute("INSERT INTO ask(change, text, options_json, at) VALUES ('h-one', 'waive done-stack?', '[]', 't2')")
         self.assertIn("question", self.step().why)
@@ -357,7 +357,7 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.assertEqual((s.kind, s.mode), ("run", "judge"))
         d = store.digest([("acc-1", "r")])
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind) VALUES ('genie','qa','judge','j','b','t','t','handback')")
-        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES ('genie', ?, 2, 1, ?, 't')", (TIP, d))
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('genie', ?, 2, 1, ?, 't', ?)", (TIP, d, TREE))
         s = self.step()
         self.assertEqual((s.kind, s.key), ("merge", f"staging:{TIP}"))
         self.db.execute("INSERT INTO landed(change, target, sha, at) VALUES ('genie', 'refs/heads/staging', 's', 't2')")
@@ -384,6 +384,28 @@ class Server(Base):  # G1, H4: criteria before code, the staging merge, one depl
         self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES ('genie', ?, ?, ?, ?, 't1')",
                         (TIP, TREE, TC, json.dumps({"central": {"head": "h", "tree": "c" * 40}})))
         self.assertEqual(self.step().key, f"{TREE}_c{'c' * 12}:fork-1")
+
+    def test_a_resubmission_with_a_moved_composite_is_judged_again(self):   # submissions 202, 203: Central 97698f7 → 9352e48 under one head
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")
+        self.db.execute("INSERT INTO ref(repo, name, sha) VALUES ('fork', 'refs/remotes/fork/dev/genie', ?)", (TIP,))
+        self.db.execute("INSERT INTO criterion(change, rid, kind, text, source, created_at) VALUES ('genie', 'acc-1', 'judge', 'r', 'seed', '0')")
+        d = store.digest([("acc-1", "r")])
+        old, new = ({"central": {"head": h, "tree": t * 40, "deps": []}} for h, t in (("97698f7", "a"), ("9352e48", "4")))
+        self.db.execute("INSERT INTO submission(change, head, tree, tcommit, composite_json, at) VALUES ('genie', ?, ?, ?, ?, 't1')", (TIP, TREE, TC, json.dumps(old)))
+        T0 = decide.built(self.L.submission("genie", TIP))
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{T0}:fork-1"))
+        self.db.execute("INSERT INTO check_result(criterion_id, tree, ok, at) VALUES (1, ?, 0, 't')", (T0,))
+        self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind) VALUES ('genie','qa','judge','j','b','t','t','handback')")
+        self.db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES ('genie', ?, 2, 0, ?, 't2', ?)", (TIP, d, T0))
+        self.assertIn("verdict FAIL", self.step().why)   # judged at this composite: the dev's
+        store.submit(self.db, "genie", TIP, TREE, TC, json.dumps(new), None)   # the same head, Central moved under it
+        T1 = decide.built(self.L.submission("genie", TIP))
+        for k in ("build", "gate"):
+            self.db.execute("INSERT INTO job(kind, key, ok, ended_at) VALUES (?, ?, 1, 't')", (k, f"{T1}:fork-1"))
+        s = self.step()
+        self.assertEqual((s.kind, s.role, s.mode), ("run", "qa", "judge"), s.why)   # not 'verdict FAIL' with no run
+        self.assertEqual(self.L.check_results(T1), {})   # the gate's results at the old composite are not this one's
 
     def test_merge_conflict_lists_the_dev(self):
         self.db.execute("INSERT INTO run(change, role, mode, input, brief, listed_at, ended_at, end_kind, record) VALUES ('genie','qa','criteria','x','b','t','t','handback','run 1: criteria agreed')")

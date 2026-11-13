@@ -189,7 +189,13 @@ CREATE UNIQUE INDEX run_live ON run(change) WHERE ended_at IS NULL;"""
 
 SCHEMA_9 = "ALTER TABLE submission ADD COLUMN head_tree TEXT;"   # the head's own tree: the PR's gate (CI on base) tests it, the candidate's tree does not carry it (decide.key)
 
-MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8, SCHEMA_9]
+SCHEMA_10 = """  -- a verdict judged a built T (decide.built: the tree and the composite it builds in); a row from before keeps the T
+ALTER TABLE verdict ADD COLUMN built TEXT;   -- of its submission unless the head was submitted again after it
+UPDATE verdict SET built = (SELECT s.tree || coalesce((SELECT group_concat(p, '') FROM (SELECT '_' || substr(j.key, 1, 1) || substr(json_extract(j.value, '$.tree'), 1, 12) p
+                                                       FROM json_each(s.composite_json) j ORDER BY j.key)), '')
+                            FROM submission s WHERE s.change=verdict.change AND s.head=verdict.head AND s.at <= verdict.at);
+"""
+MIGRATIONS = [SCHEMA_1, SCHEMA_2, SCHEMA_3, SCHEMA_4, SCHEMA_5, SCHEMA_6, SCHEMA_7, SCHEMA_8, SCHEMA_9, SCHEMA_10]
 
 
 OWNER = "AlexPerrin"   # our GitHub login: the fork, the PR heads' owner, the comments that are ours
@@ -221,7 +227,7 @@ def regate_failed(db, tree) -> bool:
         return False
     db.execute("DELETE FROM job WHERE kind='gate' AND key LIKE ? AND ended_at IS NOT NULL", (k,))
     db.execute("DELETE FROM attempt WHERE kind='gate' AND key LIKE ?", (k,))
-    db.execute("DELETE FROM check_result WHERE tree=?", (tree,))
+    db.execute("DELETE FROM check_result WHERE tree LIKE ?", (k,))
     return True
 
 
@@ -231,7 +237,7 @@ def rerun(db, slug, kind, key, detail) -> None:
     db.execute("DELETE FROM job WHERE kind=? AND key=? AND ended_at IS NOT NULL", (kind, key))
     db.execute("DELETE FROM attempt WHERE kind=? AND key=?", (kind, key))
     if kind == "gate":
-        db.execute("DELETE FROM check_result WHERE tree=?", (key.split(":")[0].split("_")[0],))
+        db.execute("DELETE FROM check_result WHERE tree LIKE ?", (key.split("_")[0].split(":")[0] + "%",))
     event(db, "rerun", slug, None, f"{kind} {key} {detail or ''}")
 
 

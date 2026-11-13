@@ -228,8 +228,9 @@ def brief_text(db, ch, T, step: Step, run_id) -> str:
            "## definition", ch.body.strip(), ""]
     crit = L.criteria(ch.slug)
     out.append(f"## criteria @candidate {s['tree'][:12] if s else 'none'}   (rid  kind  result)")
-    checks = L.check_results(s["tree"]) if s else {}
+    checks = L.check_results(decide.built(s)) if s else {}
     v = L.last_verdict(ch.slug, t) if t else None
+    v = v if decide.current(v, s) else None   # judged at another composite: not this candidate's result
     marks = {r["criterion_id"]: r for r in db.execute("SELECT * FROM verdict_row WHERE verdict=?", (v["id"],))} if v else {}
     for c in crit:
         if c["kind"] == "script":

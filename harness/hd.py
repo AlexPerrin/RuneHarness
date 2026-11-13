@@ -314,6 +314,7 @@ def cmd_verdict(a):
     if not sub:
         sys.exit(f"hd verdict: no submission of {a.slug} at {a.head}")
     head = sub["head"]
+    built = decide.built(Ledger(db).submission(a.slug, head))   # what the judge's stack ran: the tree and its composite now
     data = json.load(open(a.file))
     crit = {c["rid"]: c for c in Ledger(db).criteria(a.slug, "judge")}
     rows = data.get("rows", data)
@@ -327,8 +328,8 @@ def cmd_verdict(a):
     fails = [rid for rid, v in results.items() if not v.startswith("pass")]
     d = store.digest([(c["rid"], c["text"]) for c in crit.values()])
     db.execute("BEGIN")
-    vid = db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at) VALUES (?,?,?,?,?,?)",
-                     (a.slug, head, r["id"], int(not fails), d, now())).lastrowid
+    vid = db.execute("INSERT INTO verdict(change, head, run, ok, criteria_digest, at, built) VALUES (?,?,?,?,?,?,?)",
+                     (a.slug, head, r["id"], int(not fails), d, now(), built)).lastrowid
     for rid, v in results.items():
         res, _, note = v.partition(":")
         db.execute("INSERT INTO verdict_row(verdict, criterion_id, result, note) VALUES (?,?,?,?)", (vid, crit[rid]["id"], res.strip(), note.strip() or None))
@@ -519,6 +520,7 @@ def cmd_gate(a):
     then the gate job's result."""
     db = store.connect()
     tree = a.key.split(":")[0].split("_")[0]   # T less its composite suffix: the submission's tree
+    built = a.key.split(":")[0].split("_h")[0]   # T less the head's suffix: what the check results are of (decide.built)
     ch = change(a.slug)
     T = track(ch)
     s = db.execute("SELECT * FROM submission WHERE change=? AND tree=? ORDER BY head=? DESC, id DESC LIMIT 1", (a.slug, tree, os.environ.get("HD_HEAD", ""))).fetchone()
@@ -540,7 +542,7 @@ def cmd_gate(a):
             print(f"== {c['rid']}: no result ({note})")
             sys.exit(75)
         db.execute("INSERT OR REPLACE INTO check_result(criterion_id, tree, ok, note, at) VALUES (?,?,?,?,?)",
-                   (c["id"], tree, int(r.returncode == 0), note if r.returncode else None, now()))
+                   (c["id"], built, int(r.returncode == 0), note if r.returncode else None, now()))
         if r.returncode:
             fails.append(f"{c['rid']} ({note})")
     db.execute("""INSERT INTO job(kind, key, change, ok, detail, ended_at) VALUES ('gate',?,?,?,?,?)
@@ -695,7 +697,7 @@ def cmd_regate(a):
         sys.exit("hd regate: no submission")
     db.execute("DELETE FROM job WHERE kind IN ('build', 'gate') AND key LIKE ? AND ended_at IS NOT NULL", (s["tree"] + "%",))   # ended ones; a running job keeps its row   # a fixed tool re-runs the build and the gate at the same tree
     db.execute("DELETE FROM attempt WHERE kind IN ('build', 'gate') AND key LIKE ?", (s["tree"] + "%",))   # T carries a composite suffix
-    db.execute("DELETE FROM check_result WHERE tree=?", (s["tree"],))
+    db.execute("DELETE FROM check_result WHERE tree LIKE ?", (s["tree"] + "%",))
     event(db, "regate", a.slug, None, s["tree"][:12])
     act.tick_later()
 
